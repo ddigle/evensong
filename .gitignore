@@ -1,0 +1,18 @@
+# Godot
+.godot/
+*.import
+export_presets.cfg
+# Unity (엔진 결정 후 정리)
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+# 공통
+.DS_Store
+Thumbs.db
+*.tmp
+.env
+.vscode/
+.idea/
