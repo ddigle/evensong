@@ -10,7 +10,8 @@
 /game/[Ll]ogs/
 # 에이전트 로컬 설정
 CLAUDE.local.md
-.claude/settings.local.json
+**/.claude/settings.local.json
+.claude/worktrees/
 # 공통
 .DS_Store
 Thumbs.db

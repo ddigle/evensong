@@ -101,7 +101,7 @@ Palette: steel gray (#4a423a, #8c7b66), leather (#6b5e4f), gold (#c9932b, #f4c95
 - 약초사: patched green-brown garb, satchel of herbs and vials, small animal companion at the feet
 - 시프: dark leather, short hooded cape, twin daggers, crouched stance, half-turned
 - 기술자: leather apron with tool belt, goggles on forehead, backpack of gears and a coiled rope, one hand on a small mechanical trap
-- 룬마스터: soot-stained smith apron over rune-etched mail, heavy engraving hammer, glowing rune stones on the belt, short broad build
+- 룬마스터 (초안): rune-etched mail under a stone-gray mantle, heavy engraving hammer, glowing rune stones on the belt, short broad build
 
 ### 5.3 제단 (4단계)
 
