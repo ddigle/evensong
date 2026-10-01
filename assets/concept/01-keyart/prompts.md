@@ -50,8 +50,26 @@ Re-map every colour to a limited palette of about 48 colours, even where the ref
 Keep the reference pixel art exactly as drawn: the same composition, the same square pixel grid, the stone altar with its nine separate lamp flames, every figure with its pose and position, the stairway and the rock walls, the warm lighting. Change only two things. First, the paladin's tall kite shield becomes completely blank: flat dull steel with no mark, gem or emblem in the middle. Second, the corruption around the dark opening in the upper right lies flat on the ground: grey cracked earth with thin dark bruise-violet lines in the cracks (#3b1f4d), patches of dull olive mould (#6f8f3a) and small flat bone-coloured nodules (#d8d2c0); no branches, vines or growths climbing the walls or rising upward, and no bright magenta. Everything else stays identical. Warm brown-black shadows, candle-gold light, crisp square pixels, no anti-aliasing, no blur. No text, no letters, no watermark, no UI.
 ```
 
+### 투영: 아이소메트릭(v2·v3) vs 정렬형 탑다운(v4·v5) — 결정 필요
+v2·v3는 프롬프트의 "orthographic three-quarter top-down"에도 마름모 타일의 아이소메트릭으로 나왔다. 문서의 16px 타일·TileMapLayer·코어키퍼 레퍼런스는 가로세로 정렬 탑다운을 전제하므로, 카메라 문단만 바꿔 정렬형을 따로 뽑았다(아래). 나머지 문단은 v2와 같고, 배치 문장만 "Above / Left of / Right of the altar"로 바꿨다.
+
+```
+Top-down 2D game view with square floor tiles aligned to the image edges: rows of tiles run straight from left to right and columns straight up and down, like a classic top-down tile-based RPG seen from high above at a steep angle; upright things show only a little of their front face. Not isometric: no diamond-shaped tiles, no diagonal grid, no vanishing point, no sky, no horizon. The frame shows about thirty floor tiles across; each figure is small, a human about one eighth of the image height, with open ground around everyone.
+(이하 종족 키·저녁·제단 문단은 v2와 같음. 제단에 "its edges parallel to the image edges", 등잔에 "three straight rows of three" 추가)
+Above the altar, facing the viewer, the three humans: ... Left of the altar, the three dwarves: a miner with a pickaxe and a small lamp on a round helmet, a smith with a heavy engraving hammer, and an engineer with a backpack of gears. Right of the altar, the three tall elves: an archer ..., a hooded thief with twin daggers; and a mage ... The space below the altar is left open.
+```
+도트 변환은 v2와 같은 프롬프트에 "Keep the straight top-down grid: square floor tiles aligned to the image edges, not isometric."를 넣었다.
+
+### keyart_seedream_v4.png / northstar_pixel_v4.png (정렬형)
+- 회화 job: fef62439-456f-410a-af4a-8df6fa8d32bf (측정 0% / 0.04%). 도트 job: 3fb92dab-997f-4392-9d8d-8b3b6b2e03b8, 레퍼런스 fef62439 (측정 1% / 0.37%)
+- 정사각 타일 격자가 가장 정확하다. 제단이 화면과 나란하고 등잔 3×3, 민무늬 방패, 드워프 셋(램프 헬멧 광부), 바닥에 납작한 보라 맥 오염. 인물 8명, 엘프 키가 크게 읽히지 않는다
+
+### keyart_seedream_v5.png / northstar_pixel_v5.png (정렬형, 추천)
+- 회화 job: b24b9991-743c-4b6c-82ce-dda0be56095a (측정 1% / 0.19%). 도트 job: 71895f38-89a8-4cc2-9be4-5c8133eb5138, 레퍼런스 b24b9991 (측정 2% / 0.52%)
+- 인물 9명, 크고 창백하고 귀가 뾰족한 엘프 둘, 드워프 셋(램프 헬멧 광부, 톱니 배낭), 저녁 분위기, 납작한 보라 맥 오염. 원근이 약간 남아 있다
+
 ### northstar_v2_compare.jpg
-- 비교 시트: v1 도트 / v2 회화 / v2 도트 / v3 도트
+- 비교 시트: v1(구) / v3 아이소메트릭 / v4 정렬형 / v5 정렬형
 
 ### 탈락 (파일은 보관하지 않음. job id로 힉스필드에서 다시 볼 수 있다)
 | job | 종류 | 탈락 이유 |
@@ -71,9 +89,12 @@ Keep the reference pixel art exactly as drawn: the same composition, the same sq
 | bb30eed3 | 회화 | 팔라딘이 2명 |
 | 887fc81a | 회화 | 바닥이 주황으로 과포화 |
 | f171bf7d | 도트(v2 수정) | 오염이 거의 지워짐 |
+| 009d41a1 | 회화(정렬형) | 여전히 대각선, 너무 어둡고 인물이 작음 |
+| 2128f965 | 회화(정렬형) | 정렬은 됐지만 바닥이 주황으로 과포화 |
 
 배운 것: 텍스트만으로 바로 도트를 뽑으면 치비 비례가 나온다. 회화 원본 → 도트 변환 두 단계가 구도를 지킨다. 종족 키 문단을 프롬프트 앞쪽에 두어야 엘프가 커진다. "plain shield"만으로는 문장이 생기므로 "completely blank, no emblem and no marks"까지 써야 한다.
-사용: 이번 라운드 18크레딧 (잔액 274.5 → 256.5).
+"orthographic three-quarter"만으로는 아이소메트릭이 나오므로, 정렬형은 "square floor tiles aligned to the image edges ... Not isometric"처럼 격자 방향을 직접 써야 한다.
+사용: 이번 라운드 24크레딧 (잔액 274.5 → 250.5).
 
 ## northstar_pixel_v1.png (북극성 R6. v2 후보 검토 중)
 - 도구: 힉스필드 MCP / Seedream 5.0 Lite
