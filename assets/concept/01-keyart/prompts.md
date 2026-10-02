@@ -57,11 +57,11 @@ Keep the reference pixel art exactly as drawn: the same composition, the same sq
 ```
 
 ### 투영: 아이소메트릭(v2·v3) vs 정렬형 탑다운(v6·v7) — R15에서 정렬형 탑다운으로 결정 (v6)
-v2·v3는 프롬프트의 "orthographic three-quarter top-down"에도 마름모 타일의 아이소메트릭으로 나왔다. 문서의 16px 타일·TileMapLayer·코어키퍼 레퍼런스는 가로세로 정렬 탑다운을 전제하므로 정렬형을 따로 뽑았다. 1차 정렬형 문구("square floor tiles aligned to the image edges ... Not isometric")는 4장 중 1장만 엄밀하게 정렬됐고, 아래 2차 문구로 4장 중 2장이 엄밀하게 정렬됐다. 나머지 문단은 v2와 같고, 배치 문장만 "Above / Left of / Right of the altar"로 바꿨다.
+v2·v3는 프롬프트의 "orthographic three-quarter top-down"에도 마름모 타일의 아이소메트릭으로 나왔다. 문서의 16px 타일·TileMapLayer·코어키퍼 레퍼런스는 가로세로 정렬 탑다운을 전제하므로 정렬형을 따로 뽑았다. 1차 정렬형 문구("square floor tiles aligned to the image edges ... Not isometric")는 4장 중 2장이 정렬됐다(fef62439 엄밀, 2128f965는 정렬됐지만 주황 과포화로 탈락). 아래 2차 문구도 4장 중 2장이 정렬됐다(5d338aae, b8e5fa4e). 나머지는 대각선·회전 격자였다. 나머지 문단은 v2와 같고, 배치 문장만 "Above / Left of / Right of the altar"로 바꿨다.
 
 ```
 Straight top-down 2D game view: the floor is a grid of square stone tiles whose edges run exactly horizontal and vertical in the image, like graph paper laid flat and seen from above at a steep angle; upright things show only a little of their front face, and the front edge of the altar is a horizontal line. Not isometric and not rotated: no diamond-shaped tiles, no diagonal grid lines, no vanishing point, no sky, no horizon. The frame shows about thirty floor tiles across; each figure is small, a human about one eighth of the image height, with open ground around everyone.
-(종족 키 문단에 "clearly the tallest"와 "so the elf archer and the elf mage stand taller than the paladin", 저녁 문단에 "dull ash-brown, not orange", 제단에 "its edges parallel to the image edges"와 "gold-leaf rims"(v2는 edges), 등잔에 "three straight rows of three", 방패에 "no emblem, boss or marks" 추가. 나머지는 v2와 같음. 전문은 docs/concept-art-brief.md §5.1)
+(종족 키 문단에 "clearly the tallest"와 "so the elf archer and the elf mage stand taller than the paladin", 저녁 문단의 "dull ochre-brown"을 "dull ash-brown, not orange"로 바꿈, 제단에 "its edges parallel to the image edges"와 "gold-leaf rims"(v2는 edges), 등잔에 "three straight rows of three", 방패에 "no emblem, boss or marks" 추가. 나머지는 v2와 같음. 전문은 docs/concept-art-brief.md §5.1)
 Above the altar, facing the viewer, the three humans: ... Left of the altar, the three dwarves: a miner with a pickaxe and a small lamp on a round helmet, a smith with a heavy engraving hammer, and an engineer with a backpack of gears. Right of the altar, the three tall elves: an archer ..., a hooded thief with twin daggers; and a mage ... The space below the altar is left open.
 ```
 도트 변환은 v2와 같은 프롬프트에 "Keep the straight top-down grid: square floor tiles whose edges run exactly horizontal and vertical, not isometric, not rotated."를 넣었다.
@@ -106,7 +106,7 @@ Above the altar, facing the viewer, the three humans: ... Left of the altar, the
 | 6a1d8ef5 | 도트(b8e5fa4e 변환) | northstar_pixel_v7과 거의 같음 |
 
 배운 것: 텍스트만으로 바로 도트를 뽑으면 치비 비례가 나왔다(d5723dd1, 47a12576). 회화 원본 → 도트 변환 두 단계가 구도를 지킨다. 종족 키 문단을 앞쪽에 두면 드워프는 확실히 작아지지만 엘프 키는 v6에서도 약했다. 방패는 "completely blank, no emblem and no marks"로도 무늬(v2)나 징(b24b9991)이 생겼고, v6의 "no emblem, boss or marks"에서 민무늬가 나왔다.
-"orthographic three-quarter"만으로는 아이소메트릭이 나왔다(v2·v3). 1차 정렬형 문구는 4장 중 1장, 2차 문구("whose edges run exactly horizontal and vertical ... Not isometric and not rotated")는 4장 중 2장이 엄밀하게 정렬됐다.
+"orthographic three-quarter"만으로는 아이소메트릭이 나왔다(v2·v3). 1차·2차 정렬형 문구 모두 4장 중 2장이 정렬됐다. 문구만으로는 대각선·회전 격자를 막을 수 없어 여러 장 뽑아 원본 해상도로 확인해야 한다.
 측정 방법: 356×200 bilinear 축소, 어두운 픽셀 = R+G+B < 200, 차가운 색 = 어두운 픽셀 중 B > R+5, 보라 = B > G+40 이고 R > G+20 (전체 대비).
 격자 방향은 축소본만 보고 판단하면 안 된다. 원본 해상도로 바닥을 확대해 타일 선이 수평·수직인지 확인한다(구 v5는 축소본에서 정렬형처럼 보였다).
 사용: 이번 라운드 31크레딧 (잔액 274.5 → 243.5).

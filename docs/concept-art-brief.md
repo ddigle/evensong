@@ -6,7 +6,7 @@
 
 ## 0. 북극성 (확정, R15 · 2026-10-02)
 
-**북극성 = `assets/concept/01-keyart/northstar_pixel_v6_final.png`.** 이후 모든 생성의 레퍼런스이자 판단 기준.
+**북극성 = `assets/concept/01-keyart/northstar_pixel_v6_final.png`.** 이후 모든 생성의 레퍼런스이자 판단 기준 (성화 UI 제외, §5.5).
 지상의 저녁, 제단 윗면의 등잔 9개(3×3), 그 빛 안에 인간·드워프·엘프가 셋씩 선 정렬형 탑다운 화면이다.
 - 도구: 힉스필드 MCP → `seedream_v5_lite`, 16:9, quality high, 이미지 레퍼런스 = 아래 원본 키아트
 - job: cc88a996-0f61-4849-93c0-7d1cf96d2e0b
@@ -32,7 +32,7 @@
 
 | 단계 | 산출물 | 도구 | 목적 |
 |---|---|---|---|
-| 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0. R15 재채택) | 톤·팔레트·빛·투영 확정 |
+| 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0. R15 재채택) | 톤·팔레트·제단 빛 표현·투영 확정 |
 | 2 클래스 시트 | 팔라딘 1장 먼저 → 채택본을 레퍼런스로 나머지 | 힉스필드 `seedream_v5_lite` + 레퍼런스 이미지(`medias` image_references) | 실루엣과 클래스 색 확정 |
 | 3 픽셀 전환 | 32px 스프라이트, 방향 수 ?(§5.6), idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
 | 4 환경·오브젝트 | 제단, 오염 타일, 바이옴 2개 무드 | 1~2단계 도구 → PixelLab 타일셋 | 슬라이스 환경 |
@@ -73,7 +73,7 @@ blue or navy shadows, text, watermark, blurry, extra limbs
 북극성 v6 기준: 그림자는 따뜻한 갈흑이고 청색·남색이 없다. 오염의 보라는 가는 맥에만 쓰고 밝은 보라(#8a5fb0)는 면으로 칠하지 않는다.
 ○ 제안: 녹색은 오염 신호로 남겨 두고 클래스 옷에는 쓰지 않는다(약초사를 갈색·황토로 바꾼 이유).
 
-레퍼런스 이미지는 북극성(§0)을 넣는다. A~D 스타일 보드(`assets/concept/01-keyart/style-board-4options.png`)는 화풍이 섞여 있고 글자가 있어 생성 레퍼런스로 쓰지 않는다.
+레퍼런스 이미지는 북극성(§0)을 넣는다(성화 UI 제외, §5.5). A~D 스타일 보드(`assets/concept/01-keyart/style-board-4options.png`)는 화풍이 섞여 있고 글자가 있어 생성 레퍼런스로 쓰지 않는다.
 
 ## 5. 바로 쓰는 프롬프트
 
@@ -146,7 +146,8 @@ and not rotated, no diamond-shaped tiles, no diagonal grid lines. Grey cracked e
 dark bruise-violet veins, patches of dull olive mould, small flat bone-coloured nodules, a
 heretic's crude shrine of stacked skulls at the source. Everything lies flat, nothing grows
 upward, matte and unlit. Palette: #3b1f4d, #5e2d7a, #6f8f3a, #d8d2c0 on ash black, violet only
-in thin veins. Use the reference only for its palette; do not copy its scene. [공통 접미어]
+in thin veins. Use the reference only for its palette and warm colour temperature; do not copy
+its scene. [공통 접미어]
 ```
 
 ### 5.5 성화 UI (5단계, ○ 신앙 상징 결정 전 임시)
@@ -166,7 +167,7 @@ Re-draw the reference image as a pixel art screenshot of a top-down 2D video gam
 Keep three clearly different body heights as sprites: elves about 32 pixels tall and thin, humans about 28, dwarves about 22 pixels tall and almost as wide as a human. Each sprite has a dark outline and a readable role item: tall plain shield, staff with a small flame, herb satchel, longbow, twin daggers, small crystal, pickaxe and helmet lamp, engraving hammer, gear backpack. The altar keeps its nine lamp flames in three rows of three; each of the nine flames stays a separate bright dot, and they stay the brightest point on screen.
 Re-map every colour to a limited palette of about 48 colours, even where the reference is cooler: shadows warm brown-black #1a1714 #2e2a26, ground ash and earth #4a423a #6b5e4f #8c7b66, light candle gold and ivory #f4c95d #c9932b #9c6a1f #efe3c6, corruption grey cracked earth with bone #d8d2c0 and dull olive #6f8f3a, violet only as thin dark lines #3b1f4d #5e2d7a. No blue or navy in any shadow. The flat corruption stops at the rim of the golden circle. Grim medieval fantasy, plain gear without emblems. No text, no letters, no watermark, no UI.
 ```
-범용 모델의 "도트풍"이라 격자가 완전히 정확하지는 않다(바닥 빛에 부드러운 그라데이션이 남는다). 무드와 기준용이다. 진짜 도트는 §5.6. 프롬프트의 종족 키(32/28/22px)는 ○ 제안값이다(game-concept §10).
+범용 모델의 "도트풍"이라 격자가 완전히 정확하지는 않다(바닥 빛에 부드러운 그라데이션이 남는다). 무드와 기준용이다. 진짜 도트는 §5.6. 프롬프트의 종족 키(32/28/22px)는 이 프롬프트에서 정한 ○ 값이다. game-concept에는 §3의 실루엣 원칙(인간 중간 / 엘프 크고 가늘게 / 드워프 낮고 넓게)만 있고 수치는 없다.
 
 ### 5.6 픽셀 전환 (3단계, PixelLab)
 
@@ -192,7 +193,7 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - 도구의 약관과 상업적 사용 조건을 확인하고, 무엇을 어디서 생성했는지 기록을 남긴다
 
 프롬프트 요령 (R15 기록에서 확인한 것, 근거는 01-keyart/prompts.md):
-- "orthographic three-quarter top-down"만 쓰면 아이소메트릭이 나왔다(v2·v3). 1차 정렬형 문구("square floor tiles aligned to the image edges ... Not isometric")는 4장 중 1장만 엄밀하게 정렬됐다. §5.1의 2차 문구("square floor tiles whose edges run exactly horizontal and vertical ... Not isometric and not rotated")로 4장 중 2장이 정렬됐다
+- "orthographic three-quarter top-down"만 쓰면 아이소메트릭이 나왔다(v2·v3). 격자 방향을 직접 써야 정렬형이 나온다. 1차 문구("square floor tiles aligned to the image edges ... Not isometric")와 §5.1의 2차 문구("a grid of square stone tiles whose edges run exactly horizontal and vertical in the image ... Not isometric and not rotated") 모두 4장 중 2장이 정렬됐고 나머지는 대각선·회전 격자였다. 문구만으로는 막을 수 없으니 여러 장 뽑아 원본 해상도로 확인하고 고른다
 - 장면 키아트는 회화 원본 → 도트 변환 두 단계로 만든다. 텍스트만으로 바로 도트를 뽑으면 치비 비례가 나왔다(d5723dd1, 47a12576)
 - 종족 키 문단을 프롬프트 앞쪽에 두면 드워프는 확실히 작고 넓게 나온다. 엘프 키는 v6에서도 인간과 비슷했다. 2단계 시트에서 보강한다
 - 방패 문장: "completely blank, no emblem and no marks"로도 마름모 무늬(v2)나 가운데 징(b24b9991)이 생겼다. v6의 "no emblem, boss or marks"를 쓰고, 원본 해상도로 확대해 확인한다
@@ -214,4 +215,4 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - R6: 1단계 키아트 3엔진 비교 → Seedream 5 Lite 채택. 도트풍 렌더를 북극성으로 확정 (2026-09-22)
 - R13: 가제 반영 (제목)
 - R14: 저장소 docs/를 원본으로 전환. 북극성 두 장 보관 기록. §1 도구 칸을 실제 사용 도구에 맞춤. 나머지 클래스 5개, §5.2에 룬마스터 변형 추가 (초안). 레퍼런스는 북극성으로 정리 (스타일 보드는 비교용). prompts.md 기록 항목을 AGENTS.md와 맞춤
-- R15: 북극성을 v6로 교체 (지상 저녁, 3×3 등잔 제단, 3종족 9인, 정렬형 탑다운). §0·§5.0·§5.1을 v6 기록으로 바꾸고 v1의 프롬프트·URL·당시 접미어는 prompts.md로 옮김. §1에 투영 목적 추가, 방향 수는 ?. §3 접미어에서 문장·단일 광원·보라 덩굴·회화체를 부르는 말을 빼고 따뜻한 그림자와 문장 금지(신앙 상징 결정 전까지)를 넣음. §4에 v6 팔레트 기준과 ○ 녹색 금지. §5.2 종족 체형, 민무늬 방패(no emblem, boss or marks), 레퍼런스는 팔레트·색온도만, 시트 화풍은 ?, "rune"·"glyph" 금지. §5.3 등잔 9개·새김 없는 제단, §5.4 지상 오염, §5.3·§5.4 정렬형 문구, §5.5 상징 없는 임시 UI(○), §5.6 정렬형·방향 수 ?. §6에 프롬프트 요령과 ○ 측정 기준, §7에 v6 판정
+- R15: 북극성을 v6로 교체 (지상 저녁, 3×3 등잔 제단, 3종족 9인, 정렬형 탑다운). §0·§5.0·§5.1을 v6 기록으로 바꾸고 v1의 프롬프트·URL·당시 접미어는 prompts.md로 옮김. §1에 투영 목적 추가, 방향 수는 ?. §3 접미어에서 문장·단일 광원·보라 덩굴·회화체를 부르는 말을 빼고 따뜻한 그림자와 문장 금지(신앙 상징 결정 전까지)를 넣음. §4에 v6 팔레트 기준과 ○ 녹색 금지. §5.2 종족 체형, 민무늬 방패(no emblem, boss or marks), 레퍼런스는 팔레트·색온도만, 시트 화풍은 ?, "rune"·"glyph"·"engraved"(갑옷) 금지. §5.3 등잔 9개·새김 없는 제단, §5.4 지상 오염, §5.3·§5.4 정렬형 문구, §5.5 상징 없는 임시 UI(○), §5.6 정렬형·방향 수 ?. §6에 프롬프트 요령과 ○ 측정 기준, §7에 v6 판정
