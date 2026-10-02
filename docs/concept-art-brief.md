@@ -2,6 +2,7 @@
 
 > game-concept.md의 아트 방향(§10)을 실제 이미지 도구에 넣기 위한 실행 문서.
 > 기준: A안(32px 음울한 중세 픽셀 + 동적 조명) + C안의 장식 언어는 제단과 UI에만.
+> 상태: 라운드 14 · 2026-10-02
 
 ## 0. 북극성 (확정, 2026-09-22)
 
@@ -18,9 +19,9 @@
 
 비교군 (탈락): Nano Banana 2 (8519319d-6576-4c44-93b8-5e7b5caefb19), Nano Banana Pro (d55b86e8-0eac-4456-9ee8-5f7000e79d89). 같은 §5.1 프롬프트.
 
-주의: 위 URL은 만료될 수 있다. 두 장을 내려받아 `assets/concept/01-keyart/northstar_pixel_v1.png`, `keyart_seedream_v1.png`로 보관할 것.
+보관: 2026-10-01 두 장을 `assets/concept/01-keyart/northstar_pixel_v1.png`, `keyart_seedream_v1.png`로 저장소에 보관했다 (LFS). 위 URL은 만료될 수 있다.
 
-크레딧 기록: 1단계 총 5.5 크레딧 (Seedream lite 1 + Nano Banana 2 1.5 + Nano Banana Pro 2 + 도트풍 1). 잔여 4.5.
+크레딧 기록: 1단계 총 5.5 크레딧 (Seedream lite 1 + Nano Banana 2 1.5 + Nano Banana Pro 2 + 도트풍 1). 잔여 4.5 (2026-09-22 기준. 생성 전에는 `balance`로 실제 잔액을 확인한다).
 
 상태: 1단계 완료. 다음은 2단계 팔라딘 시트 (Seedream lite + 북극성 레퍼런스) → 3단계 PixelLab.
 
@@ -28,13 +29,13 @@
 
 | 단계 | 산출물 | 도구 | 목적 |
 |---|---|---|---|
-| 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 / 미드저니 / FLUX.2 | 톤·팔레트·빛 확정 |
-| 2 클래스 시트 | 팔라딘 1장 먼저 → 채택본을 레퍼런스로 나머지 | 같은 도구, 캐릭터 레퍼런스 기능 | 실루엣과 클래스 색 확정 |
+| 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0) | 톤·팔레트·빛 확정 |
+| 2 클래스 시트 | 팔라딘 1장 먼저 → 채택본을 레퍼런스로 나머지 | 힉스필드 `seedream_v5_lite` + 레퍼런스 이미지(`medias` image_references) | 실루엣과 클래스 색 확정 |
 | 3 픽셀 전환 | 32px 스프라이트, 4방향, idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
 | 4 환경·오브젝트 | 제단, 오염 타일, 바이옴 2개 무드 | 1~2단계 도구 → PixelLab 타일셋 | 슬라이스 환경 |
 | 5 성화 UI | 코덱스 페이지, 기도 화면, 아이콘 프레임 | 이미지 모델 (+ Recraft 벡터) | 정적, 가장 쉬움 |
 
-슬라이스 순서: 팔라딘 → 광부 → 아처 → 성직자. 나머지 4개는 슬라이스 검증 후.
+슬라이스 순서: 팔라딘 → 광부 → 아처 → 성직자. 나머지 5개(마법사·약초사·시프·기술자·룬마스터)는 슬라이스 검증 후.
 
 ## 2. 도구 배정 이유
 
@@ -64,7 +65,7 @@ text, watermark, blurry, extra limbs
 - 타락: #3b1f4d #5e2d7a #8a5fb0 #6f8f3a #d8d2c0
 - 악마: #2a0808 #5c1010 #8f1a1a #c8321f #ff7a1a
 
-레퍼런스 이미지로 art-samples-comparison.png(팔레트·빛 배치)를 함께 넣으면 톤이 더 안정된다.
+레퍼런스 이미지는 북극성(§0)을 넣는다. A~D 스타일 보드(`assets/concept/01-keyart/style-board-4options.png`)는 화풍이 섞여 있고 글자가 있어 생성 레퍼런스로 쓰지 않는다.
 
 ## 5. 바로 쓰는 프롬프트
 
@@ -100,6 +101,7 @@ Palette: steel gray (#4a423a, #8c7b66), leather (#6b5e4f), gold (#c9932b, #f4c95
 - 약초사: patched green-brown garb, satchel of herbs and vials, small animal companion at the feet
 - 시프: dark leather, short hooded cape, twin daggers, crouched stance, half-turned
 - 기술자: leather apron with tool belt, goggles on forehead, backpack of gears and a coiled rope, one hand on a small mechanical trap
+- 룬마스터 (초안): rune-etched mail under a stone-gray mantle, heavy engraving hammer, glowing rune stones on the belt, short broad build
 
 ### 5.3 제단 (4단계)
 
@@ -155,7 +157,7 @@ no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부]
 
 - 폴더: `assets/concept/01-keyart/`, `02-sheets/`, `03-pixel/`, `04-env/`, `05-ui/`
 - 파일명: `paladin_v03.png` 처럼 버전 번호. 채택본은 `_final`
-- 각 폴더에 `prompts.md`를 두고 프롬프트·모델·시드·레퍼런스 이미지를 기록한다. 재현할 수 있어야 나중에 고칠 수 있다
+- 각 폴더에 `prompts.md`를 두고 프롬프트·도구·모델·job id·레퍼런스 이미지·비율·품질을 기록한다 (시드는 모델이 지원할 때만). 재현할 수 있어야 나중에 고칠 수 있다
 - 한 번에 하나만 바꾼다. 조명과 갑옷을 동시에 바꾸면 무엇이 효과였는지 모른다
 - 4장씩 뽑고 고른다. 첫 장에 집착하지 않는다
 - 잘 나온 이미지는 곧바로 다음 프롬프트의 레퍼런스로 고정한다. 이게 일관성의 8할
@@ -169,3 +171,9 @@ no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부]
 - [ ] 오염이 테라리아의 보라 오염과 다르게 보이는가
 - [ ] 32px로 줄였을 때 클래스 색 하나가 살아남는가
 - [ ] 성스러움(UI)과 세속(게임 화면)의 대비가 느껴지는가
+
+## 변경 이력
+
+- R6: 1단계 키아트 3엔진 비교 → Seedream 5 Lite 채택. 도트풍 렌더를 북극성으로 확정 (2026-09-22)
+- R13: 가제 반영 (제목)
+- R14: 저장소 docs/를 원본으로 전환. 북극성 두 장 보관 기록. §1 도구 칸을 실제 사용 도구에 맞춤. 나머지 클래스 5개, §5.2에 룬마스터 변형 추가 (초안). 레퍼런스는 북극성으로 정리 (스타일 보드는 비교용). prompts.md 기록 항목을 AGENTS.md와 맞춤
