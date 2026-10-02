@@ -45,7 +45,7 @@
 - 생성 전에 `generate_*` 호출에 `get_cost: true`를 넣어 크레딧을 먼저 확인하고 사람에게 알린다 (잔액은 `balance`). 여러 장은 사람이 승인한 수만큼만
 - 기본 모델은 북극성과 같은 Seedream 5.0 Lite, `model: "seedream_v5_lite"`. 도구의 기본 모델은 다르므로 매번 명시한다. 옵션은 `quality`(basic/high, 기본 basic)와 `aspect_ratio`뿐이고 시드·네거티브는 없다. 레퍼런스는 `medias`로 넣는다
 - 북극성 job id를 레퍼런스로 넣는다: `medias: [{ value: "cc88a996-0f61-4849-93c0-7d1cf96d2e0b", role: "image_references" }]` (북극성 v6, R15. docs/concept-art-brief.md §0)
-- 장면을 복사하면 안 되는 생성(캐릭터 시트, 타일, UI)에는 프롬프트에 "use the reference only for its rendering style, palette and warm lighting; do not copy its scene"을 넣는다
+- 장면을 복사하면 안 되는 생성(캐릭터 시트, 오브젝트, 타일)에는 프롬프트에 "use the reference only for its palette and warm colour temperature; do not copy its scene"을 넣는다. 화풍은 단계마다 브리프가 정하고, 성화 UI에는 북극성을 넣지 않는다
 
 ## 엔진
 
