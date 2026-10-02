@@ -1,37 +1,40 @@
 # Evensong: The Nine Lamps — 컨셉아트 브리프
 
 > game-concept.md의 아트 방향(§10)을 실제 이미지 도구에 넣기 위한 실행 문서.
-> 기준: A안(32px 음울한 중세 픽셀 + 동적 조명) + C안의 장식 언어는 제단과 UI에만.
-> 상태: 라운드 14 · 2026-10-02
+> 기준: A안(32px 음울한 중세 픽셀 + 동적 조명) + 정렬형 탑다운. C안의 장식 언어는 제단과 UI에만.
+> 상태: 라운드 15 · 2026-10-02
 
-## 0. 북극성 (확정, 2026-09-22)
+## 0. 북극성 (확정, R15 · 2026-10-02)
 
-**북극성 = 도트풍 렌더.** 이후 모든 생성의 레퍼런스이자 판단 기준.
-- 도구: 힉스필드 MCP → Seedream 5.0 Lite, 이미지 레퍼런스 = 아래 원본 키아트
-- job: 6e3a72c4-bafe-45c9-b21a-a42833eb35b6
-- URL: https://d8j0ntlcm91z4.cloudfront.net/user_3JgRtXwbNoo2upapZF30zhtgJ8O/hf_20260922_134344_6e3a72c4-bafe-45c9-b21a-a42833eb35b6.png
-- 프롬프트: §5.6 앞에 추가한 "도트풍 재현" 프롬프트 (§5.0)
+**북극성 = `assets/concept/01-keyart/northstar_pixel_v6_final.png`.** 이후 모든 생성의 레퍼런스이자 판단 기준 (성화 UI 제외, §5.5).
+지상의 저녁, 제단 윗면의 등잔 9개(3×3), 그 빛 안에 인간·드워프·엘프가 셋씩 선 정렬형 탑다운 화면이다.
+- 도구: 힉스필드 MCP → `seedream_v5_lite`, 16:9, quality high, 이미지 레퍼런스 = 아래 원본 키아트
+- job: cc88a996-0f61-4849-93c0-7d1cf96d2e0b
+- URL: https://d8j0ntlcm91z4.cloudfront.net/user_3JgRtXwbNoo2upapZF30zhtgJ8O/hf_20261001_231116_cc88a996-0f61-4849-93c0-7d1cf96d2e0b.png
+- 프롬프트: §5.0
 
-**원본 키아트 (북극성의 부모).** 회화체. 톤·구도의 원본.
-- 도구: Seedream 5.0 Lite, 텍스트만 (§5.1 프롬프트 그대로)
-- job: d2440f66-cd96-4dce-bc45-7c140b397eed
-- URL: https://d8j0ntlcm91z4.cloudfront.net/user_3JgRtXwbNoo2upapZF30zhtgJ8O/hf_20260922_133119_d2440f66-cd96-4dce-bc45-7c140b397eed.png
+**원본 키아트 (북극성의 부모).** 회화체. 구도·배율·인물 배치의 원본.
+- 파일: `assets/concept/01-keyart/keyart_seedream_v6.png`
+- 도구: `seedream_v5_lite`, 텍스트만 (§5.1 프롬프트 그대로)
+- job: 5d338aae-eefb-4689-804b-41f0e1b47669
+- URL: https://d8j0ntlcm91z4.cloudfront.net/user_3JgRtXwbNoo2upapZF30zhtgJ8O/hf_20261001_230811_5d338aae-eefb-4689-804b-41f0e1b47669.png
 
-비교군 (탈락): Nano Banana 2 (8519319d-6576-4c44-93b8-5e7b5caefb19), Nano Banana Pro (d55b86e8-0eac-4456-9ee8-5f7000e79d89). 같은 §5.1 프롬프트.
+**v1에서 바꾼 이유 (R15).** R6의 v1은 종족 배치(R9), 9인(R11), 지상+지하(R12), 가제(R13)보다 먼저 만들어졌다. 그래서 지하 동굴에 인간 비례 4명, 남색 그림자, 채도 높은 보라 덩굴로 그려져 있었다. v6는 이 네 가지를 고쳤고, 아이소메트릭 후보(v3)와 비교한 끝에 투영을 정렬형 탑다운으로 정했다. 엘프와 인간의 키 차이는 v6에서도 약하다(§7).
+- v1 기록: 북극성 6e3a72c4-bafe-45c9-b21a-a42833eb35b6, 원본 d2440f66-cd96-4dce-bc45-7c140b397eed. 파일은 `northstar_pixel_v1.png`, `keyart_seedream_v1.png`로 보관한다. v1의 프롬프트·URL·당시 공통 접미어는 `assets/concept/01-keyart/prompts.md`의 v1 항목에 옮겨 두었다
+- R6 비교군 (탈락): Nano Banana 2 (8519319d-6576-4c44-93b8-5e7b5caefb19), Nano Banana Pro (d55b86e8-0eac-4456-9ee8-5f7000e79d89). v1 원본과 같은 프롬프트(prompts.md의 v1 항목)
+- R15 후보와 탈락작 31장의 job id, 측정값, 탈락 이유는 `assets/concept/01-keyart/prompts.md`
 
-보관: 2026-10-01 두 장을 `assets/concept/01-keyart/northstar_pixel_v1.png`, `keyart_seedream_v1.png`로 저장소에 보관했다 (LFS). 위 URL은 만료될 수 있다.
+크레딧 기록: R6 1단계 5.5크레딧 (Seedream lite 1 + Nano Banana 2 1.5 + Nano Banana Pro 2 + 도트풍 1, 무료 플랜). R15 북극성 재작업 31크레딧 (starter 플랜, 잔액 274.5 → 243.5, 2026-10-02). 생성 전에는 `balance`로 실제 잔액을 확인한다.
 
-크레딧 기록: 1단계 총 5.5 크레딧 (Seedream lite 1 + Nano Banana 2 1.5 + Nano Banana Pro 2 + 도트풍 1). 잔여 4.5 (2026-09-22 기준. 생성 전에는 `balance`로 실제 잔액을 확인한다).
-
-상태: 1단계 완료. 다음은 2단계 팔라딘 시트 (Seedream lite + 북극성 레퍼런스) → 3단계 PixelLab.
+상태: 1단계 완료 (R15 재채택). 다음은 2단계 팔라딘 시트 (`seedream_v5_lite` + 북극성 레퍼런스, §5.2) → 3단계 PixelLab.
 
 ## 1. 단계
 
 | 단계 | 산출물 | 도구 | 목적 |
 |---|---|---|---|
-| 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0) | 톤·팔레트·빛 확정 |
+| 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0. R15 재채택) | 톤·팔레트·제단 빛 표현·투영 확정 |
 | 2 클래스 시트 | 팔라딘 1장 먼저 → 채택본을 레퍼런스로 나머지 | 힉스필드 `seedream_v5_lite` + 레퍼런스 이미지(`medias` image_references) | 실루엣과 클래스 색 확정 |
-| 3 픽셀 전환 | 32px 스프라이트, 4방향, idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
+| 3 픽셀 전환 | 32px 스프라이트, 방향 수 ?(§5.6), idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
 | 4 환경·오브젝트 | 제단, 오염 타일, 바이옴 2개 무드 | 1~2단계 도구 → PixelLab 타일셋 | 슬라이스 환경 |
 | 5 성화 UI | 코덱스 페이지, 기도 화면, 아이콘 프레임 | 이미지 모델 (+ Recraft 벡터) | 정적, 가장 쉬움 |
 
@@ -43,19 +46,21 @@
 - 픽셀: 범용 모델은 "픽셀풍" 그림을 만들 뿐 격자에 맞는 진짜 픽셀아트가 아니다. PixelLab은 격자 크기(16/32/64)를 이해하고 4·8방향 회전, 타일셋, 애니메이션 시트를 만들며 Aseprite 플러그인과 MCP 에이전트 툴킷이 있다
 - 대량 일관성: 에셋이 수백 개가 되면 Scenario에 채택본을 학습시켜 스타일 드리프트를 막는다. 슬라이스 단계에서는 아직 불필요
 
-## 3. 공통 스타일 접미어 (모든 프롬프트 끝에 붙인다)
+## 3. 공통 스타일 접미어 (§5.2~§5.4 끝에 붙인다)
 
 ```
-grim medieval fantasy, religious iconography, gothic reliquary details, worn materials,
-painterly concept art, high-contrast chiaroscuro, single warm light source against deep shadow,
-muted palette of ash/stone/leather with candle-gold accents and violet corruption,
-no text, no watermark, no UI
+grim medieval fantasy, worn materials, plain gear and objects without emblems, symbols or letters,
+warm brown-black shadows with no blue or navy in any shadow,
+muted palette of ash/stone/leather with candle-gold accents,
+no text, no letters, no watermark, no UI
 ```
+접미어에는 그림자 색만 두고, 조명·렌더링(회화체·도트풍)·장면은 각 프롬프트 본문에 쓴다. §5.0과 §5.1은 그 자체로 완결된 프롬프트라 접미어를 붙이지 않는다. 문장·상징을 막는 말은 신앙 상징(game-concept §7, 미결)이 정해지기 전까지 둔다.
 
-네거티브 (지원하는 도구에서):
+네거티브 (지원하는 도구에서. `seedream_v5_lite`는 지원하지 않는다):
 ```
 photorealism, anime, cute chibi proportions, bright saturated colors, modern or sci-fi elements,
-text, watermark, blurry, extra limbs
+isometric view, diamond-shaped tiles, emblems or sacred symbols on shields and clothing,
+blue or navy shadows, text, watermark, blurry, extra limbs
 ```
 
 ## 4. 팔레트 코드 (프롬프트에 그대로 넣는다)
@@ -65,93 +70,115 @@ text, watermark, blurry, extra limbs
 - 타락: #3b1f4d #5e2d7a #8a5fb0 #6f8f3a #d8d2c0
 - 악마: #2a0808 #5c1010 #8f1a1a #c8321f #ff7a1a
 
-레퍼런스 이미지는 북극성(§0)을 넣는다. A~D 스타일 보드(`assets/concept/01-keyart/style-board-4options.png`)는 화풍이 섞여 있고 글자가 있어 생성 레퍼런스로 쓰지 않는다.
+북극성 v6 기준: 그림자는 따뜻한 갈흑이고 청색·남색이 없다. 오염의 보라는 가는 맥에만 쓰고 밝은 보라(#8a5fb0)는 면으로 칠하지 않는다.
+○ 제안: 녹색은 오염 신호로 남겨 두고 클래스 옷에는 쓰지 않는다(약초사를 갈색·황토로 바꾼 이유).
+
+레퍼런스 이미지는 북극성(§0)을 넣는다(성화 UI 제외, §5.5). A~D 스타일 보드(`assets/concept/01-keyart/style-board-4options.png`)는 화풍이 섞여 있고 글자가 있어 생성 레퍼런스로 쓰지 않는다.
 
 ## 5. 바로 쓰는 프롬프트
 
-### 5.1 무드 키아트 (1단계)
+### 5.1 무드 키아트 (1단계, 북극성 원본 v6에 쓴 프롬프트, 텍스트만)
 
 ```
-Top-down view of a dark underground sanctuary. A small stone altar with a single candle flame
-casts a warm amber radius on a damp cave floor; beyond the light, darkness and creeping violet
-corruption with pale bone-white growths. Four figures around the altar: an armored paladin with
-a tall shield, a hooded cleric in ivory robes with a gold stole and staff, an archer in an
-earth-brown cloak with a longbow, a miner with a lamp helmet and pickaxe.
-Palette: ash and stone (#1a1714, #2e2a26, #4a423a, #6b5e4f), candle gold (#f4c95d, #c9932b),
-corruption violet (#3b1f4d, #5e2d7a). [공통 접미어]
+Straight top-down 2D game view: the floor is a grid of square stone tiles whose edges run exactly horizontal and vertical in the image, like graph paper laid flat and seen from above at a steep angle; upright things show only a little of their front face, and the front edge of the altar is a horizontal line. Not isometric and not rotated: no diamond-shaped tiles, no diagonal grid lines, no vanishing point, no sky, no horizon. The frame shows about thirty floor tiles across; each figure is small, a human about one eighth of the image height, with open ground around everyone.
+
+Exactly nine figures of three peoples, and height is how you tell the peoples apart: the three elves are clearly the tallest, a full head taller than the humans, very slender with long limbs and long pointed ears, so the elf archer and the elf mage stand taller than the paladin; the three humans are of medium height; the three dwarves are the shortest, two-thirds of human height, very broad and heavily bearded.
+
+Evening on the surface of a dying land: thick ash and smoke hide the sunken sun, and the dead grass, packed earth and broken flagstones are tinted warm umber and dull ash-brown, not orange; the deepest shadows are the brown-black of old soot. No cave.
+
+Center: a broad, low, square solid stone altar about three tiles wide, its edges parallel to the image edges, with worn gold-leaf rims. On its top, nine small clay oil lamps in three straight rows of three, with dark gaps between them: nine separate flames, all burning, the brightest point in the image. A thin thread of incense smoke rises. Their light makes one round pool of candle-gold about half the image wide over worn paving stones, fading softly at the rim, with no drawn line and no glowing ring on the ground. All nine figures stand inside the light, shadows pointing outward.
+
+They stand in evening prayer, heads bowed, weapons lowered, in three groups of three. Above the altar, facing the viewer, the three humans: a paladin in worn plate and closed helm resting on a tall kite shield that is completely blank, flat dull steel with no emblem, boss or marks; a cleric in dull ivory robes and gold stole, one hand lifted to lead the prayer, the other holding a plain staff topped by a small flame; a herbalist in patched brown and ochre clothes with a bulging herb satchel.
+Left of the altar, the three dwarves: a miner with a pickaxe and a small lamp on a round helmet, a smith with a heavy engraving hammer, and an engineer with a backpack of gears.
+Right of the altar, the three tall elves: an archer in earth-brown leathers, hood down, with a longbow taller than the shoulders, the only bow in the scene; a hooded thief with twin daggers; and a mage in charcoal robes holding a small glowing crystal in one open hand. The space below the altar is left open.
+
+Upper-right corner: a collapsed stone stairway sinks into a black opening, and corruption seeps out: grey cracked earth with thin dark bruise-violet veins, patches of dull olive mould, small bone-coloured nodules lying flat. Nothing grows upward; it is matte, unlit, darker than the lit ground, and stops at the rim of the light. Left edge: a dark rock wall with a few tile-sized chunks dug out.
+
+Palette: 80% desaturated warm grey-brown #1a1714 #2e2a26 #4a423a #6b5e4f #8c7b66; light in candle gold and ivory #f4c95d #c9932b #efe3c6; corruption #3b1f4d #6f8f3a #d8d2c0, violet only in thin veins. Plain worn clothing in ash, leather and earth tones; no emblems, symbols, letters or marks on shields, clothing or the altar. Grim medieval fantasy, painterly concept art, clean readable shapes. No text, no letters, no watermark, no UI.
 ```
+같은 프롬프트로 4장을 뽑아 2장이 엄밀한 정렬 격자로 나왔다(나머지 2장은 대각선 격자). 프롬프트의 "smith"가 룬마스터다("rune"이라는 단어를 피했다). v6에서 인물은 일렬 대형으로 섰다.
 
 ### 5.2 팔라딘 캐릭터 시트 (2단계)
 
 ```
 Character concept sheet, front view and three-quarter view of the same character, full body.
-A paladin of a grim medieval faith: heavy plate armor in worn steel with gold-leaf trim, a tall
-kite shield bearing a simple sacred emblem, closed helm with a narrow visor, ash-gray tabard with
-a single gold stripe. Solemn, weathered, devout. Clean silhouette readable at small size.
-Plain dark background, neutral even lighting.
-Palette: steel gray (#4a423a, #8c7b66), leather (#6b5e4f), gold (#c9932b, #f4c95d). [공통 접미어]
+A human paladin of a grim medieval faith, medium build: heavy plate armor in worn steel with
+gold-leaf trim, a tall kite shield that is completely blank, flat dull steel with no emblem,
+boss or marks, closed helm with a narrow visor, ash-gray tabard with a single gold stripe.
+Solemn, weathered, devout. Clean silhouette readable at small size.
+Plain dark background, soft even warm light, single character.
+Use the reference only for its palette and warm colour temperature; do not copy its scene.
+Palette: worn iron and ash (#4a423a, #8c7b66), leather (#6b5e4f), gold (#c9932b, #f4c95d). [공통 접미어]
 ```
 
-북극성 이미지를 레퍼런스로 함께 넣는다. 나머지 클래스는 이 틀에서 두 번째 문장만 바꾼다. 채택된 팔라딘 이미지를 레퍼런스로 넣고 "same rendering style and proportions as the reference"를 추가한다.
+북극성 job id를 레퍼런스로 넣는다(AGENTS.md). 나머지 클래스는 이 틀에서 두 번째 문장(종족·체형·장비)만 바꾸고, 채택된 팔라딘 시트도 레퍼런스로 넣는다. 이때 비례는 복사하지 않는다. 종족마다 체형이 다르다(인간 중간, 엘프 크고 가늘게, 드워프 낮고 넓게).
 
-- 광부: leather apron and gloves, round helmet with a small oil lamp, heavy pickaxe, soot-stained, sturdy build
-- 아처: earth-brown hooded cloak, longbow taller than the shoulders, quiver, lean build, face half in shadow
-- 성직자: ivory robes with a gold stole, deep hood, long staff topped with a small flame, prayer beads, thin build
-- 마법사: charcoal robes with copper runes, one hand holding an enchanting crystal, no hat, calm posture
-- 약초사: patched green-brown garb, satchel of herbs and vials, small animal companion at the feet
-- 시프: dark leather, short hooded cape, twin daggers, crouched stance, half-turned
-- 기술자: leather apron with tool belt, goggles on forehead, backpack of gears and a coiled rope, one hand on a small mechanical trap
-- 룬마스터 (초안): rune-etched mail under a stone-gray mantle, heavy engraving hammer, glowing rune stones on the belt, short broad build
+? 시트 화풍(회화체 / 도트풍)은 2단계를 시작하기 전에 정한다. 위 프롬프트는 어느 쪽인지 정하지 않는다. 정하면 본문에 렌더링 문구를 넣는다.
+
+- 광부 (드워프): short, very broad, heavily bearded dwarf, leather apron and gloves, round helmet with a small oil lamp, heavy pickaxe, soot-stained
+- 아처 (엘프): tall, slender elf, earth-brown cloak with the hood down and long pointed ears visible, longbow taller than the shoulders, quiver
+- 성직자 (인간): human of medium build, ivory robes with a gold stole, deep hood, long staff topped with a small flame, prayer beads
+- 마법사 (엘프): tall, slender elf with long pointed ears, charcoal robes with copper trim, one hand holding a small glowing enchanting crystal, no hat, calm posture
+- 약초사 (인간): human of medium build, patched brown and ochre garb, satchel of herbs and vials, small animal companion at the feet
+- 시프 (엘프): tall, slender elf with long pointed ears, dark leather, short hooded cape, twin daggers, crouched stance, half-turned
+- 기술자 (드워프): short, very broad, bearded dwarf, leather apron with tool belt, goggles on forehead, backpack of gears and a coiled rope, one hand on a small mechanical trap
+- 룬마스터 (드워프, 초안): short, very broad, bearded dwarf, plain heavy mail under a stone-gray mantle, heavy engraving hammer, small glowing stones on the belt
+
+"rune", "glyph", "engraved"(갑옷에 쓸 때) 같은 단어는 글자·문양을 부르므로 프롬프트에 쓰지 않는다. "engraving hammer"(각인 망치)는 v6에서 문제가 없었다.
 
 ### 5.3 제단 (4단계)
 
 ```
-Top-down view, a portable stone altar for a grim medieval faith: a squat block of gray stone with
-worn gold-leaf edges, a single tall candle burning in a copper holder, small offerings of bone and
-dried herbs at its base. Isolated on a plain dark background. [공통 접미어]
+Straight top-down view of a portable stone altar for a grim medieval faith, isolated on a plain
+dark background: a broad, low, square block of gray stone with worn gold-leaf rims, its edges
+exactly horizontal and vertical in the image, not isometric and not rotated. Plain stone faces
+with no carvings, symbols, letters or marks. On its top, nine small clay oil lamps in three
+straight rows of three, nine separate flames; small offerings of bone and dried herbs at its base.
+Use the reference only for its palette and warm colour temperature; do not copy its scene. [공통 접미어]
 ```
 
 ### 5.4 오염 지대 무드 (4단계)
 
 ```
-Top-down view of cave floor being consumed by corruption: violet veins spreading through cracked
-stone, pale bone-white nodules, sickly green fungus, a heretic's crude shrine of stacked skulls at
-the source. Palette: #3b1f4d, #5e2d7a, #8a5fb0, #6f8f3a, #d8d2c0 on ash black. [공통 접미어]
+Straight top-down view of surface ground near a dungeon entrance being consumed by corruption:
+square floor tiles whose edges run exactly horizontal and vertical in the image, not isometric
+and not rotated, no diamond-shaped tiles, no diagonal grid lines. Grey cracked earth with thin
+dark bruise-violet veins, patches of dull olive mould, small flat bone-coloured nodules, a
+heretic's crude shrine of stacked skulls at the source. Everything lies flat, nothing grows
+upward, matte and unlit. Palette: #3b1f4d, #5e2d7a, #6f8f3a, #d8d2c0 on ash black, violet only
+in thin veins. Use the reference only for its palette and warm colour temperature; do not copy
+its scene. [공통 접미어]
 ```
 
-### 5.5 성화 UI (5단계)
+### 5.5 성화 UI (5단계, ○ 신앙 상징 결정 전 임시)
 
 ```
 Illuminated manuscript page border with a stained-glass rose window motif, gold leaf on aged
-parchment, sacred iconography of a candle flame and a shield, gothic tracery, symmetrical,
-flat decorative design, high contrast. Palette: gold (#c9932b, #f4c95d), ivory (#efe3c6),
-deep red (#5c1010), ash black (#1a1714). No text.
+parchment, a single small candle flame motif, abstract gothic tracery, symmetrical, flat
+decorative design, high contrast, no symbols, no letters or script. Palette: gold (#c9932b,
+#f4c95d), ivory (#efe3c6), deep red (#5c1010), ash black (#1a1714). No text.
 ```
+성화 UI는 게임 화면과 다른 시각 언어를 쓴다(game-concept §10). 북극성은 레퍼런스로 넣지 않는다. 신앙 상징이 정해지면 다시 쓴다.
 
-### 5.0 도트풍 재현 (북극성에 쓴 프롬프트, 레퍼런스 이미지 필수)
+### 5.0 도트풍 재현 (북극성 v6에 쓴 프롬프트, 레퍼런스 = §5.1 결과 필수)
 
 ```
-Recreate the reference scene as authentic 16-bit top-down pixel art for a video game: the same
-dark underground sanctuary, stone altar with a single candle flame casting a warm amber light
-radius, violet corruption creeping at the edges with bone-white growths, and the same four
-characters (paladin with tall shield, cleric in ivory robes with staff, archer with longbow,
-miner with lamp helmet and pickaxe) as 32-pixel-tall sprites with clear readable silhouettes.
-Strict pixel grid, crisp square pixels, no anti-aliasing, no blur, limited palette of about 48
-colors, dithering only in the shadow gradients, tile-based cave floor of 16-pixel tiles.
-Palette: ash and stone (#1a1714, #2e2a26, #4a423a, #6b5e4f), candle gold (#f4c95d, #c9932b),
-corruption violet (#3b1f4d, #5e2d7a). Grim medieval fantasy, religious iconography.
-No text, no watermark, no UI.
+Re-draw the reference image as a pixel art screenshot of a top-down 2D video game, keeping the same composition, camera, scale, figures, altar and light layout. Keep the straight top-down grid: square floor tiles whose edges run exactly horizontal and vertical, not isometric, not rotated. Treat it as a 480 by 270 pixel game screen enlarged with nearest-neighbour scaling: every art pixel is a square block of the same size on one strict grid, no anti-aliasing, no blur, no smooth gradients, dithering only in the deepest shadows and in the falloff band at the rim of the light. The ground is built from 16-pixel tiles.
+Keep three clearly different body heights as sprites: elves about 32 pixels tall and thin, humans about 28, dwarves about 22 pixels tall and almost as wide as a human. Each sprite has a dark outline and a readable role item: tall plain shield, staff with a small flame, herb satchel, longbow, twin daggers, small crystal, pickaxe and helmet lamp, engraving hammer, gear backpack. The altar keeps its nine lamp flames in three rows of three; each of the nine flames stays a separate bright dot, and they stay the brightest point on screen.
+Re-map every colour to a limited palette of about 48 colours, even where the reference is cooler: shadows warm brown-black #1a1714 #2e2a26, ground ash and earth #4a423a #6b5e4f #8c7b66, light candle gold and ivory #f4c95d #c9932b #9c6a1f #efe3c6, corruption grey cracked earth with bone #d8d2c0 and dull olive #6f8f3a, violet only as thin dark lines #3b1f4d #5e2d7a. No blue or navy in any shadow. The flat corruption stops at the rim of the golden circle. Grim medieval fantasy, plain gear without emblems. No text, no letters, no watermark, no UI.
 ```
-범용 모델의 "도트풍"이라 격자가 정확하지 않다. 무드 확인용. 진짜 도트는 §5.6.
+범용 모델의 "도트풍"이라 격자가 완전히 정확하지는 않다(바닥 빛에 부드러운 그라데이션이 남는다). 무드와 기준용이다. 진짜 도트는 §5.6. 프롬프트의 종족 키(32/28/22px)는 이 프롬프트에서 정한 ○ 값이다. game-concept에는 §3의 실루엣 원칙(인간 중간 / 엘프 크고 가늘게 / 드워프 낮고 넓게)만 있고 수치는 없다.
 
 ### 5.6 픽셀 전환 (3단계, PixelLab)
 
 ```
-32px tall top-down character sprite, 4 directions, grim medieval paladin: worn steel armor with
-gold trim, tall shield on the left arm, closed helm. Limited palette, clean silhouette,
-no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부]
+3/4 straight top-down character sprite on a 32px canvas (square grid, not isometric),
+[4 or 8] directions, grim medieval human paladin: worn steel armor with gold trim,
+tall blank shield with no emblem or boss on the left arm, closed helm. Limited palette,
+clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부]
 ```
 애니메이션은 idle(4프레임) → walk(6~8프레임) → attack(4~6프레임) 순서로.
+? 방향 수(4 / 8)와 PixelLab의 view(low / high top-down)는 3단계 전에 정한다. 종족별 키(캔버스 안에서 몇 px인지)도 ○라서 2~3단계에서 정한다.
 
 ## 6. 운영 규칙
 
@@ -161,19 +188,31 @@ no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부]
 - 한 번에 하나만 바꾼다. 조명과 갑옷을 동시에 바꾸면 무엇이 효과였는지 모른다
 - 4장씩 뽑고 고른다. 첫 장에 집착하지 않는다
 - 잘 나온 이미지는 곧바로 다음 프롬프트의 레퍼런스로 고정한다. 이게 일관성의 8할
+- 북극성을 레퍼런스로 넣되 장면을 복사하면 안 되는 생성(시트, 오브젝트, 타일)에는 "use the reference only for its palette and warm colour temperature; do not copy its scene"을 넣는다. 화풍은 단계마다 본문에서 정한다. 성화 UI에는 북극성을 넣지 않는다
 - 게임 이름 대신 시각적 특징을 쓴다. "블래스퍼머스 스타일"이 아니라 "gold leaf, dithered shadows, gothic reliquary"
 - 도구의 약관과 상업적 사용 조건을 확인하고, 무엇을 어디서 생성했는지 기록을 남긴다
 
+프롬프트 요령 (R15 기록에서 확인한 것, 근거는 01-keyart/prompts.md):
+- "orthographic three-quarter top-down"만 쓰면 아이소메트릭이 나왔다(v2·v3). 격자 방향을 직접 써야 정렬형이 나온다. 1차 문구("square floor tiles aligned to the image edges ... Not isometric")와 §5.1의 2차 문구("a grid of square stone tiles whose edges run exactly horizontal and vertical in the image ... Not isometric and not rotated") 모두 4장 중 2장이 정렬됐고 나머지는 대각선·회전 격자였다. 문구만으로는 막을 수 없으니 여러 장 뽑아 원본 해상도로 확인하고 고른다
+- 장면 키아트는 회화 원본 → 도트 변환 두 단계로 만든다. 텍스트만으로 바로 도트를 뽑으면 치비 비례가 나왔다(d5723dd1, 47a12576)
+- 종족 키 문단을 프롬프트 앞쪽에 두면 드워프는 확실히 작고 넓게 나온다. 엘프 키는 v6에서도 인간과 비슷했다. 2단계 시트에서 보강한다
+- 방패 문장: "completely blank, no emblem and no marks"로도 마름모 무늬(v2)나 가운데 징(b24b9991)이 생겼다. v6의 "no emblem, boss or marks"를 쓰고, 원본 해상도로 확대해 확인한다
+- ○ 채택 전 측정 (권장 기준): 356×200으로 bilinear 축소한 뒤 어두운 픽셀 = R+G+B < 200, 차가운 색 = 어두운 픽셀 중 B > R+5, 보라 = B > G+40 이고 R > G+20. 목표는 어두운 픽셀 중 차가운 색 30% 미만, 전체 대비 보라 1% 미만. 격자 방향과 문장은 원본 해상도로 확대해서 확인한다(축소본에서는 회전된 격자가 정렬형처럼 보였다)
+
 ## 7. 채택 체크리스트
 
-- [ ] 어둠 속에서 제단의 빛이 "안전"으로 읽히는가
-- [ ] 팔라딘·광부·아처·성직자가 실루엣만으로 구분되는가
-- [ ] 오염이 테라리아의 보라 오염과 다르게 보이는가
-- [ ] 32px로 줄였을 때 클래스 색 하나가 살아남는가
-- [ ] 성스러움(UI)과 세속(게임 화면)의 대비가 느껴지는가
+북극성 v6 판정 (R15):
+- [x] 어둠 속에서 제단의 빛이 "안전"으로 읽히는가 (v6: 테두리가 디더링으로 사라지는 빛 원)
+- [x] 팔라딘·광부·아처·성직자가 실루엣만으로 구분되는가 (v6)
+- [x] 오염이 테라리아의 보라 오염과 다르게 보이는가 (v6: 회색 균열 + 가는 보라 맥, 바닥에 납작)
+- [x] 정렬형 탑다운 격자인가 (아이소메트릭이나 회전 격자가 아닌가) (v6)
+- [ ] 몸집으로 종족이 읽히는가 (v6: 드워프는 확실, 엘프와 인간의 키 차이는 약함. 2단계 시트에서 보강)
+- [ ] 32px로 줄였을 때 클래스 색 하나가 살아남는가 (3단계)
+- [ ] 성스러움(UI)과 세속(게임 화면)의 대비가 느껴지는가 (5단계)
 
 ## 변경 이력
 
 - R6: 1단계 키아트 3엔진 비교 → Seedream 5 Lite 채택. 도트풍 렌더를 북극성으로 확정 (2026-09-22)
 - R13: 가제 반영 (제목)
 - R14: 저장소 docs/를 원본으로 전환. 북극성 두 장 보관 기록. §1 도구 칸을 실제 사용 도구에 맞춤. 나머지 클래스 5개, §5.2에 룬마스터 변형 추가 (초안). 레퍼런스는 북극성으로 정리 (스타일 보드는 비교용). prompts.md 기록 항목을 AGENTS.md와 맞춤
+- R15: 북극성을 v6로 교체 (지상 저녁, 3×3 등잔 제단, 3종족 9인, 정렬형 탑다운). §0·§5.0·§5.1을 v6 기록으로 바꾸고 v1의 프롬프트·URL·당시 접미어는 prompts.md로 옮김. §1에 투영 목적 추가, 방향 수는 ?. §3 접미어에서 문장·단일 광원·보라 덩굴·회화체를 부르는 말을 빼고 따뜻한 그림자와 문장 금지(신앙 상징 결정 전까지)를 넣음. §4에 v6 팔레트 기준과 ○ 녹색 금지. §5.2 종족 체형, 민무늬 방패(no emblem, boss or marks), 레퍼런스는 팔레트·색온도만, 시트 화풍은 ?, "rune"·"glyph"·"engraved"(갑옷) 금지. §5.3 등잔 9개·새김 없는 제단, §5.4 지상 오염, §5.3·§5.4 정렬형 문구, §5.5 상징 없는 임시 UI(○), §5.6 정렬형·방향 수 ?. §6에 프롬프트 요령과 ○ 측정 기준, §7에 v6 판정
