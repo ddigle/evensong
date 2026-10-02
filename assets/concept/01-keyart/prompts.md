@@ -1,6 +1,12 @@
 # 01-keyart 기록
 
-## 북극성 v2 후보 (2026-10-02, 채택 대기)
+## 현재 북극성: northstar_pixel_v6_final.png (R15 채택, 2026-10-02)
+- 도트 job: cc88a996-0f61-4849-93c0-7d1cf96d2e0b. 레퍼런스: keyart_seedream_v6.png (5d338aae-eefb-4689-804b-41f0e1b47669)
+- 프롬프트 전문: docs/concept-art-brief.md §5.0(도트), §5.1(회화 원본). 설정과 측정은 아래 v6 항목
+- 사람이 v1 / v3(아이소메트릭) / v6 / v7을 비교해 v6를 골랐다. 채택으로 함께 정해진 것: 정렬형 탑다운 투영, 종족 × 직분 배치, 윗면 3×3 등잔 제단, 신앙 상징은 그리지 않음
+- v1(R6)은 구 북극성으로 보관한다. v2·v3·v7은 비채택 후보로, 투영 비교 기록용으로 남긴다
+
+## 북극성 R15 후보 기록 (2026-10-02)
 
 v1(R6)이 R9~R13 결정(3종족×3직분 9클래스, 9인, 지상+지하, 가제 "아홉 등불")과 맞지 않아 다시 잡았다.
 방향: 재빛 저녁의 지상, 제단 윗면의 등잔 9개(3×3), 금빛 원 안에서 인간·엘프·드워프가 셋씩 저녁기도. 오염은 던전 입구에서 새어 나와 빛의 경계에서 멈춘다. 신앙 문장은 그리지 않는다.
@@ -60,7 +66,7 @@ Above the altar, facing the viewer, the three humans: ... Left of the altar, the
 ```
 도트 변환은 v2와 같은 프롬프트에 "Keep the straight top-down grid: square floor tiles whose edges run exactly horizontal and vertical, not isometric, not rotated."를 넣었다.
 
-### keyart_seedream_v6.png / northstar_pixel_v6.png (정렬형, 추천)
+### keyart_seedream_v6.png / northstar_pixel_v6_final.png (정렬형, R15 채택)
 - 회화 job: 5d338aae-eefb-4689-804b-41f0e1b47669 (측정 2% / 0.03%). 도트 job: cc88a996-0f61-4849-93c0-7d1cf96d2e0b, 레퍼런스 5d338aae (측정 3% / 0.20%)
 - 엄밀한 정렬 격자. 9명이 가장 잘 읽힌다: 위 인간(민무늬 방패 팔라딘, 금 영대·불꽃 지팡이 성직자, 약초 가방 약초사), 왼쪽 드워프(램프 헬멧·곡괭이 광부, 대장장이, 톱니 배낭 공학자), 오른쪽 엘프(단검 도적, 장궁 아처, 은발·뾰족귀·빛나는 수정 마법사). 3×3 등잔이 정렬돼 있고 빛 원 테두리가 디더링으로 사라져 "제단 빛 = 안전"이 가장 잘 읽힌다
 - 약점: 인물이 일렬로 서서 기도보다 대열로 보인다. 빛 원 안이 밝아 저녁 느낌이 약하다. 엘프 키는 인간과 비슷하다
@@ -70,7 +76,7 @@ Above the altar, facing the viewer, the three humans: ... Left of the altar, the
 - 정렬 격자, 9명이 제단을 둘러싼 기도 대형, 어둑한 저녁 분위기. 드워프가 뒤쪽을 보고 서 있어 판독성은 v6보다 떨어진다
 
 ### northstar_v2_compare.jpg
-- 비교 시트: v1(구) / v3 아이소메트릭 / v6 정렬형(추천) / v7 정렬형
+- 비교 시트: v1(구) / v3 아이소메트릭 / v6 정렬형(R15 채택) / v7 정렬형
 
 ### 탈락 (파일은 보관하지 않음. job id로 힉스필드에서 다시 볼 수 있다)
 | job | 종류 | 탈락 이유 |
@@ -103,7 +109,7 @@ Above the altar, facing the viewer, the three humans: ... Left of the altar, the
 격자 방향은 축소본만 보고 판단하면 안 된다. 원본 해상도로 바닥을 확대해 타일 선이 수평·수직인지 확인한다(구 v5는 축소본에서 정렬형처럼 보였다).
 사용: 이번 라운드 31크레딧 (잔액 274.5 → 243.5).
 
-## northstar_pixel_v1.png (북극성 R6. v2 후보 검토 중)
+## northstar_pixel_v1.png (구 북극성, R6 → R15에서 v6로 교체)
 - 도구: 힉스필드 MCP / Seedream 5.0 Lite
 - job: 6e3a72c4-bafe-45c9-b21a-a42833eb35b6
 - 레퍼런스: keyart_seedream_v1 (d2440f66-cd96-4dce-bc45-7c140b397eed)
