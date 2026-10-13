@@ -28,7 +28,7 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
    git config --global core.longpaths true
    ```
 3. `git clone https://github.com/ddigle/evensong.git C:\Dev\evensong` 후 `cd C:\Dev\evensong`. 처음에 GitHub 로그인 창이 뜬다(Git Credential Manager). 컨셉아트는 LFS로 함께 받아진다
-4. 도구: 저장소 루트에서 `uv run tools/art/arttool.py <명령>`. 첫 실행 때 uv가 Python(`.python-version`)과 패키지(`arttool.py.lock`)를 받는다. 가상환경을 따로 만들지 않는다 (사용법은 `tools/art/arttool.py` 머리말)
+4. 도구: 저장소 루트에서 `uv run tools/art/arttool.py <명령>`. 첫 실행 때 uv가 Python(`.python-version`)과 패키지(`arttool.py.lock`)를 받는다. 가상환경을 따로 만들지 않는다 (사용법은 `tools/art/arttool.py` 머리말). uv는 0.13.0 이상이어야 한다(`uv self update`). 그보다 낮으면 SSH로 접속한 세션에서 `uv trampoline failed to spawn Python`으로 실패한다
 5. 점검: `powershell -ExecutionPolicy Bypass -File tools\check-setup.ps1`. FAIL이 0이면 된다
 6. 에이전트 실행: Claude Code는 이 폴더에서 `claude` (CLAUDE.md가 AGENTS.md를 불러온다). Codex는 이 폴더나 별도 worktree에서 `codex` (AGENTS.md를 바로 읽는다)
 7. 힉스필드 MCP(이미지 생성): claude.ai의 힉스필드 커넥터가 연결돼 있으면 생략. 아니면 `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` → Claude Code 안에서 `/mcp`로 로그인. 둘 중 하나만 쓴다 (둘 다 등록하면 같은 도구가 두 벌 생긴다)
