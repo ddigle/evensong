@@ -2,7 +2,11 @@
 
 (생성할 때마다 도구·모델·프롬프트·레퍼런스·job id·비율·품질을 추가. 시드는 모델이 지원할 때만)
 
-## 9클래스 도트풍 시트 (2026-10-03, 우선 후보 선정, 사람 확인 대기)
+## 현재 채택본 (R17, 2026-10-14)
+
+도트풍 9장: `paladin_v05_final.png` `cleric_v03_final.png` `herbalist_v04_final.png` `thief_v05_final.png` `mage_v04_final.png` `archer_v01_final.png` `miner_v02_final.png` `runemaster_v04_final.png` `engineer_v02_final.png`. 선정 이유와 job id는 아래 표.
+
+## 9클래스 도트풍 시트 (2026-10-03 생성, 2026-10-14 사람이 우선 후보 9장을 그대로 채택, R17)
 
 사람의 결정: 시트 화풍은 도트풍(2026-10-03). 팔라딘은 슬림하지 않은 거구 체형으로 다시 뽑는다.
 공통 설정: `seedream_v5_lite`, 4:3, quality high (3584×2688), 클래스마다 4장. 레퍼런스 두 개: ① 북극성 v6 (cc88a996-0f61-4849-93c0-7d1cf96d2e0b, 팔레트·색온도만) ② 도트풍 팔라딘 v04 (fafe57aa-619e-4330-8547-7b398dc794b6, 도트 렌더링·외곽선·두 시점 배치만). 40크레딧 (잔액 239.5 → 199.5).
@@ -36,7 +40,7 @@ no text, no letters, no watermark, no UI
 | 기술자 | 50 | A dwarf engineer of a grim medieval faith: short, very broad, bearded adult dwarf with stocky proportions, about four heads tall and almost as wide as a human, not a child; leather apron with a tool belt, goggles pushed up on the forehead, a backpack of brass gears and a coiled rope, one hand on a small mechanical trap. Clever and gruff. | leather (#4a423a, #6b5e4f), brass (#9c6a1f, #c9932b), iron (#8c7b66) |
 | 룬마스터 | 50 | A dwarf smith of a grim medieval faith: short, very broad, bearded adult dwarf with stocky proportions, about four heads tall and almost as wide as a human, not a child; plain heavy mail under a stone-gray mantle, a heavy engraving hammer, small glowing stones on the belt, no tabard, no shield. Stern and patient. (레퍼런스 문장 끝에 "tabard" 추가) | stone grey (#4a423a, #8c7b66), iron (#6b5e4f), ember gold glow (#f4c95d, #c9932b) |
 
-job id (후보 시트 `<클래스>_vNN-vNN_candidates.jpg`의 A~D 순서 = 버전 번호 순서). **굵게** = 우선 후보, 원본 PNG로 보관:
+job id (후보 시트 `<클래스>_vNN-vNN_candidates.jpg`의 A~D 순서 = 버전 번호 순서). **굵게** = 채택본 (R17), 원본 PNG를 `<클래스>_vNN_final.png`로 보관:
 
 | 클래스 | v01 / A | v02 / B | v03 / C | v04 / D | 우선 후보 이유 |
 |---|---|---|---|---|---|
@@ -51,7 +55,7 @@ job id (후보 시트 `<클래스>_vNN-vNN_candidates.jpg`의 A~D 순서 = 버�
 | 기술자 | a379efc6-29ec-4246-9492-4762ea70f5bb | **b044487c-f331-47e5-abc7-4881202c03dd** | a355800a-39f0-4265-ba33-3e95c81e55c2 | 1de8c041-f376-493a-a8b0-b7530f6c29a6 | v02: 밧줄·톱니 배낭·덫 상자, 두 시점 구분. v01은 두 그림이 거의 같음 |
 | 룬마스터 | bb1d290d-739b-446e-aee4-044177a5644f | 8681320b-5b5a-4c2d-b3f3-49b39a0e40d5 | ea145c19-95a1-461a-ba4d-74deacc54b2b | **eeeecb1a-79db-4a4e-8e11-6e52c4400776** | v04: 회색 망토가 광부·기술자와 구분. v01은 그림 아래에 "FREMT VIEW" 같은 글자가 생겨 탈락, v03은 가슴판이 섞임 |
 
-- class_lineup.png: 우선 후보 9장의 정면을 종족 키 비율(인간 64 / 팔라딘 68 / 엘프 72 / 드워프 50)로 맞춰 한 줄로 세운 것
+- class_lineup.png: 채택본 9장의 정면을 종족 키 비율(인간 64 / 팔라딘 68 / 엘프 72 / 드워프 50)로 맞춰 한 줄로 세운 것
 - class_lineup_32px.png: 같은 줄을 게임 크기(인간 28px 기준)로 줄인 것. 팔라딘·성직자·약초사·드워프 셋은 바로 구분되지만, 마법사와 시프는 어두운 옷이라 비슷하게 묻힌다(3단계 클래스 색으로 보완)
 
 배운 것:
