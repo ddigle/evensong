@@ -12,6 +12,9 @@
 CLAUDE.local.md
 **/.claude/settings.local.json
 .claude/worktrees/
+# 파이썬 (도구는 uv run으로 실행해서 보통 생기지 않는다)
+.venv/
+__pycache__/
 # 공통
 .DS_Store
 Thumbs.db
