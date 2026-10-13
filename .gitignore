@@ -12,6 +12,9 @@
 CLAUDE.local.md
 **/.claude/settings.local.json
 .claude/worktrees/
+# 도구용 파이썬 환경 (tools/art)
+.venv/
+__pycache__/
 # 공통
 .DS_Store
 Thumbs.db
