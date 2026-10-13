@@ -65,17 +65,14 @@ if (-not $crlf) { Pass "line endings: LF" }
 else { Warn "$(@($crlf).Count) files checked out as CRLF -> commit or stash first, then: git rm --cached -r . ; git reset --hard" }
 
 # --- tools ---
-$py = Get-Command py -ErrorAction SilentlyContinue
-if (-not $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
-if ($py) { Pass "python: $(& $py.Source --version 2>&1)" }
-else { Warn "python not found -> winget install --id Python.Python.3.12 -e (needed for tools/art)" }
-
-$venvPy = Join-Path $top '.venv\Scripts\python.exe'
-if (Test-Path $venvPy) {
-    & $venvPy -c "import PIL, numpy" 2>$null
-    if ($LASTEXITCODE -eq 0) { Pass ".venv ready for tools/art" }
-    else { Warn ".venv missing packages -> .venv\Scripts\pip install -r tools\art\requirements.txt" }
-} else { Warn "no .venv -> py -m venv .venv ; .venv\Scripts\pip install -r tools\art\requirements.txt" }
+# tools/art runs through uv; .python-version pins a full patch version because over SSH
+# Windows refuses uv's minor-version junction (os error 448) and the patch folder avoids it.
+if (Get-Command uv -ErrorAction SilentlyContinue) {
+    Pass "uv: $(uv --version)"
+    $out = uv run --quiet --directory $top tools/art/arttool.py -h 2>&1
+    if ($LASTEXITCODE -eq 0) { Pass "tools/art runs (uv run tools/art/arttool.py)" }
+    else { Fail "uv run tools/art/arttool.py failed: $(@($out)[-1])" }
+} else { Fail "uv not found -> winget install --id astral-sh.uv -e" }
 
 if (Get-Command claude -ErrorAction SilentlyContinue) { Pass "claude: $(claude --version 2>$null)" }
 else { Warn "Claude Code not found -> irm https://claude.ai/install.ps1 | iex" }

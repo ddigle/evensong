@@ -1,16 +1,20 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pillow>=10", "numpy>=1.26"]
+# ///
 """컨셉아트 검수 도구. 브리프 §6의 측정 기준과 2단계 시트 비교에 쓴다.
 
-설치: python -m venv .venv && .venv\\Scripts\\pip install -r tools/art/requirements.txt
+실행: uv run tools/art/arttool.py ... (의존성은 맨 위 script 블록, 고정 버전은 arttool.py.lock. 환경은 uv가 만든다)
 
 사용:
-  python tools/art/arttool.py measure 이미지...
+  uv run tools/art/arttool.py measure 이미지...
       356x200 bilinear 축소 후 dark = R+G+B<200, cool = dark 중 B>R+5, purple = B>G+40 이고 R>G+20.
       브리프 §6 ○ 기준: dark 중 cool 30% 미만, 전체 대비 purple 1% 미만
-  python tools/art/arttool.py grid --out sheet.jpg [--cols 2] 이미지...
+  uv run tools/art/arttool.py grid --out sheet.jpg [--cols 2] 이미지...
       후보 비교 시트. 각 칸 위에 A, B, C... 와 파일명을 붙인다
-  python tools/art/arttool.py front 시트.png --out 정면.png
+  uv run tools/art/arttool.py front 시트.png --out 정면.png
       정면·3/4 두 시점 시트에서 왼쪽(정면) 그림만 잘라낸다 (스프라이트 도구 입력용)
-  python tools/art/arttool.py lineup --out lineup.png [--unit 6] [--upscale 1] 시트.png:이름:키 ...
+  uv run tools/art/arttool.py lineup --out lineup.png [--unit 6] [--upscale 1] 시트.png:이름:키 ...
       시트마다 정면을 잘라 키(px) 비율로 맞춰 한 줄로 세운다.
       게임 크기 확인은 --unit 0.4375 --upscale 6 (인간 64 → 28px, 6배 확대)
 """

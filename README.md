@@ -16,7 +16,7 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
 1. 설치 (PowerShell). ARM64 기기면 ARM64 설치본이 깔렸는지 확인한다
    ```powershell
    winget install --id Git.Git -e              # Git LFS 포함
-   winget install --id Python.Python.3.12 -e   # tools/art 이미지 검수용
+   winget install --id astral-sh.uv -e         # 파이썬 도구 실행 (Python도 uv가 받는다)
    irm https://claude.ai/install.ps1 | iex     # Claude Code (네이티브)
    ```
 2. Git 설정
@@ -28,7 +28,7 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
    git config --global core.longpaths true
    ```
 3. `git clone https://github.com/ddigle/evensong.git C:\Dev\evensong` 후 `cd C:\Dev\evensong`. 처음에 GitHub 로그인 창이 뜬다(Git Credential Manager). 컨셉아트는 LFS로 함께 받아진다
-4. 도구 환경: `py -m venv .venv` → `.venv\Scripts\pip install -r tools\art\requirements.txt` (사용법은 `tools/art/arttool.py` 머리말)
+4. 도구: 저장소 루트에서 `uv run tools/art/arttool.py <명령>`. 첫 실행 때 uv가 Python(`.python-version`)과 패키지(`arttool.py.lock`)를 받는다. 가상환경을 따로 만들지 않는다 (사용법은 `tools/art/arttool.py` 머리말)
 5. 점검: `powershell -ExecutionPolicy Bypass -File tools\check-setup.ps1`. FAIL이 0이면 된다
 6. 에이전트 실행: Claude Code는 이 폴더에서 `claude` (CLAUDE.md가 AGENTS.md를 불러온다). Codex는 이 폴더나 별도 worktree에서 `codex` (AGENTS.md를 바로 읽는다)
 7. 힉스필드 MCP(이미지 생성): claude.ai의 힉스필드 커넥터가 연결돼 있으면 생략. 아니면 `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` → Claude Code 안에서 `/mcp`로 로그인. 둘 중 하나만 쓴다 (둘 다 등록하면 같은 도구가 두 벌 생긴다)

@@ -12,7 +12,7 @@
 CLAUDE.local.md
 **/.claude/settings.local.json
 .claude/worktrees/
-# 도구용 파이썬 환경 (tools/art)
+# 파이썬 (도구는 uv run으로 실행해서 보통 생기지 않는다)
 .venv/
 __pycache__/
 # 공통
