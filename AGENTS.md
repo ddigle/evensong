@@ -27,7 +27,7 @@
 
 - 기능마다 브랜치: `feat/<짧은-이름>`, 문서는 `docs/<이름>`, 에셋은 `art/<이름>`
 - main에 직접 커밋하지 않는다. PR로 올린다 (예외: 저장소 초기 커밋)
-- PR 머지는 사람이 한다. 에이전트는 PR을 머지하지 않는다
+- PR은 에이전트가 만들고 머지까지 한다 (`gh pr create`, `gh pr merge <번호> --merge --delete-branch`). 사람이 PR에 보류나 수정을 요청했으면 머지하지 않는다. 충돌이 나면 브랜치에 main을 머지해 해결한 뒤 머지한다
 - 에이전트를 동시에 돌릴 때는 에이전트마다 작업 트리를 따로 쓴다 (예: `git worktree add ../evensong-codex -b feat/<이름> main`). 한 브랜치는 한 에이전트만 쓴다
 - 커밋 메시지는 한국어 가능. 무엇을·왜를 한 줄로
 - 큰 바이너리(컨셉아트 원본, 영상, 오디오, .aseprite)는 Git LFS (.gitattributes 참조)

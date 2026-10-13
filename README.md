@@ -18,6 +18,7 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
    winget install --id Git.Git -e              # Git LFS 포함
    winget install --id astral-sh.uv -e         # 파이썬 도구 실행 (Python도 uv가 받는다)
    irm https://claude.ai/install.ps1 | iex     # Claude Code (네이티브)
+   winget install --id GitHub.cli -e           # gh (에이전트가 PR을 만들고 머지한다)
    ```
 2. Git 설정
    ```powershell
@@ -28,6 +29,8 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
    git config --global core.longpaths true
    ```
 3. `git clone https://github.com/ddigle/evensong.git C:\Dev\evensong` 후 `cd C:\Dev\evensong`. 처음에 GitHub 로그인 창이 뜬다(Git Credential Manager). 컨셉아트는 LFS로 함께 받아진다
+   - SSH로 접속한 세션에서는 Git Credential Manager가 Windows 자격 증명 관리자를 못 써서 push가 `Unable to persist credentials with the 'wincredman' credential store`로 실패한다. 이 기기용 SSH 키(`ssh-keygen -t ed25519`)를 GitHub Settings → SSH keys에 등록하고 push만 SSH로 보낸다: `git remote set-url --push origin git@github.com:ddigle/evensong.git`
+   - gh 로그인: `gh auth login --hostname github.com --git-protocol ssh --skip-ssh-key --web --insecure-storage` → 표시된 코드를 https://github.com/login/device 에 넣는다. `--insecure-storage`는 같은 이유로 토큰을 `%APPDATA%\GitHub CLI\hosts.yml`에 둔다. 확인은 `gh auth status`
 4. 도구: 저장소 루트에서 `uv run tools/art/arttool.py <명령>`. 첫 실행 때 uv가 Python(`.python-version`)과 패키지(`arttool.py.lock`)를 받는다. 가상환경을 따로 만들지 않는다 (사용법은 `tools/art/arttool.py` 머리말). uv는 0.13.0 이상이어야 한다(`uv self update`). 그보다 낮으면 SSH로 접속한 세션에서 `uv trampoline failed to spawn Python`으로 실패한다
 5. 점검: `powershell -ExecutionPolicy Bypass -File tools\check-setup.ps1`. FAIL이 0이면 된다
 6. 에이전트 실행: Claude Code는 이 폴더에서 `claude` (CLAUDE.md가 AGENTS.md를 불러온다). Codex는 이 폴더나 별도 worktree에서 `codex` (AGENTS.md를 바로 읽는다)
