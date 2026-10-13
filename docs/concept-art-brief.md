@@ -2,7 +2,7 @@
 
 > game-concept.md의 아트 방향(§10)을 실제 이미지 도구에 넣기 위한 실행 문서.
 > 기준: A안(32px 음울한 중세 픽셀 + 동적 조명) + 정렬형 탑다운. C안의 장식 언어는 제단과 UI에만.
-> 상태: 라운드 15 · 2026-10-02
+> 상태: 라운드 17 · 2026-10-14
 
 ## 0. 북극성 (확정, R15 · 2026-10-02)
 
@@ -26,14 +26,14 @@
 
 크레딧 기록: R6 1단계 5.5크레딧 (Seedream lite 1 + Nano Banana 2 1.5 + Nano Banana Pro 2 + 도트풍 1, 무료 플랜). R15 북극성 재작업 31크레딧 (starter 플랜, 잔액 274.5 → 243.5, 2026-10-02). 생성 전에는 `balance`로 실제 잔액을 확인한다.
 
-상태: 1단계 완료 (R15 재채택). 다음은 2단계 팔라딘 시트 (`seedream_v5_lite` + 북극성 레퍼런스, §5.2) → 3단계 PixelLab.
+상태: 1단계 완료 (R15 재채택). 2단계 완료 (R17, 도트풍 시트 9장, §5.2). 다음은 3단계 픽셀 전환 (§5.6).
 
 ## 1. 단계
 
 | 단계 | 산출물 | 도구 | 목적 |
 |---|---|---|---|
 | 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0. R15 재채택) | 톤·팔레트·제단 빛 표현·투영 확정 |
-| 2 클래스 시트 | 팔라딘 1장 먼저 → 채택본을 레퍼런스로 나머지 | 힉스필드 `seedream_v5_lite` + 레퍼런스 이미지(`medias` image_references) | 실루엣과 클래스 색 확정 |
+| 2 클래스 시트 | 팔라딘 1장 먼저 → 팔라딘 도트풍 시트를 레퍼런스로 나머지 (완료, §5.2. R17 채택) | 힉스필드 `seedream_v5_lite` + 레퍼런스 이미지(`medias` image_references) | 실루엣과 클래스 색 확정 |
 | 3 픽셀 전환 | 32px 스프라이트, 방향 수 ?(§5.6), idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
 | 4 환경·오브젝트 | 제단, 오염 타일, 바이옴 2개 무드 | 1~2단계 도구 → PixelLab 타일셋 | 슬라이스 환경 |
 | 5 성화 UI | 코덱스 페이지, 기도 화면, 아이콘 프레임 | 이미지 모델 (+ Recraft 벡터) | 정적, 가장 쉬움 |
@@ -98,31 +98,27 @@ Palette: 80% desaturated warm grey-brown #1a1714 #2e2a26 #4a423a #6b5e4f #8c7b66
 ```
 같은 프롬프트로 4장을 뽑아 2장이 엄밀한 정렬 격자로 나왔다(나머지 2장은 대각선 격자). 프롬프트의 "smith"가 룬마스터다("rune"이라는 단어를 피했다). v6에서 인물은 일렬 대형으로 섰다.
 
-### 5.2 팔라딘 캐릭터 시트 (2단계)
+### 5.2 클래스 캐릭터 시트 (2단계, R17 채택)
+
+● 시트 화풍은 도트풍이다 (2026-10-03 결정. 회화체는 32px로 줄이면 윤곽이 배경에 묻혔다). ● 팔라딘은 인간이지만 중간 체형이 아니라 거구다 ("벽" 같은 탱커 실루엣).
+채택본 9장: `assets/concept/02-sheets/<클래스>_vNN_final.png`. 클래스별 CLASS LINE·팔레트·job id·선정 이유는 `02-sheets/prompts.md`.
 
 ```
 Character concept sheet, front view and three-quarter view of the same character, full body.
-A human paladin of a grim medieval faith, medium build: heavy plate armor in worn steel with
-gold-leaf trim, a tall kite shield that is completely blank, flat dull steel with no emblem,
-boss or marks, closed helm with a narrow visor, ash-gray tabard with a single gold stripe.
-Solemn, weathered, devout. Clean silhouette readable at small size.
+<CLASS LINE> Clean silhouette readable at small size.
 Plain dark background, soft even warm light, single character.
-Use the reference only for its palette and warm colour temperature; do not copy its scene.
-Palette: worn iron and ash (#4a423a, #8c7b66), leather (#6b5e4f), gold (#c9932b, #f4c95d). [공통 접미어]
+Use the first reference only for its palette and warm colour temperature; do not copy its scene.
+Match the second reference's pixel rendering, dark outline and two-view sheet layout, but not
+its armor, shield or body proportions.
+Palette: <CLASS PALETTE>.
+Rendering: pixel art character sheet, each view drawn as a <N>-pixel-tall sprite enlarged with
+nearest-neighbour scaling, crisp square pixels on one strict grid, no anti-aliasing, no blur,
+dark outline, limited palette of about 48 colours. [공통 접미어]
 ```
 
-북극성 job id를 레퍼런스로 넣는다(AGENTS.md). 나머지 클래스는 이 틀에서 두 번째 문장(종족·체형·장비)만 바꾸고, 채택된 팔라딘 시트도 레퍼런스로 넣는다. 이때 비례는 복사하지 않는다. 종족마다 체형이 다르다(인간 중간, 엘프 크고 가늘게, 드워프 낮고 넓게).
+`seedream_v5_lite`, 4:3, quality high, 클래스마다 4장. 레퍼런스 두 개: ① 북극성 v6 (팔레트·색온도만) ② 도트풍 팔라딘 v04 시트 `fafe57aa-619e-4330-8547-7b398dc794b6` (도트 렌더링·외곽선·두 시점 배치만). 두 번째 레퍼런스의 장비가 새어 들어오는 클래스(시프 등)는 레퍼런스 문장을 "Take only the pixel rendering and dark outline from the second reference; ignore its armor, tabard, shield and body."로 바꾸고 CLASS LINE에 "No metal plate armor, no pauldrons, no tabard"를 넣는다.
 
-? 시트 화풍(회화체 / 도트풍)은 2단계를 시작하기 전에 정한다. 위 프롬프트는 어느 쪽인지 정하지 않는다. 정하면 본문에 렌더링 문구를 넣는다.
-
-- 광부 (드워프): short, very broad, heavily bearded dwarf, leather apron and gloves, round helmet with a small oil lamp, heavy pickaxe, soot-stained
-- 아처 (엘프): tall, slender elf, earth-brown cloak with the hood down and long pointed ears visible, longbow taller than the shoulders, quiver
-- 성직자 (인간): human of medium build, ivory robes with a gold stole, deep hood, long staff topped with a small flame, prayer beads
-- 마법사 (엘프): tall, slender elf with long pointed ears, charcoal robes with copper trim, one hand holding a small glowing enchanting crystal, no hat, calm posture
-- 약초사 (인간): human of medium build, patched brown and ochre garb, satchel of herbs and vials, small animal companion at the feet
-- 시프 (엘프): tall, slender elf with long pointed ears, dark leather, short hooded cape, twin daggers, crouched stance, half-turned
-- 기술자 (드워프): short, very broad, bearded dwarf, leather apron with tool belt, goggles on forehead, backpack of gears and a coiled rope, one hand on a small mechanical trap
-- 룬마스터 (드워프, 초안): short, very broad, bearded dwarf, plain heavy mail under a stone-gray mantle, heavy engraving hammer, small glowing stones on the belt
+종족 체형 문구: 인간 "medium build" (팔라딘만 "huge, hulking ... massively built"), 엘프 "tall, slender ... about seven heads tall, long pointed ears clearly visible", 드워프 "short, very broad ... about four heads tall and almost as wide as a human, not a child". ○ 시트의 스프라이트 높이 N(인간 64 / 팔라딘 68 / 엘프 72 / 드워프 50)은 프롬프트 값이고, 게임 안 종족 키는 3단계에서 정한다(§5.6).
 
 "rune", "glyph", "engraved"(갑옷에 쓸 때) 같은 단어는 글자·문양을 부르므로 프롬프트에 쓰지 않는다. "engraving hammer"(각인 망치)는 v6에서 문제가 없었다.
 
@@ -173,9 +169,9 @@ Re-map every colour to a limited palette of about 48 colours, even where the ref
 
 ```
 3/4 straight top-down character sprite on a 32px canvas (square grid, not isometric),
-[4 or 8] directions, grim medieval human paladin: worn steel armor with gold trim,
+[4 or 8] directions, grim medieval human paladin, huge and broad-shouldered: worn steel armor with gold trim,
 tall blank shield with no emblem or boss on the left arm, closed helm. Limited palette,
-clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부]
+clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부, 예: 02-sheets/paladin_v05_final.png]
 ```
 애니메이션은 idle(4프레임) → walk(6~8프레임) → attack(4~6프레임) 순서로.
 ? 방향 수(4 / 8)와 PixelLab의 view(low / high top-down)는 3단계 전에 정한다. 종족별 키(캔버스 안에서 몇 px인지)도 ○라서 2~3단계에서 정한다.
@@ -197,6 +193,8 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - 장면 키아트는 회화 원본 → 도트 변환 두 단계로 만든다. 텍스트만으로 바로 도트를 뽑으면 치비 비례가 나왔다(d5723dd1, 47a12576)
 - 종족 키 문단을 프롬프트 앞쪽에 두면 드워프는 확실히 작고 넓게 나온다. 엘프 키는 v6에서도 인간과 비슷했다. 2단계 시트에서 보강한다
 - 방패 문장: "completely blank, no emblem and no marks"로도 마름모 무늬(v2)나 가운데 징(b24b9991)이 생겼다. v6의 "no emblem, boss or marks"를 쓰고, 원본 해상도로 확대해 확인한다
+- 2단계 시트 (R17, 근거는 02-sheets/prompts.md): 두 번째 레퍼런스(팔라딘 시트)의 갑옷이 다른 클래스로 새어 들어온다(광부 v01 어깨갑옷, 시프 v01~v04 판금, 룬마스터 v03 가슴판). 금지 문구와 "Take only the pixel rendering and dark outline from the second reference"로 막았다. 북극성 하나만 쓰면 판금은 사라지지만 배경색·화풍이 다른 시트와 어긋나므로 레퍼런스 두 개를 유지한다
+- "front view and three-quarter view"는 가끔 보기 라벨 글자를 그리고(룬마스터 v01), 두 시점이 거의 같은 각도로 나오기도 한다(기술자 v01). 채택 전에 원본 해상도로 확인한다
 - ○ 채택 전 측정 (권장 기준): 356×200으로 bilinear 축소한 뒤 어두운 픽셀 = R+G+B < 200, 차가운 색 = 어두운 픽셀 중 B > R+5, 보라 = B > G+40 이고 R > G+20. 목표는 어두운 픽셀 중 차가운 색 30% 미만, 전체 대비 보라 1% 미만. 격자 방향과 문장은 원본 해상도로 확대해서 확인한다(축소본에서는 회전된 격자가 정렬형처럼 보였다)
 
 ## 7. 채택 체크리스트
@@ -206,8 +204,8 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - [x] 팔라딘·광부·아처·성직자가 실루엣만으로 구분되는가 (v6)
 - [x] 오염이 테라리아의 보라 오염과 다르게 보이는가 (v6: 회색 균열 + 가는 보라 맥, 바닥에 납작)
 - [x] 정렬형 탑다운 격자인가 (아이소메트릭이나 회전 격자가 아닌가) (v6)
-- [ ] 몸집으로 종족이 읽히는가 (v6: 드워프는 확실, 엘프와 인간의 키 차이는 약함. 2단계 시트에서 보강)
-- [ ] 32px로 줄였을 때 클래스 색 하나가 살아남는가 (3단계)
+- [ ] 몸집으로 종족이 읽히는가 (v6: 드워프는 확실, 엘프와 인간의 키 차이는 약함. R17 시트에서 엘프를 7등신으로 가늘게 그렸다. 게임 안 키 차이는 3단계에서 확인)
+- [ ] 32px로 줄였을 때 클래스 색 하나가 살아남는가 (3단계. R17 시트 축소 시험 `02-sheets/class_lineup_32px.png`: 마법사와 시프가 어두운 옷이라 비슷하게 묻힌다)
 - [ ] 성스러움(UI)과 세속(게임 화면)의 대비가 느껴지는가 (5단계)
 
 ## 변경 이력
@@ -216,3 +214,4 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - R13: 가제 반영 (제목)
 - R14: 저장소 docs/를 원본으로 전환. 북극성 두 장 보관 기록. §1 도구 칸을 실제 사용 도구에 맞춤. 나머지 클래스 5개, §5.2에 룬마스터 변형 추가 (초안). 레퍼런스는 북극성으로 정리 (스타일 보드는 비교용). prompts.md 기록 항목을 AGENTS.md와 맞춤
 - R15: 북극성을 v6로 교체 (지상 저녁, 3×3 등잔 제단, 3종족 9인, 정렬형 탑다운). §0·§5.0·§5.1을 v6 기록으로 바꾸고 v1의 프롬프트·URL·당시 접미어는 prompts.md로 옮김. §1에 투영 목적 추가, 방향 수는 ?. §3 접미어에서 문장·단일 광원·보라 덩굴·회화체를 부르는 말을 빼고 따뜻한 그림자와 문장 금지(신앙 상징 결정 전까지)를 넣음. §4에 v6 팔레트 기준과 ○ 녹색 금지. §5.2 종족 체형, 민무늬 방패(no emblem, boss or marks), 레퍼런스는 팔레트·색온도만, 시트 화풍은 ?, "rune"·"glyph"·"engraved"(갑옷) 금지. §5.3 등잔 9개·새김 없는 제단, §5.4 지상 오염, §5.3·§5.4 정렬형 문구, §5.5 상징 없는 임시 UI(○), §5.6 정렬형·방향 수 ?. §6에 프롬프트 요령과 ○ 측정 기준, §7에 v6 판정
+- R17: 2단계 클래스 시트 9장 채택 (`02-sheets/<클래스>_vNN_final.png`). §5.2 시트 화풍 ? → ● 도트풍, ● 팔라딘 거구 체형, 실제로 쓴 프롬프트 틀·레퍼런스 두 개·종족 체형 문구로 교체(클래스 문구는 prompts.md로), 시트 스프라이트 높이는 ○. §0 상태·§1 2단계 완료. §5.6 팔라딘 체형·레퍼런스 예. §6에 2단계 요령, §7에 R17 시트 관찰
