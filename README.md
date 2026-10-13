@@ -13,7 +13,7 @@
 
 WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Aseprite, GPU를 그대로 쓰고 LFS·줄바꿈 문제를 한 파일시스템 안에서 끝내기 위해서다.
 
-1. 설치 (PowerShell). ARM64 기기면 ARM64 설치본이 깔렸는지 확인한다
+1. 설치 (PowerShell)
    ```powershell
    winget install --id Git.Git -e              # Git LFS 포함
    winget install --id astral-sh.uv -e         # 파이썬 도구 실행 (Python도 uv가 받는다)
