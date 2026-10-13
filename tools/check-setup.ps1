@@ -62,7 +62,7 @@ else { Fail "$($pointers.Count) LFS pointer files not downloaded -> git lfs pull
 # text files should be LF in the working tree (.gitattributes: * text=auto eol=lf)
 $crlf = git ls-files --eol | Where-Object { $_ -match 'i/lf\s+w/crlf' }
 if (-not $crlf) { Pass "line endings: LF" }
-else { Warn "$(@($crlf).Count) files checked out as CRLF -> git rm --cached -r . ; git reset --hard" }
+else { Warn "$(@($crlf).Count) files checked out as CRLF -> commit or stash first, then: git rm --cached -r . ; git reset --hard" }
 
 # --- tools ---
 $py = Get-Command py -ErrorAction SilentlyContinue
