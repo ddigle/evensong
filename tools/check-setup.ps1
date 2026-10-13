@@ -65,13 +65,22 @@ if (-not $crlf) { Pass "line endings: LF" }
 else { Warn "$(@($crlf).Count) files checked out as CRLF -> commit or stash first, then: git rm --cached -r . ; git reset --hard" }
 
 # --- tools ---
-# tools/art runs through uv; .python-version pins a full patch version because over SSH
-# Windows refuses uv's minor-version junction (os error 448) and the patch folder avoids it.
+# tools/art runs through uv. Over SSH, Windows refuses uv's minor-version junction
+# (cpython-3.14-... -> cpython-3.14.6-..., os error 448). .python-version pins the patch
+# version, and uv 0.13.0+ then builds the env on the real patch folder; older uv still
+# links through the junction and fails with "uv trampoline failed to spawn Python".
 if (Get-Command uv -ErrorAction SilentlyContinue) {
-    Pass "uv: $(uv --version)"
+    $uvVer = (uv --version) -replace '^uv (\S+).*', '$1'
+    if ([version]$uvVer -ge [version]'0.13.0') { Pass "uv: $uvVer" }
+    else { Warn "uv $uvVer is older than 0.13.0; tools/art breaks over SSH -> uv self update" }
     $out = uv run --quiet --directory $top tools/art/arttool.py -h 2>&1
     if ($LASTEXITCODE -eq 0) { Pass "tools/art runs (uv run tools/art/arttool.py)" }
-    else { Fail "uv run tools/art/arttool.py failed: $(@($out)[-1])" }
+    else {
+        # PS 5.1 wraps native stderr in ErrorRecords; keep the real message lines
+        $msg = $out | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" } } |
+            Where-Object { $_ -and $_.Trim() } | Select-Object -Last 2
+        Fail "uv run tools/art/arttool.py failed: $($msg -join ' / ')"
+    }
 } else { Fail "uv not found -> winget install --id astral-sh.uv -e" }
 
 if (Get-Command claude -ErrorAction SilentlyContinue) { Pass "claude: $(claude --version 2>$null)" }
