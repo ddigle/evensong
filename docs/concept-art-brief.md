@@ -2,7 +2,8 @@
 
 > game-concept.md의 아트 방향(§10)을 실제 이미지 도구에 넣기 위한 실행 문서.
 > 기준: A안(32px 음울한 중세 픽셀 + 동적 조명) + 정렬형 탑다운. C안의 장식 언어는 제단과 UI에만.
-> 상태: 라운드 17 · 2026-10-14
+> 게임 스프라이트(3단계부터)의 도트 구조는 Tiny Farm RPG, 북극성은 분위기·질감·팔레트 기준 (R18, §5.6).
+> 상태: 라운드 18 · 2026-10-14
 
 ## 0. 북극성 (확정, R15 · 2026-10-02)
 
@@ -26,7 +27,7 @@
 
 크레딧 기록: R6 1단계 5.5크레딧 (Seedream lite 1 + Nano Banana 2 1.5 + Nano Banana Pro 2 + 도트풍 1, 무료 플랜). R15 북극성 재작업 31크레딧 (starter 플랜, 잔액 274.5 → 243.5, 2026-10-02). 생성 전에는 `balance`로 실제 잔액을 확인한다.
 
-상태: 1단계 완료 (R15 재채택). 2단계 완료 (R17, 도트풍 시트 9장, §5.2). 다음은 3단계 픽셀 전환 (§5.6).
+상태: 1단계 완료 (R15 재채택). 2단계 완료 (R17, 도트풍 시트 9장, §5.2). 3단계 픽셀 전환은 화풍을 정했고(R18, §5.6) 방향 수가 남았다.
 
 ## 1. 단계
 
@@ -34,7 +35,7 @@
 |---|---|---|---|
 | 1 무드 키아트 | 3~5장 중 1장을 "북극성"으로 채택 | 힉스필드 Seedream 5.0 Lite (완료, §0. R15 재채택) | 톤·팔레트·제단 빛 표현·투영 확정 |
 | 2 클래스 시트 | 팔라딘 1장 먼저 → 팔라딘 도트풍 시트를 레퍼런스로 나머지 (완료, §5.2. R17 채택) | 힉스필드 `seedream_v5_lite` + 레퍼런스 이미지(`medias` image_references) | 실루엣과 클래스 색 확정 |
-| 3 픽셀 전환 | 32px 스프라이트, 방향 수 ?(§5.6), idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
+| 3 픽셀 전환 | 32×32 프레임 2등신 스프라이트(Tiny Farm 구조, §5.6), 방향 수 ?, idle/walk/attack | PixelLab (+ Aseprite) | 실제 에셋 |
 | 4 환경·오브젝트 | 제단, 오염 타일, 바이옴 2개 무드 | 1~2단계 도구 → PixelLab 타일셋 | 슬라이스 환경 |
 | 5 성화 UI | 코덱스 페이지, 기도 화면, 아이콘 프레임 | 이미지 모델 (+ Recraft 벡터) | 정적, 가장 쉬움 |
 
@@ -56,7 +57,7 @@ no text, no letters, no watermark, no UI
 ```
 접미어에는 그림자 색만 두고, 조명·렌더링(회화체·도트풍)·장면은 각 프롬프트 본문에 쓴다. §5.0과 §5.1은 그 자체로 완결된 프롬프트라 접미어를 붙이지 않는다. 문장·상징을 막는 말은 신앙 상징(game-concept §7, 미결)이 정해지기 전까지 둔다.
 
-네거티브 (지원하는 도구에서. `seedream_v5_lite`는 지원하지 않는다):
+네거티브 (지원하는 도구에서. `seedream_v5_lite`는 지원하지 않는다. 컨셉 이미지용이다. 게임 스프라이트는 2등신이므로 3단계에는 "cute chibi proportions"를 쓰지 않는다, §5.6):
 ```
 photorealism, anime, cute chibi proportions, bright saturated colors, modern or sci-fi elements,
 isometric view, diamond-shaped tiles, emblems or sacred symbols on shields and clothing,
@@ -100,7 +101,8 @@ Palette: 80% desaturated warm grey-brown #1a1714 #2e2a26 #4a423a #6b5e4f #8c7b66
 
 ### 5.2 클래스 캐릭터 시트 (2단계, R17 채택)
 
-● 시트 화풍은 도트풍이다 (2026-10-03 결정. 회화체는 32px로 줄이면 윤곽이 배경에 묻혔다). ● 팔라딘은 인간이지만 중간 체형이 아니라 거구다 ("벽" 같은 탱커 실루엣).
+● 시트 화풍은 도트풍이다 (2026-10-03 결정. 회화체는 32px로 줄이면 윤곽이 배경에 묻혔다). R17의 "팔라딘은 거구" 결정은 R18에서 폐지했다. 게임 스프라이트는 전 클래스가 같은 체형이다(§5.6). 시트의 거구 팔라딘은 컨셉 기록으로 남긴다.
+R18부터 시트는 비례 기준이 아니라 의상·도구 기준이다 (무엇을 입고 무엇을 드는가).
 채택본 9장: `assets/concept/02-sheets/<클래스>_vNN_final.png`. 클래스별 CLASS LINE·팔레트·job id·선정 이유는 `02-sheets/prompts.md`.
 
 ```
@@ -118,7 +120,7 @@ dark outline, limited palette of about 48 colours. [공통 접미어]
 
 `seedream_v5_lite`, 4:3, quality high, 클래스마다 4장. 레퍼런스 두 개: ① 북극성 v6 (팔레트·색온도만) ② 도트풍 팔라딘 v04 시트 `fafe57aa-619e-4330-8547-7b398dc794b6` (도트 렌더링·외곽선·두 시점 배치만). 두 번째 레퍼런스의 장비가 새어 들어오는 클래스(시프 등)는 레퍼런스 문장을 "Take only the pixel rendering and dark outline from the second reference; ignore its armor, tabard, shield and body."로 바꾸고 CLASS LINE에 "No metal plate armor, no pauldrons, no tabard"를 넣는다.
 
-종족 체형 문구: 인간 "medium build" (팔라딘만 "huge, hulking ... massively built"), 엘프 "tall, slender ... about seven heads tall, long pointed ears clearly visible", 드워프 "short, very broad ... about four heads tall and almost as wide as a human, not a child". ○ 시트의 스프라이트 높이 N(인간 64 / 팔라딘 68 / 엘프 72 / 드워프 50)은 프롬프트 값이고, 게임 안 종족 키는 3단계에서 정한다(§5.6).
+종족 체형 문구: 인간 "medium build" (팔라딘만 "huge, hulking ... massively built"), 엘프 "tall, slender ... about seven heads tall, long pointed ears clearly visible", 드워프 "short, very broad ... about four heads tall and almost as wide as a human, not a child". 시트의 스프라이트 높이 N(인간 64 / 팔라딘 68 / 엘프 72 / 드워프 50)은 시트를 만들 때 쓴 프롬프트 값이다. 게임 안에서는 종족별 키 차이를 두지 않는다(R18, §5.6).
 
 "rune", "glyph", "engraved"(갑옷에 쓸 때) 같은 단어는 글자·문양을 부르므로 프롬프트에 쓰지 않는다. "engraving hammer"(각인 망치)는 v6에서 문제가 없었다.
 
@@ -163,18 +165,34 @@ Re-draw the reference image as a pixel art screenshot of a top-down 2D video gam
 Keep three clearly different body heights as sprites: elves about 32 pixels tall and thin, humans about 28, dwarves about 22 pixels tall and almost as wide as a human. Each sprite has a dark outline and a readable role item: tall plain shield, staff with a small flame, herb satchel, longbow, twin daggers, small crystal, pickaxe and helmet lamp, engraving hammer, gear backpack. The altar keeps its nine lamp flames in three rows of three; each of the nine flames stays a separate bright dot, and they stay the brightest point on screen.
 Re-map every colour to a limited palette of about 48 colours, even where the reference is cooler: shadows warm brown-black #1a1714 #2e2a26, ground ash and earth #4a423a #6b5e4f #8c7b66, light candle gold and ivory #f4c95d #c9932b #9c6a1f #efe3c6, corruption grey cracked earth with bone #d8d2c0 and dull olive #6f8f3a, violet only as thin dark lines #3b1f4d #5e2d7a. No blue or navy in any shadow. The flat corruption stops at the rim of the golden circle. Grim medieval fantasy, plain gear without emblems. No text, no letters, no watermark, no UI.
 ```
-범용 모델의 "도트풍"이라 격자가 완전히 정확하지는 않다(바닥 빛에 부드러운 그라데이션이 남는다). 무드와 기준용이다. 진짜 도트는 §5.6. 프롬프트의 종족 키(32/28/22px)는 이 프롬프트에서 정한 ○ 값이다. game-concept에는 §3의 실루엣 원칙(인간 중간 / 엘프 크고 가늘게 / 드워프 낮고 넓게)만 있고 수치는 없다.
+범용 모델의 "도트풍"이라 격자가 완전히 정확하지는 않다(바닥 빛에 부드러운 그라데이션이 남는다). 무드와 기준용이다. 진짜 도트는 §5.6. 프롬프트의 종족 키(32/28/22px)는 이 키아트에만 쓴 값이다. 게임 스프라이트는 R18부터 체형이 하나이고 종족은 머리 표식으로 구분한다(game-concept §3, §5.6).
 
-### 5.6 픽셀 전환 (3단계, PixelLab)
+### 5.6 픽셀 전환 (3단계, PixelLab, R18 화풍 결정)
 
+● 게임 스프라이트의 도트 구조는 Tiny Farm RPG(itch.io, Maeve, 16x16 팩)와 같게 한다. 북극성 v6는 분위기·질감·팔레트의 기준으로만 쓴다 (R18, 2026-10-14. PixelLab 1차 시험의 사실 비례 팔라딘을 보고 사람이 정함).
+- ● 크기: 타일 16px, 캐릭터 프레임 32×32, 캐릭터 키 약 20px. A안의 "32px"는 프레임 크기다
+- ● 비례: 2등신 (머리가 키의 절반쯤, 짧은 몸과 팔다리). 9클래스 모두 같은 체형이다. 종족별 키·체형 차이와 R17의 거구 팔라딘은 두지 않는다
+- ● 종족은 머리 표식으로 구분한다: 엘프는 뾰족 귀(두건·머리카락 밖으로 나오게 과장), 드워프는 수염, 인간은 표식 없음
+- ● 직분은 도구·모자·옷으로 읽는다. 무엇을 입고 드는지는 R17 시트(§5.2, 02-sheets/prompts.md)를 따른다: 팔라딘 닫힌 투구·민무늬 연 방패, 성직자 깊은 두건·촛불 지팡이, 약초사 약초 가방·작은 동물 동료, 시프 짧은 망토·단검 둘, 마법사 빛 수정(모자 없음), 아처 장궁·화살통, 광부 램프 둥근 투구·곡괭이, 룬마스터 각인 망치·허리의 빛나는 돌, 기술자 고글·톱니 배낭. 체형 비교 샘플의 약초사 모자, 시프 두건, 기술자 렌치는 시트와 다르다
+- ● 선·명암: 따뜻한 갈흑 1px 외곽선, 재질마다 2~3단 명암, 한 캐릭터 10여 색
+- ● 구도: 바닥은 위에서, 인물은 정면에 가깝게 (PixelLab `view: "low top-down"`). 타일·오브젝트 도구는 기본값이 high top-down이라 매번 명시한다
+- 색: §4 팔레트와 북극성 v6 기준(따뜻한 갈흑 그림자, 청색 없음, 금·촛불). Tiny Farm의 밝고 채도 높은 색은 가져오지 않는다
+- Tiny Farm 이미지는 생성 도구에 넣지 않는다. 라이선스가 AI 학습 사용을 금지하므로 구조는 말로만 옮긴다
+- ? 방향: Tiny Farm식(아래·위·옆 3장, 반대쪽 옆은 좌우 반전) 또는 반전 없는 4방향. 반전하면 방패 같은 한쪽 장비가 반대 팔로 옮겨 가지만 양쪽 옆모습에서 모두 보인다
+- ○ 모션 프레임 (Tiny Farm 수치): idle 4, walk 6, 공격 6~10, 피격 4, 사망 4. 순서는 idle → walk → attack
+
+○ 다음 시험의 PixelLab 설정 (확정 전):
 ```
-3/4 straight top-down character sprite on a 32px canvas (square grid, not isometric),
-[4 or 8] directions, grim medieval human paladin, huge and broad-shouldered: worn steel armor with gold trim,
-tall blank shield with no emblem or boss on the left arm, closed helm. Limited palette,
-clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스로 첨부, 예: 02-sheets/paladin_v05_final.png]
+create_character  mode: "standard", n_directions: 4, view: "low top-down",
+  proportions: {"type": "preset", "name": "chibi"}, outline: "single color black outline",
+  shading: "basic shading", detail: "low detail", size: 32×32 프레임에 약 20px가 되게
+description: grim medieval <human | elf with long pointed ears | dwarf with a big beard> <class>,
+  chibi, <모자>, <옷 색>, holding <도구>. 색은 북극성 팔레트를 reduce_colors(palette_image)로 맞춘다
 ```
-애니메이션은 idle(4프레임) → walk(6~8프레임) → attack(4~6프레임) 순서로.
-? 방향 수(4 / 8)와 PixelLab의 view(low / high top-down)는 3단계 전에 정한다. 종족별 키(캔버스 안에서 몇 px인지)도 ○라서 2~3단계에서 정한다.
+
+근거 기록:
+- 체형 비교 샘플: `assets/concept/03-pixel/chibi_race_sample_v01.png` (손으로 찍음, `tools/art/chibi_sample.py`). 채택은 A'안(같은 체형 + 엘프 귀·드워프 수염)
+- PixelLab 1차 시험 (R18 전, 48 캔버스·사실 비례 팔라딘·바닥 타일): `assets/concept/03-pixel/prompts.md`
 
 ## 6. 운영 규칙
 
@@ -195,6 +213,7 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - 방패 문장: "completely blank, no emblem and no marks"로도 마름모 무늬(v2)나 가운데 징(b24b9991)이 생겼다. v6의 "no emblem, boss or marks"를 쓰고, 원본 해상도로 확대해 확인한다
 - 2단계 시트 (R17, 근거는 02-sheets/prompts.md): 두 번째 레퍼런스(팔라딘 시트)의 갑옷이 다른 클래스로 새어 들어온다(광부 v01 어깨갑옷, 시프 v01~v04 판금, 룬마스터 v03 가슴판). 금지 문구와 "Take only the pixel rendering and dark outline from the second reference"로 막았다. 북극성 하나만 쓰면 판금은 사라지지만 배경색·화풍이 다른 시트와 어긋나므로 레퍼런스 두 개를 유지한다
 - "front view and three-quarter view"는 가끔 보기 라벨 글자를 그리고(룬마스터 v01), 두 시점이 거의 같은 각도로 나오기도 한다(기술자 v01). 채택 전에 원본 해상도로 확인한다
+- PixelLab 1차 시험 (R18, 근거는 03-pixel/prompts.md): 시트를 `image_to_pixelart`로 바꿀 때 `faithful: true`는 흐려졌고, 새로 해석하는 설정은 또렷했지만 색이 바뀌었다(회색 방패 → 주황). 템플릿 걷기는 방패·휘장을 프레임마다 지우고 체형을 표준으로 되돌렸다. 레퍼런스 없는 v3는 캔버스를 거의 다 채운다(48 → 키 약 45px). 기본 타일셋은 글만으로 북극성 질감이 나오지 않았다(격자 무늬 흙, 작은 벽돌, 노란 외곽선). 무료 체험은 동시 작업이 1건이라 애니메이션을 방향마다 따로 호출한다
 - ○ 채택 전 측정 (권장 기준): 356×200으로 bilinear 축소한 뒤 어두운 픽셀 = R+G+B < 200, 차가운 색 = 어두운 픽셀 중 B > R+5, 보라 = B > G+40 이고 R > G+20. 목표는 어두운 픽셀 중 차가운 색 30% 미만, 전체 대비 보라 1% 미만. 격자 방향과 문장은 원본 해상도로 확대해서 확인한다(축소본에서는 회전된 격자가 정렬형처럼 보였다)
 
 ## 7. 채택 체크리스트
@@ -204,7 +223,9 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - [x] 팔라딘·광부·아처·성직자가 실루엣만으로 구분되는가 (v6)
 - [x] 오염이 테라리아의 보라 오염과 다르게 보이는가 (v6: 회색 균열 + 가는 보라 맥, 바닥에 납작)
 - [x] 정렬형 탑다운 격자인가 (아이소메트릭이나 회전 격자가 아닌가) (v6)
-- [ ] 몸집으로 종족이 읽히는가 (v6: 드워프는 확실, 엘프와 인간의 키 차이는 약함. R17 시트에서 엘프를 7등신으로 가늘게 그렸다. 게임 안 키 차이는 3단계에서 확인)
+- 몸집으로 종족이 읽히는가: R18에서 항목 폐지 (체형 통일). v6에서 드워프는 확실했고 엘프와 인간의 키 차이는 약했다
+- [ ] 머리 표식(엘프 귀, 드워프 수염)으로 종족이 읽히는가 (3단계. 샘플에서 수염은 확실, 귀는 두건·머리카락과 겹치면 약함)
+- [ ] 체형이 같아도 도구·모자로 9클래스가 구분되는가 (3단계. 샘플에서 시프와, 로브를 입은 마법사·성직자가 약함)
 - [ ] 32px로 줄였을 때 클래스 색 하나가 살아남는가 (3단계. R17 시트 축소 시험 `02-sheets/class_lineup_32px.png`: 마법사와 시프가 어두운 옷이라 비슷하게 묻힌다)
 - [ ] 성스러움(UI)과 세속(게임 화면)의 대비가 느껴지는가 (5단계)
 
@@ -215,3 +236,4 @@ clean silhouette, no anti-aliasing. [채택된 시트 이미지를 레퍼런스�
 - R14: 저장소 docs/를 원본으로 전환. 북극성 두 장 보관 기록. §1 도구 칸을 실제 사용 도구에 맞춤. 나머지 클래스 5개, §5.2에 룬마스터 변형 추가 (초안). 레퍼런스는 북극성으로 정리 (스타일 보드는 비교용). prompts.md 기록 항목을 AGENTS.md와 맞춤
 - R15: 북극성을 v6로 교체 (지상 저녁, 3×3 등잔 제단, 3종족 9인, 정렬형 탑다운). §0·§5.0·§5.1을 v6 기록으로 바꾸고 v1의 프롬프트·URL·당시 접미어는 prompts.md로 옮김. §1에 투영 목적 추가, 방향 수는 ?. §3 접미어에서 문장·단일 광원·보라 덩굴·회화체를 부르는 말을 빼고 따뜻한 그림자와 문장 금지(신앙 상징 결정 전까지)를 넣음. §4에 v6 팔레트 기준과 ○ 녹색 금지. §5.2 종족 체형, 민무늬 방패(no emblem, boss or marks), 레퍼런스는 팔레트·색온도만, 시트 화풍은 ?, "rune"·"glyph"·"engraved"(갑옷) 금지. §5.3 등잔 9개·새김 없는 제단, §5.4 지상 오염, §5.3·§5.4 정렬형 문구, §5.5 상징 없는 임시 UI(○), §5.6 정렬형·방향 수 ?. §6에 프롬프트 요령과 ○ 측정 기준, §7에 v6 판정
 - R17: 2단계 클래스 시트 9장 채택 (`02-sheets/<클래스>_vNN_final.png`). §5.2 시트 화풍 ? → ● 도트풍, ● 팔라딘 거구 체형, 실제로 쓴 프롬프트 틀·레퍼런스 두 개·종족 체형 문구로 교체(클래스 문구는 prompts.md로), 시트 스프라이트 높이는 ○. §0 상태·§1 2단계 완료. §5.6 팔라딘 체형·레퍼런스 예. §6에 2단계 요령, §7에 R17 시트 관찰
+- R18: 3단계 화풍 결정 (PixelLab 1차 시험과 체형 비교 샘플 뒤). 머리말·§0 상태·§1. §5.6을 다시 씀: ● 도트 구조는 Tiny Farm RPG(32×32 프레임, 2등신 약 20px, 1px 외곽선, 2~3단 명암, low top-down), 북극성은 분위기·질감·팔레트 기준, ● 체형 통일·종족은 머리 표식·직분은 도구, Tiny Farm 이미지는 도구에 넣지 않음. 시점 ? → ● low top-down, 종족 키 ○ → 폐지, 방향 수는 ? 그대로, ○ 모션 프레임과 다음 PixelLab 설정. §5.2 거구 팔라딘(R17) 폐지, 시트는 의상·도구 기준. §3 네거티브의 치비 금지는 컨셉 이미지에만. §5.0 종족 키 설명. §6에 PixelLab 1차 요령, §7 종족 몸집 항목을 머리 표식·도구 구분 항목으로
