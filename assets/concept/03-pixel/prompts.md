@@ -70,3 +70,18 @@ R18 구조(Tiny Farm 2등신)에 사람이 더한 톤 컨셉을 시험: 캐릭�
 6. `tiles_grass-corruption_v01.png` + `.json` (3~4회): `create_topdown_tileset`, `lower_description: "corrupted grey cracked earth with thin dark bruise-violet veins and dull olive mould patches, grim and lifeless"`, `upper_description: "cozy soft green meadow grass with tiny warm flowers, cute and lively"`, `transition_description: "grass edge withering into grey ash"`, `transition_size: 0.25`, `tile_size: 16`, `view: "low top-down"`, `outline: "lineless"`, `shading: "basic shading"`, `detail: "medium detail"` (tileset 289a074d-a6e9-4913-be35-d89b832b6a28)
    → 풀밭과 오염 땅의 대비는 분명. 풀이 형광 연두로 밋밋하고 꽃이 없음. 오염 땅은 보라가 면 전체에 퍼짐(북극성은 가는 맥)
 7. 목업 (무료): `stage3_cozy_grim_mockup_v01.png` (3배). 왼쪽 풀밭에 팔라딘·아처, 오른쪽 오염 땅에 이단 둘. 아래 줄은 팔라딘 남·동·북·서(생성)와 동쪽을 좌우 반전한 서쪽. 반전하면 방패가 몸 뒤로 숨는다
+
+## PixelLab 3차 시험 (2026-10-14, 20px 키·걷기·풀 색, 9회 사용)
+
+2차의 남은 문제 세 가지를 사람이 승인한 약 9회로 시험. 잔액 15 → 6.
+
+1. 20px 팔라딘 (2회)
+   - 입력 준비 (무료): 2차 `chibi_paladin_v01_rotations.png`의 남쪽(그림 28x30)을 48x48 회색(220,220,220) 캔버스에 발 y=45로 놓고 10배(nearest)로 키움 → 480px
+   - `image_to_pixelart` (1회): `output_width/height: 32`, `faithful: false`, `init_image_strength: 150`, `seed: 1` (job c701bd0f-7baf-4ca8-99c3-cb4f90667926) → `arttool.py cutout --tol 24` → `chibi_paladin_20px_v01_ref.png` (그림 18x20)
+   - `create_character` (1회): `mode: "v3"`, 레퍼런스 = 위 그림, `n_directions: 4`, `view: "low top-down"` (character c6b46406-4be5-43d2-8231-cd30da8b2f9a) → `chibi_paladin_20px_v01_rotations.png` (남·동·북·서)
+   - 결과: Tiny Farm 크기(키 20px)에서도 투구 눈구멍·금 테두리·방패가 읽힌다. 방패 위치는 방향마다 맞다. 30px보다 덩어리지고 동쪽은 뭉개짐
+2. 걷기 skeleton-v3 (3회): 1번 캐릭터에 `template_animation_id: "walking-6-frames"`, `mode: "skeleton-v3"`, 남쪽만 (group 7173b7f6-d3a2-47e5-9b06-712d3836f878) → `chibi_paladin_20px_v01_walk_south_skeleton.png` (48x48 6프레임)
+   - 결과: 방패·투구가 6프레임 모두 유지. 하지만 거의 움직이지 않는다. 첫 프레임과 다른 픽셀 수가 0·13·27·0·7·7 (2차 템플릿 걷기는 380~425). 걷기로 못 쓴다
+3. 풀밭↔오염 타일 v02 (3~4회): 2차와 같은 설정에 `lower_description: "dead ash-grey cracked earth, mostly flat grey with only a few thin dark violet cracks, grim and lifeless"`, `upper_description: "cozy meadow grass in soft warm sage and olive greens with straw-yellow tufts and a few tiny cream and pink flowers, muted earthy colours, cute"` (tileset fe7bfb85-8339-4e1f-9492-e7755ab300f8) → `tiles_grass-corruption_v02.png` + `.json`
+   - 결과: 풀은 차분한 올리브에 작은 크림·분홍 꽃으로 좋아짐. 오염 땅은 "대부분 회색"이라고 해도 면 전체가 연보라로 나옴
+4. 목업 (무료): `stage3_cozy_grim_mockup_v02.png` (3배). 위: 20px 팔라딘 남·동·서·북, 아래: 2차 30px 팔라딘·아처(크기 비교), 오른쪽: 이단(30px). 아래 줄은 20px 팔라딘 남·동·북·서(생성)와 동쪽 반전
