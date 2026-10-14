@@ -17,10 +17,19 @@
   uv run tools/art/arttool.py lineup --out lineup.png [--unit 6] [--upscale 1] 시트.png:이름:키 ...
       시트마다 정면을 잘라 키(px) 비율로 맞춰 한 줄로 세운다.
       게임 크기 확인은 --unit 0.4375 --upscale 6 (인간 64 → 28px, 6배 확대)
+  uv run tools/art/arttool.py ref 시트.png --out 입력.png [--canvas 48] [--height 30] [--sole 42]
+      3단계 PixelLab image_to_pixelart 입력. 정면을 정사각 캔버스에 놓아, canvas px로 줄였을 때
+      키가 height px이고 발바닥이 y=sole이 되게 한다. 1536px로 저장
+  uv run tools/art/arttool.py cutout 스프라이트.png --out 투명.png [--tol 24]
+      테두리에서 이어진 배경(왼쪽 위 색과 RGB 차 합 tol 이하)을 투명으로
+  uv run tools/art/arttool.py regrey 스프라이트.png --out 수정.png x0,y0,x1,y1 ...
+      사각형(양 끝 포함) 안의 주황 계열 픽셀을 같은 밝기의 회색으로 (명암 단계는 유지)
 """
 import argparse
+import colorsys
 import os
 import sys
+from collections import deque
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -102,6 +111,59 @@ def lineup(specs, out, unit, upscale):
     print("saved", out, sheet.size)
 
 
+def sprite_ref(path, out, canvas, height, sole):
+    im = Image.open(path).convert("RGB")
+    a = np.asarray(im).astype(int)
+    bg = np.median(np.concatenate([a[:20, :20].reshape(-1, 3), a[-20:, -20:].reshape(-1, 3)]), axis=0)
+    mask = np.abs(a - bg).sum(axis=2) > 40
+    mask[:, im.width // 2:] = False
+    ys, xs = np.where(mask)
+    top, bottom, left, right = ys.min(), ys.max(), xs.min(), xs.max()
+    scale = height / (bottom - top + 1)
+    side = round(canvas / scale)
+    ox, oy = round((left + right) / 2 - side / 2), round(bottom - sole / scale)
+    board = Image.new("RGB", (side, side), tuple(int(v) for v in bg))
+    fig = im.crop((left, top, right + 1, bottom + 1))
+    board.paste(fig, (left - ox, top - oy), Image.fromarray((mask[top:bottom + 1, left:right + 1] * 255).astype("uint8")))
+    board.resize((1536, 1536), Image.LANCZOS).save(out)
+    print("saved", out, f"figure {right - left + 1}x{bottom - top + 1}, canvas {side}px -> 1536")
+
+
+def cutout(path, out, tol):
+    im = Image.open(path).convert("RGBA")
+    w, h = im.size
+    px = im.load()
+    bg = px[0, 0]
+    seen = set()
+    q = deque([(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)])
+    while q:
+        x, y = q.popleft()
+        if (x, y) in seen or not (0 <= x < w and 0 <= y < h) or sum(abs(px[x, y][i] - bg[i]) for i in range(3)) > tol:
+            continue
+        seen.add((x, y))
+        px[x, y] = (0, 0, 0, 0)
+        q.extend([(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)])
+    im.save(out)
+    print("saved", out, "bbox", im.getchannel("A").getbbox())
+
+
+def regrey(path, out, rects):
+    im = Image.open(path).convert("RGBA")
+    px, n = im.load(), 0
+    for r in rects:
+        x0, y0, x1, y1 = map(int, r.split(","))
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                c = px[x, y]
+                hue, s, v = colorsys.rgb_to_hsv(*(t / 255 for t in c[:3]))
+                if c[3] and 10 <= hue * 360 <= 45 and s >= 0.35 and v >= 0.35:
+                    lum = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+                    px[x, y] = (round(lum), round(lum * 0.94), round(lum * 0.94), 255)
+                    n += 1
+    im.save(out)
+    print("saved", out, "recoloured", n)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -120,6 +182,20 @@ def main():
     l.add_argument("--unit", type=float, default=6.0)
     l.add_argument("--upscale", type=int, default=1)
     l.add_argument("specs", nargs="+", help="시트.png:이름:키(px)")
+    r = sub.add_parser("ref")
+    r.add_argument("sheet")
+    r.add_argument("--out", required=True)
+    r.add_argument("--canvas", type=int, default=48)
+    r.add_argument("--height", type=int, default=30)
+    r.add_argument("--sole", type=int, default=42)
+    c = sub.add_parser("cutout")
+    c.add_argument("image")
+    c.add_argument("--out", required=True)
+    c.add_argument("--tol", type=int, default=24)
+    rg = sub.add_parser("regrey")
+    rg.add_argument("image")
+    rg.add_argument("--out", required=True)
+    rg.add_argument("rects", nargs="+", help="x0,y0,x1,y1")
     a = ap.parse_args()
     if a.cmd == "measure":
         measure(a.images)
@@ -128,6 +204,12 @@ def main():
     elif a.cmd == "front":
         front_view(a.sheet, a.margin).save(a.out)
         print("saved", a.out)
+    elif a.cmd == "ref":
+        sprite_ref(a.sheet, a.out, a.canvas, a.height, a.sole)
+    elif a.cmd == "cutout":
+        cutout(a.image, a.out, a.tol)
+    elif a.cmd == "regrey":
+        regrey(a.image, a.out, a.rects)
     else:
         lineup(a.specs, a.out, a.unit, a.upscale)
 
