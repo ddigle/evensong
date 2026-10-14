@@ -85,3 +85,13 @@ R18 구조(Tiny Farm 2등신)에 사람이 더한 톤 컨셉을 시험: 캐릭�
 3. 풀밭↔오염 타일 v02 (3~4회): 2차와 같은 설정에 `lower_description: "dead ash-grey cracked earth, mostly flat grey with only a few thin dark violet cracks, grim and lifeless"`, `upper_description: "cozy meadow grass in soft warm sage and olive greens with straw-yellow tufts and a few tiny cream and pink flowers, muted earthy colours, cute"` (tileset fe7bfb85-8339-4e1f-9492-e7755ab300f8) → `tiles_grass-corruption_v02.png` + `.json`
    - 결과: 풀은 차분한 올리브에 작은 크림·분홍 꽃으로 좋아짐. 오염 땅은 "대부분 회색"이라고 해도 면 전체가 연보라로 나옴
 4. 목업 (무료): `stage3_cozy_grim_mockup_v02.png` (3배). 위: 20px 팔라딘 남·동·서·북, 아래: 2차 30px 팔라딘·아처(크기 비교), 오른쪽: 이단(30px). 아래 줄은 20px 팔라딘 남·동·북·서(생성)와 동쪽 반전
+
+## PixelLab 4차 (2026-10-14, 30px 걷기 손질·오염 땅 색, 1.1회 사용)
+
+사람이 키를 약 30px로 정하고(R20) 걷기와 오염 땅 색을 진행하라고 함. 잔액 6 → 4.
+
+1. 남쪽 걷기 방패 복원 (무료): 2차 `chibi_paladin_v01_walk_south.png`(템플릿 걷기)에서 방패가 빠진 2·3번째 프레임(인덱스 1·2)에 1번째 프레임(인덱스 0)의 방패 픽셀을 복사. 영역은 32x32 프레임 좌표로 y=12는 x≥26, y=13~21은 x≥20, y=22~23은 x≥21, y=24~26은 x≥22 (프레임마다 123픽셀) → `chibi_paladin_v01_walk_south_fixed.png`
+2. 동쪽 걷기 (1회): 2차 팔라딘(character 7adfefc5-c5c7-4b5b-a80c-f757d8df40b5)에 `template_animation_id: "walking-6-frames"`, 동쪽만, 같은 group 98d380ed-f3e1-43a4-9f76-844943d46699 → `chibi_paladin_v01_walk_east_west.png` (위 줄 동쪽 6프레임, 아래 줄은 좌우 반전한 서쪽). 다리가 교차하며 움직이고(프레임당 230~290픽셀 변화) 방패가 모든 프레임에 있다. 반전한 서쪽도 자연스럽다
+3. 오염 땅 색 (0.1회): `reduce_colors`, 입력 `tiles_grass-corruption_v02.png`, `palette_image` = `palette_grass_threat_v01.png` (v02 풀 타일의 색 13개, 보라 기운 색은 뺌 + 북극성 위협 색 #1a1714 #2e2a26 #4a423a #6b5e4f #8c7b66 #3b1f4d #5e2d7a #6f8f3a #d8d2c0), `dithering: "none"` (job ddc99b3b-4c41-4706-9916-7f37dfe602f4) → `tiles_grass-corruption_v03.png` (타일 배치는 v02의 .json과 같다)
+   - 결과: 오염 땅이 연보라에서 잿빛 갈색으로, 금은 어두운 보라 맥으로. 풀은 그대로. 두 잿빛 사이에 얼룩이 조금 생김
+4. 목업 (무료): `stage3_cozy_grim_mockup_v03.png` (3배). v03 타일 위 30px 팔라딘·아처·이단, 오른쪽에 걷기 남(복원)·동·서(반전)
