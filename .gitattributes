@@ -10,6 +10,7 @@ assets/concept/**/*.png filter=lfs diff=lfs merge=lfs -text
 assets/concept/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 assets/concept/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
 assets/concept/**/*.webp filter=lfs diff=lfs merge=lfs -text
+assets/concept/**/*.gif filter=lfs diff=lfs merge=lfs -text
 *.psd filter=lfs diff=lfs merge=lfs -text
 *.aseprite filter=lfs diff=lfs merge=lfs -text
 *.ase filter=lfs diff=lfs merge=lfs -text
