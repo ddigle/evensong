@@ -47,3 +47,26 @@
 - A'안: 같은 체형 + 엘프 뾰족 귀, 드워프 수염
 - B안: 종족별 체형(인간 20, 엘프 23, 드워프 17px. 팔라딘은 인간 키에 몸통 폭 14)
 - 아래 두 줄은 A안과 B안의 실루엣(검은 그림자만)
+
+## PixelLab 2차 시험 (2026-10-14, 2등신 + 생활은 아기자기·위협은 음울, 12회 사용)
+
+R18 구조(Tiny Farm 2등신)에 사람이 더한 톤 컨셉을 시험: 캐릭터·생활·꾸미기는 아기자기하게, 외부 위협(적·오염)은 기존 음울한 색. 사람이 "시험 진행"을 지시했고 약 10회로 알렸으나 12회를 썼다 (잔액 27 → 15, 항목 합은 11회).
+공통: PixelLab MCP `create_character`, `view: "low top-down"`, `outline: "single color black outline"`, `detail: "medium detail"`.
+
+1. `chibi_paladin_std_v01_rotations.png` (1회): `mode: "standard"`, `n_directions: 4`, `proportions: chibi 프리셋`, `shading: "basic shading"`, `size: 24` → 36x36 캔버스 (character 3982c44e-85f0-4c7e-8720-a7c74771f537)
+   description: "cute chibi human paladin, closed steel great helm with a narrow visor, worn steel plate armour with warm gold trim, ash-grey tabard with a single gold stripe, tall plain kite shield with no emblem on his left arm, cozy warm colours"
+   → 투구가 열려 얼굴이 보이고, 방패에 문장이 생기고, 북쪽이 뒷모습이 아니라 앞모습. 키 26px. 탈락
+2. `chibi_paladin_v01_rotations.png` (2회): `mode: "v3"`(레퍼런스 없음, 8방향 생성 중 남·동·북·서만 보관), `size: 32` (character 7adfefc5-c5c7-4b5b-a80c-f757d8df40b5)
+   description: "cute chibi human paladin, about two heads tall with a big head and small body, closed round steel helm with a narrow dark visor slit, steel plate armour with warm gold trim, ash-grey tabard with one gold stripe, tall plain kite shield on his left arm, completely blank steel with no emblem or marks, cozy warm colours, friendly"
+   → 2등신, 닫힌 투구, 민무늬 방패가 왼팔. 방향 정확. 다만 32 캔버스를 거의 채움(키 약 30px, 목표 20px)
+3. `chibi_paladin_v01_walk_south.png` (1회): 2번에 `template_animation_id: "walking-6-frames"`, 남쪽만 (group 98d380ed-f3e1-43a4-9f76-844943d46699)
+   → 체형·투구는 유지. 방패가 6프레임 중 2프레임에서 사라지고, 투구 윗부분이 프레임 위에서 잘림
+4. `chibi_archer_v01_rotations.png` (2회): 2번과 같은 설정 (character 504f22b7-81d2-4912-a0ab-7b93f20dbc31)
+   description: "cute chibi elf archer, about two heads tall with a big head and small body, long pointed elf ears clearly sticking out of the hair, long ash-blond hair, earth-brown hooded cloak with the hood down, longbow taller than the shoulders, quiver of arrows, leather bracers, no green clothing, cozy warm colours, friendly"
+   → 엘프 귀가 두건 밖으로 또렷함. 큰 눈의 귀여운 얼굴. 두건은 올라갔고(문구와 다름) 활은 짧게 나옴
+5. `chibi_heretic_v01_rotations.png` (2회): 2번과 같은 설정 (character d47d48fa-80c0-412e-9792-3c7d4490d4dd)
+   description: "chibi heretic cultist enemy, about two heads tall with a big head and small hunched body, tattered dark ash-grey hooded robe, sickly grey skin with thin dark bruise-violet veins, small dim violet glowing eyes in the hood shadow, crude bone charm on a cord, rusty curved knife, grim and menacing, desaturated ash, bone and dark violet colours, no blue"
+   → 잿빛 두건, 창백한 얼굴, 보라 눈·맥. 아군과 색 대비가 분명
+6. `tiles_grass-corruption_v01.png` + `.json` (3~4회): `create_topdown_tileset`, `lower_description: "corrupted grey cracked earth with thin dark bruise-violet veins and dull olive mould patches, grim and lifeless"`, `upper_description: "cozy soft green meadow grass with tiny warm flowers, cute and lively"`, `transition_description: "grass edge withering into grey ash"`, `transition_size: 0.25`, `tile_size: 16`, `view: "low top-down"`, `outline: "lineless"`, `shading: "basic shading"`, `detail: "medium detail"` (tileset 289a074d-a6e9-4913-be35-d89b832b6a28)
+   → 풀밭과 오염 땅의 대비는 분명. 풀이 형광 연두로 밋밋하고 꽃이 없음. 오염 땅은 보라가 면 전체에 퍼짐(북극성은 가는 맥)
+7. 목업 (무료): `stage3_cozy_grim_mockup_v01.png` (3배). 왼쪽 풀밭에 팔라딘·아처, 오른쪽 오염 땅에 이단 둘. 아래 줄은 팔라딘 남·동·북·서(생성)와 동쪽을 좌우 반전한 서쪽. 반전하면 방패가 몸 뒤로 숨는다
