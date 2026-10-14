@@ -95,3 +95,38 @@ R18 구조(Tiny Farm 2등신)에 사람이 더한 톤 컨셉을 시험: 캐릭�
 3. 오염 땅 색 (0.1회): `reduce_colors`, 입력 `tiles_grass-corruption_v02.png`, `palette_image` = `palette_grass_threat_v01.png` (v02 풀 타일의 색 13개, 보라 기운 색은 뺌 + 북극성 위협 색 #1a1714 #2e2a26 #4a423a #6b5e4f #8c7b66 #3b1f4d #5e2d7a #6f8f3a #d8d2c0), `dithering: "none"` (job ddc99b3b-4c41-4706-9916-7f37dfe602f4) → `tiles_grass-corruption_v03.png` (타일 배치는 v02의 .json과 같다)
    - 결과: 오염 땅이 연보라에서 잿빛 갈색으로, 금은 어두운 보라 맥으로. 풀은 그대로. 두 잿빛 사이에 얼룩이 조금 생김
 4. 목업 (무료): `stage3_cozy_grim_mockup_v03.png` (3배). v03 타일 위 30px 팔라딘·아처·이단, 오른쪽에 걷기 남(복원)·동·서(반전)
+
+## PixelLab 5차 시험 (2026-10-14, 기본 몸 + 클래스 표식 레이어, 90회 사용)
+
+R21·R22(외형은 꾸미기, 클래스는 표식 장비)를 시험. 슬라이스 4클래스의 표식(팔라딘 방패, 광부 곡괭이, 아처 큰 활, 성직자 후광)을 같은 기본 몸에 레이어로 겹친다. Tier 1(월 2,000회)로 올린 뒤 사람이 100회 상한을 승인. 잔액 2,000 → 1,910.
+공통: PixelLab MCP, `view: "low top-down"`. 레이어 도구는 `tools/art/layers.py` (diff, segment, bow, halo).
+
+1. 기본 몸 (4회): `create_character`, `mode: "v3"`(레퍼런스 없음), `size: 32`, `outline: "single color black outline"`, `detail: "medium detail"`, 같은 설정으로 2개
+   description: "cute chibi young adventurer, about two heads tall with a big head and small body, short tousled brown hair, bare head, plain warm beige linen tunic with a simple brown belt, brown trousers, small brown boots, empty hands, no weapon, no hat, no cape, no backpack, cozy warm colours, friendly"
+   - A (character 7b5aed6a-683a-474e-91b2-fa7caffe75a6) → `base_body_v01_rotations.png` (남·동·북·서). 채택. 키 31px, 띠는 어깨에 거는 끈으로 나옴
+   - B (character 27043ce2-27fc-4aae-9533-6d2dc2cf137f) → `base_body_v01b_rotations.png`. 맨손이라고 했는데 등에 나무 몽둥이 같은 것이 붙음. 탈락
+2. 동작 (6회): A에 템플릿 `walking-6-frames` 남·동·북 (group ee598de4-733c-4238-9004-9e1aabb36301) → `base_body_v01_walk.png` (줄: 남·동·북, 6프레임), `breathing-idle` 남·동·북 (group 42d1d45e-0ab9-4172-a6f6-3fb2d9013eb2) → `base_body_v01_idle.png` (4프레임)
+   - 걷기는 키 28px(y 0~27)로 회전 그림(31px)보다 작다. idle은 발 y가 방향마다 26~29로 다르다. 동쪽 idle 눈에 초록 픽셀, 북쪽 idle 옆머리에 붉은 얼룩
+   - 모든 프레임에서 머리 꼭대기가 y=0이다. 32 프레임 그대로면 모자 자리가 없다. 발을 y=31에 맞춰 다시 놓으면 걷기는 머리 위로 3~4px가 생긴다
+3. 팔라딘 방패, `edit_image` (10회): 입력 16프레임(회전 남·동·북 + 걷기 남 6 + 걷기 동 6 + 걷기 북 1번), `seed: 5` (job 70a15f19-32c7-4ac8-9210-ba7e2994b599) → `sig_paladin_shield_v01_edit_raw.png` (입력 순서)
+   description: "add a large plain steel kite shield with a thin warm gold rim, completely blank with no emblem and no marks, strapped to the character's left forearm. Keep the character's body, face, hair, clothes, colours and pose exactly the same; only add the shield."
+   - 방패 모양은 좋다. 하지만 남·북은 몸 전체를 다시 그려 몸 픽셀의 22~38%만 원래와 같다(1~2px 이동 포함). 차이로 레이어를 뗄 수 없다
+   - 동쪽은 몸이 거의 그대로다(RGB 차 합 60을 넘는 몸 픽셀 1개) → `layers.py diff --tol 60 --ymin 10`으로 깨끗하게 떼어짐
+   - 남쪽 방패는 몸에 없는 색(쇠 회색)이라 `layers.py segment`로 떼어짐. 나무처럼 몸과 비슷한 색은 이 방법이 안 된다
+4. `inpaint_image` (70회, 7장 × 10회): 템플릿 걷기 첫 프레임에 사각 마스크로 표식을 붙임. 모두 `seed: 5`. 마스크 밖은 그대로라 `layers.py diff --tol 40`으로 깨끗한 레이어가 나온다 (몸 픽셀은 하나도 바뀌지 않음)
+   - 곡괭이 → `sig_miner_pickaxe_v01.png` (남·동·북)
+     - 남 (job e855b8bf-db40-4adc-ac0d-13e7cb63cef2, 마스크 x19 y3 13×20): "the iron head of a pickaxe sticking up behind the character's left shoulder, its wooden handle going diagonally down behind the back, carried on the back with a strap"
+     - 동 (job 5572f7f7-4bdc-4dd0-9181-d042a771780a, x1 y3 14×22): "a pickaxe carried on the character's back, seen from the side: wooden handle strapped diagonally across the back, the iron pickaxe head sticking up above the shoulder behind the head"
+     - 북 (job d5ddeb16-ff57-4da7-8ffe-efe66353cfc6, x6 y4 22×22): "a pickaxe strapped diagonally across the character's back, seen from behind: wooden handle from the lower left hip up to the right shoulder, iron pickaxe head across the top above the right shoulder, leather strap"
+   - 큰 활 → `sig_archer_bow_v01.png` (남·동·북)
+     - 남 (job e19afc35-c9a5-4079-aea9-1aebe29ca6f0, x0 y1 12×26): "a large wooden longbow slung on the character's back, seen from the front: the tall curved wooden bow limb rises behind the shoulder above the head height and runs down beside the body to the hip, thin bowstring"
+     - 동 (job e90032b8-4f1f-48c0-99e6-b15850f53df2, x0 y0 13×28): "a large wooden longbow carried on the character's back, seen from the side: a tall curved wooden bow standing upright behind the back, from above the head down to the knees, with a thin bowstring"
+     - 북 (job c3066965-1ab5-4b31-9c72-903cd1334f00, x5 y2 24×25): "a large wooden longbow slung diagonally across the character's back, seen from behind: a long curved wooden bow from above the right shoulder down to the left hip, held by a leather strap"
+   - 방패 북 (job 28a9e936-1f8d-44f6-8c45-080d626ac9d6, x2 y11 12×17): "a large plain steel kite shield with a thin warm gold rim strapped to the character's left arm, seen from behind: the back of the shield, no emblem"
+   - `sig_paladin_shield_v01.png`: 1줄 남 걷기 6프레임(3번 segment), 2줄 동 걷기 6프레임(3번 diff), 3줄 북 1장(이 inpaint)
+5. 손으로 그림 (무료): 활 `layers.py bow` → `sig_archer_bow_hand_v01.png` (inpaint와 비교용. 읽히지만 거칠다). 후광 `layers.py halo` → `sig_cleric_halo_v01.png` (12×5, 모든 방향에 한 장. 32 프레임 밖 머리 위에 띄우고 6프레임 중 3프레임 1px 올림)
+6. 목업 (무료): 단단한 레이어(한 방향 한 장)는 프레임마다 몸통 줄(y 13~22)을 첫 프레임에 맞춰 찾은 위치에 붙였다(거의 0, 동쪽 4번째 프레임만 위로 1px). 남·동에서는 등 장비를 몸 뒤에, 북에서는 몸 앞에 그렸다. 서쪽은 동쪽 합성을 좌우 반전. 바닥은 `tiles_grass-corruption_v03.png`의 풀 타일
+   - `stage3_signature_layers_v01.png`: 줄은 기본 몸·팔라딘·광부·아처·성직자, 칸은 남·동·서(반전)·북. 4배
+   - `stage3_signature_lineup_v01.png`: 남쪽을 보는 넷을 1배·3배로
+   - `stage3_signature_walk_v01.gif`: 넷의 걷기 6프레임, 남·동·서·북, 3배, 프레임당 120ms
+   - 결과: 같은 외형이어도 넷이 구분된다. 1배에서도 방패(회색)와 후광(금색)은 확실하고, 곡괭이·활은 약하다. 동쪽 방패는 몸 앞뒤로 테두리만 보여 고리처럼 읽힌다. 단단한 레이어는 걸을 때 흔들리지 않는다(몸이 거의 위아래로 움직이지 않아 어색하지는 않음)
