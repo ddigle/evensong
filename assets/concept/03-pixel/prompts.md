@@ -35,3 +35,15 @@
 6. `create_topdown_tileset` (3회): `lower_description: "packed dark earth, muted warm brown dirt"`, `upper_description: "worn grey-brown flagstone floor, square stone slabs with dark mortar lines, dark gritty medieval"`, `transition_description: "dirt and small pebbles over the broken stone edges"`, `transition_size: 0.25`, `tile_size: 16`, `view: "low top-down"`, `shading: "basic shading"`, `detail: "medium detail"`, outline 기본값 (tileset 35e019e3-cb1e-4271-9474-3102277651b9)
    → `tiles_dirt-stone_v01.png` + `.json` (Wang 16장, 모서리 정보. 다운로드 URL은 뺌). 흙이 격자 무늬, 돌이 푸른 회색 작은 벽돌, 경계에 노란 점선 외곽선. 북극성(큰 판석, 따뜻한 빛)과 다름
 7. 목업 (무료): `stage3_test_mockup_v01.png` (4배). 6번 타일 위에 low 4방향, high 남·동, 아래에 low 남. 오른쪽은 북극성 v6 일부를 팔라딘 키 33px에 맞춰 줄인 것. low 팔라딘(34px)이 북극성 인물과 비슷한 크기
+
+## 2등신 체형 비교 샘플 (2026-10-14, 생성 AI 미사용, 비용 0)
+
+사람이 PixelLab 1차 결과를 보고 "캐릭터가 못생겼다. 북극성은 분위기·질감 기준으로만 쓰고, 도트 구조는 Tiny Farm RPG와 같게"라고 함. 그 구조에서 종족을 체형으로 구분할지, 체형을 통일하고 직업 도구로만 구분할지 비교하려고 손으로 찍은 샘플.
+`uv run tools/art/chibi_sample.py <출력 폴더>` → `chibi_race_sample_v01.png` (4배, 16px 돌바닥 위)
+
+- 구조: 32x32 프레임, 2등신(머리 9px + 몸), 1px 어두운 갈색 외곽선, 재질마다 2~3단 명암. 색은 북극성 v6 기준(따뜻한 갈회색, 그림자에 청색 없음, 금·촛불), 마법사 구슬만 옅은 청백
+- 모든 안에서 같음: 직업 도구와 옷(팔라딘 투구·연 방패, 성직자 두건·촛불 지팡이, 약초사 챙 모자·낫, 시프 두건·단검 둘, 마법사 은발·빛 구슬, 아처 장궁, 광부 램프 모자·곡괭이, 룬마스터 쇠모자·룬 망치, 기술자 고글·렌치)
+- A안: 전원 인간 체형(키 20px), 종족 표시 없음
+- A'안: 같은 체형 + 엘프 뾰족 귀, 드워프 수염
+- B안: 종족별 체형(인간 20, 엘프 23, 드워프 17px. 팔라딘은 인간 키에 몸통 폭 14)
+- 아래 두 줄은 A안과 B안의 실루엣(검은 그림자만)
