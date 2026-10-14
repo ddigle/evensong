@@ -47,6 +47,13 @@
 - 북극성 job id를 레퍼런스로 넣는다(성화 UI 제외): `medias: [{ value: "cc88a996-0f61-4849-93c0-7d1cf96d2e0b", role: "image_references" }]` (북극성 v6, R15. docs/concept-art-brief.md §0)
 - 장면을 복사하면 안 되는 생성(캐릭터 시트, 오브젝트, 타일)에는 프롬프트에 "use the reference only for its palette and warm colour temperature; do not copy its scene"을 넣는다. 화풍은 단계마다 브리프가 정하고, 성화 UI에는 북극성을 넣지 않는다
 
+### 픽셀 에셋 생성 (PixelLab MCP)
+
+- PixelLab MCP가 연결된 에이전트만 생성한다. 화풍 규칙은 docs/concept-art-brief.md §5.6
+- 생성 전에 비용을 사람에게 알리고 승인받은 횟수만 쓴다. 비용은 도구 설명의 generation 수로 계산하고(Pro Flash는 `get_pro_flash_capabilities`로 무료 견적), 잔액은 `get_balance`
+- 다른 사람의 에셋(itch.io 팩 등) 이미지는 생성 도구에 넣지 않는다. 레퍼런스는 우리 이미지(북극성, 시트, 채택 스프라이트)만
+- 결과는 생성 직후 저장소에 내려받고, prompts.md에는 다운로드 URL 대신 job·character·tileset id를 적는다 (URL에 계정 경로가 들어가고 저장소는 공개다)
+
 ## 엔진
 
 미정 (game-concept §13). 결정 전에는 game/ 에 엔진 프로젝트를 만들지 않는다.
