@@ -152,3 +152,22 @@ R23에서 약초사가 슬라이스 다섯 번째 클래스가 되어, 5차에�
    - 3배에서는 엉덩이에 찬 초록 주머니로 읽히고, 걸어도 다섯이 구분된다. 화면 배율은 아직 정하지 않았다. 북극성 도트 재현(brief §5.0)처럼 480×270 화면을 1080p에 띄우면 4배라, 그 경우 3배가 실제 크기에 가깝다
    - 1배에서는 다섯 중 가장 약하다. 기본 몸과 거의 구분되지 않는다(곡괭이·활보다 약함). 주머니가 6~7px이고, 다리와 겹치는 낮은 자리이며, 풀밭 위에서 초록끼리 묻힌다
    - 색만 바꿔 봄 (무료, 파일 없음): 주머니를 녹슨 주황빛 빨강으로 바꾸고 새싹만 초록으로 두었다. 남쪽이 조금 나아졌지만 갈색 바지·신발과 섞여 1배에서는 여전히 약하다. 색보다 크기와 자리가 문제다
+
+## PixelLab 7차 시험 (2026-10-15, 큰 씨앗주머니, 30회 사용)
+
+6차 주머니가 1배에서 약해, 사람이 "크게 다시 그리기"(30회)를 승인. 잔액 1,880 → 1,850.
+공통: 6차와 같은 몸·프레임·`seed: 5`. 마스크를 12~13×14로 키우고 위로 올렸다(y 14~27). 풀밭과 겹치지 않게 중간 톤 초록 대신 진한 초록에 밝은 하이라이트를 넣었다.
+
+1. `inpaint_image` (30회, 3장 × 10회) → `sig_herbalist_pouch_v02_raw.png` (남·동·북)
+   - 남 (job f5407536-51ca-4fcd-a0d1-d87cae7a4522, 마스크 x0 y14 12×14): "a large round deep-green cloth seed pouch, about as big as the character's torso, hanging from the belt at the character's right hip (left side of the image) and bulging far out to the side of the body, its top gathered with a drawstring cord, a small bright green two-leaf sprout poking out of the top, light green highlight on the round belly of the pouch, thin dark outline"
+   - 동 (job c7dd640f-72fd-46d1-9c06-8d6d70bad782, 마스크 x3 y14 13×14): "a large round deep-green cloth seed pouch, about as big as the character's torso, hanging from the belt at the character's hip, seen from the side, bulging far out behind the hip and lower back, its top gathered with a drawstring cord, a small bright green two-leaf sprout poking out of the top, light green highlight on the round belly of the pouch, thin dark outline"
+   - 북 (job 22fe70d7-e9c5-4395-8995-ce7c81e1d5e6, 마스크 x20 y14 12×14): "a large round deep-green cloth seed pouch, about as big as the character's torso, hanging from the belt at the character's right hip (right side of the image), seen from behind, bulging far out to the side of the body, its top gathered with a drawstring cord, a small bright green two-leaf sprout poking out of the top, light green highlight on the round belly of the pouch, thin dark outline"
+   - `layers.py diff --tol 40`으로 떼어짐 (남 46px, 동 94px, 북 89px. 6차의 2~3배). 셋 다 허리띠에서 발 높이(y 27)까지 내려온다. 큰 주머니라 무게로 처진 모양이다
+   - 동은 폭 10px의 둥근 공 모양으로 엉덩이 뒤에 크게 나온다. 북은 몸 옆으로 길고 매듭이 보인다. 남은 동보다 작지만(폭 6px) 둥글고 새싹이 있다
+2. `sig_herbalist_pouch_v02.png` (레이어, 남·동·북 모두 inpaint 차이, 몸 앞에 그린다)
+   - 남을 북 레이어 반전으로 바꾼 것도 비교했다(무료). 더 크지만 어둡고, 뒤에서 본 매듭이 앞모습에 보여 원래 남쪽을 골랐다
+3. 목업 (무료, 6차와 같은 방법): `stage3_signature_layers_v03.png`, `stage3_signature_lineup_v03.png` (위 남, 아래 동), `stage3_signature_walk_v03.gif`
+4. 결과
+   - 1배: 동쪽은 확실히 보인다(풀밭 위 진한 초록 공). 남·북은 6차보다 낫고 곡괭이·활 정도로 약하게 보인다. 방패·후광만큼은 아니다
+   - 3배: 세 방향 모두 씨앗주머니로 읽히고, 걸어도 흔들림 없이 붙어 있다
+   - 허리 표식은 "몸통 절반 크기, 발 높이까지 처져도 됨"이어야 1배에서 보인다. 시프 쌍검·기술자 망치(2단계)도 이 크기를 기준으로 본다
