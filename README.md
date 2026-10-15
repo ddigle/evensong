@@ -49,6 +49,7 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
   - Windows·macOS: `scp -r "<파일이나 폴더>" <사용자>@<데스크탑>:C:/dev/share/inbox/`
     - 폴더째 보낼 수 있다
     - 경로에 공백이나 괄호가 있으면, 그 위 폴더로 `cd`한 뒤 `".\폴더 이름"`처럼 상대 경로로 보낸다
+    - scp는 파일마다 왕복이 생겨 작은 파일이 많으면 느리다(5,800개·14MB에 약 20분). 그럴 때는 `tar -cf 묶음.tar "폴더"`로 묶어 한 파일로 보내고 데스크탑에서 `tar -xf 묶음.tar`로 푼다(tar는 Windows·macOS 기본)
     - 보내는 기기의 SSH 공개키가 데스크탑의 `C:\ProgramData\ssh\administrators_authorized_keys`에 한 줄로 들어 있어야 한다. 관리자 계정은 이 파일만 읽고, 비밀번호 로그인은 꺼져 있다
   - Android나 키가 없는 기기: Taildrop을 쓴다. 공유 → Tailscale → `<데스크탑>`을 고르거나, Windows 탐색기에서 우클릭 → Send with Tailscale
     - 받은 파일은 데스크탑의 `Downloads`에 들어온다. 그 뒤 `C:\dev\share\`로 옮긴다
