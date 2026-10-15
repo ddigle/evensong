@@ -130,3 +130,25 @@ R21·R22(외형은 꾸미기, 클래스는 표식 장비)를 시험. 슬라이�
    - `stage3_signature_lineup_v01.png`: 남쪽을 보는 넷을 1배·3배로
    - `stage3_signature_walk_v01.gif`: 넷의 걷기 6프레임, 남·동·서·북, 3배, 프레임당 120ms
    - 결과: 같은 외형이어도 넷이 구분된다. 1배에서도 방패(회색)와 후광(금색)은 확실하고, 곡괭이·활은 약하다. 동쪽 방패는 몸 앞뒤로 테두리만 보여 고리처럼 읽힌다. 단단한 레이어는 걸을 때 흔들리지 않는다(몸이 거의 위아래로 움직이지 않아 어색하지는 않음)
+
+## PixelLab 6차 시험 (2026-10-15, 약초사 씨앗주머니 레이어, 30회 사용)
+
+R23에서 약초사가 슬라이스 다섯 번째 클래스가 되어, 5차에서 빠진 허리 표식(씨앗주머니, R21)을 같은 방법으로 시험. 사람이 30회를 승인. 잔액 1,910 → 1,880.
+공통: 5차 기본 몸(character 7b5aed6a-683a-474e-91b2-fa7caffe75a6)의 템플릿 걷기 첫 프레임에 `inpaint_image`, `seed: 5`, 사각 마스크 11×12. 색은 생활 쪽 녹색(brief §4 ○ R23)으로 했다.
+
+1. `inpaint_image` (30회, 3장 × 10회) → `sig_herbalist_pouch_v01_raw.png` (남·동·북, inpaint 결과 그대로)
+   - 남 (job 5234e97f-77b7-4406-a8a5-805b2dbb483f, 마스크 x2 y16): "a big round fresh leaf-green cloth seed pouch with a drawstring top tied with a cord and a tiny bright green sprout with two leaves poking out of its top, hanging from the belt at the character's right hip (left side of the image), bulging out beyond the side of the body, thin dark outline"
+   - 동 (job 200898fa-6b88-4055-af1f-9e009f851974, 마스크 x6 y16): "a big round fresh leaf-green cloth seed pouch with a drawstring top tied with a cord and a tiny bright green sprout with two leaves poking out of its top, hanging from the belt on the character's hip, seen from the side, bulging out behind the hip, thin dark outline"
+   - 북 (job 6285332a-fabf-42b6-9ecb-5fc19183852a, 마스크 x19 y16): "a big round fresh leaf-green cloth seed pouch with a drawstring top tied with a cord and a tiny bright green sprout with two leaves poking out of its top, hanging from the belt at the character's right hip (right side of the image), seen from behind, bulging out beyond the side of the body, thin dark outline"
+   - 셋 다 마스크 밖 몸 픽셀은 그대로라 `layers.py diff --tol 40`으로 떼어짐 (남 25px, 동 33px, 북 48px)
+   - 동·북은 둥근 주머니에 새싹까지 나왔다. 동쪽은 엉덩이 뒤로 2~4px 튀어나온다
+   - 남은 폭 4px로 가늘고 손 자리를 덮었을 뿐 몸 밖으로 나오지 않았다. 탈락
+2. `sig_herbalist_pouch_v01.png` (레이어, 남·동·북): 남 = 북 레이어 좌우 반전(앞에서 본 오른쪽 엉덩이), 동·북 = inpaint 차이. 셋 다 몸 앞에 그린다
+3. 목업 (무료): 5차 목업과 같은 방법에 약초사 줄을 더함
+   - `stage3_signature_layers_v02.png`: 줄은 기본 몸·팔라딘·광부·아처·성직자·약초사, 칸은 남·동·서(반전)·북. 4배
+   - `stage3_signature_lineup_v02.png`: 다섯 클래스를 1배·3배로. 위 줄은 남, 아래 줄은 동
+   - `stage3_signature_walk_v02.gif`: 다섯의 걷기 6프레임, 남·동·서·북, 3배, 프레임당 120ms
+4. 결과
+   - 3배에서는 엉덩이에 찬 초록 주머니로 읽히고, 걸어도 다섯이 구분된다. 화면 배율은 아직 정하지 않았다. 북극성 도트 재현(brief §5.0)처럼 480×270 화면을 1080p에 띄우면 4배라, 그 경우 3배가 실제 크기에 가깝다
+   - 1배에서는 다섯 중 가장 약하다. 기본 몸과 거의 구분되지 않는다(곡괭이·활보다 약함). 주머니가 6~7px이고, 다리와 겹치는 낮은 자리이며, 풀밭 위에서 초록끼리 묻힌다
+   - 색만 바꿔 봄 (무료, 파일 없음): 주머니를 녹슨 주황빛 빨강으로 바꾸고 새싹만 초록으로 두었다. 남쪽이 조금 나아졌지만 갈색 바지·신발과 섞여 1배에서는 여전히 약하다. 색보다 크기와 자리가 문제다
