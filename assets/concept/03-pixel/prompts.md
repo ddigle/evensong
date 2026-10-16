@@ -227,3 +227,27 @@ brief §5.6 ○ 슬라이스 몸 동작 11개 중 걷기·idle 다음 셋(템플
 5. 정리
    - v3는 시작 그림을 걷기 첫 프레임으로 주면 키가 맞는다. 값은 같다(방향당 1회, 방향마다 따로 호출)
    - v3 결과는 방향마다 품질 차이가 크고 색이 바뀐다. 다시 뽑기를 셈에 넣어야 한다
+
+## PixelLab 10차 (2026-10-17, 슬라이스 도구·공격 동작, 30회 사용)
+
+사람이 "무기를 동작에 그려 넣기"(슬라이스 한정, 9차 뒤 선택)와 30회를 승인. 잔액 1,838 → 1,808. 첫 판 20회 + 다시 뽑기 10회.
+공통: `animate_character`, `mode: "v3"`, 방향마다 따로 호출, `custom_start_frame_base64` = `base_body_v01_walk.png`의 해당 방향 첫 프레임(9차와 같음). 설명이 같은 요청은 새로 뽑지 않고 기존 결과를 돌려준다(값도 안 받음). 다시 뽑으려면 설명을 바꿔야 한다.
+
+결과 시트: `base_body_v02_<동작>.png`. 줄은 남·동·북, 64×64 칸. 칸 좌표는 v02 32 프레임(발 y=31)을 (16, 16)에 둔 것과 같다(발 줄 y=47). 첫 칸은 시작 그림(걷기 첫 프레임)이다. v3 캔버스는 방향마다 32~40 × 48~56으로 달라서, 첫 프레임에서 시작 그림 위치를 찾아(모두 픽셀 단위로 일치) 맞췄다. 곡괭이가 바닥을 칠 때 발 아래로 나가 48칸에서는 잘려 64칸으로 했다.
+
+| 동작 | 프레임 | 채택 (group) | description |
+|---|---|---|---|
+| 곡괭이 | 6 | 남 ab6990c3-5f18-4d1c-958c-9dc789bc00b4, 동 f5e21854-6dc1-4291-9600-9b941435ec80, 북 3865ca15-2b58-483c-90d7-4718e57a3a46 | "swinging an iron pickaxe with a T-shaped pointed head on a wooden handle: lifting it high over the head with both hands, then striking down hard at the ground in front, then lifting it back up" |
+| 괭이 | 6 | 남 ffdb29d7-c06a-4c58-8803-6d0bd67e4ffd, 동 88d92134-e4bc-4aad-9ca0-0bd5f6fdb791 (b), 북 42f1f898-19de-4a98-a12e-8148a9946e51 (a) | a "raising a garden hoe with both hands and chopping it down into the soil in front to till the ground, then pulling it back", b "lifting a long-handled wooden garden hoe high with both hands and chopping its flat iron blade down into the soil in front, then pulling it back toward the body" |
+| 낫 | 6 | 남 c0abc66f-996d-4676-aa4a-70c82e5f81a8, 동 863c88e5-c34e-4dbc-8b68-44781b53e844, 북 0f9093f6-738d-4818-8509-0c90846756e8 | "holding a small curved sickle in the right hand and sweeping it low in front in a quick cut, as if harvesting crops, then returning" |
+| 물주기 | 8 | 남 a3ded5ec-f018-493f-bf56-006de3f50f7d, 동 32e0e448-6e3f-4ee1-8f49-c1718155dd82 (b), 북 ff022d30-0cfc-4eef-9ff9-42905c44d230 (a) | a "holding a small watering can in front with both hands and tilting it forward to pour water onto the ground, then tilting it back", b "holding a round metal watering can with a long spout out in front at chest height and tipping it so water sprinkles from the spout onto the ground in front, then tipping it back" |
+| 활 | 8 | 남 4f0c1abf-0c65-4a13-b380-7859b28a188a (b), 동 a8ba5d50-ea15-48c2-a225-9169da46b7e6, 북 223da274-6404-4c9b-8a45-c7140503ed69 (a) | a "raising a wooden longbow in the left hand, drawing the string back with the right hand, aiming forward and releasing an arrow", b(남) "facing the viewer, holding a tall wooden longbow upright in front of the body with the left hand, pulling the string back toward the chest with the right hand, then releasing an arrow toward the viewer" |
+| 마법 | 6 | 남 53f49573-c0a8-4ff9-b3a1-0189a0364d17, 동 703d2e11-26e2-42f5-b97f-e15c566ade72, 북 6aec12da-3495-4478-b0fb-c1bf4bf8eb2e | "raising both open hands forward and casting a softly glowing golden healing light, then lowering the hands" |
+| 검 | 8 | 남 1b775ea5-5ab0-4265-9614-47e0dad33a66 (9차), 동 ca06c79e-8981-4ec7-961e-904d12c7e7f0, 북 f4424b0c-5d04-4d07-aad8-a935718638df | 남·북 9차 설명, 동 "raising a short sword held in the right hand high and swinging it in a big fast slash down and forward, then returning to a ready stance" |
+
+- 버린 판(그룹은 계정에 남아 있음): 곡괭이 a 남 9e09ef1e-10a3-438b-947a-c41ad54cf261·동 998a7913-9a19-431e-8c07-f9e88817bb3d·북 f3529e26-754e-4e04-85f3-a1c7157f0611 (곡괭이 머리가 초승달처럼 휘어 낫으로 보임), 괭이 a 남 46ac059c-82a2-46d4-8d38-0ad713315a7d·동 422f5ace-f8f2-47a1-930d-323562fffd5a (도구가 작고 동작이 약함), 괭이 b 북 09c4b2fd-2340-4158-aba7-10f3ee9deada·c 북 6c5a9c73-cec6-44b2-8c9e-27a5859e7271 (c: "seen from behind, lifting a long-handled garden hoe up over the head so its iron blade shows above the head, then chopping it down hard into the soil in front, then pulling it back". 둘 다 도구가 안 보이거나 다리 사이 막대로 보임), 물주기 a 남 2c3c6b69-1cc0-4f9f-929f-b628d101acc1·동 b31c0d4b-6528-463a-b911-e4aa679bd3da (물뿌리개 없이 허리에서 물줄기가 나옴), 활 a 남 21f0d1d4-ef28-4773-9fbe-3c94403d7f09 (활이 거의 안 보임), 검 동 e08866b5 (9차)
+- 판정
+  - 잘 읽힘: 곡괭이(남쪽은 T자 머리가 머리 위로 올라갔다 바닥을 침), 낫, 활 동·북, 마법(손에 금빛이 모임), 검
+  - 약함: 괭이(남·동은 읽히지만 북은 흙만 튐), 물주기 동(물뿌리개가 몸 뒤에 있고 물은 앞에 떨어짐), 활 남(활을 든 모습은 보이나 당기는 동작이 작음)
+  - 공통 흠: 마법 동쪽은 몸 전체가 주황빛으로 바뀜(빛 효과가 몸에 칠해짐), 프레임마다 눈 둘레 붉은 얼룩, 북·동 몇 장에서 몸이 정면 쪽으로 돈다. 키는 26~29px(곡괭이·괭이 휘두를 때 도구 포함 33px까지)
+- `base_body_v02_actions.gif`: 일곱 동작 남·동·북을 발 줄에 맞춰 나란히, 2배, 프레임당 130ms (63프레임 반복)
