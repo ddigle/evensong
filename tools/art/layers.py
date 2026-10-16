@@ -21,6 +21,11 @@
       아처 표식(등에 맨 큰 활)을 남·동·북 한 장씩 손으로 그린다. 남·동은 몸 뒤, 북은 몸 앞 레이어
   uv run tools/art/layers.py headtop 프레임.png...
       프레임마다 머리 꼭대기(불투명 픽셀이 처음 나오는 줄)와 좌우 가운데. 떠 있는 표식의 기준점
+  uv run tools/art/layers.py pivot 시트.png --out 새시트.png [--ground 31] [--cell 32] [--axis row|col] [--shift 4,3,4]
+      발 맞춤 (brief §5.6 ○ 발 맞춤). 한 방향(기본은 한 줄, --axis col이면 한 칸 열)의 모든 프레임을
+      같은 만큼 위아래로 옮겨, 그 방향에서 가장 낮은 불투명 픽셀(발)이 ground 줄에 오게 한다.
+      방향 안의 움직임(머리 흔들림)은 그대로다. 방향마다 옮긴 양과 머리 위 빈 줄 수를 출력한다.
+      --shift를 주면 계산하지 않고 방향마다 그만큼 옮긴다 (같은 몸에 붙인 표식 레이어를 몸과 같이 옮길 때)
 """
 import argparse
 from pathlib import Path
@@ -150,6 +155,37 @@ def headtop(paths):
         print(f"{Path(p).name}: top {top} cx {(row.min() + row.max()) / 2:.1f}")
 
 
+def pivot(sheet, out, ground, cell, axis, shifts):
+    a = np.asarray(Image.open(sheet).convert("RGBA"))
+    n = (a.shape[0] if axis == "row" else a.shape[1]) // cell
+    if shifts is not None and len(shifts) != n:
+        raise SystemExit(f"--shift needs {n} values, got {len(shifts)}")
+    res = np.zeros_like(a)
+    for i in range(n):
+        sl = (slice(i * cell, (i + 1) * cell), slice(None)) if axis == "row" else (slice(None), slice(i * cell, (i + 1) * cell))
+        part = a[sl]
+        # 칸마다 세로로 자른 뒤 같은 dy로 옮긴다 (칸 경계를 넘지 않게)
+        cells = [part[y:y + cell, x:x + cell] for y in range(0, part.shape[0], cell) for x in range(0, part.shape[1], cell)]
+        vis = [np.nonzero((c[..., 3] > 0).any(axis=1))[0] for c in cells]
+        vis_all = [v for v in vis if len(v)]
+        if not vis_all:
+            continue
+        top, bottom = min(v.min() for v in vis_all), max(v.max() for v in vis_all)
+        dy = shifts[i] if shifts is not None else ground - bottom
+        if bottom + dy > cell - 1 or top + dy < 0:
+            raise SystemExit(f"direction {i}: shift {dy} clips (rows {top}-{bottom})")
+        moved = np.zeros_like(part)
+        k = 0
+        for y in range(0, part.shape[0], cell):
+            for x in range(0, part.shape[1], cell):
+                moved[y:y + cell, x:x + cell] = np.roll(cells[k], dy, axis=0)
+                k += 1
+        res[sl] = moved
+        print(f"direction {i}: shift {dy:+d}, bottom row {bottom + dy}, top row {top + dy} (body: feet row, head room rows)")
+    Image.fromarray(res).save(out)
+    print("saved", out)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -162,6 +198,10 @@ if __name__ == "__main__":
     s = sub.add_parser("halo"); s.add_argument("--out", required=True)
     s = sub.add_parser("headtop"); s.add_argument("paths", nargs="+")
     s = sub.add_parser("bow"); s.add_argument("--out-dir", required=True)
+    s = sub.add_parser("pivot"); s.add_argument("sheet"); s.add_argument("--out", required=True)
+    s.add_argument("--ground", type=int, default=31); s.add_argument("--cell", type=int, default=32)
+    s.add_argument("--axis", choices=("row", "col"), default="row")
+    s.add_argument("--shift", type=lambda v: [int(x) for x in v.split(",")], default=None)
     a = ap.parse_args()
     if a.cmd == "diff":
         diff(a.base, a.edited, a.out, a.tol, a.ymin)
@@ -173,5 +213,7 @@ if __name__ == "__main__":
         halo(a.out)
     elif a.cmd == "bow":
         bow(a.out_dir)
+    elif a.cmd == "pivot":
+        pivot(a.sheet, a.out, a.ground, a.cell, a.axis, a.shift)
     else:
         headtop(a.paths)
