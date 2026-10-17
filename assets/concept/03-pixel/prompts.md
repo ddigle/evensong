@@ -275,3 +275,21 @@ brief §5.6 ○ 슬라이스 몸 동작 11개 중 걷기·idle 다음 셋(템플
   - 눈가 붉은 기: 기본 몸도 눈 위 자줏빛 픽셀과 붉은 볼이 있으므로, 기본 몸에 없는 색(하늘색, 분홍 덩어리, 보라, 초록)만 고쳤다
   - idle 남쪽 어깨끈(걷기에는 없음), 몸이 정면 쪽으로 도는 프레임(검 동 3~8 등), 약한 셋(괭이 북, 물주기 동, 활 남)은 손질로 안 되고 다시 뽑아야 한다
 - `base_body_v02_cleanup_check.png`: 고친 곳 열두 군데의 전(위)·후(아래), 6배. 미리보기 `base_body_v02_anims.gif`와 `base_body_v02_actions.gif`는 고친 시트로 다시 만들었다
+
+## PixelLab 11차 (2026-10-17, 약한 셋 다시 뽑기, 6회 사용)
+
+10차에서 약했던 괭이 북, 물주기 동, 활 남을 다시 뽑았다. 사람이 3~6회를 승인. 잔액 1,808 → 1,802.
+공통: 10차와 같음(`animate_character`, `mode: "v3"`, 방향마다 따로, `custom_start_frame_base64` = `base_body_v01_walk.png`의 해당 방향 첫 프레임). 첫 판 3회를 보고 남은 3회로 한 번씩 더 뽑았다.
+
+| 동작 | 판 | group | description | 판정 |
+|---|---|---|---|---|
+| 괭이 북 | d | 09927905-36a9-4882-bbce-36f2dfebb020 | "seen from behind, swinging a long-handled garden hoe with a flat rectangular iron blade up over the right shoulder so the handle and blade stay visible to the right of the head, then chopping it down hard into the ground in front, then lifting it back" | 도구는 보이지만 주황 지팡이 같고 거의 안 움직임 |
+| 괭이 북 | e (채택) | 320d0d4b-dd31-498c-bdf8-817442d7491f | "seen from behind, holding a wooden hoe with a grey iron blade off to the right side of the body, raising it high beside the right shoulder until the blade is above head height, then chopping it down to the ground on the right side, then raising it again" | 날을 머리 옆으로 들었다가 오른쪽 땅을 찍음. 3~5번에 위쪽 끝에도 흰 날이 남아 날이 둘로 보여서, 위쪽 날(흰색과 외곽선)만 손으로 지움 |
+| 물주기 동 | c | bf404a19-8d0d-4866-963d-5d2f8b0baf13 | "facing right, holding a round metal watering can by its handle with both hands out in front of the chest on the facing side, the long spout pointing forward to the right, tilting it forward so water pours from the spout onto the ground ahead, then tilting it back" | 물은 앞으로 떨어지지만 물뿌리개가 안 보이고 손에서 물이 나옴 |
+| 물주기 동 | d (채택) | 64d954e1-b708-451c-849f-70f5e1170f8f | "facing right, a grey metal watering can with a long spout held out in front of the body with both hands and clearly visible, tipping the can forward so a stream of water falls from the end of the spout onto the ground in front, then tipping it back upright; same clothes and colours throughout" | 회색 물뿌리개를 허리 앞에 들고 주둥이에서 물이 떨어짐. 1번 얼굴에 검은 덩어리가 있어 0번(시작 그림)으로 바꿈 |
+| 활 남 | c | dde9b770-1acf-45ea-9a46-d24a073ea647 | "facing the viewer, raising a wooden longbow upright in front of the chest with the left hand and drawing the string far back with the right hand until the right elbow sticks out wide to the side, holding the aim for a moment, then releasing an arrow straight toward the viewer and lowering the bow" | 2번부터 상의가 붉은 갈색 조끼로 바뀜 |
+| 활 남 | d (채택) | 727f9c42-cab6-47db-9b4a-bb3e5135e6cf | "facing the viewer, lifting a wooden bow upright in front of the body with the left hand, pulling the bowstring back with the right hand to the cheek so both arms spread wide apart, letting the arrow fly toward the viewer, then lowering the bow; same clothes and colours throughout" | 옷 색을 지키고 두 팔을 넓게 벌려 당김. 눈가 자줏빛은 기본 몸과 같은 정도라 둠 |
+
+- 채택한 판은 10차와 같은 방법으로 64칸에 맞춰(`custom_start_frame` 위치 찾기, 모두 픽셀 단위로 일치) `base_body_v02_hoe.png` 북 줄, `base_body_v02_watering.png` 동 줄, `base_body_v02_bow.png` 남 줄을 바꿨다. 버린 판의 group은 계정에 남아 있다
+- `base_body_v02_reroll11_compare.png`: 세 줄의 전(10차)·후(11차), 3배. `base_body_v02_actions.gif`를 다시 만들었다
+- 요령: 뒷모습 도구는 "몸 오른쪽에 들고 어깨 옆으로 올린다"처럼 몸 밖에 두게 쓰면 보였다. 설명 끝에 "same clothes and colours throughout"을 붙인 두 판은 옷 색이 바뀌지 않았다(한 판씩이라 확실하지는 않다)
