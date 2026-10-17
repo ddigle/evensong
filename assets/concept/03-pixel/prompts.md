@@ -306,3 +306,17 @@ brief §5.6 ? 동작 중 다른 표식(R25)을 정하기 위해, 5~7차 표식 �
   - 피격 동쪽처럼 몸이 뒤로 크게 젖혀지는 프레임에서는 등 뒤에 그린 곡괭이가 몸에 가려 잠깐 사라진다
   - 사망은 몸이 눕는데 표식은 선 채로 남는다(방패가 서 있고 후광이 누운 몸 위에 뜬다). 이동만으로는 붙일 수 없다
   - 옆모습 방패는 걷기 때처럼 고리로 읽힌다(5차와 같음). 두 손 도구 동작에서 방패는 팔을 따라가지 않고 옆구리에 머문다
+
+## PixelLab 12차 (2026-10-17, 검 동쪽 옆모습, 3회 사용)
+
+10차 검 동(ca06c79e)은 3~8번에서 몸이 정면 쪽으로 돌았다(다른 동작의 동·북은 옆·뒷모습을 지킴). 사람이 1~3회를 승인. 잔액 1,802 → 1,799.
+공통: 10차와 같음(`animate_character`, `mode: "v3"`, 동쪽, `frame_count: 8`, `custom_start_frame_base64` = `base_body_v01_walk.png` 동쪽 첫 프레임).
+
+| 판 | group | 바꾼 것 | 판정 |
+|---|---|---|---|
+| c | fdad142c-6b70-45eb-a0e6-63fb3397fb6f | 설명을 "seen from the side facing right the whole time, raising a short sword held in the right hand high above the head, then swinging it in a big fast slash down and forward to the right, then returning to a ready stance; the body and face stay in side view, never turning toward the viewer; same clothes and colours throughout"로 | 1~4번은 옆모습, 5~8번에서 다시 정면 쪽으로 돎 |
+| d | 95781d97-2790-49ea-b909-fcbf5fc3d7bb | c와 같은 설명 + `end_frame_base64` = 시작 그림 | 8장 모두 옆모습. 칼이 주황색이고 발치에서 낮게 휘둘러 칼로 잘 안 읽힘 |
+| e (채택) | f43b4631-660a-4df1-9232-0f25cec67cb9 | d + 설명 "holding a short steel sword with a shiny grey blade in the right hand, raising it high above the head, then slashing it down and forward to the right at chest height, then returning to a ready stance; the body and face stay in side view, never turning toward the viewer; same clothes and colours throughout" | 8장 모두 옆모습. 회색 칼을 머리 뒤로 들었다가 앞으로 베고 돌아옴. 떨어진 점 없음 |
+
+- e판을 10차와 같은 방법으로 64칸에 맞춰 `base_body_v02_sword.png` 동 줄을 바꿨다. 전후 비교 `base_body_v02_reroll12_compare.png`(3배), `base_body_v02_actions.gif` 다시 만듦
+- 요령: v3에서 몸이 정면으로 도는 것은 설명("never turning toward the viewer")만으로는 막히지 않았고, `end_frame_base64`에 시작 그림을 넣어 시작·끝을 같은 옆모습으로 묶자 막혔다. 값은 같다(방향당 1회). 대신 끝이 시작 자세로 돌아오므로 동작이 제자리로 돌아오는 동작에만 쓴다
