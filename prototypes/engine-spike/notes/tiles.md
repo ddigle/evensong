@@ -56,7 +56,7 @@ PNG나 JSON을 바꾸면 `--import` 뒤 `build_tilesets.gd`를 다시 돌리고 
 
 ## 수치
 
-TileSet 빌드: surface 87ms, dungeon 38ms, 프로세스 전체 0.4초. 데모(14x17 두 장 + 편집) 만들기: (b) 15ms, (a) 25ms.
+TileSet 빌드: surface 11~87ms, dungeon 10~38ms (실행마다 다름), 프로세스 전체 0.4초. 데모(14x17 두 장 + 편집) 만들기: (b) 15ms, (a) 25ms.
 
 512x512 맵, 편집 2,000번 (`bench_tiles.gd --quality`, 헤드리스, 시드 1). 편집은 무작위 안쪽 칸의 풀↔흙 / 벽↔바닥 뒤집기.
 "한꺼번에" = 2,000번 고친 뒤 `update_internals()` 한 번, "매번" = 편집마다 `update_internals()`(한 프레임에 한 번 고치는 보통 경우).
