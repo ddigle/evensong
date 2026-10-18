@@ -1,0 +1,277 @@
+{
+  "renderer": "gl_compatibility / opengl3 / NVIDIA GeForce RTX 5090",
+  "godot": "4.7.2-stable (official)",
+  "edge_hard": {
+    "profile_east_from_r_minus_band_minus_2": [
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.35,
+      0.35,
+      0.35
+    ],
+    "last_lit_px_east": 112,
+    "levels_in_band": [
+      0.35,
+      1.0
+    ]
+  },
+  "edge_dither": {
+    "profile_east_from_r_minus_band_minus_2": [
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.99,
+      0.35,
+      0.99,
+      0.35,
+      0.99,
+      0.35,
+      0.99,
+      0.35,
+      0.35,
+      0.35,
+      0.35,
+      0.35,
+      0.35
+    ],
+    "last_lit_px_east": 109,
+    "levels_in_band": [
+      0.35,
+      1.0
+    ]
+  },
+  "edge_banded": {
+    "profile_east_from_r_minus_band_minus_2": [
+      0.99,
+      0.99,
+      0.73,
+      0.73,
+      0.73,
+      0.73,
+      0.73,
+      0.73,
+      0.73,
+      0.73,
+      0.54,
+      0.54,
+      0.54,
+      0.54,
+      0.54,
+      0.54,
+      0.54,
+      0.54,
+      0.35,
+      0.35,
+      0.35
+    ],
+    "last_lit_px_east": 112,
+    "levels_in_band": [
+      0.35,
+      0.55,
+      0.75,
+      1.0
+    ]
+  },
+  "edge_smooth": {
+    "profile_east_from_r_minus_band_minus_2": [
+      0.99,
+      0.99,
+      0.98,
+      0.97,
+      0.94,
+      0.91,
+      0.86,
+      0.81,
+      0.76,
+      0.7,
+      0.64,
+      0.58,
+      0.52,
+      0.47,
+      0.43,
+      0.39,
+      0.37,
+      0.35,
+      0.35,
+      0.35,
+      0.35
+    ],
+    "last_lit_px_east": 109,
+    "levels_in_band": [
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7,
+      0.75,
+      0.8,
+      0.85,
+      0.9,
+      0.95,
+      1.0
+    ]
+  },
+  "inside_rgb_factor": [
+    1.05,
+    0.97,
+    0.9
+  ],
+  "outside_rgb_factor": [
+    0.4,
+    0.34,
+    0.31
+  ],
+  "flame_unshaded": {
+    "pixels": 81,
+    "max_channel_diff_vs_source": 0,
+    "min_luma": 151.3
+  },
+  "shadow_factor": 0.359,
+  "shadow_ref_factor": 0.986,
+  "altar_top_factor_normals_on": 0.974,
+  "altar_front_factor_normals_on": 0.606,
+  "safe_zone_rule_matches_picture": {
+    "checked": 510,
+    "mismatches": 0,
+    "where": []
+  },
+  "altar_top_factor_normals_off": 0.991,
+  "altar_front_factor_normals_off": 0.989,
+  "flame_unshaded_no_light": {
+    "pixels": 81,
+    "max_channel_diff_vs_source": 0,
+    "min_luma": 151.3
+  },
+  "flame_shaded_no_light": {
+    "pixels": 81,
+    "max_channel_diff_vs_source": 163,
+    "min_luma": 54.8
+  },
+  "occluder_cull_0_disabled_1_cw_2_ccw": {
+    "0": {
+      "wall_front_factor": 0.35,
+      "wall_top_factor": 0.86,
+      "ground_behind_factor": 0.359
+    },
+    "1": {
+      "wall_front_factor": 0.35,
+      "wall_top_factor": 0.86,
+      "ground_behind_factor": 0.359
+    },
+    "2": {
+      "wall_front_factor": 0.64,
+      "wall_top_factor": 0.86,
+      "ground_behind_factor": 0.359
+    }
+  },
+  "wall_front_factor_shadows_off": 0.64,
+  "walker_on_dither_edge": {
+    "split": {
+      "pixels": 243,
+      "lit": 201,
+      "row_flips": 16,
+      "distance_px": 105.4
+    },
+    "shared": {
+      "pixels": 243,
+      "lit": 68,
+      "row_flips": 99,
+      "distance_px": 105.4
+    }
+  },
+  "normal_probe": {
+    "north_normals_on": {
+      "north_rim": 0.76,
+      "front_face": 0.351
+    },
+    "north_normals_off": {
+      "north_rim": 0.96,
+      "front_face": 0.957
+    },
+    "south_normals_on": {
+      "north_rim": 0.458,
+      "front_face": 0.865
+    },
+    "south_normals_off": {
+      "north_rim": 0.96,
+      "front_face": 0.957
+    }
+  },
+  "light_limit_one_item": {
+    "sprite": {
+      "lights": 30,
+      "lit": 15
+    },
+    "tilemap": {
+      "lights": 30,
+      "lit": 15
+    },
+    "tilemap_q4": {
+      "lights": 30,
+      "lit": 30
+    },
+    "sprites_per_light": {
+      "lights": 30,
+      "lit": 30
+    }
+  },
+  "bench": {
+    "scene": {
+      "frames": 600,
+      "avg_frame_ms": 0.411,
+      "p99_frame_ms": 2.717,
+      "fps": 2435,
+      "avg_gpu_render_ms": 0.138,
+      "avg_cpu_render_ms": 0.128
+    },
+    "torches9_shadows_30occluders": {
+      "frames": 600,
+      "avg_frame_ms": 1.089,
+      "p99_frame_ms": 3.806,
+      "fps": 918,
+      "avg_gpu_render_ms": 0.115,
+      "avg_cpu_render_ms": 0.56
+    },
+    "lights64_shadows_30occluders": {
+      "frames": 600,
+      "avg_frame_ms": 3.281,
+      "p99_frame_ms": 4.721,
+      "fps": 305,
+      "avg_gpu_render_ms": 1.584,
+      "avg_cpu_render_ms": 3.094
+    },
+    "lights64_no_shadows": {
+      "frames": 600,
+      "avg_frame_ms": 0.548,
+      "p99_frame_ms": 2.258,
+      "fps": 1824,
+      "avg_gpu_render_ms": 0.09,
+      "avg_cpu_render_ms": 0.215
+    }
+  },
+  "bench_window": "(1028, 749) (base 480x270, viewport stretch), vsync off"
+}
