@@ -13,7 +13,7 @@
 - 델타는 "칸을 이 값으로" 절대값 6바이트(레이어 u8, x u16, y u16, 값 u8). 두 번 적용해도 같아서, 늦게 들어온 사람이 스냅샷에 이미 든 델타를 또 받아도 문제없다
 - **늦게 들어온 사람**: 호스트가 접속 순간 맵 전체를 32×32 칸 청크로 잘라 zstd 압축해 보내고(스냅샷), 그다음부터 델타를 받는다. 스냅샷과 델타는 같은 reliable 채널 1을 써서 순서가 보장된다
 - **플레이어**: `MultiplayerSpawner`(spawn_function)로 생성. 위치는 `MultiplayerSynchronizer`(권한 = 호스트)로 복제. 입력은 플레이어 아래 별도 `MultiplayerSynchronizer`(권한 = 그 플레이어의 클라이언트, 호스트에게만 보임)로 호스트에 보내고, **이동 시뮬레이션은 호스트만** 한다(벽 충돌 포함)
-- **전송 계층 교체**: 게임 코드는 SceneMultiplayer(RPC·Spawner·Synchronizer)만 쓰고, 그 밑의 `MultiplayerPeer`를 만드는 일만 작은 인터페이스(`net_transport.gd`)로 뺐다. `enet_transport.gd`(지금), `steam_transport.gd`(GodotSteam `SteamMultiplayerPeer`, 설치 안 함), `transports.gd`(이름으로 고르는 팩토리). 바꾸는 건 `--net-transport=steam` 한 줄
+- **전송 계층 교체**: 게임 코드는 SceneMultiplayer(RPC·Spawner·Synchronizer)만 쓰고, 그 밑의 `MultiplayerPeer`를 만드는 일만 작은 인터페이스(`net_transport.gd`)로 뺐다. `enet_transport.gd`(지금), `steam_transport.gd`(GodotSteam `SteamMultiplayerPeer`, 설치 안 함), `transports.gd`(이름으로 고르는 팩토리). 전송을 고르는 건 `--net-transport=steam` 한 줄이지만, Steam에서 9인 상한·relay 설정·로비 비동기 흐름은 아직 없다 (RESULTS §6 "검증에서 찾은 빈틈")
 - 타일 데이터는 레이어 3장(바닥 / 벽(파괴) / 광맥)을 `PackedByteArray` 하나에 담은 순수 데이터(`tile_world.gd`), 화면은 레이어마다 `TileMapLayer` 하나(`tile_view.gd`, 색 타일셋을 실행 중에 만듦. 그림 에셋 없음)
 
 자동 테스트 `tests/test_net.gd` (168 checks, 약 14초):

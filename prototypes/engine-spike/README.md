@@ -57,10 +57,10 @@ timeout 60 $SPIKE/build/evensong_spike.console.exe --headless -- --smoke < /dev/
 ### 4. 장면 하나 실행
 
 ```bash
-"$GODOT" --path $SPIKE res://lights/lights.tscn            # 창으로 바로 (lights는 예시 모듈 이름)
-"$GODOT" --path $SPIKE -- --scene=lights                   # 메뉴를 거쳐 res://lights/lights.tscn
-"$GODOT" --path $SPIKE -- --scene=lights --scale=3         # 창 크기 = 480x270 x 3
-timeout 60 "$GODOT" --headless --path $SPIKE res://lights/lights.tscn --quit-after 120 < /dev/null
+"$GODOT" --path $SPIKE res://light/light.tscn              # 창으로 바로 (light 모듈)
+"$GODOT" --path $SPIKE -- --scene=light                    # 메뉴를 거쳐 res://light/light.tscn
+"$GODOT" --path $SPIKE -- --scene=light --scale=3          # 창 크기 = 480x270 x 3
+timeout 60 "$GODOT" --headless --path $SPIKE res://light/light.tscn --quit-after 120 < /dev/null
 ```
 
 마지막 줄은 그리지 않고 120프레임 돌린 뒤 끝낸다 (로직·스크립트 오류 확인용). 인자 없이 `"$GODOT" --path $SPIKE`면 메뉴(`main.tscn`)가 뜨고, 숫자 키 1~9로 장면을 연다. 어느 장면에서든 F10이면 메뉴로 돌아온다.
@@ -68,7 +68,7 @@ timeout 60 "$GODOT" --headless --path $SPIKE res://lights/lights.tscn --quit-aft
 ### 5. 스크린샷 모드
 
 ```bash
-timeout 120 "$GODOT" --path $SPIKE -- --scene=lights --screenshot=build/shots/lights.png --frames=30 < /dev/null
+timeout 120 "$GODOT" --path $SPIKE -- --scene=light --screenshot=build/shots/light.png --frames=30 < /dev/null
 timeout 120 "$GODOT" --path $SPIKE -- --screenshot=build/shots/menu.png < /dev/null
 ```
 
@@ -118,7 +118,7 @@ prototypes/engine-spike/        Godot 프로젝트 루트 (= res://)
 
 ## 모듈 규칙
 
-모듈 하나 = 요구사항 하나를 시험하는 폴더 하나 (예: tiles, sprites, lights, net, scaling).
+모듈 하나 = 요구사항 하나를 시험하는 폴더 하나 (이 스파이크: tiles, light, net, chars).
 
 1. **코드**는 `res://<모듈>/` 아래에 둔다. 진입 장면은 `res://<모듈>/<모듈>.tscn`. 예약된 폴더 이름(`addons`, `art`, `build`, `notes`, `skeleton`, `tests`)은 모듈 이름으로 쓰지 않는다
 2. **테스트**는 `res://tests/test_<모듈>.gd` 하나. 기반 클래스를 상속하고 `run()`을 덮어쓴다
