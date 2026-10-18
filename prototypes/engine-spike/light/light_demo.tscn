@@ -1,0 +1,97 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://light/light_demo.gd" id="1_demo"]
+[ext_resource type="Texture2D" path="res://art/light/base_body_v02_walk.png" id="2_walk"]
+
+[sub_resource type="OccluderPolygon2D" id="OccluderPolygon2D_wall"]
+polygon = PackedVector2Array(-16, -16, 16, -16, 16, 0, -16, 0)
+
+[node name="LightDemo" type="Node2D"]
+script = ExtResource("1_demo")
+
+[node name="Ground" type="TileMapLayer" parent="."]
+
+[node name="World" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="Altar" type="Sprite2D" parent="World"]
+position = Vector2(240, 152)
+centered = false
+offset = Vector2(-24, -48)
+
+[node name="Flames" type="Sprite2D" parent="World/Altar"]
+centered = false
+offset = Vector2(-24, -48)
+
+[node name="AltarLight" type="PointLight2D" parent="World/Altar"]
+position = Vector2(0, -28)
+color = Color(1, 0.97, 0.91, 1)
+energy = 0.65
+shadow_enabled = true
+height = 64.0
+
+[node name="AltarLightActors" type="PointLight2D" parent="World/Altar"]
+position = Vector2(0, -28)
+color = Color(1, 0.97, 0.91, 1)
+energy = 0.65
+range_item_cull_mask = 2
+shadow_enabled = true
+height = 64.0
+
+[node name="Wall" type="Sprite2D" parent="World"]
+position = Vector2(192, 144)
+centered = false
+offset = Vector2(-16, -32)
+
+[node name="Occluder" type="LightOccluder2D" parent="World/Wall"]
+occluder = SubResource("OccluderPolygon2D_wall")
+
+[node name="HeroInside" type="Sprite2D" parent="World"]
+light_mask = 2
+position = Vector2(204, 182)
+texture = ExtResource("2_walk")
+centered = false
+offset = Vector2(-16, -31)
+hframes = 6
+vframes = 3
+frame = 6
+
+[node name="HeroOutside" type="Sprite2D" parent="World"]
+light_mask = 2
+position = Vector2(410, 222)
+texture = ExtResource("2_walk")
+centered = false
+flip_h = true
+offset = Vector2(-16, -31)
+hframes = 6
+vframes = 3
+frame = 6
+
+[node name="Lantern" type="PointLight2D" parent="World/HeroOutside"]
+position = Vector2(-9, -12)
+color = Color(1, 0.72, 0.42, 1)
+energy = 0.5
+range_item_cull_mask = 3
+height = 10.0
+
+[node name="Walker" type="Sprite2D" parent="World"]
+light_mask = 2
+texture = ExtResource("2_walk")
+centered = false
+offset = Vector2(-16, -31)
+hframes = 6
+vframes = 3
+
+[node name="Evening" type="CanvasModulate" parent="."]
+color = Color(0.4, 0.34, 0.31, 1)
+
+[node name="Hud" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="Label" type="Label" parent="Hud"]
+offset_left = 3.0
+offset_top = 2.0
+offset_right = 477.0
+offset_bottom = 24.0
+theme_override_font_sizes/font_size = 8
+text = "light"
