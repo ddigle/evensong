@@ -32,9 +32,22 @@ WSL이 아니라 Windows에서 직접 작업한다. 게임 엔진 에디터, Ase
    - SSH로 접속한 세션에서는 Git Credential Manager가 Windows 자격 증명 관리자를 못 써서 push가 `Unable to persist credentials with the 'wincredman' credential store`로 실패한다. 이 기기용 SSH 키(`ssh-keygen -t ed25519`)를 GitHub Settings → SSH keys에 등록하고 push만 SSH로 보낸다: `git remote set-url --push origin git@github.com:ddigle/evensong.git`
    - gh 로그인: `gh auth login --hostname github.com --git-protocol ssh --skip-ssh-key --web --insecure-storage` → 표시된 코드를 https://github.com/login/device 에 넣는다. `--insecure-storage`는 같은 이유로 토큰을 `%APPDATA%\GitHub CLI\hosts.yml`에 둔다. 확인은 `gh auth status`
 4. 도구: 저장소 루트에서 `uv run tools/art/arttool.py <명령>`. 첫 실행 때 uv가 Python(`.python-version`)과 패키지(`arttool.py.lock`)를 받는다. 가상환경을 따로 만들지 않는다 (사용법은 `tools/art/arttool.py` 머리말). uv는 0.13.0 이상이어야 한다(`uv self update`). 그보다 낮으면 SSH로 접속한 세션에서 `uv trampoline failed to spawn Python`으로 실패한다
-5. 점검: `powershell -ExecutionPolicy Bypass -File tools\check-setup.ps1`. FAIL이 0이면 된다
-6. 에이전트 실행: Claude Code는 이 폴더에서 `claude` (CLAUDE.md가 AGENTS.md를 불러온다). Codex는 이 폴더나 별도 worktree에서 `codex` (AGENTS.md를 바로 읽는다)
-7. 힉스필드 MCP(이미지 생성): claude.ai의 힉스필드 커넥터가 연결돼 있으면 생략. 아니면 `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` → Claude Code 안에서 `/mcp`로 로그인. 둘 중 하나만 쓴다 (둘 다 등록하면 같은 도구가 두 벌 생긴다)
+5. 엔진 Godot 4.7.2 (game-concept §13, R30). 저장소 밖에 버전별 폴더로 두고, 내보내기 템플릿도 같이 받는다. 해시가 맞지 않으면 멈춘다
+   ```powershell
+   $v = "4.7.2-stable"; $d = "C:\dev\tools\godot\4.7.2"; $url = "https://github.com/godotengine/godot/releases/download/$v"
+   New-Item -ItemType Directory -Force $d | Out-Null
+   foreach ($f in "Godot_v$($v)_win64.exe.zip", "Godot_v$($v)_export_templates.tpz", "SHA512-SUMS.txt") { curl.exe -L -o "$d\$f" "$url/$f" }
+   foreach ($f in "Godot_v$($v)_win64.exe.zip", "Godot_v$($v)_export_templates.tpz") {
+     $h = (Get-FileHash "$d\$f" -Algorithm SHA512).Hash.ToLower()
+     if (-not (Select-String -Path "$d\SHA512-SUMS.txt" -SimpleMatch "$h  $f" -Quiet)) { throw "hash mismatch: $f" } }
+   Expand-Archive "$d\Godot_v$($v)_win64.exe.zip" $d
+   $t = "$env:APPDATA\Godot\export_templates\4.7.2.stable"; New-Item -ItemType Directory -Force $t | Out-Null
+   tar.exe -xf "$d\Godot_v$($v)_export_templates.tpz" -C $t --strip-components 1
+   ```
+   에이전트는 `Godot_v4.7.2-stable_win64_console.exe`를 헤드리스로 쓰고, 사람은 `Godot_v4.7.2-stable_win64.exe`로 에디터를 연다. 템플릿은 약 1.2GB다
+6. 점검: `powershell -ExecutionPolicy Bypass -File tools\check-setup.ps1`. FAIL이 0이면 된다
+7. 에이전트 실행: Claude Code는 이 폴더에서 `claude` (CLAUDE.md가 AGENTS.md를 불러온다). Codex는 이 폴더나 별도 worktree에서 `codex` (AGENTS.md를 바로 읽는다)
+8. 힉스필드 MCP(이미지 생성): claude.ai의 힉스필드 커넥터가 연결돼 있으면 생략. 아니면 `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` → Claude Code 안에서 `/mcp`로 로그인. 둘 중 하나만 쓴다 (둘 다 등록하면 같은 도구가 두 벌 생긴다)
 
 저장소 초기 설정(스타터 킷 반입, 북극성 두 장 보관, 초기 커밋)은 2026-10-01에 끝났다.
 

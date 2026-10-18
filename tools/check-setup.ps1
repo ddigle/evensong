@@ -83,6 +83,17 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     }
 } else { Fail "uv not found -> winget install --id astral-sh.uv -e" }
 
+# --- engine: Godot 4.7.2 (game-concept 13, R30), installed outside the repo (README setup step 5) ---
+$godot = 'C:\dev\tools\godot\4.7.2\Godot_v4.7.2-stable_win64_console.exe'
+if (Test-Path $godot) {
+    $gv = & $godot --headless --version 2>$null | Select-Object -Last 1
+    if ("$gv" -like '4.7.2.stable.official*') { Pass "godot: $gv" }
+    else { Fail "godot reports '$gv', expected 4.7.2.stable.official -> README setup step 5" }
+} else { Fail "Godot 4.7.2 not found at $godot -> README setup step 5" }
+$tpl = Join-Path $env:APPDATA 'Godot\export_templates\4.7.2.stable\windows_release_x86_64.exe'
+if (Test-Path $tpl) { Pass "Godot export templates 4.7.2" }
+else { Fail "Godot export templates missing ($tpl) -> README setup step 5" }
+
 if (Get-Command claude -ErrorAction SilentlyContinue) { Pass "claude: $(claude --version 2>$null)" }
 else { Warn "Claude Code not found -> irm https://claude.ai/install.ps1 | iex" }
 if (Get-Command codex -ErrorAction SilentlyContinue) { Info "codex found (optional)" }
