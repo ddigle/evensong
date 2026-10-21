@@ -1,0 +1,5 @@
+# Godot 4 캐시 (임포트 결과, 에디터 상태). *.import 와 *.uid 는 커밋한다
+.godot/
+# 내보내기 결과물. build/.gdignore 는 커밋해서 Godot가 이 폴더를 임포트하지 않게 한다
+build/*
+!build/.gdignore

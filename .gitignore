@@ -1,13 +1,6 @@
 # Godot 4: 캐시는 .godot/ 에만 있다. *.import, *.uid, export_presets.cfg 는 커밋한다
 # (에셋별 임포트 설정·UID, 내보내기 프리셋. 자격 증명은 .godot/export_credentials.cfg)
 .godot/
-# Unity (엔진 결정 후 정리)
-/game/[Ll]ibrary/
-/game/[Tt]emp/
-/game/[Oo]bj/
-/game/[Bb]uild/
-/game/[Bb]uilds/
-/game/[Ll]ogs/
 # 에이전트 로컬 설정
 CLAUDE.local.md
 **/.claude/settings.local.json
