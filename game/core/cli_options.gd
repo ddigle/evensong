@@ -5,12 +5,14 @@ extends RefCounted
 ##   --smoke                      run the smoke checks (core/smoke.gd), print one line, exit 0 / 1
 ##   --host[=<port>]              host a session (stage G3)
 ##   --join=<address>[:<port>]    join a session (stage G3)
-##   --class=<name>               paladin | miner | archer | cleric | herbalist (stage G2)
+##   --class=<name>               local player class: paladin | miner | archer | cleric | herbalist
+##                                (default Config.DEFAULT_CLASS)
 ##   --seed=<n>                   world seed (default Config.DEFAULT_SEED)
 ##   --screenshot=<file.png>      save the root viewport after --frames frames, then quit
 ##   --frames=<n>                 frames to wait before the screenshot (default 10)
 ##   --scale=<n>                  window size = 480x270 x n (ignored with --headless)
 ##   --overlay                    start with the debug overlay on (F3 toggles it)
+##   --no-evening                 start with the evening darkness and the altar light off (F4 toggles)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -28,6 +30,7 @@ var screenshot: String = ""
 var frames: int = DEFAULT_FRAMES
 var scale: int = 0
 var overlay: bool = false
+var no_evening: bool = false
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -58,6 +61,8 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.smoke = true
 			"overlay":
 				o.overlay = true
+			"no-evening":
+				o.no_evening = true
 			"host":
 				o.host = true
 				if has_value:

@@ -20,6 +20,8 @@ const WINDOW_SIZE: Vector2i = Vector2i(1920, 1080)
 const MAX_PLAYERS: int = 9
 ## ● slice classes (game-concept §12, R23).
 const CLASSES: PackedStringArray = ["paladin", "miner", "archer", "cleric", "herbalist"]
+## ● character frames 32x32, feet on frame row y=31 (concept-art-brief §5.6, R20·R26).
+const CHAR_FRAME: Vector2i = Vector2i(32, 32)
 
 # --- PROVISIONAL (○ / ?) --------------------------------------------------------------------
 
@@ -42,6 +44,21 @@ const ASH_ZONE_RADIUS_MIN: int = 5
 const ASH_ZONE_RADIUS_MAX: int = 8
 ## PROVISIONAL (not in docs): grass tiles kept between the safe radius and any ash cell.
 const ASH_CLEARANCE_TILES: int = 4
+## PROVISIONAL (not in docs; M1 spec asks for ~64-80 px/s): walk speed in px/s, the same in all
+## 8 directions (diagonals are normalised). 72 px/s = 4.5 tiles/s.
+const WALK_SPEED: float = 72.0
+## PROVISIONAL (? surface light: day/night vs eternal dusk, gameplay-design §3.1, game-concept §7).
+## M1 shows one constant evening (no cycle), switchable off with F4. Warm grey so shadows stay
+## brown, never blue (game-concept §10). Spike light module value.
+const EVENING_COLOR: Color = Color(0.40, 0.34, 0.31)
+## PROVISIONAL (spike light module values): altar light colour and energy, added on top of the
+## evening (inside ~ evening + energy * colour = about the painted colours).
+const ALTAR_LIGHT_COLOR: Color = Color(1.0, 0.97, 0.91)
+const ALTAR_LIGHT_ENERGY: float = 0.65
+## PROVISIONAL (? safe radius edge not decided; spike suggested a dithered edge for the ground
+## and a hard-edged copy for characters): width of the ground light's dithered band in px,
+## inside the radius (no lit pixel ever lies outside the safe zone).
+const SAFE_EDGE_BAND_PX: int = 16
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -57,10 +74,37 @@ const VARIANT_WEIGHT: float = 0.25
 ## IMPL: ash edge raggedness: noise amplitude in tiles and frequency per tile.
 const ASH_EDGE_NOISE_TILES: float = 3.0
 const ASH_EDGE_NOISE_FREQUENCY: float = 0.2
-## IMPL: free camera pan speed (px/s) in world.tscn until players exist (stage G2).
+## IMPL: free camera pan speed (px/s) in world.tscn (map viewer; main.tscn uses PlayerCamera).
 const FREE_CAMERA_SPEED: float = 240.0
 ## IMPL: default host port for --host (stage G3). Tests use 24621-24640.
 const DEFAULT_PORT: int = 24600
+## IMPL: class of the local player when --class is not given.
+const DEFAULT_CLASS: String = "paladin"
+## IMPL: seconds per frame. Walk = the stage-3 walk GIFs (120 ms); idle (4 breathing frames) slower.
+const WALK_FRAME_TIME: float = 0.12
+const IDLE_FRAME_TIME: float = 0.2
+## IMPL: collision box at the feet (half width, height in px): Rect2(x - 5, y - 4, 10, 4).
+## Movement collides this box with the map bounds and with blocked cells (the altar footprint).
+const FEET_HALF_WIDTH: float = 5.0
+const FEET_HEIGHT: float = 4.0
+## IMPL: the feet stay at least this far below the map's top edge, so the head (frame row 4 =
+## 28 px above the feet) never leaves the map.
+const HEAD_ROOM_PX: float = 28.0
+## IMPL: spawn slots around the altar, feet offsets in px from the altar centre. Slot 0 = local
+## player (G2); G3 hands them out to joining players (up to Config.MAX_PLAYERS). All lie inside
+## the safe zone and outside the footprint (tests/test_actors.gd).
+const SPAWN_SLOTS: Array[Vector2i] = [
+	Vector2i(-54, 8), Vector2i(54, 8), Vector2i(0, -26), Vector2i(-36, 52), Vector2i(36, 52),
+	Vector2i(-54, -30), Vector2i(54, -30), Vector2i(-80, 30), Vector2i(80, 30),
+]
+## IMPL: canvas light layers (CanvasItem.light_mask / Light2D.range_item_cull_mask bits). The
+## ground and the altar get the dithered altar light, characters a hard-edged copy (spike RESULTS §4).
+const LIGHT_LAYER_WORLD: int = 1
+const LIGHT_LAYER_ACTORS: int = 2
+## IMPL: flame mask = pixels that differ between altar_v04 and altar_v04_unlit and are at least
+## this bright (0-255 luma). Keeps the 81 flame pixels (9 lamps x 9), drops the warm glow on the
+## stone (spike light module value).
+const FLAME_MIN_LUMA: float = 148.0
 
 
 static func safe_radius_px() -> float:

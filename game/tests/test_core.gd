@@ -96,6 +96,13 @@ func _check_input_map() -> void:
 		if key != null:
 			keys.append(key.physical_keycode)
 	check_eq(keys, [KEY_F3] as Array[int], "debug_overlay key")
+	check(InputMap.has_action("toggle_evening"), "action toggle_evening exists")
+	keys.clear()
+	for event: InputEvent in InputMap.action_get_events("toggle_evening"):
+		var key: InputEventKey = event as InputEventKey
+		if key != null:
+			keys.append(key.physical_keycode)
+	check_eq(keys, [KEY_F4] as Array[int], "toggle_evening key")
 
 
 func _check_export_presets() -> void:
@@ -126,13 +133,13 @@ func _check_export_presets() -> void:
 
 func _check_cli_options() -> void:
 	var o: CliOptions = CliOptions.parse(PackedStringArray([]))
-	check(not o.smoke and not o.host and not o.join, "no flags: nothing on")
+	check(not o.smoke and not o.host and not o.join and not o.no_evening, "no flags: nothing on")
 	check_eq(o.world_seed, Config.DEFAULT_SEED, "default seed")
 	check_eq(o.frames, CliOptions.DEFAULT_FRAMES, "default frames")
 	check_eq(o.errors.size(), 0, "no flags: no errors")
 
 	o = CliOptions.parse(PackedStringArray(["--smoke", "--seed=-42", "--class=herbalist", "--screenshot=shots/a.png",
-		"--frames=30", "--scale=3", "--overlay", "positional", "--only=world"]))
+		"--frames=30", "--scale=3", "--overlay", "--no-evening", "positional", "--only=world"]))
 	check(o.smoke, "--smoke")
 	check_eq(o.world_seed, -42, "--seed")
 	check_eq(o.class_id, "herbalist", "--class")
@@ -140,6 +147,7 @@ func _check_cli_options() -> void:
 	check_eq(o.frames, 30, "--frames")
 	check_eq(o.scale, 3, "--scale")
 	check(o.overlay, "--overlay")
+	check(o.no_evening, "--no-evening")
 	check_eq(o.unknown, PackedStringArray(["positional", "--only=world"]), "unknown args are kept, not errors")
 	check_eq(o.errors.size(), 0, "valid flags: no errors (got %s)" % str(o.errors))
 
@@ -228,6 +236,8 @@ func _check_runner_helpers() -> void:
 	var found: PackedStringArray = Runner.discover("res://tests", "test_", PackedStringArray())
 	check_has(found, "test_core.gd", "runner finds test_core.gd")
 	check_has(found, "test_world.gd", "runner finds test_world.gd")
+	check_has(found, "test_actors.gd", "runner finds test_actors.gd")
+	check_has(found, "test_light.gd", "runner finds test_light.gd")
 	check_eq(Runner.discover("res://tests", "test_", PackedStringArray(["world"])), PackedStringArray(["test_world.gd"]),
 		"--only filters by name")
 	var errs: Array[String] = ["error: A happened", "error: B happened", "error: B happened", "error: C happened"]

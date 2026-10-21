@@ -1,7 +1,14 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=4 format=3]
 
-[ext_resource type="PackedScene" path="res://scenes/world.tscn" id="1_world"]
+[ext_resource type="Script" path="res://core/main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://scenes/world.tscn" id="2_world"]
+[ext_resource type="Script" path="res://actors/player_camera.gd" id="3_camera"]
 
-[node name="Main" type="Node"]
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
 
-[node name="World" parent="." instance=ExtResource("1_world")]
+[node name="World" parent="." instance=ExtResource("2_world")]
+free_camera = false
+
+[node name="Camera" type="Camera2D" parent="."]
+script = ExtResource("3_camera")

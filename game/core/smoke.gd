@@ -2,7 +2,9 @@ class_name Smoke
 extends RefCounted
 ## Smoke checks for --smoke (also in the exported exe): the engine version, the display settings
 ## that reached the root window, the input map, the committed surface TileSet, and one generated
-## world drawn with the ground view (corners, fallbacks, soil/ash). Any mismatch -> exit code 1.
+## world drawn with the ground view (corners, fallbacks, soil/ash), the character art and rig
+## tables, the safe-zone light texture against the rule, the flame mask, and the run scene.
+## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
 
@@ -51,6 +53,8 @@ static func run(tree: SceneTree) -> Report:
 	var table: WangTable = _check_tileset(r)
 	if table != null:
 		_check_world(r, table)
+	_check_actors(r)
+	_check_light(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
 	return r
 
@@ -134,3 +138,46 @@ static func _check_world(r: Report, table: WangTable) -> void:
 	r.fields.append("seed=%d world=%dx%d hash=%s cells=%d chunks=%d" % [data.world_seed, data.size.x, data.size.y,
 		data.content_hash().left(12), cells, view.chunk_count()])
 	view.free()
+
+
+## Character sheets, one signature layer per slice class, anchor table shape, a rig per class.
+static func _check_actors(r: Report) -> void:
+	r.expect_eq(Vector2i(RigData.WALK_SHEET.get_size()), Vector2i(192, 96), "walk sheet size")
+	r.expect_eq(Vector2i(RigData.IDLE_SHEET.get_size()), Vector2i(128, 96), "idle sheet size")
+	for class_id: String in Config.CLASSES:
+		var sig: RigData.Signature = RigData.signature_for(class_id)
+		if not r.expect(sig != null and sig.texture != null, "no signature layer for %s" % class_id):
+			continue
+		var c: Character = Character.new()
+		c.class_id = class_id
+		r.expect(c.signature_sprite() != null and c.signature_sprite().visible, "%s signature not shown" % class_id)
+		c.free()
+	for table: Array[Array] in [RigAnchors.TORSO, RigAnchors.HEAD]:
+		for anim: int in RigData.ANIM_NAMES.size():
+			var rows: Array = table[anim]
+			r.expect_eq(rows.size(), RigData.ROWS, "anchor rows")
+			for frames: Variant in rows:
+				var list: Array = frames
+				r.expect_eq(list.size(), RigData.frame_count(anim), "anchor frames of %s" % RigData.ANIM_NAMES[anim])
+	r.expect(ResourceLoader.exists("res://scenes/main.tscn"), "main.tscn missing")
+	var main: PackedScene = load("res://scenes/main.tscn") as PackedScene
+	r.expect(main != null and main.can_instantiate(), "main.tscn does not load")
+
+
+## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
+## and the flame mask has the 81 lamp pixels.
+static func _check_light(r: Report) -> void:
+	var zone: SafeZone = SafeZone.for_world(SurfaceGen.generate(Config.DEFAULT_SEED))
+	var img: Image = LightGen.zone_light_image(zone, LightGen.Edge.HARD, 0)
+	var size: int = LightGen.texture_size(zone)
+	var origin: Vector2i = LightGen.texture_origin(zone)
+	var data: PackedByteArray = img.get_data()
+	var mismatches: int = 0
+	for y: int in size:
+		for x: int in size:
+			var inside: bool = zone.is_in_safe_zone(Vector2(origin + Vector2i(x, y)) + Vector2(0.5, 0.5))
+			if inside != (data[(y * size + x) * 4 + 3] == 255):
+				mismatches += 1
+	r.expect_eq(mismatches, 0, "light texels different from the safe-zone rule")
+	r.expect_eq(LightGen.count_opaque(Altar.flame_image()), 81, "flame mask pixels")
+	r.fields.append("zone=%s/%d light=%dx%d" % [zone.center, roundi(zone.radius), size, size])

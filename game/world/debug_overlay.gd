@@ -13,6 +13,10 @@ var data: WorldData
 func _ready() -> void:
 	z_index = 100
 	visible = false
+	# Debug lines keep their colours under the evening darkness.
+	var unshaded: CanvasItemMaterial = CanvasItemMaterial.new()
+	unshaded.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	material = unshaded
 
 
 func setup(p_data: WorldData) -> void:
