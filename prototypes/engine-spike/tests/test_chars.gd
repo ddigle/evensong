@@ -268,6 +268,23 @@ func _check_scale_math() -> void:
 	check_eq(shown.get_pixel(5, 4), Color.RED, "4x4 block")
 	check_eq(shown.get_pixel(6, 4), Color(0, 0, 0, 0), "next block")
 	check_eq(shown.get_pixel(13, 8), Color.BLUE, "last block")
+	# Present check: bottom corner squares (window rounding) are counted apart from the rest.
+	var want: Image = Image.create_empty(40, 30, false, Image.FORMAT_RGBA8)
+	want.fill(Color.GREEN)
+	var got: Image = want.duplicate() as Image
+	got.set_pixel(0, 29, Color.BLACK)
+	got.set_pixel(39, 25, Color.BLACK)
+	var corners_only: Dictionary = ScaleScene.present_diff(got, want, 8)
+	check_eq(corners_only["count"], 2, "present diff counts corner pixels")
+	check_eq(corners_only["outside"], 0, "bottom corner pixels are not outside")
+	check_eq(corners_only["bbox"], "0,25-39,29", "present diff bounding box")
+	got.set_pixel(0, 0, Color.BLACK)
+	got.set_pixel(20, 29, Color.BLACK)
+	var elsewhere: Dictionary = ScaleScene.present_diff(got, want, 8)
+	check_eq(elsewhere["outside"], 2, "top corner and bottom middle count as outside")
+	check_eq((elsewhere["mask"] as Image).get_pixel(20, 29), Color.MAGENTA, "mask marks outside pixels")
+	check_eq((elsewhere["mask"] as Image).get_pixel(0, 29), Color.YELLOW, "mask marks corner pixels")
+	check_eq(ScaleScene.present_diff(tiny, want, 8)["count"], -1, "present diff rejects other sizes")
 
 
 func _check_layout() -> void:

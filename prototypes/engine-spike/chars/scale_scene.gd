@@ -20,6 +20,9 @@ extends Node2D
 ## Desktop check (a person at the desktop, not over SSH):
 ##   godot --path . res://chars/scale.tscn -- --scale=4 --chars-present-check
 ## captures the window from the screen and compares it with the rebuilt presented frame.
+## Windows 11 rounds the corners of a normal window, so mismatches inside the two bottom
+## PRESENT_CORNER squares are counted apart and do not fail the check. On any mismatch the
+## capture, the expected frame and a diff mask go to build/shots/present_*.png.
 
 const Data := preload("res://chars/char_data.gd")
 const Compose := preload("res://chars/compose.gd")
@@ -28,6 +31,9 @@ const CharsScene := preload("res://chars/chars_scene.gd")
 const SpikeCli := preload("res://skeleton/spike_cli.gd")
 
 const TILE: int = 16
+## Side of the bottom corner squares the present check sets apart (window corner rounding is
+## 8 px at 100 % display scale and grows with it).
+const PRESENT_CORNER: int = 32
 const WORLD_TILES: Vector2i = Vector2i(48, 28)
 const CAMERA_CENTER: Vector2i = Vector2i(384, 224)
 
@@ -90,6 +96,38 @@ func world_image() -> Image:
 	for c: Character in characters:
 		CharsScene.paste_character(out, c, Vector2i(c.position))
 	return out
+
+
+## Like CharsScene.diff_images, but splits the mismatches into those inside the two bottom
+## `corner` x `corner` squares and the rest, and returns their bounding box and a mask image.
+static func present_diff(actual: Image, expected: Image, corner: int) -> Dictionary:
+	var w: int = actual.get_width()
+	var h: int = actual.get_height()
+	if actual.get_size() != expected.get_size():
+		return {"count": -1, "outside": -1, "first": "size %s vs %s" % [actual.get_size(), expected.get_size()]}
+	var mask: Image = Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
+	var count: int = 0
+	var outside: int = 0
+	var first: String = ""
+	var lo: Vector2i = Vector2i(w, h)
+	var hi: Vector2i = Vector2i(-1, -1)
+	for y: int in h:
+		for x: int in w:
+			var a: int = actual.get_pixel(x, y).to_rgba32()
+			var e: int = expected.get_pixel(x, y).to_rgba32()
+			if a == e:
+				continue
+			if count == 0:
+				first = "(%d,%d) got %08x want %08x" % [x, y, a, e]
+			count += 1
+			var in_corner: bool = y >= h - corner and (x < corner or x >= w - corner)
+			if not in_corner:
+				outside += 1
+			mask.set_pixel(x, y, Color.YELLOW if in_corner else Color.MAGENTA)
+			lo = Vector2i(mini(lo.x, x), mini(lo.y, y))
+			hi = Vector2i(maxi(hi.x, x), maxi(hi.y, y))
+	var bbox: String = "none" if count == 0 else "%d,%d-%d,%d" % [lo.x, lo.y, hi.x, hi.y]
+	return {"count": count, "outside": outside, "first": first, "bbox": bbox, "mask": mask}
 
 
 ## The frame a viewport-mode window presents: render target upscaled by `factor` (nearest),
@@ -227,7 +265,19 @@ func _run_present_check() -> void:
 		get_tree().quit(3)
 		return
 	cap.convert(Image.FORMAT_RGBA8)
-	var d: Dictionary = CharsScene.diff_images(cap, expected)
-	print("CHARS_PRESENT %s window=%dx%d scale=%s mismatches=%s %s" % [
-		"ok" if int(d["count"]) == 0 else "FAIL", root.size.x, root.size.y, xf.x.x, d["count"], d["first"]])
-	get_tree().quit(0 if int(d["count"]) == 0 else 1)
+	var d: Dictionary = present_diff(cap, expected, PRESENT_CORNER)
+	var count: int = int(d["count"])
+	var outside: int = int(d["outside"])
+	var ok: bool = count >= 0 and outside == 0
+	print("CHARS_PRESENT %s window=%dx%d scale=%s mismatches=%d outside_corners=%d corners=%d bbox=%s %s" % [
+		"ok" if ok else "FAIL", root.size.x, root.size.y, xf.x.x, count, outside,
+		maxi(count - outside, 0), d.get("bbox", "none"), d["first"]])
+	if count != 0:
+		var dir: String = ProjectSettings.globalize_path("res://build/shots")
+		DirAccess.make_dir_recursive_absolute(dir)
+		cap.save_png(dir.path_join("present_capture.png"))
+		expected.save_png(dir.path_join("present_expected.png"))
+		if d.has("mask"):
+			(d["mask"] as Image).save_png(dir.path_join("present_diff.png"))
+		print("CHARS_PRESENT_FILES %s (present_capture/expected/diff.png; diff: magenta = outside the corners, yellow = bottom corners)" % dir)
+	get_tree().quit(0 if ok else 1)
