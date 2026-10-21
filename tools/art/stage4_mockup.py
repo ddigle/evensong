@@ -567,16 +567,17 @@ def dungeon():
                           ("prop_sack_b_v02.png", 66, 254), ("prop_jar_clay_v02.png", 92, 250),
                           ("prop_pottery_broken_v02.png", 118, 254), ("prop_chain_a_v02.png", 150, 232)):
         sc.put(name, x, foot)
-    # 잔해·기둥 토막·석순
+    # 잔해·기둥 토막·석순 (석순 a는 광부 자리를 비우려고 (262, 140)에서 옮김, a5 손질)
     for name, x, foot in (("prop_rubble_a_v02.png", 172, 100), ("prop_pillar_stub_a_v02.png", 250, 96),
-                          ("prop_stalagmite_a_v02.png", 262, 140), ("prop_rubble_c_v02.png", 196, 252),
+                          ("prop_stalagmite_a_v02.png", 242, 196), ("prop_rubble_c_v02.png", 196, 252),
                           ("prop_stalagmite_b_v02.png", 280, 250), ("prop_pillar_stub_c_v02.png", 140, 132),
                           ("item_ore_copper_a_v02.png", 120, 96), ("item_ore_iron_a_v02.png", 232, 214)):
         sc.put(name, x, foot)
-    # 보스 구역의 광부 지형 요소 후보 (candA 기둥) + 곡괭이로 치는 광부
-    sc.put("boss_pillar_candA_v02.png", 238, 196)
+    # 오른쪽 벽의 철 광맥 칸 (19, 8)을 곡괭이로 치는 광부 (곡괭이 날 끝 = 벽 가장자리 x 294).
+    # 보스 구역의 광부 지형 요소는 game-concept §12의 ? 항목이라 목업 본 판에 넣지 않는다.
+    # 기둥 후보(boss_pillar_candA_v02)는 후보 시트에만 둔다 (이단의 불을 꺼 둔 것과 같은 처리, a5 손질)
     strike = miner_strike()
-    sc.items.append((194, 999, strike, (196, 194 - 48), None))
+    sc.items.append((144, 999, strike, (250, 144 - 48), None))
     sc.put_char("archer", "E", 166, 160)
     sc.put_char("herbalist", "S", 196, 222)
     rb, re_ = sc.render(g)
