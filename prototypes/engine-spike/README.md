@@ -53,6 +53,7 @@ timeout 60 $SPIKE/build/evensong_spike.console.exe --headless -- --smoke < /dev/
 - 내보내기 경로는 프로젝트 폴더 기준이다 → `prototypes/engine-spike/build/evensong_spike.exe` (+ 콘솔 래퍼 `evensong_spike.console.exe`)
 - 두 번째 줄은 `SPIKE_SMOKE ok godot=... exported=true ...` 한 줄을 찍고 0으로 끝나야 한다. `--headless --quit`만 줘도 바로 끝난다
 - `tests/`는 내보내기에서 뺀다 (`exclude_filter`). `build/`는 `.gdignore`가 있어 임포트하지 않고, 커밋하지 않는다
+- Windows ARM64(서피스 스냅드래곤 등) 시험용: `--export-release "Windows ARM64" build/arm64/evensong_spike.exe`. 이 데스크탑(x86_64)에서는 실행해 볼 수 없다
 
 ### 4. 장면 하나 실행
 

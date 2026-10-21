@@ -28,7 +28,10 @@
 GODOT="C:/dev/tools/godot/4.7.2/Godot_v4.7.2-stable_win64_console.exe"; SPIKE=prototypes/engine-spike
 timeout 300 "$GODOT" --headless --path $SPIKE --script res://tests/run_all.gd -- --only=net < /dev/null
 # 변형: --net-clients=8 (9인)  --net-sync=on_change  --net-sync-hz=20  --net-compress=range|zstd  --net-map=1024  --net-relay=off
-# 수동 플레이(창 2개): "$GODOT" --path $SPIKE res://net/net.tscn   그리고   "$GODOT" --path $SPIKE res://net/net.tscn -- --net-role=client
+# 수동 플레이(창 2개): "$GODOT" --path $SPIKE res://net/net.tscn   그리고   "$GODOT" --path $SPIKE res://net/net.tscn -- --net-role=client --net-timeout=0
+#   (--net-role를 주면 자동 시험 모드라 기본 90초 뒤 끝난다. 사람이 할 때는 --net-timeout=0)
+# 두 기기: 다른 PC에서 내보낸 exe로 evensong_spike.exe -- --scene=net --net-role=client --net-timeout=0 --net-address=<호스트 IP>
+#   (Tailscale이면 호스트의 100.x 주소. 서피스 스냅드래곤은 "Windows ARM64" 프리셋으로 내보낸 exe)
 ```
 
 포트는 24601~24620만 쓴다(테스트는 24601~24619 중 빈 것을 찾고, 수동 기본값은 24620).
