@@ -47,7 +47,7 @@ func run() -> Array[String]:
 	_check_scripts_compile()
 	_check_warnings_are_errors()
 	_check_runner_helpers()
-	_check_port_block()
+	await _check_port_block()
 	await _check_runner_fixtures()
 	await _check_child_deadline()
 	return failures
@@ -265,7 +265,8 @@ func _check_runner_helpers() -> void:
 
 
 ## The run's port block: chosen and held by the runner, every port free when it was chosen. A held
-## block cannot be claimed again (the lock), a block with a busy port is skipped, bad bases are refused.
+## block cannot be claimed again (the lock), a block with a busy port is skipped (also a port an
+## IPv4-only socket holds), bad bases are refused, a runner given a held block runs nothing.
 func _check_port_block() -> void:
 	var count: int = Config.NET_TEST_PORT_COUNT
 	check_eq(count, 20, "20 test ports")
@@ -293,9 +294,30 @@ func _check_port_block() -> void:
 	check(Runner.claim_port_block(base, count) == null, "a block with a busy UDP port is skipped")
 	check_eq(Runner.free_port(base + 7, base + 9), base + 8, "free_port skips the busy port (no engine error)")
 	busy.stop()
+	# An IPv4-only holder (another program's socket on 0.0.0.0 or 127.0.0.1): Windows lets a dual-stack
+	# "*" socket share its port, and the test clients' 127.0.0.1 traffic would go to the holder.
+	for address: String in ["0.0.0.0", "127.0.0.1"]:
+		var v4: PacketPeerUDP = PacketPeerUDP.new()
+		if not check_eq(v4.bind(base + 7, address), OK, "an IPv4-only socket holds port %d on %s" % [base + 7, address]):
+			continue
+		check(not Runner.udp_ports_free(base + 7, 1), "a port held on %s only is busy" % address)
+		check(Runner.claim_port_block(base, count) == null, "a block with a port held on %s is skipped" % address)
+		check_eq(Runner.free_port(base + 7, base + 9), base + 8, "free_port skips a port held on %s" % address)
+		v4.close()
+	check(Runner.udp_ports_free(base + 7, 1), "the port is free again once the holders are gone")
 	var lock: TCPServer = Runner.claim_port_block(base, count)
 	check(lock != null and lock.is_listening(), "a free block is claimed")
 	check(Runner.claim_port_block(base, count) == null, "and cannot be claimed twice")
+	# A runner told to use that held block (--port-base) fails at startup and runs no file.
+	var held: Array = await _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=case_", "--only=pass",
+		"--timeout=2", "--port-base=%d" % base]), CHILD_DEADLINE_SEC, false)
+	var held_code: int = held[0]
+	var held_text: String = held[1]
+	check_eq(held_code, 1, "a runner whose --port-base block is held exits 1")
+	check_has(held_text, "no test ports claimed", "and says it claimed no ports")
+	check_has(held_text, "FAIL (startup)", "with FAIL (startup)")
+	check(not held_text.contains("PASS case_pass.gd") and held_text.contains("no file ran"),
+		"and runs no test file (they would use ports it does not hold)")
 	if lock != null:
 		lock.stop()
 
@@ -364,16 +386,17 @@ func _check_child_deadline() -> void:
 
 
 ## Runs tests/run_all.gd with `user_args` in a headless child process (output to a log file, the
-## run's port block passed down) and waits at most `deadline_sec`, polling so this runner keeps
-## going. A child still running then is killed. Returns [exit code (-1 if killed or not started),
-## output, timed out, pid].
-func _run_runner(user_args: PackedStringArray, deadline_sec: float) -> Array:
+## run's port block passed down unless `pass_ports` is false) and waits at most `deadline_sec`,
+## polling so this runner keeps going. A child still running then is killed. Returns [exit code
+## (-1 if killed or not started), output, timed out, pid].
+func _run_runner(user_args: PackedStringArray, deadline_sec: float, pass_ports: bool = true) -> Array:
 	var log_path: String = ProjectSettings.globalize_path("user://runner_child_%d_%d.log" % [OS.get_process_id(),
 		Time.get_ticks_usec()])
 	var args: PackedStringArray = ["--headless", "--path", ProjectSettings.globalize_path("res://"), "--log-file", log_path,
 		"--script", "res://tests/run_all.gd", "--"]
 	args.append_array(user_args)
-	args.append("--ports-from-parent=%d" % Runner.port_first)
+	if pass_ports:
+		args.append("--ports-from-parent=%d" % Runner.port_first)
 	var pid: int = OS.create_process(OS.get_executable_path(), args, false)
 	if not check(pid > 0, "runner child started"):
 		return [-1, "", false, pid]

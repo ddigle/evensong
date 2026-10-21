@@ -18,11 +18,16 @@ extends "res://tests/base_test.gd"
 ##         (net/link_sim.gd): prediction must still match the host. Alongside it, "drop": a host
 ##         that goes away (its --net-timeout) under a client started like a human would (no
 ##         --net-out): the client must play on alone, without errors.
+##   stall 1 host + 1 walking client: the host blocks 0.7 s outside its physics ticks (bot "stall"),
+##         and the client's input queue must catch up afterwards (not stay rate limited behind). Then
+##         the host edits the world every 4 ticks while a late joiner streams its world in 1-byte
+##         chunks: the edits made meanwhile follow its welcome and its world equals the host's.
 ##
 ## Checked: exit codes, positions hash, world hash and ground picture (view hash) equal to the
 ## host's, everyone sees every player, ground view = data, client prediction error <=
 ## PREDICTION_BOUND_PX and no facing correction (the host derives the facing), no malformed
-## messages, late joiners' snapshot and log position, no "ERROR:" line in any child log, every process
+## messages, input tokens refilled at the host's real-time pace, every snapshot sent at
+## NET_SNAPSHOT_CHUNKS_PER_TICK per tick, late joiners' snapshot and log position, no "ERROR:" line in any child log, every process
 ## gone at the end (left-overs are killed and fail the test). Ports come from the runner's block
 ## (tests/run_all.gd). Traffic and late join sizes and times are printed as notes.
 ##
@@ -56,6 +61,14 @@ const FOUR_C3: String = "move:1,1,60;move:-1,0,90;wait:60"
 const LAG_HOST: String = "move:1,0,60;move:0,1,30;wait:60"
 const LAG_C1: String = "move:-1,-1,45;move:-1,0,30;move:1,1,40;move:0,-1,25;wait:30"
 const FULL_BOT: String = "move:1,0,90;wait:120"
+## stall: the host blocks this long in a process step (bot "stall") while c1 walks, then edits the
+## world every STALL_EDIT_EVERY ticks, STALL_EDITS times, while the late joiner c2 streams its world
+## in 1-byte chunks (341 chunks, 43 ticks).
+const STALL_MS: int = 700
+const STALL_EDITS: int = 60
+const STALL_EDIT_EVERY: int = 4
+const STALL_CHUNK_BYTES: int = 1
+const STALL_C1: String = "move:1,0,60;move:0,1,60;move:-1,0,60;move:0,-1,60;wait:30"
 ## drop: the host quits by its --net-timeout; the client (no --net-out) runs this many frames.
 const DROP_HOST_SEC: int = 6
 const DROP_CLIENT_FRAMES: int = 480
@@ -95,6 +108,7 @@ func run() -> Array[String]:
 	await _session_pair()
 	await _session_four()
 	await _session_lag()
+	await _session_stall()
 	if args.has("net-full"):
 		await _session_full()
 	_check_logs()
@@ -177,6 +191,9 @@ func _session_four() -> void:
 	check(four_chunks > Config.NET_SNAPSHOT_CHUNKS_PER_TICK and _num(c4.result, "snapshot_chunks") == float(four_chunks),
 		"four/c4: its world came in %d chunks of %d B (more than one tick's %d)" % [four_chunks, FOUR_CHUNK_BYTES,
 		Config.NET_SNAPSHOT_CHUNKS_PER_TICK])
+	var c4_stream: Dictionary = _stream_for(host, c4)
+	check_eq(_num(c4_stream, "ticks"), float(ceili(float(four_chunks) / Config.NET_SNAPSHOT_CHUNKS_PER_TICK)),
+		"four/c4: the host sent those chunks over %d ticks" % ceili(float(four_chunks) / Config.NET_SNAPSHOT_CHUNKS_PER_TICK))
 	check_eq(c1.result.get("ended", ""), "left", "four: c1 left")
 	check_eq(c4.result.get("slot", -1), c1.result.get("slot", -2), "four: the late joiner reuses the slot c1 left")
 	check_eq(c5.result.get("refused", ""), "full", "four: a fifth player is refused as full")
@@ -232,6 +249,84 @@ func _session_lag() -> void:
 		roundi(_num(c1.result, "interp_samples"))])
 
 
+## The host stalls (a 0.7 s frame outside the physics ticks, where Godot polls the network only
+## after its catch-up ticks) while c1 walks: c1's frames must still catch up, not stay rate limited
+## behind for the rest of the walk. Then the host edits the world every few ticks while a late
+## joiner (c2) receives its world in 341 one-byte chunks: the edits made during the stream reach c2
+## after its welcome (the catch-up edits) and its world ends equal to the host's.
+func _session_stall() -> void:
+	var dir: String = _session_dir("stall")
+	var port: int = _port()
+	if not check(port > 0, "stall: free port"):
+		return
+	var host_bot: String = "mark:editing;wait:5;stall:%d;%s;wait:30" % [STALL_MS, _edits_script(STALL_EDITS, STALL_EDIT_EVERY)]
+	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2",
+		"--test-snapshot-chunk-bytes=%d" % STALL_CHUNK_BYTES, "--bot=" + host_bot])
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "stall: host listens"):
+		await _reap()
+		return
+	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=miner", "--bot=" + STALL_C1])
+	if not check(await _wait_files([dir.path_join("host.editing.marker")], STEP_WAIT_SEC), "stall: host bot started"):
+		await _reap()
+		return
+	var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=wait:10"])
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json")],
+		STEP_WAIT_SEC), "stall: every instance wrote its result")
+	await _reap()
+	if not _load_results(dir, [host, c1, c2]):
+		return
+	_expect_codes("stall", {host: 0, c1: 0, c2: 0})
+	_check_agreement("stall", host, [c1, c2], 3)
+	check_eq(_num(host.result, "stalled_ms"), float(STALL_MS), "stall: the host really blocked %d ms" % STALL_MS)
+	var gates: Dictionary = host.result.get("gates", {})
+	var g: Dictionary = gates.get(str(roundi(_num(c1.result, "slot"))), {})
+	check(_num(g, "waiting_peak") >= 0.6 * STALL_MS * Config.NET_TICK_RATE / 1000.0, "stall: c1's frames piled up during the stall (%s waiting)" % g.get("waiting_peak"))
+	check(_num(g, "rate_limited_ticks") <= 2.0, "stall: c1's queue caught up after it, not rate limited behind (%s ticks)" %
+		g.get("rate_limited_ticks"))
+	check(_num(g, "credit_used") > 0.0, "stall: the lost time reached the frames polled after the catch-up ticks (credit %s)" %
+		g.get("credit_used"))
+	note("stall %d ms: c1's queue peak %s frames, rate limited %s ticks, hitch credit used %s ticks, refill %s ticks in %s takes" % [
+		STALL_MS, g.get("waiting_peak"), g.get("rate_limited_ticks"), g.get("credit_used"), g.get("refilled"), g.get("takes")])
+	# Edits while c2 streamed.
+	check_eq(_num(host.result, "edits"), float(STALL_EDITS), "stall: the host made %d edits" % STALL_EDITS)
+	for c: Instance in [c1, c2]:
+		check_eq(_num(c.result, "edits"), float(STALL_EDITS), "stall/%s: log position %d (every edit)" % [c.name, STALL_EDITS])
+	var stream: Dictionary = _stream_for(host, c2)
+	var catch_up: int = roundi(_num(stream, "catch_up_edits"))
+	check(catch_up > 0, "stall/c2: edits made while its world streamed came after the welcome (%d catch-up edits)" % catch_up)
+	check(_num(stream, "chunks") > 300.0 and _num(c2.result, "snapshot_chunks") == _num(stream, "chunks"),
+		"stall/c2: its world came in %s one-byte chunks" % stream.get("chunks"))
+	note("stall/c2: world in %s chunks over %s ticks, snapshot at edit %s, %d edits after it sent after the welcome" % [
+		stream.get("chunks"), stream.get("ticks"), stream.get("edit_position"), catch_up])
+
+
+## A bot script of `count` floor edits (grass -> soil, each allowed by EditLog.check after the ones
+## before it, on the seed-1 world), one every `every` ticks.
+static func _edits_script(count: int, every: int) -> String:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var parts: PackedStringArray = []
+	var origin: Vector2i = data.altar_rect.position + Vector2i(-10, data.altar_rect.size.y + 3)
+	for y: int in range(origin.y, data.size.y):
+		for x: int in range(origin.x, data.size.x):
+			if parts.size() >= count:
+				break
+			var e: EditLog.WorldEdit = EditLog.WorldEdit.new(WorldData.Layer.FLOOR, Vector2i(x, y), Terrain.SOIL)
+			if EditLog.check(data, e).is_empty() and data.set_terrain(e.cell, e.value):
+				parts.append("edit:%d,%d,soil;wait:%d" % [x, y, every - 1])
+	return ";".join(parts)
+
+
+## The host's record of the stream that sent `joiner` its world ({} if none).
+func _stream_for(host: Instance, joiner: Instance) -> Dictionary:
+	var slot: int = roundi(_num(joiner.result, "slot"))
+	var streams: Array = host.result.get("streams", [])
+	for item: Variant in streams:
+		var d: Dictionary = item
+		if roundi(_num(d, "slot")) == slot:
+			return d
+	return {}
+
+
 ## Opt-in (--net-full): the real cap. 1 host + 8 clients = 9 players, a tenth is refused.
 func _session_full() -> void:
 	var dir: String = _session_dir("full")
@@ -278,11 +373,14 @@ func _session_full() -> void:
 func _check_agreement(label: String, host: Instance, clients: Array[Instance], players: int) -> void:
 	var h: Dictionary = host.result
 	check_eq(h.get("ended", ""), "finished", "%s: host finished" % label)
-	# Physics ticks keep real time in a headless child (bandwidth per second relies on it).
+	# Physics ticks keep real time in a headless child (bandwidth per second relies on it). A test
+	# stall (bot "stall") loses its time but the 8 catch-up ticks Godot runs after it.
 	var sim_sec: float = _num(h, "ticks") * Config.NET_TICK
-	var wall_sec: float = _num(h, "wall_sec")
+	var stalled_sec: float = maxf(_num(h, "stalled_ms"), 0.0) / 1000.0
+	var wall_sec: float = _num(h, "wall_sec") - stalled_sec
 	check(wall_sec > 1.0 and absf(sim_sec - wall_sec) <= 0.05 * wall_sec + 0.25,
-		"%s: host ticks keep real time (%.2f s simulated, %.2f s wall since hosting)" % [label, sim_sec, wall_sec])
+		"%s: host ticks keep real time (%.2f s simulated, %.2f s wall since hosting, %.2f s stalled not counted)" % [label,
+		sim_sec, wall_sec, stalled_sec])
 	var host_players: Array = h.get("players", [])
 	check_eq(host_players.size(), players, "%s: host has %d players" % [label, players])
 	check(_flag(h, "bot_finished"), "%s: host bot finished" % label)
@@ -326,6 +424,22 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		var g: Dictionary = gates[slot]
 		check(_num(g, "bad_packets") == 0.0 and _num(g, "bad_frames") == 0.0 and _num(g, "gaps") == 0.0
 			and _num(g, "overflow") == 0.0, "%s: host input gate for slot %s clean %s" % [label, slot, g])
+		# The rate limit runs on the host's real-time clock (InputGate.ticks_between): over the gate's
+		# life its refill must be about one tick per host tick (plus what a test stall lost).
+		var takes: float = _num(g, "takes")
+		var refilled: float = _num(g, "refilled")
+		check(takes > 30.0 and refilled >= 0.9 * takes - 5.0 and refilled <= 1.1 * takes + 10.0 + stalled_sec * Config.NET_TICK_RATE,
+			"%s: slot %s's input tokens follow real time (refill %.1f ticks over %d host ticks)" % [label, slot, refilled,
+			roundi(takes)])
+	# Each joiner's world went out at NET_SNAPSHOT_CHUNKS_PER_TICK chunks per host tick.
+	var streams: Array = h.get("streams", [])
+	for item: Variant in streams:
+		var st: Dictionary = item
+		var chunks: float = _num(st, "chunks")
+		check(_num(st, "ticks") == float(ceili(chunks / Config.NET_SNAPSHOT_CHUNKS_PER_TICK)),
+			"%s: slot %d's world went out at %d chunks per tick (%d chunks in %d ticks)" % [label, roundi(_num(st, "slot")),
+			Config.NET_SNAPSHOT_CHUNKS_PER_TICK, roundi(chunks), roundi(_num(st, "ticks"))])
+	check(streams.size() >= clients.size(), "%s: the host recorded a stream for every joiner (%d)" % [label, streams.size()])
 
 
 ## A late joiner: its world is the host's edited world, received as a snapshot with the log

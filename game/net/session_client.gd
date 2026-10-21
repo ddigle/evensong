@@ -49,7 +49,11 @@ func on_opened() -> void:
 func before_tick(now: int, start_ms: int) -> bool:
 	s.link.poll(now)
 	if not s.active and now - start_ms > int(Config.NET_CONNECT_TIMEOUT_SEC * 1000.0):
-		s.end_session("failed: not admitted within %.0f s" % Config.NET_CONNECT_TIMEOUT_SEC, NetSession.EXIT_FAILED)
+		if receiver.chunks == 0:
+			s.end_session("failed: not admitted within %.0f s" % Config.NET_CONNECT_TIMEOUT_SEC, NetSession.EXIT_FAILED)
+		else:  # admitted, but the world is too big or the link too slow for the timeout
+			s.end_session("failed: world not complete within %.0f s (%d chunks, %d B so far)" % [
+				Config.NET_CONNECT_TIMEOUT_SEC, receiver.chunks, receiver.bytes.size()], NetSession.EXIT_FAILED)
 		return false
 	return true
 
@@ -90,8 +94,9 @@ func on_welcome(payload: PackedByteArray) -> void:
 	receiver = WorldSnapshot.Receiver.new()
 	s.edit_log = EditLog.new()
 	s.edit_log.base = w.edit_position
-	# Diagnostic only: would this machine's generator have made the host's seed world?
-	s.generator_hash = SurfaceGen.generate(w.world_seed, data.size).content_hash()
+	# Diagnostic only: would this machine's generator have made the host's seed world? (The seed
+	# comes with the snapshot.)
+	s.generator_hash = SurfaceGen.generate(data.world_seed, data.size).content_hash()
 	host_generator_hash = w.generator_md5.hex_encode()
 	generator_match = s.generator_hash == host_generator_hash
 	for info: NetProtocol.PlayerInfo in w.players:
@@ -114,7 +119,7 @@ func on_welcome(payload: PackedByteArray) -> void:
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
 		"chunks=%d build_ms=%.1f join_ms=%.1f generator=%s") % [w.slot, s.local.class_id, s.members.size(),
-		w.max_players, w.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size, w.raw_size,
+		w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size, w.raw_size,
 		w.chunk_count, world_build_ms, join_ms, "match" if generator_match else "differs (local %s, host %s)" % [
 		s.generator_hash.left(12), host_generator_hash.left(12)]])
 	s.local_player_ready.emit(s.local.player)
@@ -222,6 +227,8 @@ func tick(action: NetBot.Action) -> void:
 		s.log_event("bot", "edit ignored: only the host edits the world")
 	if not action.mark.is_empty():
 		s.bots.mark(action.mark)
+	if action.stall_ms > 0:
+		s.stall_after_tick(action.stall_ms)
 	s.bots.client_after_tick(action)
 
 

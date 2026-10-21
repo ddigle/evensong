@@ -20,8 +20,12 @@ extends RefCounted
 const HEADER_SIZE: int = 2 + 2 + 8 + 2 + 2 + 2 + 2 + 1
 const CHUNK_HEADER: int = 4
 const COMPRESSION: FileAccess.CompressionMode = FileAccess.COMPRESSION_ZSTD
-## Cells per axis a snapshot may claim (bounds what a joiner allocates; u16 on the wire).
-const MAX_SIDE: int = 2048
+## Cells per axis a snapshot may claim (bounds what a joiner allocates; u16 on the wire). 4x the M1
+## map's width: the biggest world the join flow can take. Even incompressible (MAX_PACKED, 1.6 MB)
+## it streams in about 3.3 s at NET_SNAPSHOT_CHUNKS_PER_TICK, inside NET_CONNECT_TIMEOUT_SEC, and
+## loads (GameWorld.load_data) in under a second here; 2048 would mean ~25 MB, minutes of streaming
+## and ~13 s / 1.4 GB to load. Raise it together with those when maps grow.
+const MAX_SIDE: int = 512
 const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE
 ## zstd never grows data by more than a small fraction; a receiver refuses more than this.
 const MAX_PACKED: int = MAX_RAW + MAX_RAW / 64 + 1024

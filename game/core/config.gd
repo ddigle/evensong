@@ -112,6 +112,9 @@ const NET_INPUT_BURST: int = 30
 ## IMPL: the host keeps up to this many received frames per client waiting and applies one per tick
 ## (more when it falls behind), so other players see a client walk smoothly.
 const NET_INPUT_JITTER_FRAMES: int = 3
+## IMPL: when a client has fallen behind (bunched packets, a host hitch), the host applies at most
+## this many of its frames per tick: others see it catch up at 4x walking speed instead of a jump.
+const NET_INPUT_CATCH_UP_FRAMES: int = 4
 ## IMPL: late join world snapshot (net/world_snapshot.gd): the compressed world goes out in chunks
 ## of at most this many bytes (one chunk + headers fits one ~1400 B UDP datagram, no ENet
 ## fragmentation), at most this many chunks per host tick to each joiner (8 KB per tick = 480 KB/s).
@@ -120,6 +123,16 @@ const NET_SNAPSHOT_CHUNKS_PER_TICK: int = 8
 ## IMPL: connection limits. ENet accepts more peers than MAX_PLAYERS so the host can tell a tenth
 ## player "full" instead of the transport silently dropping it (the host does the counting).
 const NET_TRANSPORT_PEER_LIMIT: int = 16
+## IMPL: ENet packet throttle per connection (interval ms, acceleration, deceleration;
+## ENetPacketPeer.throttle_configure). ENet lowers the throttle by `deceleration` on every
+## acknowledgement whose round trip is more than 2 x variance above the previous epoch's lowest, and
+## a low throttle drops that share of unreliable packets (our state batches) and shrinks the window of
+## reliable data in flight. With both ends polling at 60 Hz the round trip is quantised (about 16 or
+## 33 ms on localhost) and drifts with the frames' phase; with frequent reliable messages (a host
+## editing every 4 ticks) the throttle fell to 0 in about 1.5 s and a walking client got no state
+## batch for seconds (measured, H-fix). M1 traffic is small (at most about 23 KB/s for 9 players), so
+## the throttle never lowers: deceleration 0. Interval and acceleration are ENet's defaults.
+const NET_ENET_THROTTLE: Vector3i = Vector3i(5000, 2, 0)
 ## IMPL: a join that has not been welcomed after this long fails (ENet itself gives up after ~31 s).
 const NET_CONNECT_TIMEOUT_SEC: float = 10.0
 ## IMPL: the host drops a connection that has not said hello after this long, and a refused one

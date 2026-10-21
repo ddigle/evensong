@@ -13,10 +13,16 @@ extends Node2D
 ## Engine.get_physics_interpolation_fraction(), rounded (draw_position). A player stepped on physics
 ## ticks (the local player, every player the host simulates, a client's own predicted player) so
 ## moves in even steps on a monitor faster than 60 Hz instead of 0 / 1 / 2 px jumps; one the tick
-## did not move (a host-side player whose frame is late) stands still. Only `position` follows the
+## did not move (a host-side player whose frame is late) stands still, and one the tick moved more
+## than two steps (a client the host catches up) is drawn where the tick ended. Only `position` follows the
 ## drawing; `sim_position` (simulation, net state, hashes) is untouched. A player drawn from
 ## interpolated host states (other players on a client) gets show_state() every frame and is drawn
 ## where it is. The camera (actors/player_camera.gd) follows the drawn position after this.
+
+## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
+## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
+## and such a tick is drawn at its end (update_draw).
+const MAX_DRAWN_STEP_PX: float = 2.5 * Config.WALK_SPEED / Config.NET_TICK_RATE
 
 ## Read the move_* actions each physics tick. Off for players driven by tests or the session.
 @export var local_input: bool = true
@@ -105,8 +111,14 @@ func teleport(feet: Vector2) -> void:
 
 
 ## Draws the node at `fraction` (0..1) of the way from tick_from to sim_position, on whole pixels.
+## A tick that moved the player further than MAX_DRAWN_STEP_PX (the host applying several of a
+## client's frames at once while it catches up) is drawn where it ended: the straight line between
+## its ends could cut a corner the steps went around (through the altar, for instance).
 func update_draw(fraction: float) -> void:
-	position = draw_position(tick_from, sim_position, fraction) if smooth_draw else sim_position.round()
+	if smooth_draw and tick_from.distance_to(sim_position) <= MAX_DRAWN_STEP_PX:
+		position = draw_position(tick_from, sim_position, fraction)
+	else:
+		position = sim_position.round()
 
 
 ## Whole-pixel point `fraction` (clamped to 0..1) of the way from `from` to `to`.

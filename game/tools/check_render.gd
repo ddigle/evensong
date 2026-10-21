@@ -349,7 +349,8 @@ static func _hidden_by(comp: Image, feet: Vector2i, mask: Image) -> int:
 	for y: int in comp.get_height():
 		for x: int in comp.get_width():
 			var p: Vector2i = o + Vector2i(x, y)
-			if comp.get_pixel(x, y).a8 > 0 and p.x >= 0 and p.y >= 0 and p.x < mask.get_width() and p.y < mask.get_height() 					and mask.get_pixel(p.x, p.y).a8 > 0:
+			if comp.get_pixel(x, y).a8 > 0 and p.x >= 0 and p.y >= 0 and p.x < mask.get_width() and p.y < mask.get_height() \
+					and mask.get_pixel(p.x, p.y).a8 > 0:
 				n += 1
 	return n
 

@@ -21,6 +21,8 @@ class Stream:
 	## Edit log position when the snapshot was taken.
 	var edit_position: int = 0
 	var started_ms: int = 0
+	## Host ticks that sent chunks to this joiner.
+	var ticks: int = 0
 
 
 var s: NetSession
@@ -32,6 +34,8 @@ var refusals: Dictionary[String, int] = {}
 var streams: Dictionary[int, Stream] = {}
 var snapshots_sent: int = 0
 var snapshot_bytes_sent: int = 0
+## Every finished stream, for the test results: slot, chunks, ticks, edit position, catch-up edits.
+var streams_done: Array[Dictionary] = []
 ## Ticks whose traffic still counts as joining (NetStats bucket "joining", not "<moving>/<players>"):
 ## the tick that sent chunks or a welcome and the next two, since ENet sends at the end of the frame
 ## and the bytes are counted on the next tick.
@@ -137,9 +141,12 @@ func _pump_streams() -> void:
 		var st: Stream = streams[peer]
 		if not s.transport.can_send_to(peer):
 			continue
-		for chunk: PackedByteArray in st.sender.take(Config.NET_SNAPSHOT_CHUNKS_PER_TICK):
+		var chunks: Array[PackedByteArray] = st.sender.take(Config.NET_SNAPSHOT_CHUNKS_PER_TICK)
+		for chunk: PackedByteArray in chunks:
 			s.send_world(peer, chunk)
 			snapshot_bytes_sent += chunk.size()
+		if not chunks.is_empty():
+			st.ticks += 1
 		joining_ticks = 3
 		if st.sender.done():
 			streams.erase(peer)
@@ -153,8 +160,10 @@ func _welcome(st: Stream) -> void:
 		s.send_edit(st.peer, EditLog.encode_one(s.edit_log.edit_at(index), index))
 		catch_up += 1
 	snapshots_sent += 1
-	s.log_event("welcomed", "peer=%d slot=%d chunks=%d bytes=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
-		st.peer, st.slot, st.snapshot.chunk_count(), st.snapshot.bytes.size(), st.edit_position, catch_up,
+	streams_done.append({"slot": st.slot, "chunks": st.snapshot.chunk_count(), "bytes": st.snapshot.bytes.size(),
+		"ticks": st.ticks, "edit_position": st.edit_position, "catch_up_edits": catch_up})
+	s.log_event("welcomed", "peer=%d slot=%d chunks=%d bytes=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
+		st.peer, st.slot, st.snapshot.chunk_count(), st.snapshot.bytes.size(), st.ticks, st.edit_position, catch_up,
 		Time.get_ticks_msec() - st.started_ms])
 	if not s.bots.bots_started and s.options.net_start > 0 and remote_peers().size() >= s.options.net_start:
 		s.bots.start_bots()
@@ -172,7 +181,6 @@ func _welcome_for(st: Stream) -> NetProtocol.Welcome:
 	w.chunk_count = st.snapshot.chunk_count()
 	w.packed_md5 = st.snapshot.packed_md5
 	w.world_md5 = st.snapshot.world_md5
-	w.world_seed = s.world.data.world_seed
 	w.generator_md5 = s.generator_hash.hex_decode()
 	for slot: int in s.slots():
 		w.players.append(s.members[slot].info())
@@ -216,7 +224,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 	s.local.player.apply_input(action.dir, Config.NET_TICK)
 	# Real time since the last tick refills the input gates (a hitch's lost ticks included).
 	var now_usec: int = Time.get_ticks_usec()
-	var elapsed_ticks: float = (now_usec - _last_take_usec) * Config.NET_TICK_RATE / 1000000.0
+	var elapsed_ticks: float = InputGate.ticks_between(_last_take_usec, now_usec)
 	_last_take_usec = now_usec
 	for slot: int in s.slots():
 		var m: NetMember = s.members[slot]
@@ -234,6 +242,8 @@ func tick(action: NetBot.Action, now: int) -> void:
 		s.bots.mark(action.mark)
 	if action.leave:
 		s.log_event("bot", "leave is for clients; the host ignores it")
+	if action.stall_ms > 0:
+		s.stall_after_tick(action.stall_ms)
 	_drop_silent_peers(now)
 	_pump_streams()
 	if s.tick % (Config.NET_TICK_RATE / Config.NET_STATE_HZ) == 0:

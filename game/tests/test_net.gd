@@ -156,7 +156,6 @@ func _welcome_sample() -> NetProtocol.Welcome:
 	w.chunk_count = packed.chunk_count()
 	w.packed_md5 = packed.packed_md5
 	w.world_md5 = packed.world_md5
-	w.world_seed = -9007199254740993
 	w.generator_md5 = "00112233445566778899aabbccddeeff".hex_decode()
 	for slot: int in [0, 3]:
 		var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
@@ -170,15 +169,14 @@ func _welcome_sample() -> NetProtocol.Welcome:
 func _check_welcome_codec() -> void:
 	var w: NetProtocol.Welcome = _welcome_sample()
 	var bytes: PackedByteArray = NetProtocol.encode_welcome(w)
-	check_eq(bytes.size(), NetProtocol.WELCOME_FIXED + 1 + 2 * NetProtocol.INFO_SIZE, "welcome = 81 B + players")
+	check_eq(bytes.size(), 73 + 1 + 2 * NetProtocol.INFO_SIZE, "welcome = 73 B + players")
 	var back: NetProtocol.Welcome = NetProtocol.decode_welcome(bytes)
 	check(back.ok, "welcome decodes")
 	check(back.slot == 3 and back.max_players == 4 and back.tick == 77 and back.bots_started and back.edit_position == 2,
 		"welcome fields")
 	check(back.raw_size == w.raw_size and back.packed_size == w.packed_size and back.chunk_count == w.chunk_count
 		and back.packed_md5 == w.packed_md5 and back.world_md5 == w.world_md5, "welcome snapshot fields")
-	check(back.world_seed == w.world_seed and back.generator_md5.hex_encode() == "00112233445566778899aabbccddeeff",
-		"welcome diagnostic fields (seed, generator md5)")
+	check(back.generator_md5.hex_encode() == "00112233445566778899aabbccddeeff", "welcome diagnostic field (generator md5)")
 	check(back.players.size() == 2 and back.players[1].state.same_as(w.players[1].state), "welcome players")
 	var all_short_fail: bool = true
 	for n: int in bytes.size():
@@ -205,6 +203,7 @@ func _check_garbage() -> void:
 	rng.seed = 20261022
 	var accepted: int = 0
 	var worlds: int = 0
+	var unpack_refusals: int = 0
 	for i: int in 2000:
 		var n: int = rng.randi_range(0, 80)
 		var bytes: PackedByteArray = PackedByteArray()
@@ -223,11 +222,21 @@ func _check_garbage() -> void:
 			worlds += 1
 		if WorldSnapshot.unpack(bytes, WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * rng.randi_range(1, 16)) != null:
 			worlds += 1
+		# As a one-chunk snapshot whose welcome matches its size and md5 (as a broken host would send):
+		# the joiner must get past those checks and refuse the bytes when it unpacks them.
 		var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
-		if rx.add(bytes) and rx.finish(1, n - WorldSnapshot.CHUNK_HEADER, PackedByteArray(), 100, PackedByteArray()) != null:
-			worlds += 1
+		var chunk: PackedByteArray = PackedByteArray([0, 0, 0, 0])  # chunk index 0, then the random bytes
+		chunk.append_array(bytes)
+		if rx.add(chunk):
+			var raw_size: int = WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * rng.randi_range(1, 16)
+			var w: WorldData = rx.finish(1, rx.bytes.size(), WorldSnapshot.md5(rx.bytes), raw_size, PackedByteArray())
+			if w != null or rx.error.begins_with("world hash"):
+				worlds += 1  # unpacked and decoded into a world (only the world hash stopped it)
+			elif rx.error.begins_with("cannot unpack"):
+				unpack_refusals += 1
 	check(accepted < 20, "random bytes almost never pass as input packets (%d of 2000)" % accepted)
 	check_eq(worlds, 0, "random bytes never pass as a world")
+	check(unpack_refusals > 1500, "random chunks reach the unpacking step and are refused there (%d)" % unpack_refusals)
 
 
 # --- host side -----------------------------------------------------------------------------------
@@ -290,7 +299,12 @@ func _check_input_gate() -> void:
 	for i: int in 10:
 		many.append(Vector2i(0, 1))
 	g.receive(_packet(3, many))
-	check_eq(g.take().size(), 10 - Config.NET_INPUT_JITTER_FRAMES, "catches up down to the jitter buffer")
+	check_eq(Config.NET_INPUT_CATCH_UP_FRAMES, 4, "catch-up: at most 4 frames per tick")
+	check_eq(g.take().size(), Config.NET_INPUT_CATCH_UP_FRAMES, "catches up, at most NET_INPUT_CATCH_UP_FRAMES in a tick")
+	check_eq(g.take().size(), 10 - Config.NET_INPUT_CATCH_UP_FRAMES - Config.NET_INPUT_JITTER_FRAMES,
+		"then down to the jitter buffer")
+	check_eq(g.waiting.size(), Config.NET_INPUT_JITTER_FRAMES, "%d frames stay as the jitter buffer" %
+		Config.NET_INPUT_JITTER_FRAMES)
 	# Rate limit: a client sending far more frames than ticks.
 	var r: InputGate = InputGate.new()
 	var applied: int = 0
@@ -324,6 +338,45 @@ func _check_input_gate() -> void:
 	idle.tokens = 0.0
 	idle.take(1000.0)
 	check_eq(idle.tokens, float(Config.NET_INPUT_BURST), "a long gap with nothing waiting saves at most the burst")
+	check_eq(idle.hitch_credit, float(InputGate.MAX_REFILL_TICKS - Config.NET_INPUT_BURST),
+		"what the cap cut off of that one refill is held as hitch credit")
+	for i: int in roundi(InputGate.HITCH_CREDIT_TICKS) - 1:
+		idle.take(1.0)
+	check_eq(idle.hitch_credit, float(InputGate.MAX_REFILL_TICKS - Config.NET_INPUT_BURST), "it lasts while steady ticks pass")
+	idle.take(1.0)
+	check_eq(idle.hitch_credit, 0.0, "and is gone after HITCH_CREDIT_TICKS of real time")
+	# A host at 30 fps (two physics ticks a frame: elapsed 2, then 0) never lets an idle client save
+	# more than one tick of credit: a newer hitch replaces the credit, it does not add up.
+	var slow: InputGate = InputGate.new()
+	var most_credit: float = 0.0
+	for t: int in 600:
+		slow.take(2.0 if t % 2 == 0 else 0.0)
+		most_credit = maxf(most_credit, slow.hitch_credit)
+	check(most_credit <= 1.0 and slow.tokens <= float(Config.NET_INPUT_BURST),
+		"a host at 30 fps: an idle client's credit stays <= 1 tick (%.1f), tokens at the burst" % most_credit)
+	# The clock the session feeds take() with (InputGate.ticks_between on Time.get_ticks_usec()).
+	check(absf(InputGate.ticks_between(0, 16667) - 1.0) < 0.001, "a 60 Hz frame is one tick of real time")
+	check_eq(InputGate.ticks_between(5000000, 6000000), 60.0, "a second is 60 ticks")
+	check_eq(InputGate.ticks_between(42, 42), 0.0, "a catch-up tick at the same moment is none")
+	check_eq(InputGate.ticks_between(100, 50), 0.0, "never negative")
+	# A cheating client (two frames every tick) against a host fed by that clock at 60 Hz: no faster
+	# than real time + the burst, and the refill follows the clock.
+	var c: InputGate = InputGate.new()
+	var usec: int = 7000000
+	var last_usec: int = usec
+	var capplied: int = 0
+	seq = 1
+	for t: int in 600:
+		usec += 16667
+		c.receive(_packet(seq, [Vector2i(0, 1), Vector2i(0, 1)] as Array[Vector2i]))
+		seq += 2
+		capplied += c.take(InputGate.ticks_between(last_usec, usec)).size()
+		last_usec = usec
+	check(capplied <= 600 + Config.NET_INPUT_BURST and capplied >= 600,
+		"two frames a tick on a 60 Hz clock: %d applied in 600 ticks (real time + burst %d)" % [capplied,
+		600 + Config.NET_INPUT_BURST])
+	check(absf(c.refilled - 600.0) < 1.0 and c.takes == 600, "the refill follows the clock (%.2f ticks in 600 takes)" %
+		c.refilled)
 	# Gaps, bad packets, unknown codes.
 	var q: InputGate = InputGate.new()
 	q.receive(_packet(5, [Vector2i(1, 0)] as Array[Vector2i]))
@@ -335,41 +388,106 @@ func _check_input_gate() -> void:
 
 
 ## Host hitch: the host misses a second of ticks (a long frame) while a client walks on, sending at
-## real-time pace. Then Godot runs a few catch-up ticks at once. Tokens follow the elapsed real time
-## (and frames that waited lift the saving cap), so the queue drains back to the jitter target
-## instead of staying a second behind for as long as the client keeps walking.
+## real-time pace. Then Godot runs catch-up ticks at once (the first one measures all the lost
+## time, the others about none) and polls the network after them, as after every physics step.
+## Two cases: the hitch inside a physics tick (the poll that follows it already queued the frames
+## sent meanwhile, so they wait before the catch-up ticks) and the hitch anywhere else in the frame
+## (rendering, _process, an RPC handler, the OS): the catch-up ticks see an almost empty queue and
+## the frames arrive with the poll after them (the order the session test's host stall has). In both
+## the queue must drain back to the jitter target, at most NET_INPUT_CATCH_UP_FRAMES per tick,
+## never rate limited, every frame once and in order.
 func _check_input_gate_hitch() -> void:
+	var hitch_ticks: int = 60
+	for queued_first: bool in [true, false]:
+		var label: String = "hitch inside a physics tick" if queued_first else "hitch outside the physics ticks (polled after them)"
+		var r: HitchRun = _hitch_run(hitch_ticks, queued_first)
+		check(r.peak >= hitch_ticks - 2, "%s: the hitch really queued the client's frames (%d)" % [label, r.peak])
+		check(r.late <= Config.NET_INPUT_JITTER_FRAMES + 2,
+			"%s: the queue drains back to the jitter target (at most %d waiting 30 ticks on, target %d)" % [label, r.late,
+			Config.NET_INPUT_JITTER_FRAMES])
+		check_eq(r.limited, 0, "%s: never rate limited" % label)
+		check(r.most_per_tick <= Config.NET_INPUT_CATCH_UP_FRAMES,
+			"%s: at most %d frames in one tick (%d)" % [label, Config.NET_INPUT_CATCH_UP_FRAMES, r.most_per_tick])
+		check(r.in_order, "%s: every frame applied once, in order" % label)
+		note("host hitch %d ticks, %s: queue peak %d frames, 30 ticks later at most %d, %d ticks catching up, credit used %.1f" % [
+			hitch_ticks, label, r.peak, r.late, r.catching_up, r.credit_used])
+	# A client that stood still through the hitch and then sends a flood: the credit only ever holds
+	# real time the host lost, so it can move no further than real time + the burst allow.
 	var g: InputGate = InputGate.new()
+	g.take(float(hitch_ticks + 1))
+	var flood: Array[Vector2i] = []
+	for i: int in 8:
+		flood.append(Vector2i(1, 0))
+	var moved: int = 0
+	var fseq: int = 1
+	for t: int in 40:
+		g.receive(_packet(fseq, flood))
+		fseq += 8
+		moved += g.take(1.0).size()
+	check(moved <= hitch_ticks + 1 + 40 + Config.NET_INPUT_BURST and moved > 40 + Config.NET_INPUT_BURST,
+		"an idle client flooding after a hitch: %d frames in 40 ticks, uses the lost time but not more (<= %d + %d)" % [
+		moved, hitch_ticks + 1 + 40, Config.NET_INPUT_BURST])
+
+
+## One run of the hitch model: a client walking from tick 0 (a frame per tick, a packet every 2nd
+## tick), the host stuck for `hitch_ticks` from tick 120, then 8 catch-up ticks (Godot's default
+## max physics steps per frame). `queued_first`: the stuck packets reach the gate before the
+## catch-up ticks instead of after them. Each tick the host takes, then polls (receives).
+class HitchRun:
+	extends RefCounted
+	var peak: int = 0
+	var late: int = 0
+	var limited: int = 0
+	var most_per_tick: int = 0
+	var catching_up: int = 0
+	var credit_used: float = 0.0
+	var in_order: bool = false
+
+
+func _hitch_run(hitch_ticks: int, queued_first: bool) -> HitchRun:
+	var g: InputGate = InputGate.new()
+	var inbox: Array[NetProtocol.InputPacket] = []
 	var seq: int = 1
 	var hitch_from: int = 120
-	var hitch_ticks: int = 60
-	var catch_up: int = 8  # Godot's default max physics steps per frame
-	var waiting_peak: int = 0
-	var waiting_late: int = 0
+	var catch_up: int = 8
+	var late: int = 0
+	var most: int = 0
+	var catching_up: int = 0
 	var walk: Array[Vector2i] = [Vector2i(1, 0), Vector2i(1, 0)]
 	for t: int in 600:
-		if t % 2 == 1:  # the client: a frame per tick of real time, sent every 2nd tick
-			g.receive(_packet(seq, walk))
+		if t % 2 == 1:
+			inbox.append(_packet(seq, walk))
 			seq += 2
-		waiting_peak = maxi(waiting_peak, g.waiting.size())
 		if t >= hitch_from and t < hitch_from + hitch_ticks:
-			continue  # the host is stuck
+			continue  # the host is stuck; the packets wait in its socket
+		var elapsed: Array[float] = [1.0]
 		if t == hitch_from + hitch_ticks:
-			g.take(float(hitch_ticks + 1))  # all the real time arrives with the first catch-up tick
+			elapsed = [float(hitch_ticks + 1)]
 			for i: int in catch_up - 1:
-				g.take(0.0)
-		else:
-			g.take(1.0)
+				elapsed.append(0.0)
+			if queued_first:
+				for p: NetProtocol.InputPacket in inbox:
+					g.receive(p)
+				inbox.clear()
+		for e: float in elapsed:
+			var n: int = g.take(e).size()
+			most = maxi(most, n)
+			if n > 1:
+				catching_up += 1
+		for p: NetProtocol.InputPacket in inbox:  # the poll after the physics ticks
+			g.receive(p)
+		inbox.clear()
 		if t > hitch_from + hitch_ticks + 30:
-			waiting_late = maxi(waiting_late, g.waiting.size())
-	check(waiting_peak >= hitch_ticks - 2, "the hitch really queued the client's frames (%d)" % waiting_peak)
-	check(waiting_late <= Config.NET_INPUT_JITTER_FRAMES + 2,
-		"after a %d-tick host hitch the queue drains back to the jitter target (at most %d waiting, target %d)" % [
-		hitch_ticks, waiting_late, Config.NET_INPUT_JITTER_FRAMES])
-	check(g.gaps == 0 and g.overflow == 0 and g.applied == seq - 1 - g.waiting.size(),
-		"every frame applied once, in order (%d applied, %d waiting)" % [g.applied, g.waiting.size()])
-	note("host hitch %d ticks + %d catch-up ticks: queue peak %d frames, afterwards at most %d" % [hitch_ticks, catch_up,
-		waiting_peak, waiting_late])
+			late = maxi(late, g.waiting.size())
+	var r: HitchRun = HitchRun.new()
+	r.peak = g.waiting_peak
+	r.late = late
+	r.limited = g.rate_limited_ticks
+	r.most_per_tick = most
+	r.catching_up = catching_up
+	r.credit_used = g.credit_used
+	r.in_order = g.gaps == 0 and g.overflow == 0 and g.applied == seq - 1 - g.waiting.size()
+	return r
 
 
 ## The host derives a client's facing from the directions alone (Player.apply_input, the rule the
@@ -655,7 +773,6 @@ func _check_snapshot() -> void:
 		check_eq(back.content_hash(), data.content_hash(), "same content hash")
 	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(data)
 	check(packed.bytes.size() < raw.size() / 10, "zstd packs it (%d of %d bytes)" % [packed.bytes.size(), raw.size()])
-	check_eq(packed.world_md5.hex_encode(), data.content_hash(), "packed world md5 = content hash")
 	var got: WorldData = _receive_all(packed)
 	check(got != null and got.content_hash() == data.content_hash(), "chunks -> the same world")
 	# Several chunks: bounded, in order.
@@ -734,6 +851,26 @@ func _check_snapshot() -> void:
 	bad = raw.duplicate()
 	bad.encode_u16(0, 0)
 	check(WorldSnapshot.decode_raw(bad) == null, "an empty map")
+	# Size bounds: the biggest world a joiner takes still streams inside the connect timeout.
+	var wide: WorldData = WorldData.new(Vector2i(WorldSnapshot.MAX_SIDE + 1, 1))
+	check(WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(wide)) == null, "a world wider than MAX_SIDE (%d) is refused" %
+		WorldSnapshot.MAX_SIDE)
+	var max_ticks: int = ceili(ceilf(float(WorldSnapshot.MAX_PACKED) / Config.NET_SNAPSHOT_CHUNK_BYTES) /
+		Config.NET_SNAPSHOT_CHUNKS_PER_TICK)
+	check(max_ticks * Config.NET_TICK < 0.5 * Config.NET_CONNECT_TIMEOUT_SEC,
+		"the largest snapshot (%d B) streams in %.1f s, well inside the %.0f s connect timeout" % [WorldSnapshot.MAX_PACKED,
+		max_ticks * Config.NET_TICK, Config.NET_CONNECT_TIMEOUT_SEC])
+	var flood: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	var full_chunk: PackedByteArray = PackedByteArray()
+	full_chunk.resize(WorldSnapshot.CHUNK_HEADER + Config.NET_SNAPSHOT_CHUNK_BYTES)
+	var taken: int = 0
+	while taken < 10000:
+		full_chunk.encode_u32(0, taken)
+		if not flood.add(full_chunk):
+			break
+		taken += 1
+	check(flood.bytes.size() <= WorldSnapshot.MAX_PACKED and taken == WorldSnapshot.MAX_PACKED / Config.NET_SNAPSHOT_CHUNK_BYTES,
+		"a joiner stops taking chunks at MAX_PACKED (%d chunks, %d B: %s)" % [taken, flood.bytes.size(), flood.error])
 
 
 # --- world edits ---------------------------------------------------------------------------------
@@ -908,9 +1045,8 @@ func _check_snapshot_join() -> void:
 		if send:
 			var v: Dictionary[String, int] = view.ground.verify()
 			check(v["missing"] == 0 and v["mismatches"] == 0, "%s: drawn from the received data %s" % [label, v])
-		check(packed.chunk_count() == ceili(float(packed.bytes.size()) / Config.NET_SNAPSHOT_CHUNK_BYTES)
-			and packed.chunk_size == Config.NET_SNAPSHOT_CHUNK_BYTES,
-			"%s: chunk count" % label)
+		check_eq(packed.chunk_size, Config.NET_SNAPSHOT_CHUNK_BYTES, "%s: cut into %d B chunks (the default again after the 32 B test)" % [
+			label, Config.NET_SNAPSHOT_CHUNK_BYTES])
 		var join_ms: float = packed.encode_usec / 1000.0 + transfer_ms + check_ms + draw_ms
 		note("snapshot %s: raw %d B -> packed %d B (%.1f%%) in %d chunks = %d ticks; encode %.1f ms, transfer %.0f ms%s, check + decode %.1f ms, draw %s; join about %.0f ms" % [
 			label, packed.raw_size, packed.bytes.size(), 100.0 * packed.bytes.size() / packed.raw_size, packed.chunk_count(),
@@ -943,8 +1079,15 @@ func _check_bot() -> void:
 	check_eq(dirs.slice(0, 9), [Vector2i(1, 0), Vector2i(1, 0), Vector2i(1, 0), Vector2i.ZERO, Vector2i.ZERO,
 		Vector2i.ZERO, Vector2i.ZERO, Vector2i(-1, 1), Vector2i.ZERO] as Array[Vector2i], "ticks of the script")
 	check(edits == 1 and marks == PackedStringArray(["edited"]) and leaves == 1 and b.finished, "one edit, mark, leave")
-	for bad: String in ["move:2,0,5", "move:1,0", "wait:-1", "edit:1,2,ash", "edit:1,2", "mark:", "jump:1", "leave:1"]:
+	for bad: String in ["move:2,0,5", "move:1,0", "wait:-1", "edit:1,2,ash", "edit:1,2", "mark:", "jump:1", "leave:1",
+			"stall:0", "stall:%d" % (NetBot.MAX_STALL_MS + 1), "stall"]:
 		check_ne(NetBot.new().parse(bad), "", "bad bot script '%s' is an error" % bad)
+	var st: NetBot = NetBot.new()
+	check_eq(st.parse("wait:1;stall:700;wait:1"), "", "test stall parses")
+	var stalls: Array[int] = []
+	for i: int in 4:
+		stalls.append(st.step().stall_ms)
+	check_eq(stalls, [0, 700, 0, 0] as Array[int], "the stall is one tick's action")
 
 
 func _check_cli() -> void:
@@ -1046,6 +1189,32 @@ func _check_transports() -> void:
 	check(events.has("host opened") and events.has("client opened"), "ENet host and join report opened (%s)" % str(events))
 	check_eq(client_api.get_peers(), PackedInt32Array([1]), "client sees the host as peer 1")
 	note("ENet localhost join: %d ms" % (Time.get_ticks_msec() - t0))
+	# ENet's packet throttle never lowers on either end (Config.NET_ENET_THROTTLE). The host sees the
+	# connection a poll after the client does (when the client's acknowledgement arrives).
+	while host_api.get_peers().is_empty() and Time.get_ticks_msec() - t0 < 5000:
+		host_api.poll()
+		client_api.poll()
+		await await_frames(1)
+	var host_enet: ENetMultiplayerPeer = host_t.get_peer() as ENetMultiplayerPeer
+	var client_enet: ENetMultiplayerPeer = client_t.get_peer() as ENetMultiplayerPeer
+	var ends: Array[ENetPacketPeer] = [null, null]
+	if host_enet != null and host_api.get_peers().size() == 1:
+		ends[0] = host_enet.get_peer(host_api.get_peers()[0])
+	if client_enet != null:
+		ends[1] = client_enet.get_peer(1)
+	var seen: PackedStringArray = []
+	for e: ENetPacketPeer in ends:
+		if e == null:
+			seen.append("none")
+		else:
+			seen.append(str(Vector3i(int(e.get_statistic(ENetPacketPeer.PEER_PACKET_THROTTLE_INTERVAL)),
+				int(e.get_statistic(ENetPacketPeer.PEER_PACKET_THROTTLE_ACCELERATION)),
+				int(e.get_statistic(ENetPacketPeer.PEER_PACKET_THROTTLE_DECELERATION)))))
+	check_eq(Config.NET_ENET_THROTTLE.z, 0, "ENet throttle deceleration 0: it never drops state batches")
+	var want: String = str(Config.NET_ENET_THROTTLE)
+	check_eq(seen, PackedStringArray([want, want]),
+		"both ends of the connection (host's, client's, host peers %s): ENet throttle %s (never lowers)" % [
+		host_api.get_peers(), want])
 	var s: NetTransport.Stats = host_t.pop_stats()
 	check(s.sent_bytes > 0 and s.sent_packets > 0 and s.received_bytes > 0, "ENet reports traffic")
 	# A second host on the same port fails by signal (ENet logs an engine error for it too).

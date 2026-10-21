@@ -49,10 +49,11 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		"world_hash": s.world.data.content_hash(), "generator_hash": s.generator_hash, "edits": s.edit_log.size(),
 		"view": view, "view_hash": s.world.ground.view_hash(), "stats": s.stats.to_dict(),
 		"link": s.link.to_dict(), "bad_messages": s.bad_messages, "unknown_senders": s.unknown_senders,
+		"stalled_ms": s.stalled_ms,
 		"bot_finished": s.bots.bot.finished if s.bots.bot != null else true, "done_peers": s.bots.done_count(),
 		# Host side (defaults on a client).
 		"gates": gates, "refusals": {}, "batches": 0, "keyframes": 0, "quiet_violations": 0, "max_players": 0,
-		"snapshots_sent": 0, "snapshot_bytes_sent": 0,
+		"snapshots_sent": 0, "snapshot_bytes_sent": 0, "streams": [],
 		# Client side (defaults on the host).
 		"prediction": {}, "refused": "", "stale_batches": 0, "interp_samples": 0, "interp_starved": 0,
 		"join_ms": -1.0, "world_build_ms": -1.0, "snapshot_bytes": 0, "snapshot_raw": 0, "snapshot_chunks": 0,
@@ -66,6 +67,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["max_players"] = s.host.roster.max_players
 		out["snapshots_sent"] = s.host.snapshots_sent
 		out["snapshot_bytes_sent"] = s.host.snapshot_bytes_sent
+		out["streams"] = s.host.streams_done
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}

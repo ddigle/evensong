@@ -53,14 +53,17 @@ var edit_log: EditLog = EditLog.new()
 var tick: int = 0
 var link: LinkSim = LinkSim.new()
 var stats: NetStats = NetStats.new()
-## Hash of the world this machine's generator makes from the session seed (no edits). On a client
-## it is only a diagnostic (ClientFlow compares it with the host's).
+## Hash of the world this machine's generator makes from the session seed (no edits). The host sets
+## it at start (its world is still the bare seed world then); a client only on the welcome, for the
+## diagnostic (SessionClient compares it with the host's), and "" before that.
 var generator_hash: String = ""
 var active: bool = false
 var over: bool = false
 var end_reason: String = ""
 var bad_messages: int = 0
 var unknown_senders: int = 0
+## Test only (bot "stall:<ms>"): milliseconds this process was blocked on purpose, in all.
+var stalled_ms: int = 0
 
 ## The flows (net/session_host.gd, net/session_client.gd, net/session_bots.gd). host or client is
 ## null for the other role.
@@ -69,6 +72,7 @@ var client: SessionClient
 var bots: SessionBots
 
 var _start_ms: int = 0
+var _stall_ms: int = 0
 
 
 func _init() -> void:
@@ -87,7 +91,7 @@ func start(p_world: GameWorld, p_options: CliOptions) -> void:
 	options = p_options
 	role = Role.HOST if options.host else Role.CLIENT
 	_start_ms = Time.get_ticks_msec()
-	generator_hash = world.data.content_hash()
+	generator_hash = world.data.content_hash() if role == Role.HOST else ""
 	bots.setup(options.bot)
 	if role == Role.CLIENT:
 		link = LinkSim.new(options.net_lag, options.net_loss, hash(instance_name()))
@@ -182,6 +186,20 @@ func _physics_process(_delta: float) -> void:
 func _process(_delta: float) -> void:
 	if role == Role.CLIENT and active and not over:
 		client.draw_others()
+	if _stall_ms > 0:
+		# Test only: a long frame outside the physics ticks. Godot then runs its catch-up physics ticks
+		# first and polls the network after them (SceneTree.process), so the input frames a client
+		# sent meanwhile reach the host's gates only after the tick that measured the lost time.
+		var ms: int = _stall_ms
+		_stall_ms = 0
+		OS.delay_msec(ms)
+		stalled_ms += ms
+
+
+## Test only (bot "stall:<ms>"): block the process for `ms` in this frame's process step.
+func stall_after_tick(ms: int) -> void:
+	log_event("stall", "ms=%d tick=%d" % [ms, tick])
+	_stall_ms += ms
 
 
 ## Traffic by situation: "<moving>/<players>", or "joining" while the host sends a joiner its world.

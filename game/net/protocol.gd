@@ -25,8 +25,8 @@ extends RefCounted
 ## Welcome       u16 version, u8 your slot, u8 max players, u32 host tick, u8 bots started,
 ##               u32 edit position (edits already in the world snapshot; later ones follow as edits),
 ##               snapshot: u32 raw size, u32 packed size, u32 chunk count, 16 B packed md5,
-##               16 B world md5, diagnostic: i64 world seed, 16 B generator md5 (the seed's world
-##               before any edit), u8 player count + player infos
+##               16 B world md5, diagnostic: 16 B generator md5 (the host's generator's world for
+##               the seed in the snapshot header, before any edit), u8 player count + player infos
 ## Refused       u8 reason (Refusal)
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
@@ -45,7 +45,7 @@ const STATE_HEADER: int = 5
 const STATE_SIZE: int = 14
 const INFO_SIZE: int = 15
 const HELLO_SIZE: int = 3
-const WELCOME_FIXED: int = 2 + 1 + 1 + 4 + 1 + 4 + 4 + 4 + 4 + 16 + 16 + 8 + 16
+const WELCOME_FIXED: int = 2 + 1 + 1 + 4 + 1 + 4 + 4 + 4 + 4 + 16 + 16 + 16
 const CODE_COUNT: int = 9
 
 
@@ -119,8 +119,8 @@ class Welcome:
 	var chunk_count: int = 0
 	var packed_md5: PackedByteArray = PackedByteArray()
 	var world_md5: PackedByteArray = PackedByteArray()
-	## Diagnostic only: the host's seed and the hash of that seed's generated world (no edits).
-	var world_seed: int = 0
+	## Diagnostic only: hash of the world the host's generator makes from the seed (no edits). The
+	## seed itself is in the snapshot header (WorldData.world_seed).
 	var generator_md5: PackedByteArray = PackedByteArray()
 	var players: Array[PlayerInfo] = []
 
@@ -302,8 +302,7 @@ static func encode_welcome(w: Welcome) -> PackedByteArray:
 	out.encode_u32(21, w.chunk_count)
 	_put_md5(out, 25, w.packed_md5)
 	_put_md5(out, 41, w.world_md5)
-	out.encode_s64(57, w.world_seed)
-	_put_md5(out, 65, w.generator_md5)
+	_put_md5(out, 57, w.generator_md5)
 	out.append(w.players.size())
 	for info: PlayerInfo in w.players:
 		out.append_array(encode_info(info))
@@ -325,8 +324,7 @@ static func decode_welcome(bytes: PackedByteArray) -> Welcome:
 	w.chunk_count = bytes.decode_u32(21)
 	w.packed_md5 = bytes.slice(25, 41)
 	w.world_md5 = bytes.slice(41, 57)
-	w.world_seed = bytes.decode_s64(57)
-	w.generator_md5 = bytes.slice(65, 81)
+	w.generator_md5 = bytes.slice(57, 73)
 	var at: int = WELCOME_FIXED
 	var count: int = bytes.decode_u8(at)
 	at += 1

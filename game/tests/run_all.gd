@@ -34,10 +34,11 @@ extends SceneTree
 ## when that block is taken, the next blocks up (PORT_BLOCK_TRIES). A block is taken when another
 ## runner holds its lock (a TCP listener on 127.0.0.1:<base>, held for the whole run: binding it is
 ## atomic, and the OS frees it when that run ends or crashes) or when any of its UDP ports is in use
-## (probed with UDPServer, which reports a busy port without an engine error). Remaining race: a
-## program that is not this runner (or a runner without the lock) can still take a port of the
-## block after the probe; the session tests then fail to host on it. An explicit base that is
-## taken fails the run (FAIL (startup)) instead of moving on.
+## (probed with UDPServer on the dual-stack, IPv4 wildcard and loopback addresses, PROBE_ADDRESSES;
+## UDPServer reports a busy port without an engine error). Remaining race: a program that is not
+## this runner (or a runner without the lock) can still take a port of the block after the probe;
+## the session tests then fail to host on it. An explicit base that is taken fails the run
+## (FAIL (startup)) instead of moving on, and no test file runs (they would have no ports).
 ##
 ## Exit code: 0 = every file passed, 1 = any failure, load error, timeout, error outside the files
 ## or no test files.
@@ -53,6 +54,11 @@ const FINAL_SETTLE_FRAMES: int = 10
 const PORT_ENV: String = "EVENSONG_TEST_PORT_BASE"
 ## Blocks tried from the default base when no base is given (24621, 24641, ... 24801).
 const PORT_BLOCK_TRIES: int = 10
+## Addresses a UDP port is probed on. "*" is a dual-stack IPv6 socket, and Windows lets that share a
+## port with another program's IPv4 socket (which then gets the IPv4 traffic the test clients send
+## to 127.0.0.1); a probe on the IPv4 wildcard and on loopback finds those. Measured on Windows 11:
+## a holder on 0.0.0.0 fails only the "0.0.0.0" probe, a holder on 127.0.0.1 only the "127.0.0.1" one.
+const PROBE_ADDRESSES: PackedStringArray = ["*", "0.0.0.0", "127.0.0.1"]
 
 ## The run's test port block (see the class comment). Static so test files reach it through their
 ## preload of this script.
@@ -185,9 +191,9 @@ func _run_all() -> void:
 
 	var files: PackedStringArray = discover(dir, prefix, only)
 	var port_problem: String = _choose_ports(args)
-	print("EVENSONG_TESTS start: %d file(s) in %s%s, ports %d-%d%s" % [files.size(), dir,
-		"" if only.is_empty() else " (only %s)" % ",".join(only), port_first, port_last,
-		"" if port_problem.is_empty() else " (not claimed)"])
+	print("EVENSONG_TESTS start: %d file(s) in %s%s, %s" % [files.size(), dir,
+		"" if only.is_empty() else " (only %s)" % ",".join(only),
+		"ports %d-%d" % [port_first, port_last] if port_problem.is_empty() else "no test ports claimed"])
 	var failed: int = 0
 	var startup: Array[String] = _log.take_errors()
 	if not port_problem.is_empty():
@@ -198,6 +204,11 @@ func _run_all() -> void:
 		print("FAIL (startup) %d error(s) before the first test" % startup.size())
 		for message: String in startup:
 			print("  - %s" % message)
+	if not port_problem.is_empty():
+		# The files would use a block this run does not hold (another run's, maybe): run none.
+		print("EVENSONG_TESTS done: 0 passed, 0 failed, 0 checks, 0 ms (+ startup errors; no file ran: test ports not claimed)")
+		_finish(1)
+		return
 	if files.is_empty():
 		print("FAIL no test files found")
 		_finish(1)
@@ -379,14 +390,16 @@ static func claim_port_block(base: int, count: int) -> TCPServer:
 	return lock
 
 
-## True if no UDP port in base..base+count-1 is in use (each bound and released once).
+## True if no UDP port in base..base+count-1 is in use (each bound and released once on every
+## PROBE_ADDRESSES address).
 static func udp_ports_free(base: int, count: int) -> bool:
 	for port: int in range(base, base + count):
-		var probe: UDPServer = UDPServer.new()
-		var err: Error = probe.listen(port)
-		probe.stop()
-		if err != OK:
-			return false
+		for address: String in PROBE_ADDRESSES:
+			var probe: UDPServer = UDPServer.new()
+			var err: Error = probe.listen(port, address)
+			probe.stop()
+			if err != OK:
+				return false
 	return true
 
 

@@ -588,6 +588,41 @@ func _check_draw_smoothing() -> void:
 	smooth.begin_tick()
 	smooth.update_draw(0.0)
 	check_eq(smooth.position, smooth.sim_position.round(), "a tick without a step draws the player where it is")
+	# Two frames in one tick (a client caught up by one frame) are still drawn between the ends.
+	smooth.teleport(Vector2(200.0, 200.0))
+	smooth.begin_tick()
+	smooth.apply_input(Vector2i(1, 0), TICK)
+	smooth.apply_input(Vector2i(1, 0), TICK)
+	smooth.update_draw(0.5)
+	check_eq(smooth.position, Vector2(201, 200), "two steps in a tick: drawn half way at fraction 0.5")
+	# Many frames in one tick (the host catching a client up after a hitch) going around the altar's
+	# corner: the straight line between the tick's ends cuts through the altar, so the tick is drawn
+	# at its end, never on that line.
+	var world: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var altar_px: Rect2 = Rect2(Vector2(world.altar_rect.position * Config.TILE), Vector2(world.altar_rect.size * Config.TILE))
+	var corner: Player = Player.new()
+	corner.local_input = false
+	corner.setup(world, "archer", altar_px.position + Vector2(-14.0, altar_px.size.y + 12.0), RigData.Dir.NORTH)
+	corner.begin_tick()
+	for i: int in 60:
+		corner.apply_input(Vector2i(0, -1), TICK)  # north past the altar's west side
+	for i: int in 30:
+		corner.apply_input(Vector2i(1, 0), TICK)  # then east above its north side
+	var inside: int = 0
+	var off_end: int = 0
+	for k: int in 11:
+		corner.update_draw(k / 10.0)
+		if corner.position != corner.sim_position.round():
+			off_end += 1
+		if altar_px.has_point(corner.position + Vector2(0.0, -1.0)):
+			inside += 1
+	var chord_mid: Vector2 = Player.draw_position(corner.tick_from, corner.sim_position, 0.5)
+	check(altar_px.has_point(chord_mid + Vector2(0.0, -1.0)), "(the chord of this tick does cross the altar at %s)" % chord_mid)
+	check(off_end == 0 and inside == 0, "a 90-step tick is drawn where it ended, never inside the altar (%d off, %d inside)" % [
+		off_end, inside])
+	check(corner.sim_position.y < altar_px.position.y and corner.sim_position.x > altar_px.position.x,
+		"(the steps really went around the corner: %s)" % corner.sim_position)
+	corner.free()
 	smooth.free()
 	plain.free()
 
