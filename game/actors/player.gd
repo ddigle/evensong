@@ -18,6 +18,18 @@ extends Node2D
 ## drawing; `sim_position` (simulation, net state, hashes) is untouched. A player drawn from
 ## interpolated host states (other players on a client) gets show_state() every frame and is drawn
 ## where it is. The camera (actors/player_camera.gd) follows the drawn position after this.
+##
+## Controls (M2a, offline only: `controls` on): each tick runs tick_controls() instead of
+## apply_input(). The mouse aims (actors/aim.gd: sector, target tile next to the feet, facing toward
+## the mouse while aiming, Config.AIM_HOLD_SEC); "use" (left click) with a tool selected in the
+## inventory's hotbar plays that tool's body action toward the target tile: timed in simulation
+## ticks (Config.ACTION_FRAME_TICKS per frame), movement locked meanwhile, repeated while held
+## (PROVISIONAL values). An action has no world effect yet; it reports its target (action_started).
+## In a session `controls` stays off (the host does not simulate aim or actions yet), so the session's
+## apply_input / show_state path is the M1 one.
+
+signal action_started(item: StringName, anim: int, target: Vector2i)
+signal action_finished(anim: int)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -26,6 +38,24 @@ const MAX_DRAWN_STEP_PX: float = 2.5 * Config.WALK_SPEED / Config.NET_TICK_RATE
 
 ## Read the move_* actions each physics tick. Off for players driven by tests or the session.
 @export var local_input: bool = true
+## Mouse aim, hotbar use and body actions (offline local player, see the class comment).
+@export var controls: bool = false
+
+var inventory: Inventory = Inventory.new()
+## Aim (updated each controls tick): the mouse in world px, its sector and target tile, and whether
+## the player is aiming (facing the mouse).
+var aim_point: Vector2 = Vector2.ZERO
+var aim_sector: int = Aim.Sector.SOUTH
+var aim_cell: Vector2i = Vector2i.ZERO
+var aim_active: bool = false
+## Test / screenshot aim: when set, the mouse is this far from the feet and the player always aims.
+var test_aim: Variant = null
+## The body action playing (RigData action anim) or -1, ticks since it started, its item and target.
+var action_anim: int = -1
+var action_tick: int = 0
+var action_item: StringName = &""
+var action_cell: Vector2i = Vector2i.ZERO
+var _mouse_moved_msec: int = -1000000
 
 var data: WorldData
 ## Feet position (float, simulation). `position` is this rounded (or between ticks, see above).
@@ -56,6 +86,8 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	facing = p_facing
 	last_input = Vector2i.ZERO
 	walking = false
+	action_anim = -1
+	action_tick = 0
 	_sync_view()
 
 
@@ -66,7 +98,116 @@ func class_id() -> String:
 func _physics_process(delta: float) -> void:
 	begin_tick()
 	if local_input and data != null:
-		apply_input(read_input(), delta)
+		if controls:
+			tick_controls(read_input(), mouse_world(), mouse_aiming(), Input.is_action_just_pressed(&"use_item"),
+				Input.is_action_pressed(&"use_item"), delta)
+		else:
+			apply_input(read_input(), delta)
+
+
+func _input(event: InputEvent) -> void:
+	if controls and event is InputEventMouseMotion:
+		_mouse_moved_msec = Time.get_ticks_msec()
+
+
+## Where the mouse points in the world (the engine's canvas transform: camera and window stretch).
+func mouse_world() -> Vector2:
+	if test_aim != null:
+		var offset: Vector2 = test_aim
+		return sim_position + offset
+	return get_global_mouse_position()
+
+
+## True while the mouse moved within Config.AIM_HOLD_SEC (always with a test aim).
+func mouse_aiming() -> bool:
+	if test_aim != null:
+		return true
+	return Time.get_ticks_msec() - _mouse_moved_msec < int(Config.AIM_HOLD_SEC * 1000.0)
+
+
+## One simulation tick of the offline controls: 8-way move input, the mouse in world px, whether the
+## mouse aims, use pressed this tick / held. Order: the running action advances (and may end), the
+## aim is updated, use may start an action (the selected hotbar item's), then the player moves
+## (unless an action locks it) and faces the mouse while aiming or the movement otherwise.
+func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, delta: float) -> void:
+	last_input = input
+	if action_anim >= 0:
+		_advance_action()
+	aim_point = mouse
+	var to_mouse: Vector2 = mouse - sim_position
+	aim_sector = Aim.sector(to_mouse, aim_sector)
+	aim_cell = Aim.target_cell(sim_position, aim_sector)
+	aim_active = aiming or use_held or action_anim >= 0
+	if action_anim < 0 and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
+		var anim: int = inventory.selected_action()
+		if anim >= 0:
+			var stack: ItemStack = inventory.selected_stack()
+			start_action(anim, stack.id)
+	var acting: bool = action_anim >= 0
+	if not acting or not Config.ACTION_LOCKS_MOVEMENT:
+		sim_position = Movement.step(data, sim_position, input, delta)
+	if acting:
+		walking = input != Vector2i.ZERO and not Config.ACTION_LOCKS_MOVEMENT
+	else:
+		facing = Aim.facing(to_mouse, facing) if aim_active else Movement.facing_for(input, facing)
+		walking = input != Vector2i.ZERO
+	_sync_view()
+
+
+## Starts body action `anim` toward the current aim (facing and target fixed until it ends).
+func start_action(anim: int, item: StringName = &"") -> void:
+	if not RigData.is_action(anim):
+		return
+	action_anim = anim
+	action_tick = 0
+	action_item = item
+	action_cell = aim_cell
+	facing = Aim.facing(aim_point - sim_position, facing)
+	walking = false
+	_sync_view()
+	action_started.emit(item, anim, action_cell)
+
+
+## Shows body action `anim` frozen at `frame` (-1 = its middle frame) and stops reading input
+## (--test-action screenshots). With a test aim the aim and facing follow it first.
+func freeze_action(anim: int, frame: int) -> void:
+	if not RigData.is_action(anim):
+		return
+	local_input = false
+	if test_aim != null:
+		var offset: Vector2 = test_aim
+		aim_point = sim_position + offset
+		aim_sector = Aim.sector(offset, aim_sector)
+		aim_cell = Aim.target_cell(sim_position, aim_sector)
+		aim_active = true
+		facing = Aim.facing(offset, facing)
+	var f: int = frame if frame >= 0 else RigData.frame_count(anim) / 2
+	action_anim = anim
+	action_tick = clampi(f, 0, RigData.frame_count(anim) - 1) * Config.ACTION_FRAME_TICKS
+	action_cell = aim_cell
+	walking = false
+	_sync_view()
+
+
+## Ticks one action: frame = ticks / ACTION_FRAME_TICKS; after the last frame it ends.
+func _advance_action() -> void:
+	action_tick += 1
+	if action_tick >= action_ticks(action_anim):
+		var done: int = action_anim
+		action_anim = -1
+		action_tick = 0
+		_sync_view()
+		action_finished.emit(done)
+
+
+## The frame of the playing action (0 when none).
+func action_frame() -> int:
+	return action_tick / Config.ACTION_FRAME_TICKS if action_anim >= 0 else 0
+
+
+## How many simulation ticks body action `anim` lasts.
+static func action_ticks(anim: int) -> int:
+	return RigData.frame_count(anim) * Config.ACTION_FRAME_TICKS
 
 
 func _process(_delta: float) -> void:
@@ -130,6 +271,10 @@ func _sync_view() -> void:
 	position = sim_position.round()
 	character.direction = facing as RigData.Dir
 	character.walking = walking
+	if action_anim >= 0:
+		character.show_action(action_anim, action_frame())
+	else:
+		character.end_action()
 
 
 ## The move_* actions (WASD / arrows) as an 8-way input.

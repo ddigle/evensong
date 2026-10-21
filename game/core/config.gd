@@ -75,6 +75,31 @@ const NET_UNIQUE_CLASSES: bool = false
 ## this way.
 const SPAWN_FACING: RigData.Dir = RigData.Dir.SOUTH
 
+# --- PROVISIONAL, M2a (items, hotbar, aim, body actions) ------------------------------------
+
+## PROVISIONAL (not in docs; gameplay-design §1 ○ only says weapons and tools are switched on the
+## hotbar with Q / E): hotbar slots per player.
+const HOTBAR_SLOTS: int = 8
+## PROVISIONAL (not in docs): inventory slots per player; the hotbar is the first HOTBAR_SLOTS of them.
+const INVENTORY_SLOTS: int = 24
+## PROVISIONAL (not in docs): stack size per item kind (items/item_db.gd).
+const STACK_TOOL: int = 1
+const STACK_MATERIAL: int = 99
+const STACK_GATHERABLE: int = 99
+## PROVISIONAL (not in docs; ● gameplay-design §2.1 R12 only decides the aim type, "에임형 (마우스
+## 방향 스킬샷)"): the player faces the mouse while aiming = the use button held, an action
+## playing, or the mouse moved within the last AIM_HOLD_SEC seconds. Otherwise the facing follows
+## the movement as in M1 (Movement.facing_for).
+const AIM_HOLD_SEC: float = 1.0
+## PROVISIONAL (not in docs): length of one body action frame in simulation ticks (6 = 0.1 s). An
+## action lasts its frame count times this (pickaxe 0.6 s, sword 0.8 s, throw 0.7 s).
+const ACTION_FRAME_TICKS: int = 6
+## PROVISIONAL (not in docs): a body action locks movement (and the facing) until it ends.
+const ACTION_LOCKS_MOVEMENT: bool = true
+## PROVISIONAL (○ gameplay-design §3.2 "홀드하면 연속", said for mining): holding the use button
+## starts the action again as soon as it ends.
+const ACTION_REPEAT_WHILE_HELD: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

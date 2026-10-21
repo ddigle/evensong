@@ -32,6 +32,19 @@ extends RefCounted
 ##                                (SurfaceGen.test_perturb): a joiner must still get the host's world
 ##   --test-snapshot-chunk-bytes=<1..1024>  host: cut world snapshots into chunks this small
 ##                                (WorldSnapshot.chunk_bytes), so a small world streams over several ticks
+## Items and actions (M2a):
+##   --give=<id>[:<count>[:<grade>]],...   debug: put items into the local player's inventory at the
+##                                start (ids in items/item_db.gd, grade common | fine for herbs; F5 gives
+##                                the debug kit in the game)
+## Screenshot / test flags (M2a, offline):
+##   --test-select=<1..hotbar>    select this hotbar slot at the start
+##   --test-inventory             open the inventory grid (Tab) at the start
+##   --test-aim=<dx>,<dy>         the local player aims at this offset from its feet (px) instead of
+##                                the mouse, and always aims
+##   --test-action=<action>[:<frame>]   the local player shows this body action frozen at a frame
+##                                (frame 1-based, default the middle one)
+##   --test-action-lineup[=<frame>]     instead of the dummies, the local class doing every body
+##                                action (rows facing south and east) frozen at a frame (default middle)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -64,6 +77,15 @@ var net_lag: int = 0
 var net_loss: float = 0.0
 var test_perturb_generator: bool = false
 var test_snapshot_chunk_bytes: int = 0
+## --give: [item id (StringName), count, grade (ItemDB.Grade, -1 = default)] per entry.
+var give: Array[Array] = []
+var test_select: int = 0
+var test_inventory: bool = false
+var test_aim: Variant = null
+## --test-action: [RigData action anim, frame (0-based, -1 = middle)], empty when not given.
+var test_action: Array[int] = []
+## --test-action-lineup: frame (0-based, -1 = middle), -2 when not given.
+var test_action_lineup: int = -2
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -175,6 +197,31 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: expected a percentage 0..100" % raw)
 				else:
 					o.net_loss = value.to_float()
+			"give":
+				_parse_give(value, raw, o)
+			"test-select":
+				o.test_select = _parse_positive(value, raw, o.errors, 0)
+				if o.test_select > Config.HOTBAR_SLOTS:
+					o.errors.append("%s: the hotbar has %d slots" % [raw, Config.HOTBAR_SLOTS])
+					o.test_select = 0
+			"test-inventory":
+				o.test_inventory = true
+			"test-aim":
+				var parts: PackedStringArray = value.split(",")
+				if parts.size() != 2 or not parts[0].is_valid_float() or not parts[1].is_valid_float():
+					o.errors.append("%s: expected --test-aim=<dx>,<dy>" % raw)
+				else:
+					o.test_aim = Vector2(parts[0].to_float(), parts[1].to_float())
+			"test-action":
+				var action_parts: PackedStringArray = value.split(":")
+				var anim: int = RigData.ANIM_NAMES.find(action_parts[0])
+				var action_frame: int = _parse_frame(action_parts[1] if action_parts.size() > 1 else "", anim, raw, o.errors)
+				if not RigData.is_action(anim) or action_parts.size() > 2:
+					o.errors.append("%s: expected --test-action=<%s>[:<frame>]" % [raw, "|".join(_action_names())])
+				elif action_frame >= -1:
+					o.test_action = [anim, action_frame]
+			"test-action-lineup":
+				o.test_action_lineup = _parse_frame(value, RigData.Anim.PICKAXE, raw, o.errors) if has_value else -1
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:
@@ -202,6 +249,54 @@ static func _parse_port(value: String, raw: String, errors: PackedStringArray) -
 		errors.append("%s: port must be 1..65535" % raw)
 		return Config.DEFAULT_PORT
 	return value.to_int()
+
+
+## "<id>[:<count>[:<grade>]],..." -> o.give.
+static func _parse_give(value: String, raw: String, o: CliOptions) -> void:
+	if value.is_empty():
+		o.errors.append("%s: expected --give=<id>[:<count>[:<grade>]],..." % raw)
+		return
+	for entry: String in value.split(","):
+		var parts: PackedStringArray = entry.split(":")
+		var id: StringName = StringName(parts[0])
+		if not ItemDB.has(id):
+			var names: PackedStringArray = []
+			for known: StringName in ItemDB.ids():
+				names.append(String(known))
+			o.errors.append("%s: unknown item '%s' (items: %s)" % [raw, parts[0], ", ".join(names)])
+			return
+		var count: int = 1
+		if parts.size() > 1:
+			if not parts[1].is_valid_int() or parts[1].to_int() < 1:
+				o.errors.append("%s: count of %s must be a whole number >= 1" % [raw, parts[0]])
+				return
+			count = parts[1].to_int()
+		var grade: int = -1
+		if parts.size() > 2:
+			grade = ItemDB.grade_from_name(parts[2])
+			var def: ItemDB.ItemDef = ItemDB.get_def(id)
+			if grade < ItemDB.Grade.COMMON or not def.graded or parts.size() > 3:
+				o.errors.append("%s: %s takes %s" % [raw, parts[0], "a grade common | fine" if def.graded else "no grade"])
+				return
+		o.give.append([id, count, grade])
+
+
+## A 1-based frame number of `anim` ("" = the middle one, -1) -> 0-based; -2 and an error if bad.
+static func _parse_frame(value: String, anim: int, raw: String, errors: PackedStringArray) -> int:
+	if value.is_empty():
+		return -1
+	var n: int = RigData.frame_count(anim) if RigData.is_action(anim) else 8
+	if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > n:
+		errors.append("%s: frame must be 1..%d" % [raw, n])
+		return -2
+	return value.to_int() - 1
+
+
+static func _action_names() -> PackedStringArray:
+	var out: PackedStringArray = []
+	for anim: int in RigData.ACTION_ANIMS:
+		out.append(RigData.ANIM_NAMES[anim])
+	return out
 
 
 ## "<address>", "<address>:<port>", "[<ipv6>]" or "[<ipv6>]:<port>".

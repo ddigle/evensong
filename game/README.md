@@ -2,8 +2,9 @@
 
 수직 슬라이스를 만드는 진짜 게임 폴더다 (`prototypes/engine-spike/`는 버리는 시험이고, 여기 코드는 새로 짰다).
 지금은 **M1 "첫 단계: 이동 · 타일 · 제단 빛 · 2인 접속"**의 세 단계 G1(뼈대 + 월드), G2(캐릭터 + 빛), G3(2인 네트워크)가 모두 들어 있고, 검증에서 나온 지적을 반영했다. 그 위에 H1(다지기: 늦은 참가 = 월드 스냅샷, 호스트가 정하는 바라보기, 호스트 멈춤 뒤 입력 따라잡기, 테스트 기반, 제단 옆 겹침, 내 캐릭터를 틱 사이에 그리기, `session.gd` 나누기)을 더했고, H1 검토 지적을 반영했다(H-fix: 실제 세션에서 듣지 않던 호스트 멈춤 따라잡기를 고침, 테스트 포트 확인을 IPv4까지, 세션 시험 `stall` 추가 등. [검토 반영 (H-fix)](#검토-반영-h-fix-2026-10-22)). 단계 상태와 알려진 문제는 [맨 아래](#m1-범위와-단계-상태).
+그 위에 **M2a "아이템 · 핫바 · 마우스 조준 · 몸 동작"**(혼자 할 때 먼저)을 더했다: 타입 있는 아이템 표(도구 6 · 재료 1 · 채집물 15), 플레이어마다 인벤토리 + 핫바, 마우스 조준(바라보기와 목표 칸, 칸 표시), 도구를 들고 좌클릭하면 그 도구의 몸 동작(64칸 동작 시트를 발에 맞춰, 손에 든 표식은 숨기고 나머지 표식은 레이어로, ● R25~R27), 최소 HUD(핫바 줄, Tab 인벤토리). 동작은 아직 월드를 바꾸지 않고 목표 칸만 알린다. 세션(2인)에서는 조준·동작을 끄고 M1 그대로 돈다. [아이템 · 조준 · 동작 (M2a)](#아이템--조준--동작-m2a).
 
-기준 문서: `docs/game-concept.md` §7 §11 §12 §13, `docs/gameplay-design.md` §1 §3.1, `docs/concept-art-brief.md` §5.6 §5.7.
+기준 문서: `docs/game-concept.md` §7 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §3.1 §3.2 §3.4 §3.8, `docs/concept-art-brief.md` §4 §5.6 §5.7, `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작), `assets/concept/04-env/prompts.md`("본 제작", 채집물).
 문서의 ●는 그대로 따르고, ○·?는 정하지 않고 [임시값](#임시값-사람-확인-필요)으로 둔다.
 
 ## 준비
@@ -37,10 +38,11 @@ timeout 300 "$GODOT" --headless --path game --import < /dev/null
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
 ```
 
-- 출력: 첫 줄 `EVENSONG_TESTS start: 6 file(s) in res://tests, ports 24621-24640`(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
+- 출력: 첫 줄 `EVENSONG_TESTS start: 9 file(s) in res://tests, ports 24621-24640`(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
 - 종료 코드: 모두 통과 0, 하나라도 실패 1 (불러오기 실패·시간 초과·테스트 파일 없음·시작 중 오류·마지막 파일 뒤 오류도 1)
-- 통과하는 실행에도 오류 묶음이 **7개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
+- 통과하는 실행에도 오류 묶음이 **8개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
   - `ERROR: Character: unknown class 'wizard'` 1개: `test_actors.gd`가 모르는 클래스 이름을 거부하는지 확인
+  - `ERROR: Character: 0 is not a body action` 1개 (M2a): `test_actions.gd`가 걷기를 몸 동작으로 보여 달라는 요청을 거부하는지 확인
   - `SCRIPT ERROR: Parse Error: ... (Warning treated as error.)` 5개: `test_core.gd`가 "경고를 오류로" 설정 5종이 실제로 컴파일을 막는지 확인
   - `ERROR: Couldn't create an ENet host.` 1개: `test_net.gd`가 같은 포트에 호스트를 하나 더 열어 실패가 시그널로 오는지 확인. 빈 포트 찾기는 이제 `UDPServer`로 해서(쓰는 포트면 오류 줄 없이 코드만 돌려준다) 포트가 막혀 있어도 이 줄이 늘지 않는다
   - 이 밖의 `ERROR`·`SCRIPT ERROR` 줄은 문제다. 러너가 실패로 세므로 어느 파일의 FAIL 아래(또는 `FAIL (startup)`, `FAIL (after the last file)` 아래)에 같은 내용이 나온다
@@ -109,7 +111,7 @@ timeout 120 "$GODOT" --headless --path game --script res://tools/build_tileset.g
 timeout 120 "$GODOT" --headless --path game --script res://tools/build_rig_anchors.gd < /dev/null
 ```
 
-- 방향마다 `EVENSONG_ANCHORS walk south torso=[...] head=[...]` 한 줄, 끝에 `EVENSONG_ANCHORS saved res://actors/rig_anchors.gd error=0 md5=...`
+- 애니메이션(걷기·idle + 몸 동작 8개, M2a)·방향마다 `EVENSONG_ANCHORS walk south torso=[...] head=[...]` 한 줄(30줄), 끝에 `EVENSONG_ANCHORS saved res://actors/rig_anchors.gd error=0 md5=...`. 이 데스크탑 약 2.6초
 - 결과 `actors/rig_anchors.gd`(생성 파일, 손으로 고치지 않음)를 커밋한다. `test_actors.gd`가 시트에서 다시 재서 커밋된 표·파일 내용과 다르면 실패한다
 
 ### 내보내기 (Windows release, pck 내장, 콘솔 래퍼)
@@ -124,7 +126,7 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 - 경로는 `game/` 기준이다 → `game/build/evensong.exe`(+ `evensong.console.exe`), `game/build/arm64/evensong.exe`
 - ARM64는 `build/arm64` 폴더가 없으면 "주어진 내보내기 경로는 존재하지 않습니다"로 실패한다 (그래서 `mkdir`). 이 데스크탑(x86_64)에서는 실행해 볼 수 없다
 - `tests/`, `tools/`는 내보내기에서 뺀다. `build/`는 `.gdignore`가 있어 임포트하지 않고 커밋하지 않는다
-- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... checks=85`를 찍고 0으로 끝나야 한다. 아래 "스모크" 참조
+- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... items=22 actions=8 ... checks=208`을 찍고 0으로 끝나야 한다. 아래 "스모크" 참조
 
 ### 실행
 
@@ -134,10 +136,12 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 "$GODOT" --path game res://scenes/world.tscn -- --seed=7 --overlay   # 맵 보기 (자유 카메라, 캐릭터 없음)
 game/build/evensong.exe -- --class=miner               # 내보낸 빌드
 timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그리지 않고 120프레임 (오류 확인용)
+"$GODOT" --path game -- --class=miner --give=pickaxe,hoe,sickle,watering_can,sword,bow,wild_healing:12,stone_a:30   # M2a: 도구를 들고 시작
 ```
 
 - `main.tscn`(실행 장면): WASD 또는 방향키로 8방향 걷기, 카메라는 내 캐릭터 가운데(맵 밖은 안 보이게 가장자리에서 멈춤). 제단 둘레에 나머지 네 클래스가 제단을 보고 서 있다(움직이지 않는 더미, 표식 다섯 가지가 한 화면에 보이게)
 - F4로 저녁 어둠 + 제단 빛 켜고 끄기, F3으로 디버그 선(맵 테두리, 청크 경계, 제단 자리, 임시 안전 반경) 켜고 끄기
+- M2a (키는 모두 임시값): 마우스를 움직이면 1초 동안 캐릭터가 마우스 쪽을 보고 발 옆의 목표 칸에 금빛 모서리 표시가 뜬다. 좌클릭 = 고른 핫바 칸의 도구 사용(그 도구의 몸 동작, 누르고 있으면 반복), Q / E = 핫바 왼쪽 / 오른쪽, Tab = 인벤토리 칸 전부 보기. 인벤토리는 비어서 시작한다: **F5**(디버그)가 도구 6개와 채집물·재료 묶음을 주고, `--give=`로도 준다. **F6**(디버그)은 들고 있는 것과 상관없이 몸 동작 8개를 차례로 한다(아이템이 없는 마법·던지기도 여기서 본다). 콘솔에 `EVENSONG_ACTION start item=pickaxe action=pickaxe facing=east target=61,48`
 - `world.tscn`: WASD 또는 방향키로 자유 카메라 이동 (제단·빛은 있고 캐릭터는 없다)
 - 창 기본 1920×1080(4배). `-- --scale=3`이면 1440×810
 - `--quit-after` 같은 Godot 인자는 `--` **앞에** 쓴다
@@ -199,6 +203,18 @@ sleep 2
 timeout 60 "$GODOT" --max-fps 60 --path game -- --join=127.0.0.1:24639 --class=cleric --scale=2 --bot="move:-1,0,30;wait:3000" --screenshot=shots/net_client.png --frames=360 < /dev/null
 ```
 - 더미의 idle 프레임은 찍는 순간에 따라 달라서 같은 명령도 픽셀까지 같지는 않다
+- M2a 그림 4장 (마우스 대신 `--test-aim`으로 조준을 고정하고, 동작은 `--test-action`으로 한 프레임에 멈춘다). M1 그림(`main_evening*.png`)은 HUD가 생기기 전에 찍었다:
+  - `shots/m2_hotbar.png`: 광부, 디버그 묶음과 같은 아이템 23칸(`--give=`), Tab으로 연 인벤토리(아래 줄 = 핫바, 고른 칸 1 = 곡괭이, 금빛 테), 묶음 수(3×5 숫자), 상급 약초 칸의 금빛 점, 동쪽 목표 칸 표시
+  - `shots/m2_aim.png`: 아처가 활을 고르고 서쪽(약간 아래)을 조준: 서쪽을 보고(동쪽 반전), 발 서쪽 칸에 표시
+  - `shots/m2_use.png`: 광부가 곡괭이 동작 4번째 프레임으로 동쪽 표시 칸을 친다 (등의 곡괭이 레이어는 숨김, ● R27)
+  - `shots/m2_actions_miner.png`: 광부의 몸 동작 8개(곡괭이·괭이·낫·물주기·검·활·마법·던지기) 가운데 프레임, 윗줄 남쪽 · 아랫줄 동쪽, 저녁 끔. 곡괭이 동작만 등의 곡괭이가 없다
+
+```bash
+timeout 120 "$GODOT" --path game -- --give=pickaxe,hoe,sickle,watering_can,sword,bow,wild_healing:12,mushroom_a:5,stone_a:30,stone_block:8,wild_healing:3:fine,wild_buff:4,wild_poison:2,herb_clump:6,mushroom_b:3,mushroom_c:2,mushroom_d,mushroom_ash:2,stone_b:4,stone_c:4,stone_mossy:2,stone_veined,stone_mould --test-select=1 --test-inventory --test-aim=40,8 --class=miner --screenshot=shots/m2_hotbar.png --frames=30 < /dev/null
+timeout 120 "$GODOT" --path game -- --give=pickaxe,hoe,sickle,watering_can,sword,bow,wild_healing:12,stone_a:30 --test-select=6 --test-aim=-28,10 --class=archer --screenshot=shots/m2_aim.png --frames=30 < /dev/null
+timeout 120 "$GODOT" --path game -- --give=pickaxe,hoe,sickle,watering_can,sword,bow --test-select=1 --test-aim=30,4 --test-action=pickaxe:4 --class=miner --screenshot=shots/m2_use.png --frames=30 < /dev/null
+timeout 120 "$GODOT" --path game -- --test-action-lineup --class=miner --no-evening --screenshot=shots/m2_actions_miner.png --frames=30 < /dev/null
+```
 
 ### 그림 검사 (창, 렌더러 필요)
 
@@ -213,7 +229,8 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 - `ground`: 제단 둘레 화면 480×270 픽셀 전부를 저녁 켬·끔으로 두 번 찍어 색 비율로 밝음/어둠을 가르고, 바닥 빛 텍셀(= 규칙, `test_light.gd`가 텍셀마다 확인)과 비교. 테두리 띠 ±8px 고리(약 2만 픽셀)는 따로 센다. 반경 밖에 밝은 픽셀 0
 - `flames`: 불꽃 81픽셀이 저녁에도 원본 색 그대로 (채널 차 0)
 - `actor`: 반경선이 몸을 지나가게 세운 캐릭터의 픽셀마다 밝음 = `is_in_safe_zone(픽셀 중심)` (캐릭터는 디더가 아니라 hard 빛)
-- `rig`: 5클래스 × 4방향 × (걷기 6 + idle 4) 프레임을 저녁 끈 화면에 세워, 배경 + 시트에서 CPU로 합친 그림과 픽셀까지 비교 (그리기 순서, v01→v02 이동 + 기준점, 서쪽 반전)
+- `rig`: 5클래스 × 4방향 × (걷기 6 + idle 4 + M2a 몸 동작 8개의 55) 프레임을 저녁 끈 화면에 세워, 배경 + 시트에서 CPU로 합친 그림과 픽셀까지 비교 (그리기 순서, v01→v02 이동 + 기준점, 서쪽 반전, 64칸 동작의 발 맞춤, 손에 든 표식 숨기기). 한 화면에 캐릭터 20명, 65화면
+- 일부러 깨 본 것 (M2a): 캐릭터가 64칸 동작 칸의 (16, 16)을 빼먹고 32칸처럼 놓음 → `rig` FAIL(65화면 중 불일치 655,477픽셀)·종료 1
 - `ysort`: 겹친 두 캐릭터(나중에 추가한 쪽이 뒤), 제단 뒤·앞의 캐릭터가 발 y 순서대로 그려지는지. 트리 순서로 그렸다면 틀렸을 픽셀(지금 516개)이 0보다 커야(= 검사가 실제로 겹침을 본다) 통과
 - `ysort`는 H1부터 캐릭터 둘을 더 세운다: `Movement`로 제단 서쪽·동쪽 면까지 걸어가 붙은 광부(동쪽을 봄)와 아처(서쪽을 봄). 제단 뒤에 그려지지만 그 픽셀이 제단 그림에 하나도 겹치지 않아야 한다(`side_pixels_hidden=0`)
 - 일부러 깨 본 것 (G2, 커밋하지 않음): 서쪽 반전 끄기, 한 프레임의 표식 1px 밀기, 캐릭터 빛을 디더로, 캐릭터를 월드 빛 레이어로, 불꽃 shaded, 빛 `texture_scale` 1.02, 빛 위치 1px, y 정렬 끄기. 8개 모두 해당 부분이 FAIL·종료 1. H1: 제단 옆 띠를 0으로 → `ysort` FAIL(`side_pixels_hidden=27`)·종료 1
@@ -240,6 +257,12 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--net-lag=<ms>`, `--net-loss=<%>` | 클라이언트: 왕복 지연·손실 흉내 (unreliable 입력·상태만) | 동작 |
 | `--test-perturb-generator` | 이 프로세스의 생성기가 같은 시드로 다른 월드를 만든다(재 가장자리 노이즈 시드를 바꿈, `SurfaceGen.test_perturb`). 다른 아키텍처 흉내 | 동작 (테스트 전용, H1) |
 | `--test-snapshot-chunk-bytes=<1..1024>` | 호스트: 월드 스냅샷을 이 크기 조각으로 자른다(`WorldSnapshot.chunk_bytes`, 기본 1024). 작은 월드도 여러 조각·여러 틱으로 보내 보려고 | 동작 (테스트 전용, H1) |
+| `--give=<id>[:<수>[:<등급>]],...` | 디버그: 시작할 때 내 인벤토리에 아이템을 넣는다(세션에서도 내 쪽만). id는 아래 "아이템 표", 등급 `common`/`fine`은 약초만. 예 `--give=pickaxe,stone_a:30,wild_healing:3:fine`. 게임 안에서는 F5가 디버그 묶음을 준다 | 동작 (M2a) |
+| `--test-select=<1..8>` | 시작할 때 핫바 칸 고르기 | 동작 (스크린샷용, M2a) |
+| `--test-inventory` | 인벤토리 칸 전부 보기(Tab)를 연 채 시작 | 동작 (스크린샷용, M2a) |
+| `--test-aim=<dx>,<dy>` | 마우스 대신 발에서 이만큼(px) 떨어진 곳을 늘 조준 | 동작 (스크린샷·테스트용, M2a) |
+| `--test-action=<동작>[:<프레임>]` | 내 캐릭터가 그 몸 동작(`pickaxe`·`hoe`·`sickle`·`watering`·`sword`·`bow`·`magic`·`throw`)의 한 프레임(1부터, 기본 가운데)에 멈춘다. 입력은 받지 않는다 | 동작 (스크린샷용, M2a) |
+| `--test-action-lineup[=<프레임>]` | 더미 대신 내 클래스가 몸 동작 8개를 두 줄(남쪽·동쪽)로 한 프레임(1..6, 기본 동작마다 가운데)에 멈춰 서 있고, 내 캐릭터는 숨긴다 | 동작 (스크린샷용, M2a) |
 
 아는 인자의 값이 틀리면 `EVENSONG_CLI error: ...`를 찍고 종료 코드 2. 모르는 인자는 무시한다 (테스트 러너의 `--only=` 등이 같은 명령줄로 들어오기 때문).
 세션 종료 코드: 0 끝남·나감, 3 거부됨, 4 접속 실패·호스트 잃음(`--net-out`일 때), 5 받은 월드가 검사를 통과하지 못함(조각 수·크기·md5·월드 해시), 6 `--net-timeout`.
@@ -251,7 +274,8 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 엔진 4.7.2, 렌더러 설정 forward_plus, 루트 창에 실제로 적용된 480×270·viewport·integer·expand·Nearest·픽셀 스냅, 기본 창 1920×1080, 이동 키 배치,
 커밋된 타일셋(소스 11, 타일 40, 그림 있는 코너 키 31, 키마다 그림 유무가 규칙과 같은지), 기본 시드 월드(크기, 제단 자리, 흙·재 있음, 흙+재 칸 0, 월드 해시 = `SurfaceGen.GOLDEN_HASH`)를
 실제로 그려서 그림 칸 12,513개 전부의 코너가 데이터와 같은지(대체 타일 0, 빈 칸 0),
-캐릭터 시트 크기와 클래스 다섯의 표식 레이어(리그를 만들어 표식이 보이는지), 기준점 표의 모양, `main.tscn`이 불러지는지,
+캐릭터 시트 크기와 클래스 다섯의 표식 레이어(리그를 만들어 표식이 보이는지), 기준점 표의 모양(이제 걷기·idle + 몸 동작 8개), `main.tscn`이 불러지는지,
+M2a: 몸 동작 시트 8장의 크기(칸 × (시작 칸 + 프레임), 칸 × 3줄), 아이템 22개의 아이콘(16×16, 그림 또는 코드로 그린 것)과 월드 그림, 도구 6개의 몸 동작, M2a 입력 액션 6개,
 기본 월드의 안전 반경 hard 빛 텍스처 226×226 텍셀 전부 = `is_in_safe_zone()`, 불꽃 마스크 81픽셀,
 네트워크(G3): 물리 틱 60, ENet 호스트가 루프백 빈 포트에서 열리고 닫힘(방화벽 창이 뜨지 않게 127.0.0.1만), Steam 가용성 = GodotSteam 유무, 상태 묶음 왕복, 늦은 참가 월드 스냅샷 왕복(H1: 이 빌드의 zstd로 압축 → 조각 → 받기 → 같은 월드), 9명 뒤 열 번째 거부, `main.tscn`에 `Net` 노드.
 내보낸 exe에서 돌면 pck 안의 타일셋·그림까지 확인하는 셈이다. 월드 해시는 이 데스크탑(x86_64)에서 만든 값이라, 다른 기기(서피스 ARM64)에서 `--smoke`가 해시로 FAIL이면 그 기기는 같은 시드로 다른 월드를 만든다는 뜻이다. 늦은 참가는 이제 호스트의 월드를 받으므로 그래도 된다(H1). 다만 그 기기가 호스트가 되면 같은 시드라도 데스크탑과 다른 월드가 된다.
@@ -264,13 +288,17 @@ game/                           Godot 프로젝트 루트 (= res://)
   project.godot                 이름 "Evensong", 메인 장면 res://scenes/main.tscn, 오토로드 Cli, 설정은 아래 "규칙"
   export_presets.cfg            "Windows Desktop" (x86_64) + "Windows ARM64", release, pck 내장, 콘솔 래퍼, tests/·tools/ 제외
   core/                         cli.gd (오토로드 Cli), cli_options.gd (인자), config.gd (상수: ● / 임시값 / 구현 선택), smoke.gd,
-                                main.gd (main.tscn 루트: 내 플레이어 + 더미 + 카메라)
+                                main.gd (main.tscn 루트: 내 플레이어 + 더미 + 카메라 + HUD + 목표 칸 표시, 키, 테스트 플래그)
+  items/                        item_db.gd (아이템 표, M2a), item_stack.gd (한 칸의 묶음), inventory.gd (인벤토리 + 핫바),
+                                item_icons.gd (아이콘: 그림 불러오기 + 도구 임시 아이콘을 코드로)
+  ui/                           hud.gd (핫바 줄 · Tab 인벤토리 칸 · 3×5 숫자, 자기 캔버스 레이어)
   world/                        terrain.gd (지형·코너 키), world_data.gd (레이어 6장), tileset_builder.gd, wang_table.gd,
                                 surface_gen.gd (생성기), ground_view.gd (청크 dual grid), game_world.gd (world.tscn 루트),
-                                altar.gd (제단 그림 + 불꽃), debug_overlay.gd, tilesets/surface.tres (만든 타일셋, 커밋)
+                                altar.gd (제단 그림 + 불꽃), debug_overlay.gd, target_marker.gd (조준 목표 칸 표시, M2a),
+                                tilesets/surface.tres (만든 타일셋, 커밋)
   actors/                       character.gd (레이어 캐릭터), rig_data.gd (리그 표), rig_anchors.gd (생성된 기준점 표),
-                                rig_measure.gd (기준점 재기), movement.gd (이동 규칙), player.gd, player_camera.gd,
-                                free_camera.gd (world.tscn 맵 보기용)
+                                rig_measure.gd (기준점 재기), movement.gd (이동 규칙), player.gd (+ M2a 조작: 조준·사용·동작
+                                시간), aim.gd (조준 규칙과 창 늘이기 계산, M2a), player_camera.gd, free_camera.gd (world.tscn 맵 보기용)
   light/                        safe_zone.gd (안전 반경 규칙), light_gen.gd (빛 텍스처·불꽃 마스크), altar_light.gd, lighting.gd
   net/                          session.gd (세션 노드 Net: 두 역할이 같이 쓰는 상태·RPC 표·틱 나누기), session_host.gd
                                 (호스트 흐름), session_client.gd (클라이언트 흐름), session_bots.gd (봇·테스트 흐름: go/done/
@@ -282,9 +310,10 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 net_bot.gd (--bot), link_sim.gd (지연·손실 흉내), net_stats.gd (트래픽), session_report.gd
                                 (테스트 결과 JSON·표시 파일)
   scenes/                       main.tscn (실행 장면: 월드 + 카메라 + Net), world.tscn (월드 + 제단 + 빛 + 자유 카메라 + 디버그 선)
-  art/tiles/, art/chars/, art/env/   우리 PNG·JSON 사본 (아래 "그림 출처")
+  art/tiles/, art/chars/, art/env/, art/items/   우리 PNG·JSON 사본 (아래 "그림 출처")
   tests/                        run_all.gd (러너), base_test.gd (기반 클래스), test_core.gd, test_world.gd, test_actors.gd,
-                                test_light.gd, test_net.gd, test_net_session.gd (다중 프로세스), fixtures/ (러너 자체 시험)
+                                test_light.gd, test_net.gd, test_net_session.gd (다중 프로세스), test_items.gd, test_aim.gd,
+                                test_actions.gd (M2a), fixtures/ (러너 자체 시험)
   tools/                        build_tileset.gd (타일셋 빌더), build_rig_anchors.gd (기준점 표), check_render.gd (창 그림 검사)
   shots/                        스크린샷 (.gdignore)
   build/                        내보내기 결과 (커밋 안 함, .gdignore만 커밋)
@@ -315,6 +344,49 @@ game/                           Godot 프로젝트 루트 (= res://)
   - 한 틱에 두 걸음(2.4px)보다 많이 움직인 플레이어는 그 틱 끝 위치에 그린다(H-fix, `Player.MAX_DRAWN_STEP_PX` 3px). 호스트가 밀린 클라이언트의 프레임을 한 틱에 여러 개 적용할 때(아래 "호스트가 멈췄다 돌아올 때")다: 두 끝을 잇는 직선은 걸음이 돌아간 모서리를 가로질러 제단 안을 지날 수 있다(테스트: 제단 북서 모서리를 도는 90걸음 틱이 반이 지난 때 직선 위면 제단 안, 실제로는 11번 그려 모두 틱 끝). 그래서 따라잡기는 그림에서 걸음당 한 칸씩이 아니라 틱마다 최대 4걸음씩 뛰어 보인다. 보통(틱당 1걸음)은 그대로다(144Hz 시험 같은 수)
 - 이동 규칙(`Movement`, 순수 함수, 결정적: G3에서 호스트와 클라이언트 예측이 같은 함수를 쓴다): 입력은 축마다 −1/0/1인 8방향, 속력은 대각선도 `WALK_SPEED`. 발 상자(가로 10 × 세로 4px)가 맵(위쪽은 머리 자리 28px 남김) 안, 장애물 밖에 있어야 한다. 장애물 = 막힌 칸(설치물 = 제단 3×3)과 **제단 옆 띠**(H1, `Movement.side_bands`): 제단 자리 서쪽·동쪽 면 옆으로 `ALTAR_SIDE_CLEARANCE`(서 5, 동 3px) 폭, 자리 위 변부터 아래 변 4px 위까지. 발이 제단 자리 높이에 있을 때(= 제단 뒤에 그려질 때)만 걸려서, 옆면에 붙은 캐릭터의 몸(발에서 좌우 9px)이 제단 그림(48px 자리 중 불투명 열 0~46) 뒤로 들어가지 않는다. 북쪽·남쪽 면은 전처럼 발 상자가 딱 붙어 멈춘다(모서리에서는 띠 폭만큼 면이 넓어진 셈). 이 폭은 `test_actors.gd`가 시트와 제단 그림에서 다시 재서 비교한다. x 먼저, 그다음 y로 움직이고 부딪힌 곳에 딱 붙어 멈추므로 대각선은 벽을 따라 미끄러진다. 바라보기는 4방향: 한 축이면 그쪽, 대각선이면 지금 바라보는 쪽이 두 축 중 하나일 때 그대로, 아니면 가로
 - `main.tscn`: 내 캐릭터는 스폰 자리 0(제단 서쪽), 나머지 네 클래스는 자리 1~4에 제단을 보고 선 idle 더미. 스폰 자리 9개(`Config.SPAWN_SLOTS`)는 모두 안전 반경 안, 제단 밖이고 서로 겹치지 않는다 (세션에서는 호스트가 가장 작은 빈 자리를 준다, 아래 "네트워크")
+
+## 아이템 · 조준 · 동작 (M2a)
+
+혼자 할 때(`main.tscn`, `--host`/`--join` 없음)의 내 캐릭터에 붙었다. 문서의 ●는 그대로 따르고, 나머지는 [임시값](#임시값-사람-확인-필요) 표에 있다.
+
+### 아이템 표 (`items/item_db.gd`)
+
+- 종류: 도구(핫바에서 들고 좌클릭하면 그 도구의 몸 동작), 재료, 채집물(세상에서 줍는 것. 줍기는 아직 없다). 아이템마다 id, 종류, 아이콘, (채집물) 월드 그림, 묶음 크기, 등급이 있는지, (도구) 몸 동작
+- 도구 6 (묶음 1, 등급 없음, 아이콘은 코드로 그린 임시): `pickaxe` → 곡괭이 동작, `hoe` → 괭이, `sickle` → 낫, `watering_can` → 물주기, `sword` → 검, `bow` → 활. 손에 드는 도구를 동작에 그려 넣은(● R25) 동작마다 하나다. 마법(성직자 기도·치료)과 던지기(약초사 약제 투척)는 손에 드는 도구가 없고 그것을 부르는 것(스킬·약제)이 M2 밖이라 아이템이 없다. F6과 `--test-action`으로 본다
+- 재료 1 (묶음 99): `stone_block` (04-env 묶음 2 #61 "건설 재료 덤", 3/4 아이콘 v02)
+- 채집물 15 (묶음 99): 약초 `wild_healing`·`wild_buff`·`wild_poison`(아이콘 = 꺾은 가지 `item_sprig_*`, 월드 그림 = 자라는 풀 `item_wild_*`)과 `herb_clump`(덤불, 아이콘 = 월드 그림), 버섯 `mushroom_a`·`b`·`c`·`d`·`ash`(ash는 오염 쪽), 돌 `stone_a`·`b`·`c`·`mossy`·`veined`·`mould`(뒤의 둘은 오염 쪽)
+- 등급: 약초 넷만 일반(`common`)·상급(`fine`)이 있다 (● gameplay-design §3.4 원칙 "약초를 약초사가 캐면 상급 등급, 다른 클래스는 일반 등급"). 등급이 다르면 한 칸에 쌓지 않는다. 버섯·돌·도구의 등급은 문서에 없어서 두지 않았다(임시값). 캐는 일이 없으니 등급은 지금 `--give`로만 생긴다
+- 그림: 채집물·재료는 04-env "본 제작"(2026-10-21) 손질판 v02이고 모두 **채택 후보, 사람 확인 전**이다. 임시 그림으로 쓴다 (아래 "그림 출처")
+
+### 인벤토리와 핫바 (`items/inventory.gd`)
+
+- 플레이어마다 24칸, 앞 8칸이 핫바(임시값). 넣기는 같은 아이템·등급 묶음부터 채우고(칸 순서라 핫바 먼저) 그다음 앞쪽 빈 칸, 못 넣은 수를 돌려준다. F5 디버그 묶음은 못 넣은 것을 버린다
+- 나누기는 묶음 일부를 첫 빈 칸으로 옮긴다(빈 칸이 없거나 수가 틀리면 아무것도 안 함). 옮기기는 빈 칸이면 옮기고, 같은 아이템·등급이면 들어가는 만큼 합치고, 아니면 맞바꾼다. 화면에서 끌어 옮기는 조작은 아직 없다(함수와 테스트만)
+- Q / E = 핫바 왼쪽 / 오른쪽, 끝에서 반대쪽 끝으로 돈다. 키 초안(gameplay-design §1 ○)의 숫자 키 1 2 3은 스킬이라 핫바에 쓰지 않았다. F(상호작용)는 상호작용할 것이 없어 아직 묶지 않았다
+- 인벤토리는 네트워크로 보내지 않는다(세션에서는 각자 자기 화면의 것만)
+
+### 조준 (`actors/aim.gd`, `Player.tick_controls`)
+
+- 정해진 것은 ● 에임형(gameplay-design §2.1 R12: 마우스 방향 스킬샷)뿐이고, 아래 규칙은 모두 임시값이다
+  - 조준 중 = 마우스가 지난 1초(`AIM_HOLD_SEC`) 안에 움직였거나, 사용 버튼을 누르고 있거나, 동작 중. 조준 중이면 마우스 쪽을 본다(4방향, 큰 축 쪽, 정확한 대각선은 남·북). 아니면 M1 그대로 걷는 방향을 본다(`Movement.facing_for`). 테스트: 조준 없이 600틱 무작위로 걸으면 위치·바라보기·걷기가 매 틱 M1 `apply_input`과 같다
+  - 기준점은 발이다. 발 → 마우스 방향을 45° 8구역(축과 대각선이 가운데, 경계 ±22.5°)으로 나누고, 목표 칸 = 발이 선 칸의 그 방향 이웃 칸(○ gameplay-design §3.2 "마우스 방향의 인접 타일을 타격", 채굴에 쓴 말). 마우스가 정확히 발 위면 앞의 구역·바라보기를 둔다
+- 마우스 → 월드: 게임은 엔진의 `get_global_mouse_position()`(캔버스 변환 = 카메라 + 창 늘이기)을 쓴다. `Aim.view_size`·`view_scale`·`view_margin`·`window_to_view`는 엔진 계산(`Window::_update_viewport_size`: 480×270, viewport, 정수배, expand, 32비트 float)을 그대로 옮긴 것이고, 테스트가 창 크기 6가지에서 엔진과 비교한다: 1920×1080 → 480×270 4배, 960×540 → 2배, 1000×700 → 480×336 2배 + 검은 띠 (20, 14), 1366×768 → 480×270 2배 + 띠 (203, 114), 1000×703 → 480×337, 세로 500×1000 → 480×960 1배. 띠 위의 마우스는 뷰포트 밖 좌표가 되고(1000×700의 창 (0, 0) = 뷰포트 (−10, −7)) 조준은 그대로 된다
+- 목표 칸 표시(`world/target_marker.gd`): 16px 칸 네 모서리의 금빛(#f4c95d) ㄱ자(팔 4px)와 그 안쪽 잿빛 검정(#1a1714) 띠. 코드로 그리고 unshaded라 저녁에도 보인다. Main이 World의 Ground와 Entities 사이에 넣어 바닥 위·캐릭터 아래다. 조준 중이고 칸이 맵 안일 때만 보인다. 발 북쪽 줄(북·북동·북서) 칸은 캐릭터 몸이 가린다
+
+### 몸 동작 (`RigData`, `Character.show_action`, `Player`)
+
+- 시트 8장(`art/chars/base_body_v02_<동작>.png`, 03-pixel 10~12차): 프레임 수는 곡괭이·괭이·낫·마법 6, 물주기·활·검 8, 던지기 7 (brief §5.6). 도구를 든 일곱은 64×64 칸이고 32 프레임을 칸의 (16, 16)에 둔 좌표라 발 줄이 y=47이다(● R26 "동작 칸"). 첫 칸은 생성의 시작 그림(= 걷기 첫 프레임)이라 재생은 둘째 칸부터다. 던지기는 도구 없는 템플릿 동작이라 32×32 칸, 시작 칸 없이 7프레임, 발 y=31(줄마다 +4 +4 +3 옮긴 판)
+- 발 맞춤: 64칸은 칸의 (32, 48)을 발 점에 놓는다(32칸은 (16, 32)). 테스트: 일곱 장 × 세 줄의 시작 칸을 이 규칙으로 놓으면 걷기 첫 프레임을 걷기 규칙으로 놓은 것과 픽셀까지 같다
+- 표식(● R27): 그 동작에서 손에 들지 않는 표식은 걷기용 표식 레이어 한 장을 동작 프레임마다 기준점(몸통 이동, 후광은 머리 이동)에 붙인다. 손에 든 도구가 곧 그 클래스의 표식이면 숨긴다: 광부의 곡괭이 동작과 아처의 활 동작 두 경우뿐이다(`RigData.HELD_SIGNATURE`). 그리기 순서는 걷기와 같다(등 장비는 북쪽을 볼 때만 몸 앞)
+- 기준점: 걷기·idle과 같은 규칙(● R27, `RigMeasure`)으로 동작 55프레임 × 3줄을 재서 `actors/rig_anchors.gd`에 더했다(생성 파일, 이 데스크탑 약 2.1초). `test_actors.gd`가 다시 잰다
+- 재생: 핫바에서 고른 아이템이 도구일 때 좌클릭하면 그 동작을 한다. 시간은 시뮬레이션 틱으로 센다: 프레임당 6틱(0.1초)이라 곡괭이 0.6초, 검 0.8초, 던지기 0.7초. 동작 중에는 걷지 않고 바라보기·목표 칸은 시작한 틱의 것이다. 누르고 있으면 끝나는 틱에 다시 시작한다. 셋 다 임시값. 재료·채집물·빈 손은 아무것도 하지 않는다
+- 월드 효과는 없다(채굴·농사는 다음 단계). `Player.action_started(아이템, 동작, 목표 칸)` 시그널로 알리고 Main이 `EVENSONG_ACTION start ...` 줄을 찍는다
+- 세션: 호스트가 조준·동작을 시뮬레이션하지 않으므로 세션의 플레이어는 `controls`가 꺼져 있고 조준·동작이 없다. HUD, 핫바 고르기, F5는 세션에서도 내 화면에서 된다. 이동·예측·보정은 M1 그대로다(세션 테스트 통과). 호스트를 잃고 혼자 계속하는 클라이언트는 그때부터 조준·동작이 켜진다
+
+### HUD (`ui/hud.gd`)
+
+- 자기 캔버스 레이어(10)라 카메라와 저녁 어둠의 영향을 받지 않는다. 핫바 8칸이 화면 아래 가운데(바닥에서 4px), 칸 18px(아이콘 16 + 테 1), 간격 2px. 고른 칸은 금빛 테(#f4c95d 바깥, #9c6a1f 안쪽), 나머지는 #1a1714 / #4a423a 테에 조금 비치는 #2e2a26 바탕. 2개 이상이면 오른쪽 아래에 3×5 숫자(#efe3c6, 그림자 #1a1714), 상급이면 왼쪽 위에 금빛 점 2×2. 글꼴은 쓰지 않는다. Tab이면 나머지 16칸을 핫바 위에 두 줄로 보인다(보기만). 아이템 이름은 보이지 않는다
+- 성화 UI(game-concept §10, 2차)가 아니다. 색은 brief §4의 기반·신앙 줄만 썼다
 
 ## 빛과 제단 (G2)
 
@@ -367,6 +439,9 @@ H-fix에서 더한 것: 호스트 입력 토큰이 실제 시간을 따라감(�
 - 빛 텍스처(`PointLight2D.texture`)는 실행 중에 새로 만들어 갈아 끼우지 않는다. `AltarLight.texture_for()`의 캐시를 쓴다
 - 스프라이트 안의 그리기 순서는 트리 순서로, 다른 물체와의 순서는 y 정렬(발 = 노드 위치)로 정한다. `z_index`는 디버그 선에만 쓴다
 - 그림은 `assets/concept`의 우리 PNG·JSON만 `art/`로 복사한다 (바이트까지 같게). 남의 에셋은 넣지 않는다. `game/` 아래 PNG는 LFS 규칙(`assets/concept/**`) 밖이라 작은 것만
+- `const`로 둔 타입 있는 컨테이너의 원소가 packed 배열이고(`Dictionary[StringName, PackedStringArray]`, `Array[PackedStringArray]`) 값을 배열 리터럴로 쓰면, 4.7.2에서 읽을 때 엉뚱한 값(빈 문자열 24개)이 나오고 그것으로 이미지를 만들다 크래시가 났다 (M2a에서 잼, 스크래치 시험으로 재현). 이런 상수는 원소를 `Array`로 둔다(`ItemIcons.MAPS`, `Hud.DIGITS`). `const X: PackedStringArray = [...]`처럼 packed 배열 자체인 상수는 괜찮다
+- `get_stack()`은 GDScript 내장 함수라 같은 이름의 메서드를 만들면 클래스 안에서 부를 때 내장이 불린다(인벤토리 칸 읽기는 `stack_at`)
+- 테스트가 `tree.root.size`를 바꾸면(창 늘이기 시험, `test_aim.gd`) 끝에 원래대로 돌려놓는다
 - 생성기나 그 상수를 일부러 바꾸면 `world/surface_gen.gd`의 `GOLDEN_HASH`를 새 값으로 바꾼다 (실패 메시지에 새 값이 나온다. `test_world.gd`와 스모크가 이 값을 본다). 늦은 참가는 이제 호스트의 월드를 받지만(H1), 같은 시드가 같은 월드라는 것(시드 공유, 혼자 할 때)은 여전히 이 값이 지킨다
 
 ### 테스트 쓰는 법
@@ -397,7 +472,7 @@ func run() -> Array[String]:
 
 ## 임시값 (사람 확인 필요)
 
-문서가 ○(제안)이거나 ?(미정)이거나 문서에 없는데 M1에 값이 필요해서 넣은 것. 대부분 `core/config.gd`의 `PROVISIONAL` 상수다. 상수가 아닌 줄은 "코드" 칸에 적힌 곳에 있다: 키 배치(`project.godot`), 제단 그림(`art/env/`, `world/altar.gd`), 8방향 이동·4방향 바라보기 규칙(`Movement`), 카메라 가장자리 멈춤(`PlayerCamera`), 디버그 월드 편집(`net/net_bot.gd`). 정해지면 그 값이나 코드를 바꾸고, 생성기에 닿는 값이면 `SurfaceGen.GOLDEN_HASH`를 갱신한다.
+문서가 ○(제안)이거나 ?(미정)이거나 문서에 없는데 M1(아래 M2a 줄은 M2a)에 값이 필요해서 넣은 것. 대부분 `core/config.gd`의 `PROVISIONAL` 상수다. 상수가 아닌 줄은 "코드" 칸에 적힌 곳에 있다: 키 배치(`project.godot`), 제단 그림(`art/env/`, `world/altar.gd`), 8방향 이동·4방향 바라보기 규칙(`Movement`), 카메라 가장자리 멈춤(`PlayerCamera`), 디버그 월드 편집(`net/net_bot.gd`), M2a의 조준 규칙(`actors/aim.gd`), 도구 아이콘(`items/item_icons.gd`), 아이템 표(`items/item_db.gd`), 그림(`art/items/`), 세션에서 끄기(`Player.controls`, `core/main.gd`). 정해지면 그 값이나 코드를 바꾸고, 생성기에 닿는 값이면 `SurfaceGen.GOLDEN_HASH`를 갱신한다.
 
 | 무엇 | 코드 | 지금 값 | 문서 |
 |---|---|---|---|
@@ -421,6 +496,22 @@ func run() -> Array[String]:
 | 같은 클래스 둘 | `NET_UNIQUE_CLASSES` | 허용 (false). true면 호스트가 `class_taken`으로 거부 | ? 정해지지 않음 (gameplay-design §5 ○ 파티 UI 3×3은 클래스당 한 명 같지만 M1은 5클래스라 9인을 막게 된다) |
 | 스폰 (혼자·호스트·참가자) | `SPAWN_FACING`, `Roster`, `SPAWN_SLOTS`(자리 9곳은 아래 구현 표) | 제단 둘레 자리 중 가장 작은 빈 자리, 남쪽(`SPAWN_FACING`)을 보고 선다 | 접속 스폰은 문서에 없음. 가까운 것은 "부활 지점: 제단" (gameplay-design §2.6, §5 ○) |
 | 디버그 월드 편집 | 봇 `edit:<x>,<y>,<grass\|soil>` | 호스트만, 바닥 풀 ↔ 흙(괭이질)만 | 문서에 없음 (M1에 게임 편집이 없어 늦은 참가 길을 시험하려고. 키는 만들지 않았다) |
+| M2a 키 | `project.godot` 입력 `use_item`, `hotbar_prev`·`hotbar_next`, `toggle_inventory`, `debug_give`, `debug_action` | 좌클릭 = 들고 있는 도구 사용, Q / E = 핫바 왼쪽 / 오른쪽, Tab = 인벤토리(보기만). 숫자 키는 핫바에 안 씀(초안에서 1 2 3은 스킬), F 상호작용은 아직 안 묶음(할 것이 없음). F5 디버그 아이템 묶음, F6 다음 몸 동작 | ○ gameplay-design §1 키 배치 초안 (F5·F6은 개발용, 초안에 없음) |
+| 핫바·인벤토리 크기 | `HOTBAR_SLOTS`, `INVENTORY_SLOTS` | 핫바 8칸 = 인벤토리 24칸의 앞 8칸 | 문서에 없음 (gameplay-design §1 ○ "무기와 도구는 핫바로 전환"에 칸 수 없음) |
+| 묶음 크기 | `STACK_TOOL`, `STACK_MATERIAL`, `STACK_GATHERABLE` | 도구 1, 재료 99, 채집물 99 | 문서에 없음 |
+| 조준 중 (마우스 쪽 보기) | `AIM_HOLD_SEC`, `Player.tick_controls` | 마우스가 1초 안에 움직였거나, 사용 버튼을 누르고 있거나, 동작 중이면 마우스 쪽을 봄. 아니면 M1 그대로 걷는 방향 | 문서에 없음 (● gameplay-design §2.1 R12는 "에임형 (마우스 방향 스킬샷)"까지) |
+| 조준 기준·구역·바라보기 | `Aim.sector`, `Aim.facing` | 기준점 = 발, 45° 8구역(축·대각선이 가운데), 마우스 쪽 바라보기는 4방향(큰 축, 정확한 대각선은 남·북), 마우스가 발 위면 그대로 | 문서에 없음 (● §2.1 에임형) |
+| 목표 칸 | `Aim.target_cell` | 발 칸의 마우스 방향 이웃 칸(8방향). 맵 밖이면 표시를 숨김 | ○ gameplay-design §3.2 "마우스 방향의 인접 타일을 타격" (채굴에 쓴 말) |
+| 몸 동작 길이 | `ACTION_FRAME_TICKS` | 프레임당 6틱(0.1초): 6프레임 0.6초, 8프레임 0.8초, 던지기 0.7초 | 문서에 없음 |
+| 동작 중 이동 | `ACTION_LOCKS_MOVEMENT` | 동작이 끝날 때까지 걷지 않고 바라보기·목표 칸도 시작 때 것 | 문서에 없음 |
+| 누르고 있기 | `ACTION_REPEAT_WHILE_HELD` | 누르고 있으면 동작이 끝나는 틱에 다시 시작 | ○ gameplay-design §3.2 "홀드하면 연속" (채굴에 쓴 말) |
+| 도구 아이콘 | `items/item_icons.gd` `MAPS` | 16×16 코드 그림 6개 (brief §4 갈흑 외곽선·신앙 금빛·나무색, 04-env 철·구리 색) | 그림 없음 (assets/에 도구 아이콘이 없다. 사람이 그림을 정하면 바꾼다) |
+| 마법·던지기를 부르는 아이템 | `ItemDB` (없음) | 아이템 없음. F6·`--test-action`으로만 본다 | 문서에 없음 (마법 = 성직자 기도·치료, 던지기 = 약초사 약제 투척, brief §5.6 표. 스킬 ? gameplay-design §2.2, 약제 ○ game-concept §12. 둘 다 M2 밖) |
+| 등급이 있는 아이템 | `ItemDef.graded` | 약초 4개만 일반·상급. 버섯·돌·도구는 등급 없음 | 약초는 ● gameplay-design §3.4 원칙, 나머지는 문서에 없음 |
+| 재료 아이콘 시점 | `stone_block` = `item_stone_block_v02.png` | 3/4 아이콘 v02 | ○ brief §5.7 "떨어진 재료 아이콘을 정면 정렬(v03)로 할지 3/4(v02)로 둘지" |
+| 채집물·재료 그림 | `art/items/` | 04-env 본 제작 손질판 v02 19장 (아래 "그림 출처") | ○ 채택 후보, 사람 확인 전 (brief §5.7 "결과 (R32)", 04-env/prompts.md "본 제작") |
+| 시작 인벤토리 | `Main` | 비어 있음 (F5, `--give`로 넣음) | 문서에 없음 |
+| 세션의 조준·동작·인벤토리 | `Player.controls`, `Main` | 세션에서는 조준·동작 끔, 인벤토리는 보내지 않고 각자 자기 화면에서만 | 문서에 없음 (M2a 지시: 혼자 할 때 먼저, 네트워크 플레이는 그대로) |
 
 ### 구현에서 고른 값 (설계 결정 아님)
 
@@ -466,10 +557,16 @@ func run() -> Array[String]:
 | 방패 칸 | `RigData` `LAYOUT_ROW_FIRST` | 방패 시트 줄마다 첫 칸 | ● R27 "방향당 1장 + 기준점"을 따름 (위 "캐릭터") |
 | 대각선 바라보기 | `Movement.facing_for` | 지금 방향이 두 축 중 하나면 유지, 아니면 가로 | 대각선에서 방향이 깜빡이지 않게 |
 | 제단 그림 자리 | `Altar.setup` | 그림 왼쪽 위 = 자리 왼쪽 위 (맨 아래 외곽선 = 자리 마지막 줄) | 불투명 47×43이 3×3 자리 안에 든다 |
+| 인벤토리 넣기·나누기·옮기기 | `Inventory` | 같은 아이템·등급 묶음 먼저, 그다음 앞쪽 빈 칸 / 나누기는 첫 빈 칸으로 / 옮기기는 옮김·합침·맞바꿈 | 흔한 방식(테라리아·코어키퍼). 칸 순서라 새 아이템은 핫바부터 (M2a) |
+| 동작 시간을 틱으로 | `Player.action_tick` | 시뮬레이션 틱으로 세고 프레임 = 틱 / `ACTION_FRAME_TICKS` | 그림 속도가 아니라 시뮬레이션이 정하게. 나중에 호스트가 같은 수로 셀 수 있다 (M2a) |
+| 목표 칸 표시 모양 | `TargetMarker` | 칸 모서리 ㄱ자 금빛(팔 4px) + 안쪽 갈흑 띠, unshaded, 바닥 위·캐릭터 아래 | 풀·흙 위에서 읽히고 저녁에도 보이게. 칸 가운데를 비워 바닥이 보이게 (M2a) |
+| HUD 배치 | `Hud` | 칸 18px, 간격 2px, 아래 4px, 캔버스 레이어 10, 3×5 숫자, 상급 = 금빛 점 | 480×270에서 핫바 8칸 = 158px. 글꼴 없이 (M2a) |
+| 디버그 묶음 | `ItemDB.debug_kit` | 도구 6 + 채집물·재료 17묶음 = 23칸 (약초 상급 하나 포함) | 모든 아이템이 한 번에 보이게 (M2a) |
+| 조준 마우스 위치 | `Player.mouse_world` | 엔진 `get_global_mouse_position()` | 창 늘이기·카메라를 엔진과 같게. `Aim`의 같은 계산은 테스트가 엔진과 비교하는 데 쓴다 (M2a) |
 
 ## 그림 출처
 
-`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 22개 전부 md5 비교).
+`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 49개 전부 md5 비교). 도구 아이콘 6개는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
 
 | 파일 | 원본 |
 |---|---|
@@ -480,8 +577,29 @@ func run() -> Array[String]:
 | `chars/base_body_v02_walk.png`, `chars/base_body_v02_idle.png` | `03-pixel/` (기본 몸 걷기 6 / idle 4프레임, 줄 남·동·북, 발 y=31) |
 | `chars/sig_paladin_shield_v01.png`, `sig_miner_pickaxe_v01.png`, `sig_archer_bow_v01.png`, `sig_cleric_halo_v01.png`, `sig_herbalist_pouch_v02.png` | `03-pixel/` (클래스 표식 레이어 5종, 걷기 v01 첫 프레임에 그림) |
 | `env/altar_v04.png`, `env/altar_v04_unlit.png` | `04-env/` (제단 3×3, 켜짐·꺼짐) |
+| `chars/base_body_v02_{pickaxe,hoe,sickle,watering,sword,bow,magic}.png` (M2a) | `03-pixel/` (몸 동작 7개, 64×64 칸, 시작 칸 + 6·8프레임, 줄 남·동·북, 발 y=47. 10~12차 + 손질) |
+| `chars/base_body_v02_throw.png` (M2a) | `03-pixel/` (던지기 32×32, 7프레임, 발 y=31. 8차 + 손질) |
+| `items/item_sprig_{healing,buff,poison}_v02.png`, `items/item_wild_{healing,buff,poison,herb_clump}_v02.png` (M2a) | `04-env/` (본 제작 묶음 2, size 16: 꺾은 약초 = 아이콘, 자라는 약초·덤불 = 월드 그림. 채택 후보) |
+| `items/item_mushroom_{a,b,c,d,ash}_v02.png`, `items/item_stone_{a,b,c,mossy,veined,mould,block}_v02.png` (M2a) | `04-env/` (같은 묶음: 버섯 5, 돌 6, 돌 블록 = 재료. 채택 후보) |
 
 ## 측정 (이 데스크탑, `.godot/`을 지운 상태에서)
+
+M2a (2026-10-22):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 3.0초, 종료 0, 오류 줄 0. 단 새 PNG를 처음 넣고 `.import` 파일이 아직 없을 때의 첫 임포트는 스크립트를 먼저 읽어 `Preload file ... has no resource loaders` 줄 8개가 나왔다(종료 0). 한 번 더 임포트하면 없어지고, `.import`를 커밋했으니 클론에서는 나오지 않는다 |
+| 전체 테스트, 세 번 (마지막은 마지막 코드) | 세 번 모두 9파일 통과 6,550 checks 55.1~55.4초 종료 0 (actions 1,053 / actors 1,569 / aim 1,059 / core 253 / items 1,455 / light 73 / net 357 / net_session 302 / world 429). 오류 묶음은 알린 8개뿐. H-fix보다 약 8초 늘었다: 동작 기준점 다시 재기(0.5 → 2.1초), 창 크기 6가지 조준 시험(4.0초), 동작 시험(2.3초) |
+| 동작 프레임 그림 (`test_actions.gd`) | 5클래스 × 4방향 × 55프레임 = 1,100개: 노드가 그리는 스프라이트를 CPU로 합친 그림 = 시트 + 문서 규칙으로 합친 그림, 42~47ms |
+| 조준 (`test_aim.gd`) | `main.tscn`에서 창 6가지 × (가운데·북서 모서리) × 마우스 9곳(뷰포트 테두리 8 + 검은 띠) = 108곳. 가운데일 때 테두리 8곳이 8구역을 다 낸다 |
+| 창 그림 검사 `check_render.gd` | 2.2초, 5부분 모두 ok. `rig` 65화면(그중 몸 동작 55) × 20명, 불일치 0 |
+| 내보내기 | x86_64 2.9초 `evensong.exe` 109,599,712 B, ARM64 2.9초 91,993,568 B, 둘 다 종료 0, 오류 줄 0 |
+| 내보낸 exe `--smoke` / 120프레임(`--give` 포함) | 208 checks ok (`items=22 actions=8`, 기준점 표 모양이 10동작이라 늘었다), 0.46초 / 1.2초 종료 0 오류 줄 0 |
+| 세션 테스트를 내보낸 exe 자식으로 (`--net-exe`) | 통과 303 checks 34.8초 (자식 모두 내보낸 exe) |
+| 스크린샷 4장 | 위 "스크린샷"의 M2a 명령, 모두 480×270 (창 960×540) |
+| 일부러 깨 보기 (스크래치 `mutate.py`, 21개) | 21개 모두 FAIL·종료 1 (아래) |
+
+일부러 깨 보기 (M2a, 스크래치 `r3m2/mutate.py`, 하나씩 바꾸고 해당 테스트 파일을 돌리고 되돌림. 21개 모두 FAIL·종료 1): 곡괭이 시트 재생 첫 칸 1 → 0, 64칸 안의 32 프레임 자리 (16, 16) → (16, 15), 손에 든 표식 숨기기 끄기, 괭이 동작에서도 곡괭이 숨기기, 캐릭터가 동작 칸 자리를 빼먹음, 던지기 옮김 +4 +4 +3 → +4 +3 +4(actions·actors), 기준점 재기가 동작 칸 자리를 빼먹음(actors: 커밋된 표와 다름), 동작 중 이동 잠금 빼기, 프레임 = 틱 / 7, 누르고 있어도 반복 안 함, 조준 없이도 마우스 쪽 보기(M1 바라보기 600틱 중 60틱만 같음), 구역을 round 대신 floor, 목표 칸 한 구역 밀기, 검은 띠 빼기, 조준을 캔버스 변환 대신 창 좌표로, 맵 밖 표시 숨기기 빼기, 등급 무시하고 쌓기, 핫바 Q/E가 끝에서 안 돌기, 묶음 전체 나누기 허용, 도구가 99개씩 쌓임, Q와 E 바꾸기. 창 그림 검사로: 캐릭터가 동작 칸 자리를 빼먹음 → `rig` FAIL(불일치 655,477픽셀)·종료 1
 
 같은 기기라도 실행 때마다 흔들린다. H1 검토 에이전트가 같은 데스크탑에서 잰 값은 아래 H1 표보다 최대 약 1.8배 느렸다(스냅샷 그리기·참가, 전체 테스트 46초). 그래서 H-fix는 이 세션에서 여러 번 돌린 범위로 적는다.
 
@@ -618,6 +736,7 @@ G1 (2026-10-21): 임포트 2.5초, 전체 테스트 2파일 580 checks 4.9초, �
 ## M1 범위와 단계 상태
 
 M1 = 한 화면에서 이동, 타일, 제단 빛, 2인 접속. 전투·채굴·건설·농사·제작·적·UI 메뉴·Steam은 M1이 아니다.
+M2a = 혼자 할 때의 아이템·인벤토리·핫바·마우스 조준·몸 동작 재생과 최소 HUD. 동작의 월드 효과(채굴·농사), 줍기, 전투·피해, 제작, 건설, 상인, 스킬, 기도, 저장, 나무(? game-concept §12)는 M2a가 아니다.
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
@@ -626,6 +745,7 @@ M1 = 한 화면에서 이동, 타일, 제단 빛, 2인 접속. 전투·채굴·�
 | G3 네트워크 | 전송 계층(ENet + Steam 자리, 시그널로 결과), 호스트·참가, 호스트 권한 이동(입력 프레임 → 호스트 검사·시뮬레이션 → 바뀔 때만 20Hz 묶음 + 키프레임) + 자기 캐릭터 예측·보정 + 남의 캐릭터 100ms 보간, 호스트가 세는 인원 상한 9 + 빈 스폰 자리 다시 쓰기, 클래스, 늦은 참가(시드 + 편집 기록 + 해시 확인, H1에서 스냅샷으로 바꿈), 다중 프로세스 테스트(2인·4인·지연/손실·호스트 잃음, 선택 10프로세스), 대역폭, 두 창·두 기기 명령 | **끝** |
 | H1 다지기 | 늦은 참가 = 월드 스냅샷(레이어 6장, zstd, 1KB 조각 틱당 8개, 받는 쪽 검사, 생성기는 진단만, 흔든 생성기 참가자 시험, 128×96·512×512 크기와 참가 시간), 호스트가 바라보기를 정함(프레임에서 뺌), 호스트 멈춤 뒤 입력 대기열 돌아오기(실제 시간으로 토큰), 테스트 기반(러너 자식 마감, 테스트 포트 묶음 고르기·잠금), 제단 옆 겹침(옆 띠), 내 캐릭터를 틱 사이에 그리기, `session.gd` 흐름별로 나누기 | **끝** (사람 확인: 두 기기, 144Hz 화면) |
 | H-fix 검토 반영 | 호스트 멈춤 따라잡기를 실제 세션 순서에서도(멈춤 크레딧, 틱당 4프레임, 시계 시험), ENet 패킷 조절 끔, 테스트 포트 IPv4 확인과 못 잡으면 멈춤, 여러 걸음 틱은 끝에 그리기, 스냅샷 크기 상한 512, `stall` 세션(멈춤 + 받는 도중 편집), 스트림 틱 수·토큰 실제 시간 세션 검사, 시험 정리 | **끝** (사람 확인: 두 기기) |
+| M2a 아이템 · 조준 · 동작 | 아이템 표(도구 6·재료 1·채집물 15, 등급, 아이콘), 인벤토리 + 핫바(쌓기·나누기·옮기기·Q/E), 마우스 조준(8구역, 목표 칸, 마우스 쪽 바라보기, 창 늘이기 6가지를 엔진과 비교, 목표 칸 표시), 몸 동작 8개(64칸 발 맞춤, 기준점 다시 재기, 손에 든 표식 숨기기, 틱 단위 시간·이동 잠금·누르고 반복), 최소 HUD, 디버그 주기(`--give`, F5)·F6, 테스트 3파일 + 창 그림 검사, 스크린샷 4장. 혼자 할 때만 | **끝** (사람 확인: 마우스로 해 보기, 임시값 줄) |
 
 ### 검토 반영 (H-fix, 2026-10-22)
 
@@ -656,6 +776,13 @@ H1 검토 에이전트들의 지적 14개와 처리. 하나씩 직접 재현하�
 
 알려진 문제·남은 일:
 
+- (M2a) 몸 동작의 기준점 중 몇 개가 크게 튄다. 규칙(● R27)대로 잰 값이고 고치지 않았다: 마법 북쪽 머리 (0, 6)(프레임 2·6, 몸 전체가 금빛으로 밝아지는 프레임이라 색이 맞는 픽셀이 적다), 던지기 남쪽 머리 (5, 6)·북쪽 머리 (−6, 4)(5번째 프레임, 크게 젖히는 자세), 마법 북쪽 몸통 (2, −4). 성직자의 후광과 등·허리 표식이 그 프레임에서 몇 px 어긋나 보일 수 있다. 창 그림 검사 `--save`로 남긴 `rig_<동작>_<프레임>_got.png`로 사람이 보고 idle처럼 손으로 고정할지 정한다
+- (M2a) 몸 동작은 64칸이라 도구가 몸보다 멀리 나간다(시트에서 잰 값: 발에서 좌우 최대 13px, 몸은 9px. 발 줄 아래로 7px). 제단 옆 띠(몸 기준)는 그대로라 제단 옆면에 붙어 동작하면 도구가 제단 그림 뒤로 들어갈 수 있다. 목표 칸이 제단이면 동작은 그대로 한다(월드 효과가 없으니)
+- (M2a) 조준·동작은 혼자 할 때만이다. 세션에서는 끄고(호스트가 아직 시뮬레이션하지 않음), 인벤토리도 보내지 않는다. 다음 단계에서 입력 프레임에 "사용"과 조준 방향을 넣어 호스트가 정하게 해야 한다
+- (M2a) 목표 칸 표시는 캐릭터 아래에 그려서 발 북쪽 줄 칸(북·북동·북서)은 몸에 가린다. 마우스가 1초 동안 안 움직이면 표시가 사라진다(조준 끝)
+- (M2a) 마법과 던지기는 그것을 부르는 아이템이 없어 F6·`--test-action`으로만 본다. 도구 아이콘은 코드로 그린 임시다
+- (M2a) `--test-*` 플래그와 F5·F6 디버그 키는 내보낸 빌드에도 들어 있다
+
 - 러너는 파일이 남긴 타이머·스레드·시그널 콜백이 늦게 내는 오류를 여전히 엉뚱한 파일 탓으로 세거나(그때 돌던 파일), 마지막 파일 뒤 10프레임보다 늦으면 놓친다. 루트에 남긴 노드만 따로 잡는다
 - 다른 아키텍처의 월드 생성: FastNoiseLite가 float 계산이라 ARM64가 다른 월드를 만들 수 있다. H1부터 늦은 참가는 호스트의 월드를 받으므로 그래도 참가는 된다(흔든 생성기로 시험함). 남는 것: 서피스가 **호스트**가 되면 같은 시드라도 데스크탑과 다른 월드가 된다(시드 공유). 서피스 생성기가 같은지는 서피스에서 `evensong.console.exe --headless -- --smoke`(해시가 다르면 `seed 1 world hash` FAIL)나 참가 로그의 `generator=` 진단으로 안다. 다르면 노이즈를 정수 계산으로 바꿀지는 사람이 정할 일
 - 스냅샷은 참가를 받는 순간 월드 전체를 한 번에 압축해 참가자마다 들고 있다가 보낸다(128×96은 342B, 512×512 합성 54KB). 큰 맵에서 근처 청크부터 보내기, 받는 동안 미리 걷기는 없다. 틱당 8KB라 압축이 안 되는 1.3MB는 2.8초 걸린다
@@ -667,7 +794,7 @@ H1 검토 에이전트들의 지적 14개와 처리. 하나씩 직접 재현하�
 - 틱 사이에 그리기는 그림을 최대 한 틱(16.7ms) 늦게 보여 준다. 고른 걸음을 실제 144Hz 모니터에서 눈으로 본 사람은 아직 없다(시험은 144Hz 프레임 흉내). 이 데스크탑의 화면 주사율은 확인하지 않았다
 - `--test-perturb-generator`, `--test-snapshot-chunk-bytes`, 봇 `stall:`은 테스트 전용인데 내보낸 빌드에도 들어 있다(사람이 쓸 일은 없다)
 - 테스트 포트: 러너끼리는 잠금으로 겹치지 않지만, 러너가 아닌 프로그램이 확인 뒤에 묶음 안 포트를 잡는 것은 막지 못한다 (위 "테스트 포트"). 확인 전부터 잡고 있는 프로그램은 IPv4만 잡았어도 이제 찾는다(H-fix)
-- 임시값 표의 모든 줄(특히 카메라 가장자리, 스폰, 같은 클래스 둘, 오염 구역 수)은 사람이 확인해야 한다. H1과 H-fix는 임시값을 하나도 바꾸지 않았다(새 값은 모두 "구현에서 고른 값")
+- 임시값 표의 모든 줄(특히 카메라 가장자리, 스폰, 같은 클래스 둘, 오염 구역 수, M2a의 키·조준·동작 줄)은 사람이 확인해야 한다. H1과 H-fix는 임시값을 하나도 바꾸지 않았다(새 값은 모두 "구현에서 고른 값"). M2a도 있던 임시값은 바꾸지 않고 줄만 더했다
 
 G1에서 확인하지 않은 것: ARM64 exe 실행(이 기기는 x86_64), 실제 창의 프레임 시간, 내보낸 exe의 창 스크린샷(G2에서 확인함), 에디터(`-e`)로 열어 보기(사람이 한다).
 

@@ -13,9 +13,10 @@ extends SceneTree
 ##   flames   the 81 flame pixels show the lit art colours exactly with the evening on (unshaded).
 ##   actor    a character standing on the radius: each of its pixels is lit exactly where
 ##            is_in_safe_zone(pixel centre) (hard actor light, no dither on the body).
-##   rig      5 classes x 4 directions x (walk 6 + idle 4 frames), evening off: the screen equals the
-##            background plus a CPU composite of the sheets (layer order, re-pivot + anchors, west
-##            mirror), pixel for pixel.
+##   rig      5 classes x 4 directions x (walk 6 + idle 4 frames + the 8 body actions' 55 frames, M2a),
+##            evening off: the screen equals the background plus a CPU composite of the sheets (layer
+##            order, re-pivot + anchors, west mirror, 64 action cells on the feet, the held signature
+##            hidden), pixel for pixel.
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -241,19 +242,26 @@ func _check_actor_light() -> void:
 		_save(day, "actor_day.png")
 
 
-## CPU composite of one character frame on a 64x48 canvas whose feet point is (32, 40).
+## compose() canvas: 64 wide (a 64 action cell fits exactly) and tall enough for an action cell
+## (48 px above the feet, 16 below) and the halo; the feet point.
+const COMPOSE_SIZE: Vector2i = Vector2i(64, 72)
+const COMPOSE_FEET: Vector2i = Vector2i(32, 56)
+
+
+## CPU composite of one character frame (walk, idle or a body action) on a COMPOSE_SIZE canvas
+## whose feet point is COMPOSE_FEET.
 static func compose(class_id: String, dir: int, anim: int, frame: int) -> Image:
-	var canvas: Image = Image.create_empty(64, 48, false, Image.FORMAT_RGBA8)
-	var feet: Vector2i = Vector2i(32, 40)
+	var canvas: Image = Image.create_empty(COMPOSE_SIZE.x, COMPOSE_SIZE.y, false, Image.FORMAT_RGBA8)
+	var feet: Vector2i = COMPOSE_FEET
 	var row: int = RigData.sheet_row(dir)
 	var sig: RigData.Signature = RigData.signature_for(class_id)
 	var frame_origin: Vector2i = feet - RigData.FRAME_ORIGIN
 	for slot: StringName in RigData.draw_order(row):
 		if slot == RigData.SLOT_BODY:
 			var sheet: Image = LightGen.to_rgba8(RigData.sheet(anim).get_image())
-			var r: Rect2i = RigData.body_rect(row, frame)
-			canvas.blit_rect_mask(sheet, sheet, r, frame_origin)
-		elif slot == sig.slot:
+			var r: Rect2i = RigData.body_rect(row, frame, anim)
+			canvas.blit_rect_mask(sheet, sheet, r, frame_origin - RigData.body_offset(anim))
+		elif slot == sig.slot and not RigData.hides_signature(sig, anim):
 			var layer: Image = LightGen.to_rgba8(sig.texture.get_image())
 			var r: Rect2i = sig.source_rect(row)
 			canvas.blit_rect_mask(layer, layer, r, frame_origin + RigData.layer_frame_pos(sig, anim, row, frame))
@@ -262,10 +270,10 @@ static func compose(class_id: String, dir: int, anim: int, frame: int) -> Image:
 	return canvas
 
 
-## Pastes a composite (feet at canvas (32, 40)) onto `dst` with the feet at screen point `feet`,
+## Pastes a composite (feet at COMPOSE_FEET) onto `dst` with the feet at screen point `feet`,
 ## except where `keep` (same size as dst, may be null) is opaque.
 static func paste(dst: Image, comp: Image, feet: Vector2i, keep: Image = null) -> void:
-	var o: Vector2i = feet - Vector2i(32, 40)
+	var o: Vector2i = feet - COMPOSE_FEET
 	for y: int in comp.get_height():
 		for x: int in comp.get_width():
 			var c: Color = comp.get_pixel(x, y)
@@ -306,18 +314,27 @@ func _check_rig() -> void:
 			chars.append(c)
 			feet_list.append(feet)
 	var frames_checked: int = 0
+	var action_frames: int = 0
 	var total_mismatch: int = 0
+	# Within a class column the rows go down the screen, so pasting in list order = the y-sort order
+	# where an action cell (16 px below the feet) reaches the next row's cell (48 px above its feet).
 	for anim: int in RigData.ANIM_NAMES.size():
 		for f: int in RigData.frame_count(anim):
 			var expected: Image = bg.duplicate() as Image
 			for i: int in chars.size():
 				var c: Character = chars[i]
-				c.walking = anim == RigData.Anim.WALK
-				c.frame = f
+				if RigData.is_action(anim):
+					c.show_action(anim, f)
+				else:
+					c.end_action()
+					c.walking = anim == RigData.Anim.WALK
+					c.frame = f
 				paste(expected, compose(c.class_id, c.direction, anim, f), feet_list[i])
 			var got: Image = await _capture()
 			var n: int = count_diff(got, expected)
 			frames_checked += 1
+			if RigData.is_action(anim):
+				action_frames += 1
 			total_mismatch += n
 			if n > 0 or save_all:
 				_save(got, "rig_%s_%d_got.png" % [RigData.ANIM_NAMES[anim], f])
@@ -325,8 +342,9 @@ func _check_rig() -> void:
 	for c: Character in chars:
 		world.entities.remove_child(c)
 		c.free()
-	var line: String = "characters=%d frames=%d screens=%d pixels=%d mismatches=%d" % [chars.size(), frames_checked,
-		frames_checked, frames_checked * Config.VIEW_SIZE.x * Config.VIEW_SIZE.y, total_mismatch]
+	var line: String = "characters=%d frames=%d (actions %d) screens=%d pixels=%d mismatches=%d" % [chars.size(),
+		frames_checked, action_frames, frames_checked, frames_checked * Config.VIEW_SIZE.x * Config.VIEW_SIZE.y,
+		total_mismatch]
 	if total_mismatch == 0:
 		print("EVENSONG_RENDER rig ok %s" % line)
 	else:
@@ -341,10 +359,10 @@ func _pressed(start: Vector2, dir: Vector2i) -> Vector2i:
 	return Vector2i(p.round())
 
 
-## Opaque pixels of `comp` (feet at canvas (32, 40)) pasted with the feet at `feet` that land on an
+## Opaque pixels of `comp` (feet at COMPOSE_FEET) pasted with the feet at `feet` that land on an
 ## opaque pixel of `mask`.
 static func _hidden_by(comp: Image, feet: Vector2i, mask: Image) -> int:
-	var o: Vector2i = feet - Vector2i(32, 40)
+	var o: Vector2i = feet - COMPOSE_FEET
 	var n: int = 0
 	for y: int in comp.get_height():
 		for x: int in comp.get_width():

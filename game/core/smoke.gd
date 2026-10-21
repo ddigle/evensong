@@ -3,8 +3,8 @@ extends RefCounted
 ## Smoke checks for --smoke (also in the exported exe): the engine version, the display settings
 ## that reached the root window, the input map, the committed surface TileSet, and one generated
 ## world drawn with the ground view (corners, fallbacks, soil/ash, its hash = SurfaceGen.GOLDEN_HASH,
-## the x86_64 result), the character art and rig tables, the safe-zone light texture against the
-## rule, the flame mask, and the run scene.
+## the x86_64 result), the character art and rig tables, the body action sheets, item icons and M2a
+## input actions, the safe-zone light texture against the rule, the flame mask, and the run scene.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -55,6 +55,7 @@ static func run(tree: SceneTree) -> Report:
 	if table != null:
 		_check_world(r, table)
 	_check_actors(r)
+	_check_items(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -169,6 +170,30 @@ static func _check_actors(r: Report) -> void:
 	r.expect(ResourceLoader.exists("res://scenes/main.tscn"), "main.tscn missing")
 	var main: PackedScene = load("res://scenes/main.tscn") as PackedScene
 	r.expect(main != null and main.can_instantiate(), "main.tscn does not load")
+
+
+## M2a: the body action sheets (sizes from their cells and frames), every item's icon (16x16; art or
+## drawn in code) and world picture, each tool's action, and the M2a input actions.
+static func _check_items(r: Report) -> void:
+	for anim: int in RigData.ACTION_ANIMS:
+		var tex: Texture2D = RigData.sheet(anim)
+		var c: int = RigData.cell(anim)
+		var want: Vector2i = Vector2i(c * (RigData.FIRST_COLUMN[anim] + RigData.frame_count(anim)), c * RigData.ROWS)
+		r.expect(tex != null and Vector2i(tex.get_size()) == want, "%s sheet missing or not %s" % [RigData.ANIM_NAMES[anim], want])
+	var tools: int = 0
+	for id: StringName in ItemDB.ids():
+		var icon: Texture2D = ItemIcons.texture_for(id)
+		r.expect(icon != null and Vector2i(icon.get_size()) == Vector2i(16, 16), "icon of %s missing or not 16x16" % id)
+		var def: ItemDB.ItemDef = ItemDB.get_def(id)
+		if not def.world_path.is_empty():
+			r.expect(ResourceLoader.exists(def.world_path), "world picture of %s missing" % id)
+		if def.is_tool():
+			tools += 1
+			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
+	r.expect_eq(tools, 6, "tools")
+	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action"]:
+		r.expect(InputMap.has_action(action), "input action %s missing" % action)
+	r.fields.append("items=%d actions=%d" % [ItemDB.ids().size(), RigData.ACTION_ANIMS.size()])
 
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
