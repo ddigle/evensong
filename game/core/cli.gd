@@ -65,4 +65,6 @@ func _take_screenshot(path: String, frames: int) -> void:
 	var window: Vector2i = get_tree().root.size
 	print("EVENSONG_SCREENSHOT %s %dx%d window=%dx%d error=%d" % [path, img.get_width(), img.get_height(), window.x,
 		window.y, err])
+	if options.keep_running and err == OK:
+		return
 	get_tree().quit(0 if err == OK else 1)

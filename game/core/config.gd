@@ -59,6 +59,17 @@ const ALTAR_LIGHT_ENERGY: float = 0.65
 ## and a hard-edged copy for characters): width of the ground light's dithered band in px,
 ## inside the radius (no lit pixel ever lies outside the safe zone).
 const SAFE_EDGE_BAND_PX: int = 16
+## PROVISIONAL (not in docs; M1 spec "20-30 Hz"): host player-state batches per second. The host
+## sends one every NET_TICK_RATE / NET_STATE_HZ physics ticks while anyone's state changes, then one
+## reliable keyframe, then nothing until someone moves again.
+const NET_STATE_HZ: int = 20
+## PROVISIONAL (not in docs; M1 spec "~100 ms"): how far behind the newest host state a client
+## draws the other players (interpolation buffer). 2 batch intervals at 20 Hz.
+const NET_INTERP_DELAY_MS: int = 100
+## PROVISIONAL (? not decided whether two players may play the same class; the party UI proposal is
+## 3x3 = one per class, gameplay-design §5 ○). M1 allows duplicates; true makes the host refuse a
+## class that is already taken (refusal "class_taken").
+const NET_UNIQUE_CLASSES: bool = false
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -76,8 +87,33 @@ const ASH_EDGE_NOISE_TILES: float = 3.0
 const ASH_EDGE_NOISE_FREQUENCY: float = 0.2
 ## IMPL: free camera pan speed (px/s) in world.tscn (map viewer; main.tscn uses PlayerCamera).
 const FREE_CAMERA_SPEED: float = 240.0
-## IMPL: default host port for --host (stage G3). Tests use 24621-24640.
+## IMPL: default host port for --host. Tests use NET_TEST_PORT_FIRST..LAST.
 const DEFAULT_PORT: int = 24600
+const NET_TEST_PORT_FIRST: int = 24621
+const NET_TEST_PORT_LAST: int = 24640
+## IMPL: the fixed simulation tick (= the project's physics ticks per second, Godot default 60).
+## Host and clients step every player with Movement.step(..., NET_TICK) once per input frame.
+const NET_TICK_RATE: int = 60
+const NET_TICK: float = 1.0 / NET_TICK_RATE
+## IMPL: client input packets per second (every 2nd tick). Each packet repeats every input frame the
+## host has not acknowledged yet (at most NET_MAX_FRAMES_PER_PACKET), so a lost packet costs nothing.
+const NET_INPUT_HZ: int = 30
+const NET_MAX_FRAMES_PER_PACKET: int = 32
+## IMPL: host rate limit per client: one input frame per tick, with a burst allowance of this many
+## frames (0.5 s) for packets that arrive bunched.
+const NET_INPUT_BURST: int = 30
+## IMPL: the host keeps up to this many received frames per client waiting and applies one per tick
+## (more when it falls behind), so other players see a client walk smoothly.
+const NET_INPUT_JITTER_FRAMES: int = 3
+## IMPL: connection limits. ENet accepts more peers than MAX_PLAYERS so the host can tell a tenth
+## player "full" instead of the transport silently dropping it (the host does the counting).
+const NET_TRANSPORT_PEER_LIMIT: int = 16
+## IMPL: a join that has not been welcomed after this long fails (ENet itself gives up after ~31 s).
+const NET_CONNECT_TIMEOUT_SEC: float = 10.0
+## IMPL: the host drops a connection that has not said hello after this long, and a refused one
+## that is still connected after REFUSE_GRACE (the refused client normally leaves by itself).
+const NET_HELLO_TIMEOUT_SEC: float = 5.0
+const NET_REFUSE_GRACE_SEC: float = 2.0
 ## IMPL: class of the local player when --class is not given.
 const DEFAULT_CLASS: String = "paladin"
 ## IMPL: seconds per frame. Walk = the stage-3 walk GIFs (120 ms); idle (4 breathing frames) slower.

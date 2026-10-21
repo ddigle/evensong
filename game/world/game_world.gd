@@ -91,5 +91,16 @@ func set_terrain(v: Vector2i, terrain: int) -> Array[Vector2i]:
 	return ground.set_terrain(v, terrain)
 
 
+## Applies a world edit the host has checked (net/edit_log.gd) and redraws what it touches. The host
+## and every client apply edits through here, so the same log gives the same world. False when the
+## edit does not fit the data.
+func apply_edit(edit: EditLog.WorldEdit) -> bool:
+	if not EditLog.apply_to_data(data, edit):
+		return false
+	if edit.layer == WorldData.Layer.FLOOR:
+		ground.redraw_vertex(edit.cell)
+	return true
+
+
 func map_rect_px() -> Rect2:
 	return Rect2(Vector2.ZERO, Vector2(data.size * Config.TILE))

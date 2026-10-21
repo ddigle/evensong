@@ -55,6 +55,7 @@ static func run(tree: SceneTree) -> Report:
 		_check_world(r, table)
 	_check_actors(r)
 	_check_light(r)
+	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
 	return r
 
@@ -181,3 +182,46 @@ static func _check_light(r: Report) -> void:
 	r.expect_eq(mismatches, 0, "light texels different from the safe-zone rule")
 	r.expect_eq(LightGen.count_opaque(Altar.flame_image()), 81, "flame mask pixels")
 	r.fields.append("zone=%s/%d light=%dx%d" % [zone.center, roundi(zone.radius), size, size])
+
+
+## Session pieces: the physics tick the net code assumes, the transports (ENet works in this build:
+## a host on a free loopback port opens and closes; Steam follows GodotSteam), the wire format,
+## the real player cap, and the Net node in main.tscn.
+static func _check_net(r: Report) -> void:
+	r.expect_eq(int(Engine.physics_ticks_per_second), Config.NET_TICK_RATE, "physics ticks per second")
+	r.expect_eq(Config.NET_TICK_RATE % Config.NET_STATE_HZ, 0, "state batches on whole ticks")
+	var enet: NetTransport = Transports.make("enet")
+	r.expect(enet != null and enet.is_available(), "ENet transport unavailable")
+	var steam: NetTransport = Transports.make("steam")
+	r.expect(steam != null and steam.is_available() == (ClassDB.class_exists(&"SteamMultiplayerPeer")
+		and Engine.has_singleton("Steam")), "Steam transport availability")
+	var peer: ENetMultiplayerPeer = ENetMultiplayerPeer.new()
+	peer.set_bind_ip("127.0.0.1")  # loopback only: no firewall prompt
+	var err: Error = peer.create_server(0, 1)
+	r.expect_eq(err, OK, "ENet host on a free loopback port")
+	if err == OK:
+		r.fields.append("enet_port=%d" % peer.host.get_local_port())
+	peer.close()
+	var s: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	s.slot = 8
+	s.pos = Vector2(987.0, 804.000366)
+	s.facing = RigData.Dir.WEST
+	s.walking = true
+	s.ack = 123456
+	var batch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(77,
+		[s] as Array[NetProtocol.PlayerState]))
+	r.expect(batch.ok and batch.tick == 77 and batch.states.size() == 1 and batch.states[0].same_as(s),
+		"state batch round trip")
+	var roster: Roster = Roster.new()
+	for i: int in Config.MAX_PLAYERS:
+		roster.admit(i + 1, Config.CLASSES[i % Config.CLASSES.size()])
+	r.expect(roster.is_full() and roster.admit(100, "miner") == -1, "a tenth player is refused")
+	var main: PackedScene = load("res://scenes/main.tscn") as PackedScene
+	var has_net: bool = false
+	if main != null:
+		var state: SceneState = main.get_state()
+		for i: int in state.get_node_count():
+			if state.get_node_name(i) == &"Net":
+				has_net = true
+	r.expect(has_net, "main.tscn has no Net node")
+	r.fields.append("net=v%d" % NetProtocol.VERSION)
