@@ -61,6 +61,7 @@ timeout 60 $SPIKE/build/evensong_spike.console.exe --headless -- --smoke < /dev/
 "$GODOT" --path $SPIKE res://light/light.tscn              # 창으로 바로 (light 모듈)
 "$GODOT" --path $SPIKE -- --scene=light                    # 메뉴를 거쳐 res://light/light.tscn
 "$GODOT" --path $SPIKE -- --scene=light --scale=3          # 창 크기 = 480x270 x 3
+"$GODOT" --path $SPIKE --fullscreen -- --scene=res://chars/scale.tscn --internal=640x360 --aspect=expand   # 내부 해상도·화면비 바꿔 보기 (프로젝트 기본 480x270, keep)
 timeout 60 "$GODOT" --headless --path $SPIKE res://light/light.tscn --quit-after 120 < /dev/null
 ```
 
