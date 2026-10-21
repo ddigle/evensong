@@ -68,6 +68,32 @@ static func has(id: StringName) -> bool:
 	return _table.has(id)
 
 
+## Number of items (the wire sends an item as its index in table order, M2b).
+static func count() -> int:
+	_build()
+	return _order.size()
+
+
+## Index of `id` in table order, or -1.
+static func index_of(id: StringName) -> int:
+	_build()
+	return _order.find(id)
+
+
+## Item id at table index `index`, or &"" outside the table.
+static func id_at(index: int) -> StringName:
+	_build()
+	return _order[index] if index >= 0 and index < _order.size() else &""
+
+
+## Whether `grade` is a grade an item `id` can be stored with (ungraded: NONE; graded: COMMON / FINE).
+static func valid_grade(id: StringName, grade: int) -> bool:
+	var def: ItemDef = get_def(id)
+	if def == null:
+		return false
+	return grade == Grade.NONE if not def.graded else (grade == Grade.COMMON or grade == Grade.FINE)
+
+
 ## The definition of `id`, or null.
 static func get_def(id: StringName) -> ItemDef:
 	_build()

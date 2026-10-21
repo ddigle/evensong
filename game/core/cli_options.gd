@@ -35,7 +35,11 @@ extends RefCounted
 ## Items and actions (M2a):
 ##   --give=<id>[:<count>[:<grade>]],...   debug: put items into the local player's inventory at the
 ##                                start (ids in items/item_db.gd, grade common | fine for herbs; F5 gives
-##                                the debug kit in the game)
+##                                the debug kit in the game). M2b: a session client asks the host for
+##                                them (give requests), which the host honours only in a debug build or
+##                                with --test-allow-give
+##   --test-allow-give            host: honour clients' debug give requests in an exported (release)
+##                                build too (session tests run the exported exe with it)
 ## Screenshot / test flags (M2a, offline):
 ##   --test-select=<1..hotbar>    select this hotbar slot at the start
 ##   --test-inventory             open the inventory grid (Tab) at the start
@@ -77,6 +81,7 @@ var net_lag: int = 0
 var net_loss: float = 0.0
 var test_perturb_generator: bool = false
 var test_snapshot_chunk_bytes: int = 0
+var test_allow_give: bool = false
 ## --give: [item id (StringName), count, grade (ItemDB.Grade, -1 = default)] per entry.
 var give: Array[Array] = []
 var test_select: int = 0
@@ -122,6 +127,8 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.keep_running = true
 			"test-perturb-generator":
 				o.test_perturb_generator = true
+			"test-allow-give":
+				o.test_allow_give = true
 			"test-snapshot-chunk-bytes":
 				o.test_snapshot_chunk_bytes = _parse_positive(value, raw, o.errors, 0)
 				if o.test_snapshot_chunk_bytes > Config.NET_SNAPSHOT_CHUNK_BYTES:

@@ -100,6 +100,27 @@ const ACTION_LOCKS_MOVEMENT: bool = true
 ## starts the action again as soon as it ends.
 const ACTION_REPEAT_WHILE_HELD: bool = true
 
+# --- PROVISIONAL, M2b (gatherables, drops, pickup) ------------------------------------------
+
+## PROVISIONAL (○ brief §5.7 slice range "야생 약초·균류 채집물" and game-concept §12 name what exists,
+## not how many or where): gatherables SurfaceGen scatters over clean grass outside the altar light,
+## per item id, in this order. The three wild herbs (● R28 crops: healing, buff, poison), the four
+## clean mushrooms and the four clean stones. The herb clump is an item but is not scattered.
+const GATHER_ON_GRASS: Dictionary[StringName, int] = {
+	&"wild_healing": 8, &"wild_buff": 8, &"wild_poison": 8,
+	&"mushroom_a": 4, &"mushroom_b": 4, &"mushroom_c": 4, &"mushroom_d": 4,
+	&"stone_a": 6, &"stone_b": 5, &"stone_c": 5, &"stone_mossy": 4,
+}
+## PROVISIONAL (04-env/prompts.md marks these three "오염 쪽"; counts not in docs): gatherables on ash.
+const GATHER_ON_ASH: Dictionary[StringName, int] = {&"mushroom_ash": 6, &"stone_veined": 4, &"stone_mould": 4}
+## PROVISIONAL (not in docs; the stage-4 mockups put the gatherables outside the light, the fields
+## inside): gatherables lie at least this many tiles beyond the safe radius (cell centres).
+const GATHER_CLEARANCE_TILES: int = 1
+## PROVISIONAL (○ gameplay-design §3.2 "마우스 방향의 인접 타일", said for mining; §3.4 ○ "F로 식물·드롭
+## 줍기"): F, a use and the debug drop act on the target tile, which must be within this many tiles
+## (Chebyshev) of the feet tile and not the feet tile itself. The host refuses anything further.
+const REACH_TILES: int = 1
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -158,6 +179,15 @@ const NET_TRANSPORT_PEER_LIMIT: int = 16
 ## batch for seconds (measured, H-fix). M1 traffic is small (at most about 23 KB/s for 9 players), so
 ## the throttle never lowers: deceleration 0. Interval and acceleration are ENet's defaults.
 const NET_ENET_THROTTLE: Vector3i = Vector3i(5000, 2, 0)
+## IMPL (M2b): a player's requests other than "use" (select, pick up, drop, give) ride on its input
+## frames; the host takes at most one every NET_OP_INTERVAL_TICKS ticks per player, with a burst of
+## NET_OP_BURST, and refuses the rest as "rate". A use is bounded by the action it starts (one at a
+## time). Ten a second is above anyone pressing keys and well below a client spamming every frame.
+const NET_OP_INTERVAL_TICKS: int = 6
+const NET_OP_BURST: int = 4
+## IMPL (M2b): most items lying on the ground at once (a debug drop beyond it is refused), so a
+## spamming client cannot grow the world or the late-join snapshot without bound.
+const MAX_DROPS: int = 256
 ## IMPL: a join that has not been welcomed after this long fails (ENet itself gives up after ~31 s).
 const NET_CONNECT_TIMEOUT_SEC: float = 10.0
 ## IMPL: the host drops a connection that has not said hello after this long, and a refused one

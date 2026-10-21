@@ -190,6 +190,16 @@ func selected_action() -> int:
 	return d.action if d != null else -1
 
 
+## Takes every slot and the selection from elsewhere (a client: its inventory as the host sent it,
+## M2b). Stacks are copied; slots beyond `stacks` become empty.
+func load_state(stacks: Array[ItemStack], p_selected: int) -> void:
+	for i: int in slots.size():
+		var st: ItemStack = stacks[i] if i < stacks.size() else null
+		slots[i] = st.copy() if st != null else null
+	selected = clampi(p_selected, 0, hotbar_size - 1)
+	changed.emit()
+
+
 ## One line per used slot, for logs and tests.
 func describe() -> String:
 	var parts: PackedStringArray = []

@@ -17,6 +17,8 @@ extends SceneTree
 ##            evening off: the screen equals the background plus a CPU composite of the sheets (layer
 ##            order, re-pivot + anchors, west mirror, 64 action cells on the feet, the held signature
 ##            hidden), pixel for pixel.
+##   items    (M2b) the gatherables and a drop on screen, evening off: the screen equals the screen
+##            without them plus each one's art (world picture / icon) on its tile, pixel for pixel.
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -72,6 +74,7 @@ func _run() -> void:
 		await _check_ground_and_flames()
 		await _check_actor_light()
 		await _check_rig()
+		await _check_items()
 		await _check_ysort()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
@@ -349,6 +352,70 @@ func _check_rig() -> void:
 		print("EVENSONG_RENDER rig ok %s" % line)
 	else:
 		_fail("rig", line)
+
+
+## M2b: gatherables (ItemView, world pictures) and a drop (its icon) drawn exactly on their tiles.
+func _check_items() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var cells: Array[Vector2i] = WorldItems.gatherable_cells(data)
+	if cells.is_empty():
+		_fail("items", "no gatherables in the world")
+		return
+	# Centre on the gatherable with the most others on its screen (but its screen inside the map).
+	var c0: Vector2i = cells[0]
+	var best: int = -1
+	var half: Vector2i = Config.VIEW_SIZE / 2 / Config.TILE
+	for c: Vector2i in cells:
+		if c.x < half.x or c.y < half.y or c.x >= data.size.x - half.x or c.y >= data.size.y - half.y:
+			continue
+		var around: int = 0
+		for o: Vector2i in cells:
+			if absi(o.x - c.x) < half.x and absi(o.y - c.y) < half.y:
+				around += 1
+		if around > best:
+			best = around
+			c0 = c
+	var drop_cell: Vector2i = c0 + Vector2i(2, 1)
+	var drop: WorldData.Drop = WorldData.Drop.new(data.new_drop_id(), &"pickaxe", 1, ItemDB.Grade.NONE,
+		drop_cell * Config.TILE + Vector2i(Config.TILE / 2, Config.TILE / 2))
+	world.apply_edit(EditLog.WorldEdit.drop_put(drop))
+	var origin: Vector2i = _look_at(c0 * Config.TILE + Vector2i(8, 8))
+	var sprites: Array[Sprite2D] = []
+	sprites.append_array(world.items.plants.values())
+	sprites.append_array(world.items.drops.values())
+	for sp: Sprite2D in sprites:
+		sp.visible = false
+	var bg: Image = await _capture()
+	for sp: Sprite2D in sprites:
+		sp.visible = true
+	var got: Image = await _capture()
+	var expected: Image = bg.duplicate() as Image
+	var screen: Rect2i = Rect2i(origin, Config.VIEW_SIZE)
+	var shown: int = 0
+	for c: Vector2i in cells:
+		var top_left: Vector2i = c * Config.TILE
+		if screen.intersects(Rect2i(top_left, Vector2i(Config.TILE, Config.TILE))):
+			_blend(expected, ItemView.world_picture(WorldItems.gatherable_at(data, c)), top_left - origin)
+			shown += 1
+	_blend(expected, ItemIcons.texture_for(drop.item), drop.pos - Vector2i(8, 8) - origin)
+	var n: int = count_diff(got, expected)
+	world.apply_edit(EditLog.WorldEdit.drop_remove(drop.id))
+	var line: String = "gatherables_on_screen=%d drops=1 pixels=%d mismatches=%d" % [shown, Config.VIEW_SIZE.x *
+		Config.VIEW_SIZE.y, n]
+	if n > 0 or save_all:
+		_save(got, "items_got.png")
+		_save(expected, "items_expected.png")
+	if n == 0 and shown > 0:
+		print("EVENSONG_RENDER items ok %s" % line)
+	else:
+		_fail("items", line)
+
+
+static func _blend(dst: Image, tex: Texture2D, at: Vector2i) -> void:
+	var img: Image = tex.get_image()
+	img.convert(Image.FORMAT_RGBA8)
+	dst.blend_rect(img, Rect2i(Vector2i.ZERO, img.get_size()), at)
 
 
 ## Feet position after walking `dir` from `start` until something stops it (Movement rules).

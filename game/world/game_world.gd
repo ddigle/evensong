@@ -2,8 +2,8 @@ class_name GameWorld
 extends Node2D
 ## Root of scenes/world.tscn: the surface world of one seed and what stands on it.
 ##   Ground        GroundView (chunked dual grid floor)
-##   Entities      y-sorted by feet: the Altar (created by generate()) and the characters that
-##                 scenes add (main.tscn adds the players)
+##   Entities      y-sorted by feet: the Altar (created by generate()), the gatherables and drops
+##                 (ItemView, M2b) and the characters that scenes add (main.tscn adds the players)
 ##   Lighting      evening darkness + the altar light (F4 toggles, --no-evening starts off)
 ##   DebugOverlay  F3
 ##   FreeCamera    map viewer camera; removed when `free_camera` is off (main.tscn uses PlayerCamera)
@@ -22,6 +22,8 @@ signal generated
 var data: WorldData
 var safe_zone: SafeZone
 var altar: Altar
+## Gatherables and drops (M2b, world/item_view.gd).
+var items: ItemView
 var generation_ms: float = 0.0
 var view_ms: float = 0.0
 
@@ -59,6 +61,9 @@ func load_data(p_data: WorldData) -> void:
 	view_ms = (Time.get_ticks_usec() - t1) / 1000.0
 	safe_zone = SafeZone.for_world(data)
 	_place_altar()
+	if items == null:
+		items = ItemView.new(entities)
+	items.setup(data)
 	lighting.setup(safe_zone, lighting.evening_on)
 	if camera != null:
 		camera.bounds = map_rect_px()
@@ -103,8 +108,14 @@ func set_terrain(v: Vector2i, terrain: int) -> Array[Vector2i]:
 func apply_edit(edit: EditLog.WorldEdit) -> bool:
 	if not EditLog.apply_to_data(data, edit):
 		return false
-	if edit.layer == WorldData.Layer.FLOOR:
-		ground.redraw_vertex(edit.cell)
+	match edit.kind:
+		EditLog.Kind.DROP_PUT, EditLog.Kind.DROP_REMOVE:
+			items.update_drop(edit.drop_id)
+		_:
+			if edit.layer == WorldData.Layer.FLOOR:
+				ground.redraw_vertex(edit.cell)
+			elif edit.layer == WorldData.Layer.VEGETATION:
+				items.update_cell(edit.cell)
 	return true
 
 

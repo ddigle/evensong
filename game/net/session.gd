@@ -20,6 +20,18 @@ extends Node
 ## state); the other players are drawn 100 ms behind the host (Interpolation). The same Movement
 ## rules run on both sides.
 ##
+## M2b (items, actions, gatherables, drops): every player's input frame also carries its look (facing
+## toward the mouse while aiming) and at most one request: use (start the held tool's body action
+## toward the target tile), pick up (F), select a hotbar slot (Q / E), and the debug drop and give.
+## The host checks each request when it handles that frame, at that frame's position (reach, target
+## tile, item present, rate, net/session_host.gd + items/world_items.gd), and applies it: actions
+## become part of the player's state (every batch carries each player's action and held item, so the
+## others draw it), world changes (a gatherable picked, drops put down or picked up) go out as
+## numbered edits like M1's, and the owner gets its inventory (it lives on the host, one per player;
+## nobody else sees it). A client predicts its own action start and hotbar selection at once, like
+## its movement, and the host's state wins. The world snapshot carries the gatherables (VEGETATION
+## layer) and the drops, so a late joiner sees what was picked and what lies around.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -64,6 +76,15 @@ var bad_messages: int = 0
 var unknown_senders: int = 0
 ## Test only (bot "stall:<ms>"): milliseconds this process was blocked on purpose, in all.
 var stalled_ms: int = 0
+## Requests from the local keys or bot (select, pick up, drop, give: frames with only an op) waiting
+## for the next frame of the local player that has no request yet (one per frame).
+var local_ops: Array[NetProtocol.InputFrame] = []
+## Host: give requests from clients are honoured (debug builds, or --test-allow-give).
+var give_allowed: bool = false
+## Ticks whose traffic counts as "req" (a request was handled or sent, _count_traffic).
+var request_ticks: int = 0
+## Pacing of local_ops: the host's request budget, kept here too (NetMember.op_budget).
+var local_budget: int = NetMember.OP_BUDGET_MAX
 
 ## The flows (net/session_host.gd, net/session_client.gd, net/session_bots.gd). host or client is
 ## null for the other role.
@@ -91,6 +112,7 @@ func start(p_world: GameWorld, p_options: CliOptions) -> void:
 	options = p_options
 	role = Role.HOST if options.host else Role.CLIENT
 	_start_ms = Time.get_ticks_msec()
+	give_allowed = gives_allowed(OS.is_debug_build(), options.test_allow_give)
 	generator_hash = world.data.content_hash() if role == Role.HOST else ""
 	bots.setup(options.bot)
 	if role == Role.CLIENT:
@@ -123,6 +145,32 @@ func start(p_world: GameWorld, p_options: CliOptions) -> void:
 
 func is_host() -> bool:
 	return role == Role.HOST
+
+
+## Whether a host honours clients' debug give requests: only in a debug build (the editor binary
+## running the project, as the tests and a developer do) or with --test-allow-give; an exported
+## release refuses them (refusal "give off").
+static func gives_allowed(debug_build: bool, flag: bool) -> bool:
+	return debug_build or flag
+
+
+## Pays for a waiting local request like the host will (false: not yet).
+func take_local_token() -> bool:
+	if local_budget < Config.NET_OP_INTERVAL_TICKS:
+		return false
+	local_budget -= Config.NET_OP_INTERVAL_TICKS
+	return true
+
+
+## Queues a request of the local player (a frame whose op and fields are set; PICKUP and DROP take
+## the target tile when the frame is built). A client applies a hotbar selection at once (predicted);
+## everything else waits for the host. At most 16 wait.
+func queue_op(op_frame: NetProtocol.InputFrame) -> void:
+	if role == Role.OFFLINE or local_ops.size() >= 16:
+		return
+	if role == Role.CLIENT and op_frame.op == NetProtocol.Op.SELECT and local != null:
+		local.player.inventory.select(op_frame.slot)
+	local_ops.append(op_frame)
 
 
 func seconds_running() -> float:
@@ -175,6 +223,7 @@ func _physics_process(_delta: float) -> void:
 	if not active:
 		return
 	tick += 1
+	local_budget = mini(local_budget + 1, NetMember.OP_BUDGET_MAX)
 	var action: NetBot.Action = bots.local_action()
 	if role == Role.HOST:
 		host.tick(action, now)
@@ -202,13 +251,23 @@ func stall_after_tick(ms: int) -> void:
 	_stall_ms += ms
 
 
-## Traffic by situation: "<moving>/<players>", or "joining" while the host sends a joiner its world.
+## Traffic by situation: "<moving>/<players>" (walking players), "act<acting>/<players>" while any
+## player plays a body action (M2b), "req/<players>" around a request (M2b: the host handled one, or
+## this client sent one; that tick and the next two), or "joining" while the host sends a joiner its
+## world.
 func _count_traffic() -> void:
 	var moving: int = 0
+	var acting: int = 0
 	for slot: int in members:
 		if members[slot].player.walking:
 			moving += 1
-	var key: String = "%d/%d" % [moving, members.size()]
+		if members[slot].player.action_anim >= 0:
+			acting += 1
+	var key: String = "%d/%d" % [moving, members.size()] if acting == 0 else "act%d/%d" % [acting, members.size()]
+	if request_ticks > 0:
+		request_ticks -= 1
+		if acting == 0:
+			key = "req/%d" % members.size()
 	if host != null and host.joining_ticks > 0:
 		host.joining_ticks -= 1
 		key = "joining"
@@ -260,6 +319,13 @@ func _rpc_left(payload: PackedByteArray) -> void:
 func _rpc_edit(payload: PackedByteArray) -> void:
 	if role == Role.CLIENT:
 		client.on_edit(payload)
+
+
+## Client: its own inventory as the host has it (M2b).
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_inventory(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_inventory(payload)
 
 
 ## Host: a client's input frames.
@@ -333,6 +399,10 @@ func send_edit(peer: int, payload: PackedByteArray) -> void:
 	_rpc_edit.rpc_id(peer, payload)
 
 
+func send_inventory(peer: int, payload: PackedByteArray) -> void:
+	_rpc_inventory.rpc_id(peer, payload)
+
+
 ## Client -> host input (through the link simulation, so it may run later; dropped once over).
 func send_input(payload: PackedByteArray) -> void:
 	if active and not over:
@@ -398,6 +468,8 @@ func continue_offline() -> void:
 			remove_member(slot)
 	if local != null:
 		local.player.local_input = true
+		local.player.controls = true
+	local_ops.clear()
 	log_event("offline", "playing on alone")
 	role = Role.OFFLINE
 

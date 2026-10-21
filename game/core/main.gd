@@ -1,6 +1,6 @@
 class_name Main
 extends Node2D
-## Root of scenes/main.tscn, the run scene (M1 + M2a).
+## Root of scenes/main.tscn, the run scene (M1 + M2a + M2b).
 ##
 ## Offline (no --host / --join): the world (world.tscn without its free camera), the local player
 ## (class from --class, Config.DEFAULT_CLASS without it) on spawn slot 0, the other slice classes as
@@ -9,15 +9,20 @@ extends Node2D
 ## hotbar use, body actions, actors/player.gd), the HUD shows its hotbar (ui/hud.gd) and a
 ## TargetMarker shows the aimed tile (world/target_marker.gd, between the ground and the entities).
 ## In a session (--host / --join, net/session.gd): no dummies; the session creates every player
-## and hands over the local one, which the camera follows. The HUD shows its (local) inventory; aim
-## and actions stay off in sessions in M2a. When the session ends with --net-out (a test instance),
-## or with a refusal or a failed join, the process quits with the session's code; a client that
-## loses its host without --net-out plays on alone.
+## and hands over the local one, which the camera follows; it has `controls` on (mouse aim, target
+## marker) and the session builds its frames. The HUD shows its inventory (a client's is the host's
+## copy). When the session ends with --net-out (a test instance), or with a refusal or a failed join,
+## the process quits with the session's code; a client that loses its host without --net-out plays
+## on alone.
 ##
 ## Keys (PROVISIONAL, README "임시값"): WASD / arrows move (8 ways), mouse aims, left click uses
-## the selected hotbar item, Q / E select the hotbar slot left / right, Tab shows the inventory.
+## the selected hotbar item, Q / E select the hotbar slot left / right, Tab shows the inventory,
+## F picks up what lies on the target tile (M2b: a gatherable, else a drop).
 ## Development keys: F3 debug lines, F4 evening + altar light on / off, F5 give the debug kit, F6 play
-## the next body action (all eight, also magic and throw that no item plays yet).
+## the next body action (offline; all eight, also magic and throw that no item plays yet), F7 drop
+## the selected stack on the target tile (M2b).
+## Offline, F / F7 / F5 / Q / E apply at once through the same rules the host uses
+## (items/world_items.gd); in a session they become requests on the local player's next frame.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -98,10 +103,12 @@ func _follow(target: Player) -> void:
 	camera.follow()
 
 
-## Points the HUD and the target marker at the local player; the first time, gives the --give items.
+## Points the HUD and the target marker at the local player; the first time, gives the --give items
+## (offline and as the host: at once; a session client asks the host for them).
 func _bind(p: Player) -> void:
 	if hud == null:
 		return
+	p.controls = true
 	hud.bind(p.inventory)
 	marker.player = p
 	marker.map_cells = world.data.size
@@ -112,7 +119,10 @@ func _bind(p: Player) -> void:
 			var id: StringName = entry[0]
 			var count: int = entry[1]
 			var grade: int = entry[2]
-			p.inventory.add(id, count, grade)
+			if net.role == NetSession.Role.CLIENT:
+				net.queue_op(give_request(ItemDB.index_of(id), count, ItemDB.normalize_grade(id, grade)))
+			else:
+				p.inventory.add(id, count, grade)
 
 
 func _on_local_player_ready(p: Player) -> void:
@@ -125,19 +135,87 @@ func _unhandled_input(event: InputEvent) -> void:
 	if player == null or not is_instance_valid(player):
 		return
 	if event.is_action_pressed(&"hotbar_prev"):
-		player.inventory.select_offset(-1)
+		select_hotbar(-1)
 	elif event.is_action_pressed(&"hotbar_next"):
-		player.inventory.select_offset(1)
+		select_hotbar(1)
 	elif event.is_action_pressed(&"toggle_inventory"):
 		hud.toggle_open()
+	elif event.is_action_pressed(&"interact"):
+		pick_up()
+	elif event.is_action_pressed(&"debug_drop"):
+		drop_selected()
 	elif event.is_action_pressed(&"debug_give"):
 		give_debug_kit()
 	elif event.is_action_pressed(&"debug_action"):
 		debug_next_action()
 
 
+func _in_session() -> bool:
+	return net.role != NetSession.Role.OFFLINE
+
+
+## A request frame (op and fields only) for NetSession.queue_op.
+static func request(op: int, slot: int = 0, count: int = 0) -> NetProtocol.InputFrame:
+	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new()
+	f.op = op
+	f.slot = slot
+	f.count = count
+	return f
+
+
+static func give_request(item_index: int, count: int, grade: int) -> NetProtocol.InputFrame:
+	var f: NetProtocol.InputFrame = request(NetProtocol.Op.GIVE, 0, count)
+	f.item_index = item_index
+	f.grade = maxi(grade, 0)
+	return f
+
+
+## Q / E: the hotbar slot left / right (wrapping).
+func select_hotbar(step: int) -> void:
+	var slot: int = posmod(player.inventory.selected + step, player.inventory.hotbar_size)
+	if _in_session():
+		net.queue_op(request(NetProtocol.Op.SELECT, slot))
+	else:
+		player.inventory.select(slot)
+
+
+## F: pick up what lies on the target tile (offline: at once; in a session: a request).
+func pick_up() -> void:
+	if _in_session():
+		net.queue_op(request(NetProtocol.Op.PICKUP))
+		return
+	var cell: Vector2i = Aim.target_cell(player.sim_position, player.aim_sector)
+	_apply_offline(WorldItems.pickup(world.data, player.sim_position, player.class_id(), player.inventory, cell),
+		"pickup", cell)
+
+
+## F7 (debug): drop the selected stack on the target tile.
+func drop_selected() -> void:
+	if _in_session():
+		net.queue_op(request(NetProtocol.Op.DROP, -1, 0))
+		return
+	var cell: Vector2i = Aim.target_cell(player.sim_position, player.aim_sector)
+	_apply_offline(WorldItems.drop(world.data, player.sim_position, player.inventory, player.inventory.selected, 0, cell),
+		"drop", cell)
+
+
+## Offline: a request's world edits go straight into the world.
+func _apply_offline(o: WorldItems.Outcome, what: String, cell: Vector2i) -> void:
+	if not o.ok():
+		print("EVENSONG_ITEMS %s refused at=%d,%d: %s" % [what, cell.x, cell.y, o.why])
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		world.apply_edit(e)
+	print("EVENSONG_ITEMS %s item=%s count=%d grade=%s at=%d,%d" % [what, o.item, o.count,
+		ItemDB.GRADE_NAMES[clampi(o.grade, 0, 2)], cell.x, cell.y])
+
+
 ## F5: every item of ItemDB.debug_kit() into the local player's inventory (what does not fit is lost).
+## In a session a request (the host honours a client's only in debug builds or with --test-allow-give).
 func give_debug_kit() -> void:
+	if _in_session():
+		net.queue_op(give_request(WorldItems.GIVE_KIT, 0, 0))
+		return
 	for entry: Array in ItemDB.debug_kit():
 		var id: StringName = entry[0]
 		var count: int = entry[1]
@@ -148,7 +226,7 @@ func give_debug_kit() -> void:
 
 ## F6: the next of the eight body actions toward the current aim, whatever is selected (offline).
 func debug_next_action() -> void:
-	if not player.controls or player.action_anim >= 0:
+	if _in_session() or not player.controls or player.action_anim >= 0:
 		return
 	player.start_action(RigData.ACTION_ANIMS[_debug_action % RigData.ACTION_ANIMS.size()], &"debug")
 	_debug_action += 1
@@ -206,7 +284,6 @@ func spawn_action_lineup(frame: int) -> void:
 func _on_net_ended(reason: String, code: int) -> void:
 	var options: CliOptions = CliOptions.current()
 	if options.net_out.is_empty() and code == NetSession.EXIT_FAILED and reason == "lost the host" and player != null:
-		net.continue_offline()
-		player.controls = true  # alone now: aim and actions as offline (M2a)
+		net.continue_offline()  # alone now: the keys drive the player as offline, its inventory is its own
 		return
 	get_tree().quit(code)

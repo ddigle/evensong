@@ -35,13 +35,24 @@ static func sorted_slots(members: Dictionary[int, NetMember]) -> Array[int]:
 static func build(s: NetSession, reason: String) -> Dictionary:
 	var players: Array = []
 	var gates: Dictionary = {}
+	var ops: Dictionary = {}
 	for slot: int in sorted_slots(s.members):
 		var m: NetMember = s.members[slot]
-		players.append({"slot": slot, "class": m.class_id, "x": m.player.sim_position.x, "y": m.player.sim_position.y,
-			"facing": m.player.facing, "walking": m.player.walking})
+		var entry: Dictionary = {"slot": slot, "class": m.class_id, "x": m.player.sim_position.x,
+			"y": m.player.sim_position.y, "facing": m.player.facing, "walking": m.player.walking,
+			"held": String(m.player.held_id()), "action": m.player.action_anim, "actions": m.actions_seen}
+		# Inventories: the host has everyone's, a client only its own.
+		if s.host != null or m == s.local:
+			entry["inventory"] = m.player.inventory.describe()
+		if s.host != null:
+			ops[str(slot)] = {"done": m.ops_done, "refused": m.ops_refused}
+		players.append(entry)
 		if m.gate != null:
 			gates[str(slot)] = m.gate.to_dict()
 	var view: Dictionary[String, int] = s.world.ground.verify()
+	var drops: Array = []
+	for id: int in s.world.data.drop_ids():
+		drops.append(s.world.data.drops[id].describe())
 	var out: Dictionary = {
 		"name": s.instance_name(), "role": NetSession.ROLE_NAMES[s.role], "ended": reason,
 		"slot": s.local.slot if s.local != null else -1, "class": s.local_class(), "ticks": s.tick,
@@ -50,6 +61,9 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		"view": view, "view_hash": s.world.ground.view_hash(), "stats": s.stats.to_dict(),
 		"link": s.link.to_dict(), "bad_messages": s.bad_messages, "unknown_senders": s.unknown_senders,
 		"stalled_ms": s.stalled_ms,
+		# M2b: what lies in the world and whether it is drawn, the requests (host), inventories (client).
+		"gatherables": WorldItems.gatherable_cells(s.world.data).size(), "drops": drops,
+		"items_view": s.world.items.verify(), "ops": ops, "pickups": 0, "inventories": 0,
 		"bot_finished": s.bots.bot.finished if s.bots.bot != null else true, "done_peers": s.bots.done_count(),
 		# Host side (defaults on a client).
 		"gates": gates, "refusals": {}, "batches": 0, "keyframes": 0, "quiet_violations": 0, "max_players": 0,
@@ -68,6 +82,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["snapshots_sent"] = s.host.snapshots_sent
 		out["snapshot_bytes_sent"] = s.host.snapshot_bytes_sent
 		out["streams"] = s.host.streams_done
+		out["pickups"] = s.host.pickups
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
@@ -82,6 +97,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["snapshot_chunks"] = c.snapshot_chunks
 		out["host_generator_hash"] = c.host_generator_hash
 		out["generator_match"] = c.generator_match
+		out["inventories"] = c.inventories
 	return out
 
 

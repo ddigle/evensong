@@ -11,6 +11,12 @@ extends RefCounted
 ## failure there ends the session with EXIT_WORLD_MISMATCH. The seed and the host's generator hash
 ## only feed a diagnostic: whether this machine's generator would have made the same world
 ## (logged as generator=match|differs, never fatal).
+##
+## M2b: the local player's frames come from Player.make_frame (keys, mouse, use button) with one
+## waiting request attached; the prediction steps them at once (body actions included) and the
+## host's state wins. The own inventory is the host's (on_inventory), with the hotbar selections not
+## yet handled by the host laid on top. Other players are drawn with their action and held item from
+## the states. World edits from requests (gatherables picked, drops) arrive like M1's edits.
 
 var s: NetSession
 var prediction: Prediction
@@ -21,6 +27,8 @@ var stale_batches: int = 0
 var interp_samples: int = 0
 var interp_starved: int = 0
 var refused_reason: String = ""
+## Inventories received from the host (M2b).
+var inventories: int = 0
 ## Join: when the transport connected, how long until the world was ready, what came in.
 var connected_usec: int = 0
 var join_ms: float = -1.0
@@ -105,7 +113,7 @@ func on_welcome(payload: PackedByteArray) -> void:
 		if info.state.slot == w.slot:
 			s.local = m
 		else:
-			m.interp = Interpolation.new()
+			_as_remote(m, info.state)
 			m.interp.push(w.tick, info.state)
 	if s.local == null:
 		s.end_session("failed: welcome without my player", NetSession.EXIT_FAILED)
@@ -118,10 +126,11 @@ func on_welcome(payload: PackedByteArray) -> void:
 	s.active = true
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
-		"chunks=%d build_ms=%.1f join_ms=%.1f generator=%s") % [w.slot, s.local.class_id, s.members.size(),
-		w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size, w.raw_size,
-		w.chunk_count, world_build_ms, join_ms, "match" if generator_match else "differs (local %s, host %s)" % [
-		s.generator_hash.left(12), host_generator_hash.left(12)]])
+		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d generator=%s") % [w.slot, s.local.class_id,
+		s.members.size(), w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size,
+		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
+		"match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12),
+		host_generator_hash.left(12)]])
 	s.local_player_ready.emit(s.local.player)
 	s.bots.mark("welcome")
 	if w.bots_started:
@@ -149,9 +158,16 @@ func on_joined(payload: PackedByteArray) -> void:
 		return
 	var m: NetMember = s.add_member(info.state.slot, 0, NetProtocol.class_name_of(info.class_index), info.state.pos,
 		info.state.facing)
-	m.interp = Interpolation.new()
+	_as_remote(m, info.state)
 	m.interp.push(maxi(_last_state_tick, 0), info.state)
 	s.log_event("joined", "slot=%d class=%s players=%d" % [m.slot, m.class_id, s.members.size()])
+
+
+## Another player: drawn from received states (Interpolation), holding what they say.
+func _as_remote(m: NetMember, state: NetProtocol.PlayerState) -> void:
+	m.interp = Interpolation.new()
+	m.player.held_from_state = true
+	m.player.state_held = state.held
 
 
 func on_left(payload: PackedByteArray) -> void:
@@ -178,7 +194,29 @@ func on_edit(payload: PackedByteArray) -> void:
 		s.bad_messages += 1
 	if s.world.apply_edit(edit):
 		s.edit_log.append(edit)
+	else:
+		s.bad_messages += 1
 	s.log_event("edit", "%s index=%d world=%s" % [edit.describe(), index, s.world.data.content_hash().left(12)])
+
+
+## The own inventory as the host has it after frame `ack`; hotbar selections the host has not handled
+## yet (frames after `ack`, and requests not sent yet) stay selected.
+func on_inventory(payload: PackedByteArray) -> void:
+	if not s.active or s.local == null:
+		return
+	var inv: NetProtocol.InventoryState = NetProtocol.decode_inventory(payload)
+	if not inv.ok:
+		s.bad_messages += 1
+		return
+	inventories += 1
+	var mine: Inventory = s.local.player.inventory
+	var selected: int = inv.selected
+	for f: NetProtocol.InputFrame in prediction.pending_ops(NetProtocol.Op.SELECT, inv.ack):
+		selected = f.slot
+	for q: NetProtocol.InputFrame in s.local_ops:
+		if q.op == NetProtocol.Op.SELECT:
+			selected = q.slot
+	mine.load_state(inv.stacks, selected)
 
 
 # --- movement --------------------------------------------------------------------------------
@@ -210,14 +248,34 @@ func _apply_states(payload: PackedByteArray) -> void:
 	for st: NetProtocol.PlayerState in batch.states:
 		if st.slot == s.local.slot:
 			prediction.reconcile(st)
-			s.local.player.show_state(prediction.pos, prediction.facing, prediction.walking)
+			_show_predicted(false)
 		elif s.members.has(st.slot) and s.members[st.slot].interp != null:
 			s.members[st.slot].interp.push(batch.tick, st)
 
 
+## The own player as predicted (`tick`: this tick's step, drawn from the tick's start).
+func _show_predicted(tick: bool) -> void:
+	var me: Player = s.local.player
+	var st: PlayerSim = prediction.sim
+	me.show_state(st.pos, st.facing, st.walking, tick, st.action, st.action_tick)
+	me.action_cell = st.action_cell
+	me.refresh_aim()
+
+
 func tick(action: NetBot.Action) -> void:
-	var frame: NetProtocol.InputFrame = prediction.step(action.dir)
-	s.local.player.show_state(prediction.pos, prediction.facing, prediction.walking, true)
+	var me: Player = s.local.player
+	var f: NetProtocol.InputFrame = me.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
+		action.use_held)
+	SessionHost.attach_local_op(s, me, f, action)
+	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
+	_show_predicted(true)
+	if f.op != NetProtocol.Op.NONE:
+		s.request_ticks = 3
+	if f.anim >= 0 and prediction.sim.action == f.anim and prediction.sim.action_tick == 0:
+		me.action_item = f.item
+		s.local.count_action(f.anim)
+		s.log_event("action", "slot=%d item=%s action=%s target=%d,%d predicted" % [s.local.slot, f.item,
+			RigData.ANIM_NAMES[f.anim], f.cell.x, f.cell.y])
 	var interval: int = Config.NET_TICK_RATE / Config.NET_INPUT_HZ
 	# Send every 2nd tick while frames are unacknowledged, and at once when a move starts.
 	if prediction.has_unacked() and (s.tick % interval == 0 or (frame != null and prediction.pending.size() == 1)):
@@ -246,7 +304,9 @@ func draw_others() -> void:
 				interp_starved += 1  # drawing past the newest state of a walking player: buffer ran dry
 		var smp: Interpolation.Snap = m.interp.sample(t)
 		if smp != null:
-			m.player.show_state(smp.pos, smp.facing, smp.walking)
+			m.player.state_held = smp.held
+			m.player.show_state(smp.pos, smp.facing, smp.walking, false, smp.action, smp.action_tick)
+			m.note_action(smp.action, smp.action_tick, t)
 
 
 static func interp_delay_ticks() -> float:

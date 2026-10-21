@@ -136,6 +136,7 @@ func _check_generator_rules() -> void:
 		var soil: int = 0
 		var ash: int = 0
 		var zones: Dictionary[int, bool] = {}
+		var gathered: Dictionary[StringName, int] = {}
 		for y: int in data.size.y:
 			for x: int in data.size.x:
 				var c: Vector2i = Vector2i(x, y)
@@ -146,7 +147,26 @@ func _check_generator_rules() -> void:
 					(data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_ALTAR) != on_altar)
 				_count_if(bad, "altar footprint is grass", on_altar and t != Terrain.GRASS)
 				_count_if(bad, "unused layers stay 0", data.get_value(WorldData.Layer.WALL, c) != 0
-					or data.get_value(WorldData.Layer.ORE, c) != 0 or data.get_value(WorldData.Layer.VEGETATION, c) != 0)
+					or data.get_value(WorldData.Layer.ORE, c) != 0)
+				# M2b gatherables (VEGETATION): the generator's spots only (SurfaceGen.gatherable_spot_ok
+				# rules, checked here from scratch).
+				var plant: StringName = WorldItems.gatherable_at(data, c)
+				if not plant.is_empty():
+					var seen: int = gathered.get(plant, 0)
+					gathered[plant] = seen + 1
+					var on_ash: bool = Config.GATHER_ON_ASH.has(plant)
+					_count_if(bad, "gatherable on its ground (grass / ash)", t != (Terrain.ASH if on_ash else Terrain.GRASS))
+					_count_if(bad, "gatherable not on the altar", on_altar)
+					_count_if(bad, "gatherable outside the light + clearance", ((Vector2(c) + Vector2(0.5, 0.5)) *
+						Config.TILE).distance_to(altar) < radius + Config.GATHER_CLEARANCE_TILES * Config.TILE)
+					_count_if(bad, "gatherable at least 2 cells from the map edge", c.x < 2 or c.y < 2
+						or c.x >= data.size.x - 2 or c.y >= data.size.y - 2)
+					for oy: int in range(-1, 2):
+						for ox: int in range(-1, 2):
+							_count_if(bad, "no gatherable next to another", (ox != 0 or oy != 0)
+								and data.get_value(WorldData.Layer.VEGETATION, c + Vector2i(ox, oy)) != 0)
+				else:
+					_count_if(bad, "VEGETATION holds gatherables only", data.get_value(WorldData.Layer.VEGETATION, c) != 0)
 				_count_if(bad, "corruption zone <=> ash", (zone != 0) != (t == Terrain.ASH))
 				if t == Terrain.SOIL:
 					soil += 1
@@ -166,6 +186,13 @@ func _check_generator_rules() -> void:
 		_count_if(bad, "SOIL_PATCH_COUNT separate soil patches", count_regions(data, Terrain.SOIL) != Config.SOIL_PATCH_COUNT)
 		_count_if(bad, "zone count = ASH_ZONE_COUNT (within 2..3)", zones.size() != Config.ASH_ZONE_COUNT)
 		_count_if(bad, "soil_ash_contacts() = 0", data.soil_ash_contacts() != 0)
+		for id: StringName in Config.GATHER_ON_GRASS:
+			var n: int = gathered.get(id, 0)
+			_count_if(bad, "every GATHER_ON_GRASS gatherable placed", n != Config.GATHER_ON_GRASS[id])
+		for id: StringName in Config.GATHER_ON_ASH:
+			var n2: int = gathered.get(id, 0)
+			_count_if(bad, "every GATHER_ON_ASH gatherable placed", n2 != Config.GATHER_ON_ASH[id])
+		_count_if(bad, "no other gatherable kinds", gathered.size() != Config.GATHER_ON_GRASS.size() + Config.GATHER_ON_ASH.size())
 		soil_range = Vector2i(mini(soil_range.x, soil), maxi(soil_range.y, soil))
 		ash_range = Vector2i(mini(ash_range.x, ash), maxi(ash_range.y, ash))
 	check(Config.ASH_ZONE_COUNT >= 2 and Config.ASH_ZONE_COUNT <= 3, "ASH_ZONE_COUNT within the proposed 2..3 (○ game-concept §12)")

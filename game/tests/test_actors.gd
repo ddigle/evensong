@@ -794,4 +794,6 @@ func _check_main_scene() -> void:
 	for d: Character in main.dummies:
 		dummy_classes.append(d.class_id)
 	check_eq(dummy_classes, PackedStringArray(["paladin", "miner", "archer", "herbalist"]), "dummies are the other classes")
-	check_eq(world.entities.get_child_count(), 1 + 1 + 4, "entities: altar + player + 4 dummies (old ones freed)")
+	var items: int = world.items.plants.size() + world.items.drops.size()
+	check_eq(world.entities.get_child_count() - items, 1 + 1 + 4,
+		"entities: altar + player + 4 dummies (old ones freed) besides the %d gatherables and drops (M2b)" % items)
