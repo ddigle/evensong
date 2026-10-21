@@ -2,8 +2,9 @@ class_name Smoke
 extends RefCounted
 ## Smoke checks for --smoke (also in the exported exe): the engine version, the display settings
 ## that reached the root window, the input map, the committed surface TileSet, and one generated
-## world drawn with the ground view (corners, fallbacks, soil/ash), the character art and rig
-## tables, the safe-zone light texture against the rule, the flame mask, and the run scene.
+## world drawn with the ground view (corners, fallbacks, soil/ash, its hash = SurfaceGen.GOLDEN_HASH,
+## the x86_64 result), the character art and rig tables, the safe-zone light texture against the
+## rule, the flame mask, and the run scene.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -128,6 +129,10 @@ static func _check_world(r: Report, table: WangTable) -> void:
 	r.expect(data.count_value(WorldData.Layer.FLOOR, Terrain.SOIL) > 0, "no tilled soil generated")
 	r.expect(data.count_value(WorldData.Layer.FLOOR, Terrain.ASH) > 0, "no ash generated")
 	r.expect_eq(data.soil_ash_contacts(), 0, "display cells mixing soil and ash")
+	# Same world as the x86_64 desktop? A different hash here means late join would refuse this
+	# machine (exit code 5), or the generator changed without updating GOLDEN_HASH.
+	r.expect_eq(data.content_hash(), SurfaceGen.GOLDEN_HASH, "seed %d world hash (SurfaceGen.GOLDEN_HASH)" %
+		Config.DEFAULT_SEED)
 	var view: GroundView = GroundView.new()
 	view.setup(data, table)
 	var v: Dictionary[String, int] = view.verify()

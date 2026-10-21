@@ -1,7 +1,9 @@
 class_name SurfaceGen
 extends RefCounted
-## Seeded surface start area (M1). Same seed + size -> same WorldData on every machine
-## (RandomNumberGenerator = PCG32, FastNoiseLite, integer cell math).
+## Seeded surface start area (M1). Same seed + size -> same WorldData. Late join relies on this on
+## every machine (RandomNumberGenerator = PCG32 and integer cell math, but FastNoiseLite is float
+## math). Checked on x86_64 only: GOLDEN_HASH below is the x86_64 result, --smoke compares the
+## running build with it, and a joining client compares its world md5 with the host's.
 ##
 ##   1. Altar site: Config.ALTAR_FOOTPRINT cells at the map centre (PLACEABLE_ALTAR).
 ##   2. Tilled soil: Config.SOIL_PATCH_COUNT rectangles, every cell completely inside the altar
@@ -13,6 +15,12 @@ extends RefCounted
 ##   refuses it, and the distances keep them far apart anyway).
 
 const MAX_ATTEMPTS: int = 200
+## IMPL: WorldData.content_hash() of generate(Config.DEFAULT_SEED) with the current constants, as
+## generated on the x86_64 desktop. It pins the output (an unintended change fails test_world.gd,
+## and --smoke on another machine shows whether that machine generates the same world); whether
+## the rules hold is checked separately over many seeds. When the generator or its constants
+## change on purpose, update it (the failure prints the new value).
+const GOLDEN_HASH: String = "e04258e54b02b0ed09ce02c9a92c11a8"
 
 
 static func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> WorldData:

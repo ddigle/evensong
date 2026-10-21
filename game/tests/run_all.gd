@@ -11,17 +11,32 @@ extends SceneTree
 ## run() -> Array[String] (failure messages; empty = pass) and prints one PASS / FAIL line per
 ## file plus its messages and notes.
 ##
-## Errors count as failures: every message the engine logs as an error while a file runs (engine
+## Errors count as failures: every message the engine logs as an error, from any thread (engine
 ## errors such as a null argument or a missing node, push_error(), GDScript runtime errors, shader
-## errors), caught with an OS Logger, unless the test announced it with allow_error(). Errors
-## logged before the first file (startup) fail the run too. Warnings are printed, not counted.
+## errors), caught with an OS Logger, unless the test announced it with allow_error(). A file's
+## window runs from its start until SETTLE_FRAMES frames after its cleanup(), so queue_free(),
+## _exit_tree() and deferred calls it caused count against it. Also failures:
+##   - errors logged before the first file (startup)
+##   - errors logged between two files (only other threads can): charged to the next file, labelled
+##     with the file that ran before; that file's allow_error() does not cover them
+##   - a node a file left under the root after cleanup() (it should use add_node()). The runner
+##     frees it, so it cannot log errors into the next file's window
+##   - errors logged in the FINAL_SETTLE_FRAMES frames after the last file (timers, threads or
+##     signal callbacks it left running), printed as "FAIL (after the last file)"
+## Not caught: work a file leaves running that logs later than that (charged to whichever file is
+## running then, or missed when it comes after the final frames). Warnings are printed, not counted.
 ##
-## Exit code: 0 = every file passed, 1 = any failure, load error, timeout or no test files.
+## Exit code: 0 = every file passed, 1 = any failure, load error, timeout, error outside the files
+## or no test files.
 
 const TestCase := preload("res://tests/base_test.gd")
 const DEFAULT_DIR: String = "res://tests"
 const DEFAULT_PREFIX: String = "test_"
 const DEFAULT_TIMEOUT_SEC: float = 120.0
+## Frames a file's error window stays open after cleanup() and after freeing nodes it left behind.
+const SETTLE_FRAMES: int = 2
+## Frames the runner waits after the last file before it takes the errors one last time.
+const FINAL_SETTLE_FRAMES: int = 10
 
 
 ## Collects error and warning messages from every thread.
@@ -112,6 +127,30 @@ static func match_errors(errors: Array[String], allowances: Array[TestCase.Allow
 	return out
 
 
+## "<label>: <entry>" for every entry.
+static func label_errors(errors: Array[String], label: String) -> Array[String]:
+	var out: Array[String] = []
+	for entry: String in errors:
+		out.append("%s: %s" % [label, entry])
+	return out
+
+
+## Children of `parent` whose instance id is not in `before` (and that are not about to be freed).
+static func new_children(parent: Node, before: Dictionary[int, bool]) -> Array[Node]:
+	var out: Array[Node] = []
+	for child: Node in parent.get_children():
+		if not before.has(child.get_instance_id()) and not child.is_queued_for_deletion():
+			out.append(child)
+	return out
+
+
+static func child_ids(parent: Node) -> Dictionary[int, bool]:
+	var out: Dictionary[int, bool] = {}
+	for child: Node in parent.get_children():
+		out[child.get_instance_id()] = true
+	return out
+
+
 func _run_all() -> void:
 	await process_frame  # autoloads and the root window are ready after the first frame
 	var args: Dictionary[String, String] = parse_args(OS.get_cmdline_user_args())
@@ -141,9 +180,11 @@ func _run_all() -> void:
 	var total_checks: int = 0
 	var file_failures: int = 0
 	var started: int = Time.get_ticks_msec()
+	var previous: String = ""
 	for file: String in files:
 		var t0: int = Time.get_ticks_msec()
-		var report: FileReport = await _run_file(dir.path_join(file), timeout_sec)
+		var report: FileReport = await _run_file(dir.path_join(file), timeout_sec, previous)
+		previous = file
 		var messages: Array[String] = report.messages
 		var notes: Array[String] = report.notes
 		var checks: int = report.checks
@@ -161,17 +202,36 @@ func _run_all() -> void:
 			print("  * %s" % line)
 		_print_warnings(_log.take_warnings())
 
+	# Timers, threads or signal callbacks the last file left running: no next file would see them.
+	for i: int in FINAL_SETTLE_FRAMES:
+		await process_frame
+	var late: Array[String] = _log.take_errors()
+	_print_warnings(_log.take_warnings())
+	if not late.is_empty():
+		failed += 1
+		print("FAIL (after the last file) %d error(s) logged after %s finished" % [late.size(), previous])
+		for message: String in late:
+			print("  - %s" % message)
+
+	var extra: PackedStringArray = []
+	if not startup.is_empty():
+		extra.append("startup errors")
+	if not late.is_empty():
+		extra.append("errors after the last file")
 	print("EVENSONG_TESTS done: %d passed, %d failed, %d checks, %d ms%s" % [
 		files.size() - file_failures, file_failures, total_checks, Time.get_ticks_msec() - started,
-		"" if startup.is_empty() else " (+ startup errors)"])
+		"" if extra.is_empty() else " (+ %s)" % ", ".join(extra)])
 	_finish(1 if failed > 0 else 0)
 
 
-func _run_file(path: String, timeout_sec: float) -> FileReport:
+func _run_file(path: String, timeout_sec: float, previous: String) -> FileReport:
 	var report: FileReport = FileReport.new()
 	var messages: Array[String] = report.messages
-	# Errors logged between files (none expected) are counted against the next file.
-	var pending: Array[String] = _log.take_errors()
+	# Errors logged between two files (none expected; only another thread can log there) fail this
+	# file, labelled with the file that ran before. This file's allowances never cover them.
+	var pending: Array[String] = label_errors(_log.take_errors(), "logged before this file started"
+		if previous.is_empty() else "logged after %s finished, before this file started" % previous)
+	var root_children: Dictionary[int, bool] = child_ids(root)
 	var script: GDScript = ResourceLoader.load(path, "Script", ResourceLoader.CACHE_MODE_REPLACE) as GDScript
 	if script == null or not script.can_instantiate():
 		messages.append("cannot load %s (parse error? see the log above)" % path)
@@ -206,9 +266,14 @@ func _run_file(path: String, timeout_sec: float) -> FileReport:
 
 	test.cleanup()
 	await process_frame  # let queue_free() from cleanup run inside this file's error window
-	var errors: Array[String] = pending
-	errors.append_array(_log.take_errors())
-	messages.append_array(match_errors(errors, test.allowances))
+	for node: Node in new_children(root, root_children):
+		messages.append("left %s (%s) under the root after cleanup(): use add_node() (the runner freed it)" % [
+			node.name, node.get_class()])
+		node.queue_free()
+	for i: int in SETTLE_FRAMES:
+		await process_frame  # _exit_tree() and deferred calls of what was freed still count here
+	messages.append_array(pending)
+	messages.append_array(match_errors(_log.take_errors(), test.allowances))
 	report.notes.append_array(test.notes)
 	report.checks = test.checks
 	return report

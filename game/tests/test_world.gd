@@ -3,10 +3,8 @@ extends "res://tests/base_test.gd"
 ## determinism, ground view corners / fallbacks / chunks, edits redraw exactly the expected cells,
 ## world.tscn (free camera), timings.
 
-## content_hash() of SurfaceGen.generate(Config.DEFAULT_SEED) with the current constants.
-## Same seed -> same world on every machine is what late join relies on (stage G3). When the
-## generator or its constants change on purpose, update this value (the failure prints the new one).
-const GOLDEN_HASH: String = "e04258e54b02b0ed09ce02c9a92c11a8"
+## Pinned seed-1 world hash (lives in the game code so --smoke can compare it too).
+const GOLDEN_HASH: String = SurfaceGen.GOLDEN_HASH
 const SEEDS: int = 40
 const TIMING_RUNS: int = 3
 
@@ -170,7 +168,7 @@ func _check_generator_rules() -> void:
 		_count_if(bad, "soil_ash_contacts() = 0", data.soil_ash_contacts() != 0)
 		soil_range = Vector2i(mini(soil_range.x, soil), maxi(soil_range.y, soil))
 		ash_range = Vector2i(mini(ash_range.x, ash), maxi(ash_range.y, ash))
-	check(Config.ASH_ZONE_COUNT >= 2 and Config.ASH_ZONE_COUNT <= 3, "ASH_ZONE_COUNT within the docs' 2..3")
+	check(Config.ASH_ZONE_COUNT >= 2 and Config.ASH_ZONE_COUNT <= 3, "ASH_ZONE_COUNT within the proposed 2..3 (○ game-concept §12)")
 	for rule: String in bad:
 		fail("generator rule broken in %d case(s): %s" % [bad[rule], rule])
 	checks += 1
@@ -238,7 +236,7 @@ func _check_determinism(table: WangTable) -> void:
 	if GOLDEN_HASH.is_empty():
 		note("golden hash for seed %d: %s (not pinned yet)" % [Config.DEFAULT_SEED, a.content_hash()])
 	else:
-		check_eq(a.content_hash(), GOLDEN_HASH, "seed %d world unchanged (update GOLDEN_HASH on purpose)" %
+		check_eq(a.content_hash(), GOLDEN_HASH, "seed %d world unchanged (update SurfaceGen.GOLDEN_HASH on purpose)" %
 			Config.DEFAULT_SEED)
 
 

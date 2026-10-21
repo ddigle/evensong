@@ -10,7 +10,8 @@ extends RefCounted
 ## error that is not logged the announced number of times also fails the file.
 ##
 ## The runner sets `tree` before run() and calls cleanup() afterwards, so nodes added with
-## add_node() are freed even when the test fails. note() lines are printed under the result.
+## add_node() are freed even when the test fails. A node left under the root any other way fails
+## the file (the runner frees it). note() lines are printed under the result.
 
 ## One announced error: logged errors whose text contains `pattern` are expected, `count` times
 ## (count < 0 = any number of times, including zero).

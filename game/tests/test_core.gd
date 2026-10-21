@@ -22,6 +22,7 @@ const FIXTURES: Dictionary[String, String] = {
 	"case_engine_error.gd": "FAIL",
 	"case_error_after_await.gd": "FAIL",
 	"case_not_a_test.gd": "FAIL",
+	"case_parked_node.gd": "FAIL",
 	"case_pass.gd": "PASS",
 	"case_push_error.gd": "FAIL",
 	"case_runtime_error.gd": "FAIL",
@@ -255,14 +256,13 @@ func _check_runner_helpers() -> void:
 	check_eq(Runner.match_errors(errs.slice(0, 1), allow).size(), 0, "count -1 accepts zero matches")
 
 
-## Runs the runner on tests/fixtures in a child process: every fixture must end as expected.
+## Runs the runner on tests/fixtures in a child process: every fixture must end as expected. A second
+## child runs late_error.gd alone: an error after the last file must still fail the run.
 func _check_runner_fixtures() -> void:
-	var output: Array = []
-	var args: PackedStringArray = ["--headless", "--path", ProjectSettings.globalize_path("res://"), "--script",
-		"res://tests/run_all.gd", "--", "--dir=res://tests/fixtures", "--prefix=case_", "--timeout=2"]
 	var t0: int = Time.get_ticks_msec()
-	var code: int = OS.execute(OS.get_executable_path(), args, output, true)
-	var text: String = "\n".join(output)
+	var result: Array = _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=case_", "--timeout=2"]))
+	var code: int = result[0]
+	var text: String = result[1]
 	check_eq(code, 1, "runner exits 1 when fixtures fail")
 	for file: String in FIXTURES:
 		var want: String = FIXTURES[file]
@@ -271,8 +271,33 @@ func _check_runner_fixtures() -> void:
 			if line.begins_with("%s %s " % [want, file]):
 				hit = true
 		check(hit, "fixture %s: expected %s" % [file, want])
-	check_has(text, "EVENSONG_TESTS done: 2 passed, 8 failed", "runner summary")
-	note("runner self-test: %d fixtures in a child process, %d ms" % [FIXTURES.size(), Time.get_ticks_msec() - t0])
+	check_has(text, "EVENSONG_TESTS done: 2 passed, 9 failed", "runner summary")
+	check_has(text, "left ParkedNode (Node) under the root", "a node left under the root is named")
+	check(not text.contains("fixture: error from a node left under the root"),
+		"the runner freed the left node before it could log into case_pass.gd")
+
+	result = _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=late_", "--timeout=2"]))
+	code = result[0]
+	text = result[1]
+	check_eq(code, 1, "runner exits 1 on an error after the last file")
+	check_has(text, "PASS late_error.gd ", "late_error.gd itself passes")
+	check_has(text, "FAIL (after the last file) 1 error(s) logged after late_error.gd finished",
+		"error after the last file is counted")
+	check_has(text, "- error: fixture: error after the last file", "error after the last file is listed")
+	check_has(text, "EVENSONG_TESTS done: 1 passed, 0 failed", "late run summary")
+	check_has(text, "(+ errors after the last file)", "late run summary names the late errors")
+	note("runner self-test: %d fixtures + late_error.gd in two child processes, %d ms" % [FIXTURES.size(),
+		Time.get_ticks_msec() - t0])
+
+
+## Runs tests/run_all.gd with `user_args` in a headless child process. Returns [exit code, output].
+static func _run_runner(user_args: PackedStringArray) -> Array:
+	var output: Array = []
+	var args: PackedStringArray = ["--headless", "--path", ProjectSettings.globalize_path("res://"), "--script",
+		"res://tests/run_all.gd", "--"]
+	args.append_array(user_args)
+	var code: int = OS.execute(OS.get_executable_path(), args, output, true)
+	return [code, "\n".join(output)]
 
 
 static func _scripts_under(dir: String) -> PackedStringArray:

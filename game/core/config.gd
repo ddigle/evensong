@@ -37,8 +37,8 @@ const ALTAR_FOOTPRINT: Vector2i = Vector2i(3, 3)
 const SOIL_PATCH_COUNT: int = 3
 const SOIL_PATCH_MIN: Vector2i = Vector2i(2, 2)
 const SOIL_PATCH_MAX: Vector2i = Vector2i(4, 3)
-## PROVISIONAL (● 2~3 fixed corruption zones, game-concept §12; the count inside that range,
-## their size and distance are not decided).
+## PROVISIONAL (○ 2~3 fixed corruption zones, game-concept §12: an unmarked bullet in a section
+## headed "제안"; the count inside that range, their size and distance are not decided either).
 const ASH_ZONE_COUNT: int = 3
 const ASH_ZONE_RADIUS_MIN: int = 5
 const ASH_ZONE_RADIUS_MAX: int = 8
@@ -70,6 +70,10 @@ const NET_INTERP_DELAY_MS: int = 100
 ## 3x3 = one per class, gameplay-design §5 ○). M1 allows duplicates; true makes the host refuse a
 ## class that is already taken (refusal "class_taken").
 const NET_UNIQUE_CLASSES: bool = false
+## PROVISIONAL (not in docs; the nearest rule is "부활 지점: 제단", gameplay-design §2.6·§5 ○): a
+## player appears on a free SPAWN_SLOTS place around the altar (alone, as host or joining) facing
+## this way.
+const SPAWN_FACING: RigData.Dir = RigData.Dir.SOUTH
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -126,9 +130,10 @@ const FEET_HEIGHT: float = 4.0
 ## IMPL: the feet stay at least this far below the map's top edge, so the head (frame row 4 =
 ## 28 px above the feet) never leaves the map.
 const HEAD_ROOM_PX: float = 28.0
-## IMPL: spawn slots around the altar, feet offsets in px from the altar centre. Slot 0 = local
-## player (G2); G3 hands them out to joining players (up to Config.MAX_PLAYERS). All lie inside
-## the safe zone and outside the footprint (tests/test_actors.gd).
+## IMPL (the places; spawning around the altar at all is PROVISIONAL, see SPAWN_FACING): spawn
+## slots around the altar, feet offsets in px from the altar centre. Slot 0 = local player (G2); G3
+## hands them out to joining players (up to Config.MAX_PLAYERS). All lie inside the safe zone and
+## outside the footprint (tests/test_actors.gd).
 const SPAWN_SLOTS: Array[Vector2i] = [
 	Vector2i(-54, 8), Vector2i(54, 8), Vector2i(0, -26), Vector2i(-36, 52), Vector2i(36, 52),
 	Vector2i(-54, -30), Vector2i(54, -30), Vector2i(-80, 30), Vector2i(80, 30),

@@ -413,6 +413,8 @@ func _check_main_scene() -> void:
 	check_eq(player.class_id(), want_class, "local player class from --class (default %s)" % Config.DEFAULT_CLASS)
 	check(player.get_parent() == world.entities, "player is in the y-sorted entities")
 	check_eq(player.sim_position, world.spawn_point(0), "player on spawn slot 0")
+	check_eq(player.facing, Config.SPAWN_FACING, "player starts facing Config.SPAWN_FACING")
+	check_eq(int(player.character.direction), Config.SPAWN_FACING, "player drawn facing Config.SPAWN_FACING")
 	check_eq(player.position, player.sim_position.round(), "player node on whole pixels")
 	var classes: PackedStringArray = [player.class_id()]
 	for i: int in main.dummies.size():

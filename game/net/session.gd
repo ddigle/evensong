@@ -141,7 +141,7 @@ func is_host() -> bool:
 func _on_opened() -> void:
 	if role == Role.HOST:
 		var slot: int = roster.admit(1, local_class())
-		local = _add_member(slot, 1, local_class(), world.spawn_point(slot), RigData.Dir.SOUTH)
+		local = _add_member(slot, 1, local_class(), world.spawn_point(slot), Config.SPAWN_FACING)
 		active = true
 		_log("hosting", "port=%d slot=%d class=%s" % [options.port, slot, local.class_id])
 		local_player_ready.emit(local.player)
@@ -212,7 +212,7 @@ func _rpc_hello(payload: PackedByteArray) -> void:
 		_refuse(peer_id, reason)
 		return
 	var slot: int = roster.admit(peer_id, class_id)
-	var m: NetMember = _add_member(slot, peer_id, class_id, world.spawn_point(slot), RigData.Dir.SOUTH)
+	var m: NetMember = _add_member(slot, peer_id, class_id, world.spawn_point(slot), Config.SPAWN_FACING)
 	m.gate = InputGate.new()
 	broadcast.note_activity(tick)
 	_rpc_welcome.rpc_id(peer_id, NetProtocol.encode_welcome(_welcome_for(slot)))

@@ -50,7 +50,7 @@ func spawn(local_class: String) -> void:
 	dummies.clear()
 	player = Player.new()
 	player.name = &"LocalPlayer"
-	player.setup(world.data, local_class, world.spawn_point(0), RigData.Dir.SOUTH)
+	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	world.entities.add_child(player)
 	var slot: int = 1
 	for class_id: String in Config.CLASSES:
