@@ -61,6 +61,9 @@ func _check_cli_and_modules() -> void:
 	var parsed: Dictionary = SpikeCliScript.parse_user_args(
 		PackedStringArray(["--smoke", "--scene=lights", "x", "--frames=30"]))
 	check_eq(parsed, {"smoke": true, "scene": "lights", "frames": "30"}, "parse_user_args")
+	check_eq(SpikeCliScript.parse_size("640x360"), Vector2i(640, 360), "parse_size")
+	check_eq(SpikeCliScript.parse_size("640"), Vector2i.ZERO, "parse_size rejects one number")
+	check_eq(SpikeCliScript.parse_size("0x360"), Vector2i.ZERO, "parse_size rejects zero")
 	check_eq(Modules.scene_path("lights"), "res://lights/lights.tscn", "module scene path")
 	check_eq(Modules.resolve_scene("res://a/b.tscn"), "res://a/b.tscn", "res:// path passes through")
 	check_eq(Modules.resolve_scene("tiles"), "res://tiles/tiles.tscn", "module name resolves")

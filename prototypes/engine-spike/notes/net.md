@@ -87,7 +87,8 @@ timeout 300 "$GODOT" --headless --path $SPIKE --script res://tests/run_all.gd --
 | 호스트 검사 | 4인: 수락 16, 거부 12 (unbreakable / no_wall / out_of_reach 각 4). 9인: 36 / 27 |
 | 가짜 델타 | Godot가 거부: `RPC '_rpc_apply_deltas' is not allowed on node /root/Net/World from: <id>. Mode is "authority", authority is 1.` 타일 해시 그대로 |
 | 내보낸 exe | release 내보내기 후 `evensong_spike.console.exe --headless -- --scene=net --net-role=host/client ...` 2개로 세션 성공, 해시 일치 |
-| 창 모드 | `-- --scene=net --screenshot=...`로 호스트 화면 캡처 확인(맵·플레이어·HUD). 창 두 개로 사람이 직접 해 보는 것은 하지 않았다 |
+| 창 모드 | `-- --scene=net --screenshot=...`로 호스트 화면 캡처 확인(맵·플레이어·HUD). 창 두 개로 사람이 직접 해 보는 것은 모듈에서 하지 않았고, 2026-10-21에 사람이 했다 (아래) |
+| 사람 확인 (2026-10-21) | 데스크탑 창 두 개, 데스크탑 호스트 + 서피스(스냅드래곤, ARM64 빌드) 클라이언트를 Tailscale 직접 연결(핑 약 10ms)로. 이동·벽 부수기·늦은 참가 모두 맞음. 서피스 쪽 자기 캐릭터 반응이 조금 늦지만 심각하지 않음 (자기 캐릭터도 호스트가 움직이는 구조라 왕복 + 30Hz만큼 늦다 → 게임에서는 자기 캐릭터 예측) |
 | 9인 | `--net-clients=8`로 9인 세션 통과 (233 checks) |
 
 ## GodotSteam 호환 (웹 확인, 2026-10-18)

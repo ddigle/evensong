@@ -10,6 +10,8 @@ extends Node
 ##   --screenshot=<file.png>    save the root viewport (480x270) after --frames frames, then quit
 ##   --frames=<n>               frames to wait before the screenshot (default 10)
 ##   --scale=<n>                window size = base size x n (no effect with --headless)
+##   --internal=<w>x<h>         internal (viewport) resolution instead of the project's 480x270
+##   --aspect=keep|expand       stretch aspect (project: keep; expand fills borders with more world)
 ##
 ## F10 returns to the menu (res://main.tscn) from any scene.
 
@@ -26,6 +28,15 @@ func _ready() -> void:
 	if user_args.has("smoke"):
 		_run_smoke()
 		return
+	var root: Window = get_tree().root
+	var internal: Vector2i = parse_size(str(user_args.get("internal", "")))
+	if internal != Vector2i.ZERO:
+		root.content_scale_size = internal
+	match str(user_args.get("aspect", "")):
+		"keep":
+			root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+		"expand":
+			root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	if user_args.has("scale"):
 		_apply_scale(int(str(user_args["scale"])))
 	if user_args.has("scene") or user_args.has("screenshot"):
@@ -45,6 +56,15 @@ static func parse_user_args(argv: PackedStringArray) -> Dictionary:
 		else:
 			out[body.substr(0, eq)] = body.substr(eq + 1)
 	return out
+
+
+## "640x360" -> Vector2i(640, 360); anything else -> Vector2i.ZERO.
+static func parse_size(text: String) -> Vector2i:
+	var parts: PackedStringArray = text.split("x")
+	if parts.size() != 2 or not parts[0].is_valid_int() or not parts[1].is_valid_int():
+		return Vector2i.ZERO
+	var size: Vector2i = Vector2i(parts[0].to_int(), parts[1].to_int())
+	return size if size.x > 0 and size.y > 0 else Vector2i.ZERO
 
 
 static func smoke_line(tree: SceneTree) -> String:
