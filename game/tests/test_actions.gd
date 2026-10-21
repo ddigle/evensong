@@ -266,7 +266,7 @@ func _check_player_timing() -> void:
 	var dt: float = Config.NET_TICK
 	# A tick of aiming first: facing east, target the tile east of the feet.
 	p.tick_controls(Vector2i.ZERO, east, true, false, false, dt)
-	var target: Vector2i = Aim.cell_of(start) + Vector2i(1, 0)
+	var target: Vector2i = Aim.feet_cell(start) + Vector2i(1, 0)
 	check_eq(p.aim_cell, target, "aim cell east of the feet")
 	p.tick_controls(Vector2i(0, 1), east, true, true, true, dt)
 	check_eq(started, [[&"pickaxe", RigData.Anim.PICKAXE, target]], "use starts the pickaxe action and reports its target")
@@ -353,7 +353,20 @@ func _check_main_use() -> void:
 	check_eq(player.character.action, RigData.Anim.PICKAXE, "the character shows it")
 	check_eq(player.facing, E, "facing the mouse")
 	check(main.marker.visible and main.marker.position == Vector2(player.action_cell * Config.TILE), "marker on the target tile")
-	check_eq(player.action_cell, Aim.cell_of(player.sim_position) + Vector2i(1, 0), "target = the tile east of the feet")
+	check_eq(player.action_cell, Aim.feet_cell(player.sim_position) + Vector2i(1, 0), "target = the tile east of the feet")
+	# The mouse goes west while the action plays: the aim follows it, the marker stays on the action's tile.
+	var west: Vector2 = Aim.view_margin(tree.root.size) + (screen + Vector2(-40, 0)) * float(Aim.view_scale(tree.root.size))
+	var ev_west: InputEventMouseMotion = InputEventMouseMotion.new()
+	ev_west.position = west
+	ev_west.global_position = west
+	Input.parse_input_event(ev_west)
+	await tree.physics_frame
+	await tree.physics_frame
+	await await_frames(1)
+	check(player.action_anim == RigData.Anim.PICKAXE and player.aim_cell == Aim.feet_cell(player.sim_position) + Vector2i(-1, 0),
+		"mid-action the aim follows the mouse west (%s)" % player.aim_cell)
+	check(main.marker.visible and main.marker.position == Vector2(player.action_cell * Config.TILE),
+		"but the marker stays on the tile being hit (%s)" % main.marker.position)
 	for i: int in Player.action_ticks(RigData.Anim.PICKAXE) + 2:
 		await tree.physics_frame
 	check_eq(player.action_anim, -1, "the action ends")

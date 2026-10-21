@@ -9,7 +9,8 @@ extends RefCounted
 ## facing follows the movement as in M1), and the body action a "use" starts this frame (a RigData
 ## action anim resolved from the used hotbar slot, or -1) toward a target tile.
 ## Order within a frame (M2a's tick_controls): the playing action advances one tick and may end;
-## then a use may start an action if none plays (it fixes the facing to the look); then the player
+## then a use may start an action if none plays (it faces the target tile: the look when that points
+## toward the tile, else the tile's direction, Aim.use_facing, so the host decides it); then the player
 ## moves unless an action locks movement (Config.ACTION_LOCKS_MOVEMENT); without an action the
 ## facing follows the look, or the movement when there is none. An action is timed in frames:
 ## Config.ACTION_FRAME_TICKS frames per animation frame.
@@ -72,8 +73,7 @@ func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, 
 		action = anim
 		action_tick = 0
 		action_cell = cell
-		if look >= 0:
-			facing = look
+		facing = Aim.use_facing(look, cell - Aim.feet_cell(pos), facing)
 		walking = false
 		events |= STARTED
 	var acting: bool = action >= 0

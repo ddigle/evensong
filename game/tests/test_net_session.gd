@@ -17,8 +17,9 @@ extends "res://tests/base_test.gd"
 ##         ("full"). M2b: before c1 leaves, the host drops 5 stones next to the three clients, who all
 ##         press F on that tile every tick for 1.5 s (a race, and request spam): exactly one gets them. The real cap (9) is unit-tested in test_net.gd; `-- --net-full` runs it here
 ##         with 10 processes. This host cuts its world snapshots into 32-byte chunks
-##         (--test-snapshot-chunk-bytes), so every joiner gets its world in 11 chunks over two
-##         ticks, with the welcome after the last one (the M1 world is one 1 KB chunk otherwise).
+##         (--test-snapshot-chunk-bytes), so every joiner gets its world in about 18 chunks over
+##         three ticks (M2b world, about 570 B; 11 chunks over two ticks in M1), with the welcome
+##         after the last one (the world is one 1 KB chunk otherwise).
 ##   lag   1 host + 1 client whose traffic is held back 120 ms round trip with 15% loss
 ##         (net/link_sim.gd): prediction must still match the host. Alongside it, "drop": a host
 ##         that goes away (its --net-timeout) under a client started like a human would (no
@@ -55,18 +56,22 @@ const EDIT: String = "edit:62,50,soil"
 
 ## pair (M2b, seed 1): the host starts with a pickaxe and 20 stones (--give, its own), swings the
 ## pickaxe east (3 actions), walks next to the wild buff at PAIR_HERB, picks it, selects the stones
-## and drops 5 on that tile, then edits. c1 asks for a sword (give request) and swings it west (2).
+## and drops 5 on that tile, then edits. c1 asks for a sword (give request), flips through three
+## hotbar slots back to it (predicted selects, one per frame: never refused as "rate"), swings it west
+## (2), then stands still and aims south: the look alone turns it, and the host must see that facing
+## (the frame is recorded for the turn, Prediction.step_frame; the positions hash carries the facing).
 const PAIR_HERB: Vector2i = Vector2i(47, 51)
 const PAIR_HOST_GIVE: String = "--give=pickaxe,stone_a:20"
 const PAIR_HOST: String = ("move:1,0,90;move:0,1,60;move:-1,-1,60;wait:90;aim:20,0;use:80;aim:off;walkto:48,51;" +
 	"aimat:47,51;pick;wait:6;select:2;wait:6;drop:5;wait:10;" + EDIT + ";mark:edited;wait:60")
-const PAIR_C1: String = "move:-1,0,90;move:0,-1,60;move:1,1,60;wait:90;move:0,1,30;wait:30;aim:-20,0;use:60;aim:off;wait:60"
+const PAIR_C1: String = ("move:-1,0,90;move:0,-1,60;move:1,1,60;wait:90;move:0,1,30;wait:30;select:3;select:2;select:1;" +
+	"wait:10;aim:-20,0;use:60;aim:off;wait:60;aim:0,20;wait:20;aim:off;wait:60")
 ## The late herbalist: picks up the host's 5 stones (a drop it got in its snapshot), then the wild buff
 ## at PAIR_FINE_HERB (FINE: the herbalist's).
 const PAIR_FINE_HERB: Vector2i = Vector2i(44, 58)
 const PAIR_LATE: String = "walkto:48,45;walkto:48,50;aimat:47,51;pick;wait:10;walkto:45,57;aimat:44,58;pick;wait:20"
 const LATE: String = "move:0,1,40;move:1,0,20;wait:10"
-## four: chunk size of the host's world snapshots (test hook), so a 341 B world takes 11 chunks.
+## four: chunk size of the host's world snapshots (test hook), so a ~570 B world takes ~18 chunks.
 const FOUR_CHUNK_BYTES: int = 32
 ## Everyone moves 150 ticks, then 3 s with nobody moving (the idle measurement). M2b race: the host
 ## (5 of its stones) walks above FOUR_DROP and drops them there; c1, c2, c3 stand on the other sides
@@ -83,7 +88,7 @@ const LAG_C1: String = "move:-1,-1,45;move:-1,0,30;move:1,1,40;move:0,-1,25;wait
 const FULL_BOT: String = "move:1,0,90;wait:120"
 ## stall: the host blocks this long in a process step (bot "stall") while c1 walks, then edits the
 ## world every STALL_EDIT_EVERY ticks, STALL_EDITS times, while the late joiner c2 streams its world
-## in 1-byte chunks (341 chunks, 43 ticks).
+## in 1-byte chunks (about 567 chunks, 71 ticks; 341 and 43 in M1).
 const STALL_MS: int = 700
 const STALL_EDITS: int = 60
 const STALL_EDIT_EVERY: int = 4
@@ -544,6 +549,14 @@ func _check_pair_items(host: Instance, c1: Instance, c2: Instance) -> void:
 	check(_num(c1_saw, "pickaxe") >= 2.0 and _num(c1_saw, "pickaxe") == _num(host_own, "pickaxe"),
 		"pair: c1 saw every pickaxe swing of the host (%s of %s)" % [c1_saw, host_own])
 	check(_log_has(host, "host action slot=%d item=sword action=sword" % s1), "pair: the host logged c1's sword action")
+	# c1 stood still and aimed south at the end: the look alone turned it, on c1 and on the host.
+	for inst: Instance in [host, c1, c2]:
+		check_eq(_num(_player(inst, s1), "facing", -1.0), float(RigData.Dir.SOUTH),
+			"pair/%s: c1 faces south (turned by its look while standing)" % inst.name)
+	var all_ops: Dictionary = host.result.get("ops", {})
+	var c1_ops: Dictionary = all_ops.get(str(s1), {})
+	var c1_done: Dictionary = c1_ops.get("done", {})
+	check_eq(_num(c1_done, "select", 0.0), 3.0, "pair: the host handled c1's 3 hotbar selects (one per frame)")
 	# The gatherable the host picked: gone on c1 live, gone in c2's snapshot, and everyone agrees.
 	var herb: String = "at=%d,%d" % [PAIR_HERB.x, PAIR_HERB.y]
 	check(_log_has(host, "host pickup slot=%d item=wild_buff count=1 grade=common %s" % [hs, herb]),

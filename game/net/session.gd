@@ -79,7 +79,8 @@ var stalled_ms: int = 0
 ## Requests from the local keys or bot (select, pick up, drop, give: frames with only an op) waiting
 ## for the next frame of the local player that has no request yet (one per frame).
 var local_ops: Array[NetProtocol.InputFrame] = []
-## Host: give requests from clients are honoured (debug builds, or --test-allow-give).
+## Host: debug give and debug drop requests from clients are honoured (debug builds, or
+## --test-allow-give).
 var give_allowed: bool = false
 ## Ticks whose traffic counts as "req" (a request was handled or sent, _count_traffic).
 var request_ticks: int = 0
@@ -147,9 +148,9 @@ func is_host() -> bool:
 	return role == Role.HOST
 
 
-## Whether a host honours clients' debug give requests: only in a debug build (the editor binary
-## running the project, as the tests and a developer do) or with --test-allow-give; an exported
-## release refuses them (refusal "give off").
+## Whether a host honours clients' debug give and debug drop requests: only in a debug build (the
+## editor binary running the project, as the tests and a developer do) or with --test-allow-give; an
+## exported release refuses them (refusals "give off", "drop off").
 static func gives_allowed(debug_build: bool, flag: bool) -> bool:
 	return debug_build or flag
 
@@ -164,9 +165,13 @@ func take_local_token() -> bool:
 
 ## Queues a request of the local player (a frame whose op and fields are set; PICKUP and DROP take
 ## the target tile when the frame is built). A client applies a hotbar selection at once (predicted);
-## everything else waits for the host. At most 16 wait.
+## everything else waits for the host. At most Config.NET_LOCAL_OPS_MAX wait; one beyond that is
+## dropped and logged ("request_dropped").
 func queue_op(op_frame: NetProtocol.InputFrame) -> void:
-	if role == Role.OFFLINE or local_ops.size() >= 16:
+	if role == Role.OFFLINE:
+		return
+	if local_ops.size() >= Config.NET_LOCAL_OPS_MAX:
+		log_event("request_dropped", "%s: %d requests already waiting" % [op_frame.describe_op(), local_ops.size()])
 		return
 	if role == Role.CLIENT and op_frame.op == NetProtocol.Op.SELECT and local != null:
 		local.player.inventory.select(op_frame.slot)

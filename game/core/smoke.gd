@@ -200,7 +200,7 @@ static func _check_items(r: Report) -> void:
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
 			"interact", "debug_drop"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
-	# M2b: every gatherable's world picture, the drop icon path, the pickup rule on the default world.
+	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
 		r.expect(ItemView.world_picture(id) != null, "world picture of gatherable %s" % id)
 	r.fields.append("items=%d actions=%d" % [ItemDB.ids().size(), RigData.ACTION_ANIMS.size()])

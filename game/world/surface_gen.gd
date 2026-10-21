@@ -26,8 +26,8 @@ const MAX_ATTEMPTS: int = 200
 ## the rules hold is checked separately over many seeds. When the generator or its constants
 ## change on purpose, update it (the failure prints the new value).
 const GOLDEN_HASH: String = "ff2e1d90c4dc12d6dfad926584d440d0"
-## Cells kept free between a gatherable and the map edge.
-const GATHER_EDGE: int = 2
+## Cells kept free between a gatherable and the map edge (PROVISIONAL, Config).
+const GATHER_EDGE: int = Config.GATHER_EDGE_TILES
 
 ## Test only (--test-perturb-generator, set by the Cli autoload before the world is generated):
 ## shifts the ash edge noise seed, so this process generates a different world from the same seed,

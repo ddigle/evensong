@@ -38,6 +38,10 @@ const WHY_BLOCKED: String = "blocked"
 const WHY_TOO_MANY: String = "too many drops"
 const WHY_BAD_ITEM: String = "unknown item"
 const WHY_BAD_SLOT: String = "no such slot"
+const WHY_BAD_COUNT: String = "bad count"
+## Most of one item a single give request carries (its count is one byte on the wire); a bigger
+## debug give from a client goes out as several requests (Main.give_requests).
+const GIVE_COUNT_MAX: int = 255
 
 
 ## What a request did: ok, or why not; the world edits to apply (in order) and what moved.
@@ -92,9 +96,9 @@ static func pick_grade(id: StringName, class_id: String) -> int:
 
 
 ## Whether tile `c` is a target tile for feet at `feet`: within Config.REACH_TILES of the feet tile
-## (Chebyshev) and not the feet tile itself.
+## (Aim.feet_cell, Chebyshev) and not the feet tile itself.
 static func in_reach(feet: Vector2, c: Vector2i) -> bool:
-	var d: Vector2i = (c - Aim.cell_of(feet)).abs()
+	var d: Vector2i = (c - Aim.feet_cell(feet)).abs()
 	var n: int = maxi(d.x, d.y)
 	return n >= 1 and n <= Config.REACH_TILES
 
@@ -198,8 +202,10 @@ static func give(inv: Inventory, index: int, count: int, grade: int) -> Outcome:
 		o.item = &"debug_kit"
 		return o
 	var item: StringName = ItemDB.id_at(index)
-	if item.is_empty() or count < 1:
+	if item.is_empty():
 		return Outcome.refused(WHY_BAD_ITEM)
+	if count < 1:
+		return Outcome.refused(WHY_BAD_COUNT)
 	var g2: int = ItemDB.normalize_grade(item, grade)
 	o.item = item
 	o.grade = g2

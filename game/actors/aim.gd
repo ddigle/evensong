@@ -5,8 +5,9 @@ extends RefCounted
 ## - the aim origin is the player's feet (the ground point the tiles are measured from);
 ## - the direction from the feet to the mouse falls into one of 8 sectors of 45°, centred on the
 ##   axes and diagonals (0 = east, clockwise on screen, y down);
-## - the target tile is the tile next to the feet tile in that sector's direction (○ gameplay-design
-##   §3.2 "마우스 방향의 인접 타일을 타격", said for mining);
+## - the target tile is the tile next to the feet tile (feet_cell: the tile under the middle of the
+##   feet box) in that sector's direction (○ gameplay-design §3.2 "마우스 방향의 인접 타일을 타격",
+##   said for mining);
 ## - the facing toward the mouse is 4-way: the larger axis wins, an exact diagonal faces north or
 ##   south (RigData.facing_toward's rule);
 ## - a mouse exactly on the feet keeps the previous sector and facing.
@@ -34,14 +35,36 @@ static func sector(v: Vector2, current: int = Sector.SOUTH) -> int:
 	return posmod(roundi(atan2(v.y, v.x) / (PI / 4.0)), 8)
 
 
-## The tile under a point (feet).
+## The tile under a point.
 static func cell_of(p: Vector2) -> Vector2i:
 	return Vector2i(floori(p.x / Config.TILE), floori(p.y / Config.TILE))
 
 
+## The feet tile: the tile under the middle of the feet box (Config.FEET_HEIGHT px tall, above the
+## feet point). The feet point is the sprite's bottom edge, so on a tile line it already belongs to
+## the row below the drawn feet (spawn slots 0 and 1 stand on one); the middle of the box is always
+## in the row the feet are drawn in. Host, prediction and offline all use this (target tile, reach).
+static func feet_cell(feet: Vector2) -> Vector2i:
+	return cell_of(feet - Vector2(0.0, Config.FEET_HEIGHT / 2.0))
+
+
 ## The tile next to the feet tile in sector `s`.
 static func target_cell(feet: Vector2, s: int) -> Vector2i:
-	return cell_of(feet) + SECTOR_OFFSETS[posmod(s, 8)]
+	return feet_cell(feet) + SECTOR_OFFSETS[posmod(s, 8)]
+
+
+## The facing of an action toward tile offset `d` (target tile - feet tile): `look` when it points
+## along one of d's axes (the client's facing toward the mouse), otherwise d's larger axis (an exact
+## diagonal faces north or south, like facing()). So an action always faces the tile it hits, whatever
+## look a frame carries; `current` when d is zero and there is no look.
+static func use_facing(look: int, d: Vector2i, current: int) -> int:
+	var along: bool = (look == RigData.Dir.EAST and d.x > 0) or (look == RigData.Dir.WEST and d.x < 0) \
+		or (look == RigData.Dir.SOUTH and d.y > 0) or (look == RigData.Dir.NORTH and d.y < 0)
+	if along:
+		return look
+	if d == Vector2i.ZERO:
+		return look if look >= 0 else current
+	return facing(Vector2(d), current)
 
 
 ## 4-way facing toward direction `v`; `current` when v is zero.

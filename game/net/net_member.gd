@@ -97,9 +97,12 @@ func count_done(op_name: String) -> void:
 	ops_done[op_name] = n + 1
 
 
-func count_refused(why: String) -> void:
+## Counts a refused request; returns how many were refused for `why` so far.
+func count_refused(why: String) -> int:
 	var n: int = ops_refused.get(why, 0)
-	ops_refused[why] = n + 1
+	n += 1
+	ops_refused[why] = n
+	return n
 
 
 ## Notes an action shown at host tick `t` (with its frames so far): counts each start once.

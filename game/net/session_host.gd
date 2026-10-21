@@ -261,26 +261,33 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 			RigData.ANIM_NAMES[p.action_anim], p.action_cell.x, p.action_cell.y])
 
 
-## Select, pick up, drop, give: rate, then the rules (items/world_items.gd).
+## Select, then pick up, drop, give: rate, then the rules (items/world_items.gd).
 func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if frame.op == NetProtocol.Op.SELECT:
+		# Not rate limited: at most one per frame, frames are limited by the input gate, and it changes
+		# no world state (only the held item in the state batches). The client predicted it, so an
+		# accepted one sends nothing back; a refused one sends the owner its inventory (_refuse_op).
+		if frame.slot < 0 or frame.slot >= p.inventory.hotbar_size:
+			_refuse_op(m, frame, WorldItems.WHY_BAD_SLOT)
+			return
+		p.inventory.select(frame.slot)
+		m.count_done("select")
+		_changed = true
+		return
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
 		return
-	var p: Player = m.player
 	var o: WorldItems.Outcome = null
 	match frame.op:
-		NetProtocol.Op.SELECT:
-			if frame.slot < 0 or frame.slot >= p.inventory.hotbar_size:
-				_refuse_op(m, frame, WorldItems.WHY_BAD_SLOT)
-				return
-			p.inventory.select(frame.slot)
-			m.count_done("select")
-			m.inventory_dirty = true
-			_changed = true
-			return
 		NetProtocol.Op.PICKUP:
 			o = WorldItems.pickup(s.world.data, p.sim_position, m.class_id, p.inventory, frame.cell)
 		NetProtocol.Op.DROP:
+			# Debug F7: a client's only where its give would be honoured (an exported release refuses
+			# it, so a client cannot grow the edit log by dropping and picking up in a loop).
+			if m.peer_id != 1 and not s.give_allowed:
+				_refuse_op(m, frame, "drop off")
+				return
 			var slot: int = frame.slot if frame.slot >= 0 else p.inventory.selected
 			o = WorldItems.drop(s.world.data, p.sim_position, p.inventory, slot, frame.count, frame.cell)
 		NetProtocol.Op.GIVE:
@@ -306,9 +313,16 @@ func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		ItemDB.GRADE_NAMES[clampi(o.grade, 0, 2)], frame.cell.x, frame.cell.y])
 
 
+## Counts a refused request. A client predicted its hotbar selection, so a refused select sends the
+## owner its inventory (the host's selection and ack). The log line is thinned per member and reason
+## (the first Config.NET_REFUSAL_LOG_FIRST, then every NET_REFUSAL_LOG_EVERY-th, with the count), so a
+## client sending a refused request every frame cannot flood the host log; the counters see them all.
 func _refuse_op(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
-	m.count_refused(why)
-	s.log_event("request_refused", "slot=%d %s: %s" % [m.slot, frame.describe_op(), why])
+	var n: int = m.count_refused(why)
+	if frame.op == NetProtocol.Op.SELECT and m.gate != null:
+		m.inventory_dirty = true
+	if n <= Config.NET_REFUSAL_LOG_FIRST or n % Config.NET_REFUSAL_LOG_EVERY == 0:
+		s.log_event("request_refused", "slot=%d %s: %s n=%d" % [m.slot, frame.describe_op(), why, n])
 
 
 ## The host's own frame for this tick (keys / mouse / bot) with one waiting local request attached.
@@ -322,9 +336,11 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 
 ## Puts a request on frame `f` unless it already carries a use: the bot's request of this tick at
 ## once (a script that spams requests really sends them every frame), else the next waiting one from
-## the keys, paced like the host's rate (NetSession.take_local_token) so key presses and --give are
-## not refused as "rate". PICKUP / DROP aim at the target tile; a DROP without a slot drops the
-## selected one. A client applies a hotbar selection at once (predicted).
+## the keys, paced like the host's rate (NetSession.take_local_token; a select is not rate limited and
+## goes on the next free frame) so key presses and --give normally are not refused as "rate" (they
+## still can be when the host gets them bunched, after a lost packet or a host hitch: README).
+## PICKUP / DROP aim at the target tile; a DROP without a slot drops the selected one. A client
+## applies a hotbar selection at once (predicted).
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
 	var q: NetProtocol.InputFrame = null
 	if action.op != null:
@@ -334,7 +350,8 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 		q = action.op
 		if session.role == NetSession.Role.CLIENT and q.op == NetProtocol.Op.SELECT:
 			p.inventory.select(q.slot)
-	elif f.op == NetProtocol.Op.NONE and not session.local_ops.is_empty() and session.take_local_token():
+	elif f.op == NetProtocol.Op.NONE and not session.local_ops.is_empty() \
+			and (session.local_ops[0].op == NetProtocol.Op.SELECT or session.take_local_token()):
 		q = session.local_ops.pop_front()
 	if q == null:
 		return

@@ -120,7 +120,8 @@ func _bind(p: Player) -> void:
 			var count: int = entry[1]
 			var grade: int = entry[2]
 			if net.role == NetSession.Role.CLIENT:
-				net.queue_op(give_request(ItemDB.index_of(id), count, ItemDB.normalize_grade(id, grade)))
+				for f: NetProtocol.InputFrame in give_requests(ItemDB.index_of(id), count, ItemDB.normalize_grade(id, grade)):
+					net.queue_op(f)
 			else:
 				p.inventory.add(id, count, grade)
 
@@ -168,6 +169,18 @@ static func give_request(item_index: int, count: int, grade: int) -> NetProtocol
 	f.item_index = item_index
 	f.grade = maxi(grade, 0)
 	return f
+
+
+## A give of `count` as requests of at most WorldItems.GIVE_COUNT_MAX each (the wire count is one
+## byte: --give=stone_a:300 on a client is 255 + 45, as offline and on the host).
+static func give_requests(item_index: int, count: int, grade: int) -> Array[NetProtocol.InputFrame]:
+	var out: Array[NetProtocol.InputFrame] = []
+	var left: int = count
+	while left > 0:
+		var n: int = mini(left, WorldItems.GIVE_COUNT_MAX)
+		out.append(give_request(item_index, n, grade))
+		left -= n
+	return out
 
 
 ## Q / E: the hotbar slot left / right (wrapping).

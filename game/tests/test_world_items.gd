@@ -3,14 +3,19 @@ extends "res://tests/base_test.gd"
 ##   - the gatherable table and the grade rule (● gameplay-design §3.4: the herbalist's herbs FINE)
 ##   - the rules (items/world_items.gd): reach, pick up a gatherable or a drop (whole, in part, full
 ##     inventory), drop, use, give
+##   - the feet tile when the feet stand on a tile line; a client give over 255 split in requests
 ##   - the host's request checks through SessionHost.run_frame (a real NetSession, no transport):
-##     out of reach, wrong tile, empty slot, not a tool, busy, spam (rate), give off; two players
-##     picking up the same gatherable / drop in the same tick -> exactly one gets it
-##   - drops in WorldData, the content hash, the snapshot (round trip, refusals) and the edit log
-##     (drop edits, a late joiner = snapshot + catch-up edits = the host's world), ItemView = data
+##     out of reach, wrong tile, empty slot, not a tool, busy, spam (rate), give off, drop off,
+##     selects never rate limited, a refused select sends the inventory back, a use faces its tile;
+##     two players picking up the same gatherable / drop in the same tick -> exactly one gets it, by
+##     hand and through SessionHost.tick (the lower slot)
+##   - drops in WorldData, the content hash, the snapshot (round trip, refusals, MAX_DROPS) and the
+##     edit log (drop edits, a late joiner = snapshot + catch-up edits = the host's world), ItemView = data
 ##   - inventory and request wire format (round trips, every truncation, malformed ones)
 ##   - the client's prediction of body actions against a host running run_frame over a delayed,
-##     lossy link (no error, no action correction), and a host that refuses a use (corrected)
+##     lossy link (no error, no action correction), and a host that refuses a use (corrected); a
+##     standing client turned by its look alone (the frame is recorded, the host turns too); the own
+##     inventory from the host with pending and queued selects laid on top (SessionClient.on_inventory)
 ##   - interpolation of another player's action (shown from its start tick)
 ##   - offline main.tscn: F picks up the gatherable on the target tile, F7 drops, F again picks it up
 
@@ -22,10 +27,14 @@ func run() -> Array[String]:
 	_check_rules()
 	await _check_host_requests()
 	await _check_races()
+	await _check_tick_order()
 	_check_drops_in_world()
+	_check_max_drops()
 	await _check_edit_log_and_view()
 	_check_inventory_codec()
 	await _check_prediction_with_actions()
+	await _check_look_turns()
+	await _check_inventory_rebase()
 	_check_interpolated_actions()
 	await _check_offline_main()
 	return failures
@@ -85,6 +94,12 @@ func _check_rules() -> void:
 				reach_ok += 1
 				check(maxi(absi(dx), absi(dy)) == 1, "in reach only next to the feet tile (%d, %d)" % [dx, dy])
 	check_eq(reach_ok, 8, "8 tiles in reach")
+	# Feet exactly on a tile line (y = 96 = 6 x 16) stand on row 5, where they are drawn: row 6 is in
+	# reach, row 7 is not.
+	var on_line: Vector2 = Vector2(5 * 16 + 8, 6 * 16)
+	check(WorldItems.in_reach(on_line, Vector2i(5, 6)) and WorldItems.in_reach(on_line, Vector2i(6, 5))
+		and not WorldItems.in_reach(on_line, Vector2i(5, 5)) and not WorldItems.in_reach(on_line, Vector2i(5, 7)),
+		"feet on a tile line: the feet tile is the row above the line")
 	var inv: Inventory = Inventory.new()
 	check_eq(WorldItems.pickup(data, feet, "cleric", inv, Vector2i(5, 5)).why, WorldItems.WHY_REACH, "the feet tile is no target")
 	check_eq(WorldItems.pickup(data, feet, "cleric", inv, Vector2i(3, 3)).why, WorldItems.WHY_REACH, "two tiles away: out of reach")
@@ -148,6 +163,24 @@ func _check_rules() -> void:
 	check(WorldItems.give(g, ItemDB.index_of(&"wild_buff"), 3, ItemDB.Grade.FINE).ok()
 		and g.count_of(&"wild_buff", ItemDB.Grade.FINE) == 3, "give 3 fine wild buffs")
 	check_eq(WorldItems.give(g, 200, 1, 0).why, WorldItems.WHY_BAD_ITEM, "give an unknown item")
+	check_eq(WorldItems.give(g, ItemDB.index_of(&"stone_a"), 0, 0).why, WorldItems.WHY_BAD_COUNT, "give 0: bad count")
+	# A client's --give=stone_a:300 goes out as 255 + 45 (one byte per count on the wire) and gives 300.
+	var reqs: Array[NetProtocol.InputFrame] = Main.give_requests(ItemDB.index_of(&"stone_a"), 300, 0)
+	var counts: Array[int] = []
+	var given: Inventory = Inventory.new()
+	for f: NetProtocol.InputFrame in reqs:
+		var wire: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1)
+		wire.op = f.op
+		wire.item_index = f.item_index
+		wire.count = f.count
+		wire.grade = f.grade
+		var back: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([wire] as Array[NetProtocol.InputFrame]))
+		if back.ok and back.frames.size() == 1:
+			counts.append(back.frames[0].count)
+			WorldItems.give(given, back.frames[0].item_index, back.frames[0].count, back.frames[0].grade)
+	check_eq(counts, [255, 45] as Array[int], "a give of 300 travels as 255 + 45")
+	check_eq(given.count_of(&"stone_a"), 300, "and gives 300 like offline")
+	check_eq(Main.give_requests(ItemDB.index_of(&"stone_a"), 255, 0).size(), 1, "255 is one request")
 
 
 # --- host request checks -------------------------------------------------------------------
@@ -173,6 +206,7 @@ func _rig() -> Rig:
 	r.s.world = r.world
 	r.s.options = CliOptions.new()
 	r.s.role = NetSession.Role.HOST
+	r.s.give_allowed = NetSession.gives_allowed(OS.is_debug_build(), false)  # as start() would: a debug build
 	r.host = SessionHost.new(r.s)
 	r.s.host = r.host
 	return r
@@ -275,6 +309,40 @@ func _check_host_requests() -> void:
 		c1.refill_ops()
 	r.host.run_frame(c1, sel)
 	check_eq(c1.state().held, &"pickaxe", "select slot 2: the state's held item")
+	# Debug drop: a client's only where the host allows it (like give); the host's own always.
+	r.s.give_allowed = false
+	c1.op_budget = NetMember.OP_BUDGET_MAX
+	r.host.run_frame(c1, _frame(NetProtocol.Op.DROP, herb + Vector2i(-1, 1), 0))
+	check_eq(c1.ops_refused.get("drop off", 0), 1, "a client's debug drop is refused without a debug build / --test-allow-give")
+	var drops_before: int = data.drops.size()
+	r.host.run_frame(me, _frame(NetProtocol.Op.DROP, herb + Vector2i(-2, 1), 0))
+	var host_drops: int = me.ops_done.get("drop", 0)
+	check(host_drops == 1 and data.drops.size() == drops_before + 1, "the host's own debug drop works")
+	r.s.give_allowed = true
+	# Selects are not rate limited (the client predicted them; a "rate" refusal would leave its hotbar
+	# wrong): ten in a row with an empty budget all go through, and need no inventory back.
+	c1.op_budget = 0
+	c1.inventory_dirty = false
+	var selects_before: int = c1.ops_done.get("select", 0)
+	for i: int in 10:
+		r.host.run_frame(c1, _frame(NetProtocol.Op.SELECT, Vector2i.ZERO, i % 2))
+	check_eq(c1.ops_done.get("select", 0), selects_before + 10, "ten selects in ten frames: all handled")
+	check_eq(c1.ops_refused.get("rate", 0), 0, "none refused as rate")
+	check(not c1.inventory_dirty, "an accepted select sends no inventory (predicted; the state carries the held item)")
+	# A refused select sends the owner its inventory, which carries the host's selection and ack.
+	r.host.run_frame(c1, _frame(NetProtocol.Op.SELECT, Vector2i.ZERO, Config.HOTBAR_SLOTS))
+	var bad_slots: int = c1.ops_refused.get(WorldItems.WHY_BAD_SLOT, 0)
+	check(bad_slots == 1 and c1.inventory_dirty and c1.player.inventory.selected == 1,
+		"a refused select: the inventory goes back to the owner, the host's selection stays")
+	# A use whose look points away from its tile: the action faces the tile (the host decides).
+	for i: int in PlayerSim.action_ticks(RigData.Anim.PICKAXE):
+		r.host.run_frame(c1, NetProtocol.InputFrame.new())
+	check_eq(c1.player.action_anim, -1, "c1's pickaxe action ended")
+	var away: NetProtocol.InputFrame = _frame(NetProtocol.Op.USE, herb, 1)
+	away.look = RigData.Dir.WEST
+	r.host.run_frame(c1, away)
+	check(c1.player.action_anim == RigData.Anim.PICKAXE and c1.player.facing == RigData.Dir.EAST and c1.player.action_cell == herb,
+		"a use east with a west look: the action faces east, toward its tile (facing %s)" % RigData.DIR_NAMES[c1.player.facing])
 	note("request checks: c1 refused %s, c2 refused %s" % [c1.ops_refused, c2.ops_refused])
 
 
@@ -315,6 +383,32 @@ func _check_races() -> void:
 	check_eq(counts, [7, 0, 0] as Array[int], "the drop: exactly one gets all 7")
 	check_eq(data.drops.size(), 0, "and it is gone")
 	check_eq(r.s.edit_log.size(), 3, "edits: gatherable, drop put, drop removed")
+
+
+## The same race through SessionHost.tick itself: pickups of one gatherable from slots 2 and 1 wait in
+## their input gates (slot 2's member and frame added first); the tick handles members in slot order,
+## so slot 1 gets it and slot 2 finds nothing.
+func _check_tick_order() -> void:
+	var r: Rig = _rig()
+	await await_frames(1)
+	var data: WorldData = r.world.data
+	var herb: Vector2i = _herb_spot(data)
+	r.s.local = _member(r, 0, 1, "paladin", herb + Vector2i(-3, 0))
+	var late: NetMember = _member(r, 2, 102, "archer", herb + Vector2i(0, -1))
+	var early: NetMember = _member(r, 1, 101, "miner", herb + Vector2i(-1, 0))
+	for m: NetMember in [late, early]:
+		var f: NetProtocol.InputFrame = _frame(NetProtocol.Op.PICKUP, herb)
+		m.gate.receive(NetProtocol.decode_inputs(NetProtocol.encode_inputs([f] as Array[NetProtocol.InputFrame])))
+	var id: StringName = WorldItems.gatherable_at(data, herb)
+	r.s.tick = 1
+	r.host.tick(NetBot.Action.new(), Time.get_ticks_msec())
+	var early_picked: int = early.ops_done.get("pickup", 0)
+	var late_picked: int = late.ops_done.get("pickup", 0)
+	var late_nothing: int = late.ops_refused.get(WorldItems.WHY_NOTHING, 0)
+	check(early_picked == 1 and early.player.inventory.count_of(id) == 1,
+		"SessionHost.tick: slot 1 gets the gatherable (%s)" % id)
+	check(late_picked == 0 and late_nothing == 1, "slot 2, whose frame came first, finds nothing there")
+	check(early.gate.last_seq == 1 and late.gate.last_seq == 1, "both frames handled in that tick")
 
 
 # --- drops in the world, snapshot, edit log, view ------------------------------------------
@@ -378,6 +472,27 @@ func _check_drops_in_world() -> void:
 	bad["over MAX_DROPS"] = b
 	for label: String in bad:
 		check(WorldSnapshot.decode_raw(bad[label]) == null, "snapshot refused: drop with %s" % label)
+
+
+## The host's drop bound: with MAX_DROPS on the ground a drop is refused ("too many drops"), and the
+## world at the bound still makes a snapshot a late joiner accepts (decode_raw refuses more).
+func _check_max_drops() -> void:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	for i: int in Config.MAX_DROPS:
+		var at: Vector2i = Vector2i(i % data.size.x, i / data.size.x) * Config.TILE + Vector2i(8, 8)
+		var d: WorldData.Drop = WorldData.Drop.new(data.new_drop_id(), &"stone_a", 1, ItemDB.Grade.NONE, at)
+		data.drops[d.id] = d
+	var feet: Vector2 = _feet(Vector2i(10, 20))
+	var inv: Inventory = Inventory.new()
+	inv.add(&"stone_a", 3)
+	check_eq(WorldItems.drop(data, feet, inv, 0, 1, Vector2i(11, 20)).why, WorldItems.WHY_TOO_MANY,
+		"a drop with %d on the ground: too many drops" % Config.MAX_DROPS)
+	check_eq(inv.count_of(&"stone_a"), 3, "the stones stay in the inventory")
+	var back: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(data))
+	check(back != null and back.drops.size() == Config.MAX_DROPS and back.content_hash() == data.content_hash(),
+		"a world with %d drops round trips in the snapshot" % Config.MAX_DROPS)
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(data)
+	check(packed.bytes.size() > 0 and packed.bytes.size() <= WorldSnapshot.MAX_PACKED, "and packs (%d B)" % packed.bytes.size())
 
 
 func _check_edit_log_and_view() -> void:
@@ -595,7 +710,7 @@ func _check_prediction_with_actions() -> void:
 	hm.gate = InputGate.new()
 	var p2: Prediction = Prediction.new()
 	p2.setup(r2.world.data, start2, RigData.Dir.SOUTH, 0)
-	var use: NetProtocol.InputFrame = _frame(NetProtocol.Op.USE, Aim.cell_of(start2) + Vector2i(1, 0), 0)
+	var use: NetProtocol.InputFrame = _frame(NetProtocol.Op.USE, Aim.feet_cell(start2) + Vector2i(1, 0), 0)
 	use.look = RigData.Dir.EAST
 	use.anim = RigData.Anim.PICKAXE
 	var sent: NetProtocol.InputFrame = p2.step_frame(use)
@@ -610,6 +725,96 @@ func _check_prediction_with_actions() -> void:
 	p2.reconcile(hm.state())
 	check(p2.action_corrections == 1 and p2.sim.action == -1 and p2.sim.same_as(hm.player.to_sim()),
 		"the client is corrected: no action, the host's state")
+
+
+## A client standing still that only aims: the tick its look turns it records a frame (no request,
+## no movement), the host gets it and turns the same way; the following ticks with the same look, and
+## dropping the look, record nothing.
+func _check_look_turns() -> void:
+	var r: Rig = _rig()
+	await await_frames(1)
+	var data: WorldData = r.world.data
+	var start: Vector2 = data.altar_center_px() + Vector2(Config.SPAWN_SLOTS[1])
+	var m: NetMember = r.s.add_member(1, 100, "archer", start, RigData.Dir.SOUTH)
+	m.gate = InputGate.new()
+	var client: Prediction = Prediction.new()
+	client.setup(data, start, RigData.Dir.SOUTH, 0)
+	var recorded: Array[int] = []
+	for look: int in [RigData.Dir.WEST, RigData.Dir.NORTH, RigData.Dir.EAST, -1]:
+		var n: int = 0
+		for t: int in 10:
+			var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new()
+			f.look = look
+			if client.step_frame(f) != null:
+				n += 1
+		recorded.append(n)
+		if client.has_unacked():
+			m.gate.receive(NetProtocol.decode_inputs(NetProtocol.encode_inputs(client.frames_to_send())))
+		for i: int in 4:
+			for hf: NetProtocol.InputFrame in m.gate.take():
+				r.host.run_frame(m, hf)
+		client.reconcile(m.state())
+		var want: int = look if look >= 0 else RigData.Dir.EAST
+		check(client.facing == want and m.player.facing == want,
+			"look %s while standing: client and host face %s" % [look, RigData.DIR_NAMES[want]])
+	check_eq(recorded, [1, 1, 1, 0] as Array[int], "one frame per turn, none for the same look or no look")
+	check(client.facing_corrections == 0 and client.max_error_px == 0.0 and not client.has_unacked(),
+		"no correction, nothing left unacknowledged")
+
+
+## The client's own inventory comes from the host with the ack of the last frame the host handled; the
+## hotbar selections the host has not handled yet (on later frames, or still queued) stay on top, and
+## a selection the host handled (and kept or refused) is the host's.
+func _check_inventory_rebase() -> void:
+	var w: GameWorld = _new_world()
+	var s: NetSession = NetSession.new()
+	s.name = &"TestClientNet"
+	add_node(s)
+	s.set_physics_process(false)  # no client ticks (nothing to send to): only on_inventory is under test
+	s.set_process(false)
+	s.world = w
+	s.options = CliOptions.new()
+	s.role = NetSession.Role.CLIENT
+	s.client = SessionClient.new(s)
+	var start: Vector2 = w.data.altar_center_px() + Vector2(Config.SPAWN_SLOTS[1])
+	s.local = s.add_member(1, 0, "miner", start, RigData.Dir.SOUTH)
+	s.active = true
+	var c: SessionClient = s.client
+	c.prediction = Prediction.new()
+	c.prediction.setup(w.data, start, RigData.Dir.SOUTH, 0)
+	var mine: Inventory = s.local.player.inventory
+	var host_copy: Inventory = Inventory.new()
+	for inv: Inventory in [mine, host_copy]:
+		inv.add(&"pickaxe", 1)
+		inv.add(&"sword", 1)
+		inv.add(&"stone_a", 4)
+	# Q / E on frame 1: predicted at once, the request still unacknowledged.
+	var sel: NetProtocol.InputFrame = NetProtocol.InputFrame.new()
+	sel.op = NetProtocol.Op.SELECT
+	sel.slot = 2
+	mine.select(2)
+	check(c.prediction.step_frame(sel) != null and c.prediction.pending_ops(NetProtocol.Op.SELECT, 0).size() == 1,
+		"the select rides on recorded frame 1")
+	# A pickup's inventory arrives with ack 0 (before the select): new items, the selection stays.
+	host_copy.add(&"wild_buff", 1, ItemDB.Grade.COMMON)
+	c.on_inventory(NetProtocol.encode_inventory(host_copy, 0))
+	check(mine.selected == 2 and mine.count_of(&"wild_buff", ItemDB.Grade.COMMON) == 1,
+		"inventory with an older ack: the picked herb arrives, the pending selection stays (slot %d)" % mine.selected)
+	# A select still queued (not on a frame yet; the client applied it at once) also stays.
+	s.queue_op(Main.request(NetProtocol.Op.SELECT, 4))
+	check_eq(mine.selected, 4, "a queued select applies at once")
+	c.on_inventory(NetProtocol.encode_inventory(host_copy, 0))
+	check_eq(mine.selected, 4, "and stays on top of the host's inventory")
+	# A select needs no request token: it goes on the next frame even with the budget spent.
+	s.local_budget = 0
+	var f2: NetProtocol.InputFrame = NetProtocol.InputFrame.new()
+	SessionHost.attach_local_op(s, s.local.player, f2, NetBot.Action.new())
+	check(f2.op == NetProtocol.Op.SELECT and f2.slot == 4 and s.local_ops.is_empty(), "a queued select is not paced by the budget")
+	# The host handled frame 1 (ack 1) and kept its own selection (it refused it): the host's wins.
+	host_copy.select(0)
+	c.on_inventory(NetProtocol.encode_inventory(host_copy, 1))
+	check_eq(mine.selected, 0, "an inventory whose ack covers the select: the host's selection")
+	check_eq(c.inventories, 3, "three inventories taken")
 
 
 static func _due(queue: Array[Array]) -> int:

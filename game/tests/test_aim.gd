@@ -5,6 +5,9 @@ extends "res://tests/base_test.gd"
 ## and in main.tscn: the mouse at the viewport edges and corners (and over the black bars) of several
 ## window sizes, with the camera centred and clamped at a map corner, gives the aim point, sector,
 ## target tile, facing and marker the rules say. Walking without aim input keeps the M1 facing.
+## The feet tile is the tile under the middle of the feet box (feet on a tile line: the row above).
+## The main.tscn mouse checks inject motion events and hold only headless: in a real window the root
+## viewport reads the OS cursor (a real mouse check is a human item, README).
 
 const S: int = RigData.Dir.SOUTH
 const E: int = RigData.Dir.EAST
@@ -51,14 +54,45 @@ func _check_sectors() -> void:
 
 
 func _check_target_cells() -> void:
-	var feet_list: Array[Vector2] = [Vector2(100.5, 200.25), Vector2(16.0, 32.0), Vector2(15.999, 31.999), Vector2(0.5, 0.5)]
-	var cells: Array[Vector2i] = [Vector2i(6, 12), Vector2i(1, 2), Vector2i(0, 1), Vector2i(0, 0)]
+	var points: Array[Vector2] = [Vector2(100.5, 200.25), Vector2(16.0, 32.0), Vector2(15.999, 31.999), Vector2(0.5, 0.5)]
+	var under: Array[Vector2i] = [Vector2i(6, 12), Vector2i(1, 2), Vector2i(0, 1), Vector2i(0, 0)]
+	for i: int in points.size():
+		check_eq(Aim.cell_of(points[i]), under[i], "point %s lies on tile %s" % [points[i], under[i]])
+	# The feet tile is the tile under the middle of the feet box (FEET_HEIGHT px above the feet point):
+	# feet exactly on a tile line stand on the row above it, where their pixels are drawn.
+	var feet_list: Array[Vector2] = [Vector2(100.5, 200.25), Vector2(16.0, 32.0), Vector2(16.0, 33.999), Vector2(16.0, 34.0),
+		Vector2(15.999, 31.999), Vector2(24.0, 40.0)]
+	var cells: Array[Vector2i] = [Vector2i(6, 12), Vector2i(1, 1), Vector2i(1, 1), Vector2i(1, 2), Vector2i(0, 1), Vector2i(1, 2)]
 	for i: int in feet_list.size():
-		check_eq(Aim.cell_of(feet_list[i]), cells[i], "feet %s stand on tile %s" % [feet_list[i], cells[i]])
+		check_eq(Aim.feet_cell(feet_list[i]), cells[i], "feet %s stand on tile %s" % [feet_list[i], cells[i]])
 		for s: int in 8:
 			check_eq(Aim.target_cell(feet_list[i], s), cells[i] + Aim.SECTOR_OFFSETS[s], "target %s of feet %s" % [
 				Aim.SECTOR_NAMES[s], feet_list[i]])
+	# The drawn feet: the node sits on the rounded feet point and the feet rows are the FEET_HEIGHT
+	# pixel rows above it (frame rows 28..31, ● R20 feet on row 31). The feet tile's row holds at least
+	# half of them wherever the feet stand (every quarter pixel over two tiles), and all of them when
+	# the feet point is on a tile line (spawn slots 0 and 1: y = 768).
+	var majority: int = 0
+	for k: int in 128:
+		var feet: Vector2 = Vector2(40.0, 64.0 + k * 0.25)
+		var bottom: int = roundi(feet.y)
+		var in_row: int = 0
+		for py: int in range(bottom - roundi(Config.FEET_HEIGHT), bottom):
+			if floori(float(py) / Config.TILE) == Aim.feet_cell(feet).y:
+				in_row += 1
+		if in_row * 2 >= roundi(Config.FEET_HEIGHT):
+			majority += 1
+	check_eq(majority, 128, "the feet tile holds most of the drawn feet rows (128 feet heights)")
+	check_eq(Aim.feet_cell(Vector2(962, 768)), Vector2i(60, 47), "feet on the line y=768: the feet tile is row 47 (pixels 764..767)")
+	check_eq(Aim.target_cell(Vector2(962, 768), Aim.Sector.EAST), Vector2i(61, 47), "and the east target is beside them")
 	check_eq(Aim.target_cell(Vector2(8, 8), Aim.Sector.NORTH_WEST), Vector2i(-1, -1), "off the map is reported as is")
+	# A use faces the tile it hits: the look when it points that way, else the tile's direction.
+	check_eq(Aim.use_facing(W, Vector2i(1, 0), S), E, "use east with a west look: faces east")
+	check_eq(Aim.use_facing(S, Vector2i(1, 1), N), S, "use south-east with a south look: south")
+	check_eq(Aim.use_facing(E, Vector2i(1, 1), N), E, "use south-east with an east look: east")
+	check_eq(Aim.use_facing(N, Vector2i(1, 1), W), S, "use south-east with a north look: the diagonal's south")
+	check_eq(Aim.use_facing(-1, Vector2i(-1, 0), S), W, "use west without a look: west")
+	check_eq(Aim.use_facing(-1, Vector2i.ZERO, N), N, "no offset, no look: keeps the facing")
 
 
 func _check_facing() -> void:
@@ -174,7 +208,7 @@ func _check_main_aim() -> void:
 				var to_mouse: Vector2 = player.aim_point - player.sim_position
 				var sector: int = Aim.sector(to_mouse)
 				check_eq(player.aim_sector, sector, "%s: sector" % label)
-				check_eq(player.aim_cell, Aim.cell_of(player.sim_position) + Aim.SECTOR_OFFSETS[sector], "%s: target tile" % label)
+				check_eq(player.aim_cell, Aim.feet_cell(player.sim_position) + Aim.SECTOR_OFFSETS[sector], "%s: target tile" % label)
 				check_eq(player.facing, Aim.facing(to_mouse, player.facing), "%s: faces the mouse" % label)
 				check(player.aim_active, "%s: aiming after the mouse moved" % label)
 				check(main.marker.visible and main.marker.position == Vector2(player.aim_cell * Config.TILE), "%s: marker on the tile" % label)
@@ -185,8 +219,20 @@ func _check_main_aim() -> void:
 				check_eq(seen.size(), 8, "window %s: the viewport edges reach all 8 sectors" % win)
 	note("main aim: %d mouse positions over %d window sizes (view sizes %s)" % [checked, WINDOWS.size(), str(WINDOWS.map(
 		func(w: Vector2i) -> Vector2i: return Aim.view_size(w)))])
-	# Off the map: the marker hides.
 	root.size = old
+	# Spawn slot 0 stands on a tile line: an east aim marks the tile beside the drawn feet (their bottom
+	# pixel row is 1 px above the node), not the one diagonally below.
+	player.teleport(spawn)
+	player.test_aim = Vector2(24, 0)
+	await tree.physics_frame
+	await tree.physics_frame
+	await await_frames(1)
+	check_eq(fposmod(spawn.y, Config.TILE), 0.0, "spawn slot 0's feet point is on a tile line (y = %s)" % spawn.y)
+	var feet_pixel: Vector2i = Vector2i(roundi(player.position.x), roundi(player.position.y) - 1)
+	check_eq(player.aim_cell, Aim.cell_of(Vector2(feet_pixel)) + Vector2i(1, 0), "east aim at spawn: the tile east of the drawn feet")
+	check(main.marker.visible and main.marker.position == Vector2(player.aim_cell * Config.TILE),
+		"the marker is on that tile, in the feet's row (%s)" % main.marker.position)
+	# Off the map: the marker hides.
 	player.teleport(Vector2(6, 60))
 	player.test_aim = Vector2(-20, 0)
 	await tree.physics_frame
@@ -202,27 +248,36 @@ func _centred(main: Main, player: Player) -> bool:
 	return main.camera.get_screen_center_position() == player.position
 
 
-## Without aim input the controls tick walks and faces exactly like apply_input (M1); with aim input
-## the facing follows the mouse while walking the other way.
+## Without aim input the controls tick walks and faces exactly like M1's apply_input, written out here
+## as M1 had it (Movement.step, then Movement.facing_for, walking = any input), so a change to the
+## shared frame rule (PlayerSim.step) shows; with aim input the facing follows the mouse while walking
+## the other way.
 func _check_walk_facing_without_aim() -> void:
 	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
-	var a: Player = Player.new()
 	var b: Player = Player.new()
 	var start: Vector2 = data.altar_center_px() + Vector2(Config.SPAWN_SLOTS[0])
-	a.setup(data, "miner", start)
 	b.setup(data, "miner", start)
+	var m1_pos: Vector2 = start
+	var m1_facing: int = RigData.Dir.SOUTH
+	var m1_walking: bool = false
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 11
 	var input: Vector2i = Vector2i.ZERO
 	var same: int = 0
+	var diagonals: int = 0
 	for t: int in 600:
 		if t % 15 == 0:
 			input = Vector2i(rng.randi_range(-1, 1), rng.randi_range(-1, 1))
-		a.apply_input(input, Config.NET_TICK)
+		if input.x != 0 and input.y != 0:
+			diagonals += 1
+		m1_pos = Movement.step(data, m1_pos, input, Config.NET_TICK)
+		m1_facing = Movement.facing_for(input, m1_facing)
+		m1_walking = input != Vector2i.ZERO
 		b.tick_controls(input, start + Vector2(-500, -500), false, false, false, Config.NET_TICK)
-		if a.sim_position == b.sim_position and a.facing == b.facing and a.walking == b.walking:
+		if m1_pos == b.sim_position and m1_facing == b.facing and m1_walking == b.walking:
 			same += 1
-	check_eq(same, 600, "600 ticks without aim input: same position, facing and walking as M1 apply_input")
+	check_eq(same, 600, "600 ticks without aim input: same position, facing and walking as M1 (Movement.step + facing_for)")
+	check(diagonals > 100, "the walk had diagonal ticks (%d), where M1 keeps the current axis" % diagonals)
 	b.tick_controls(Vector2i(1, 0), b.sim_position + Vector2(-50, 3), true, false, false, Config.NET_TICK)
 	check_eq(b.facing, W, "aiming west while walking east faces west")
 	check(b.walking, "and walks")
@@ -230,7 +285,6 @@ func _check_walk_facing_without_aim() -> void:
 	check_eq(b.facing, E, "aim input gone: faces the walking direction again")
 	b.tick_controls(Vector2i.ZERO, b.sim_position + Vector2(0, -40), false, true, true, Config.NET_TICK)
 	check_eq(b.facing, N, "holding use aims even without mouse movement")
-	a.free()
 	b.free()
 
 

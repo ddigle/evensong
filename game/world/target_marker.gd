@@ -4,7 +4,8 @@ extends Node2D
 ## (Player.aim_cell, actors/aim.gd). Drawn in code in brief §4 colours: faith gold brackets with an
 ## ash black inner edge, no cool greys. Unshaded so the evening does not hide it (like the debug
 ## lines). Main puts it between the ground and the y-sorted entities, so characters cover it.
-## Shown while the player aims and the tile is on the map (IMPL).
+## Shown while the player aims and the tile is on the map (IMPL); while a body action plays it marks
+## the action's tile (Player.action_cell), which the mouse no longer moves.
 
 const GOLD: Color = Color8(0xf4, 0xc9, 0x5d)   # brief §4 faith
 const EDGE: Color = Color8(0x1a, 0x17, 0x14)   # brief §4 base (ash black)
@@ -26,10 +27,13 @@ func _process(_delta: float) -> void:
 	refresh()
 
 
-## Follows the player's aim now (Main also calls it after setting things up).
+## Follows the player's aim now (Main also calls it after setting things up). While a body action
+## plays it stays on the action's tile (the target is fixed when the action starts), not on the mouse.
 func refresh() -> void:
 	var on: bool = player != null and is_instance_valid(player) and player.controls and player.aim_active
-	var cell: Vector2i = player.aim_cell if on else Vector2i.ZERO
+	var cell: Vector2i = Vector2i.ZERO
+	if on:
+		cell = player.action_cell if player.action_anim >= 0 else player.aim_cell
 	if on and map_cells != Vector2i.ZERO:
 		on = cell.x >= 0 and cell.y >= 0 and cell.x < map_cells.x and cell.y < map_cells.y
 	visible = on
