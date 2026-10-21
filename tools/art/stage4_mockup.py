@@ -24,6 +24,11 @@
   rules       손질 2의 채택 후보 전부에 손질 규칙 검사 (색 수, 밝기, 차가운 회색, 반투명, 외곽선)
   all         위 모두 (rules 제외)
 
+검토 뒤 고침 (s4, 2026-10-22, 생성 없음. 기록은 prompts.md "본 제작 손질 2" ### 검토 뒤 고침 (s4)):
+  scale 라벨만 고침(sack_b 묶음의 작은 자루 = "sack_small v03 14 (new)", 깨진 통 v04 = "(rejected)"). 그림은 그대로다.
+  SWAP, surface5(day, eve_name), dungeon6(out), scale_compare(rows, out, head, guides)는 tools/art/stage4_fix6.py가
+  같은 배치로 새 판(stage4_mockup_v06_*, stage4_dungeon_v07, stage4_s4_compare)을 만들 때 쓴다. 기본값이면 위 출력과 같다.
+
 화면은 480x270 (game-concept §7, R31). 캐릭터는 03-pixel 기본 몸 걷기 v02 첫 프레임 + 표식 레이어
 (R27 방식: 레이어는 v01 걷기 첫 프레임에 그렸으므로 남 +4, 동 +3, 북 +4 내려 붙인다. 서쪽은 동쪽 합성의 좌우 반전).
 """
@@ -865,10 +870,16 @@ GLOW_V5 = {
 }
 
 
+# file swaps for later boards built from the same layout (s4 `stage4_fix6.py boards`: shortened barrels / sack,
+# dungeon props v04). Empty by default, so surface5 / dungeon6 still write the s3 files byte for byte.
+SWAP = {}
+
+
 class Scene5(Scene):
     """Scene with multi-flame light props and lit lanterns. put5 returns the canvas top-left."""
 
     def put5(self, name, x, foot, phase=0):
+        name = SWAP.get(name, name)
         im = load(name)
         em = None
         if name in LIGHTS_V5:
@@ -997,19 +1008,19 @@ def surface5_scene(lit):
     return base, emis, lights
 
 
-def surface5():
+def surface5(day="stage4_mockup_v05_day", eve_name="stage4_mockup_v05_eve"):
     base, _, _ = surface5_scene(False)
-    finish(base.crop((0, 0, SW, SH)), "stage4_mockup_v05_day")
+    finish(base.crop((0, 0, SW, SH)), day)
     base, emis, lights = surface5_scene(True)
     h, w = base.height, base.width
     edge_px = np.array([ASH_EDGE[min(len(ASH_EDGE) - 1, int(y // 16))] * 16 for y in range(h)], float)
     xx = np.arange(w)[None, :].astype(float)
     ash_amt = np.clip((xx - (edge_px[:, None] - 12)) / 20.0, 0, 1)
     eve = darken(base, emis, lights, ash_amt).crop((0, 0, SW, SH))
-    finish(eve, "stage4_mockup_v05_eve")
+    finish(eve, eve_name)
 
 
-def dungeon6():
+def dungeon6(out="stage4_dungeon_v06"):
     full = Image.new("RGBA", (SW, 272), OUT)
     allem = Image.new("RGBA", (SW, 272), T)
     dungeon_left(full, allem)          # 왼쪽 판(지상의 던전 입구)은 v05와 같다
@@ -1055,7 +1066,7 @@ def dungeon6():
     rb, re_ = sc.render(g)
     paste(full, rb, (160, 0))
     paste(allem, re_, (160, 0))
-    finish(full.crop((0, 0, SW, SH)), "stage4_dungeon_v06")
+    finish(full.crop((0, 0, SW, SH)), out)
 
 
 # =====================================================================================
@@ -1103,13 +1114,38 @@ def _strip_sprite(name):
     return im.crop((x0, y0, x1 + 1, y1 + 1))
 
 
-def scale_compare():
+SCALE_HEAD = ("stage 4 scale: old v02 (left of each group) -> new v03/v04, character 28 px "
+              "(gold dashes), one tile 16 px (pale dashes), 3x. Numbers = version and opaque height of the file in px (flames not counted).")
+SCALE_GUIDES = ((None, (244, 201, 93)), (16, (239, 227, 198)))     # None = character height
+
+
+def _ver_base(n):
+    """('prop_sack_small', 'v03') for 'prop_sack_small_v03'; suffixes such as _lit stay out of the base."""
+    head, _, tail = n.rpartition("_v")
+    return head, "v" + tail[:2]
+
+
+def _scale_tag(n, n0, h):
+    """label part of one sprite. s4 fix: a member that is another file (sack_small next to sack_b) is named and
+    marked (new), and a dropped candidate (RULES_DROPPED) is marked (rejected)."""
+    if n == "char":
+        return f"{h}"
+    tag = f"{n[-3:]} {h}"
+    base, ver = _ver_base(n)
+    if base != _ver_base(n0)[0]:
+        tag = f"{base.replace('prop_', '')} {ver} {h} (new)"
+    if f"{n}.png" in RULES_DROPPED:
+        tag += " (rejected)"
+    return tag
+
+
+def scale_compare(rows=None, out="stage4_scale_compare_v01.png", head=SCALE_HEAD, guides=SCALE_GUIDES):
     k = 3
     fnt = ImageFont.load_default(size=13)     # Pillow's bundled font: same bytes with the pinned pillow
     fl_e = (255, 246, 220)
     rows_img = []
     floor = load("tiles_dungeon_v02.png").crop((32, 32, 48, 48))
-    for ground, groups in SCALE_ROWS:
+    for ground, groups in rows or SCALE_ROWS:
         sprites = [[(n, _strip_sprite(n)) for n in g] for g in groups]
         top = max(im.height for grp in sprites for _, im in grp)
         H = top + 14
@@ -1130,10 +1166,10 @@ def scale_compare():
             for n, im in grp:
                 paste(g, im, (x, base_y - im.height))
                 if n == "char":
-                    hs.append(f"{im.height}")
+                    hs.append(_scale_tag(n, n, im.height))
                 else:
                     _, y0, _, y1 = bbox(load(f"{n}.png"))
-                    hs.append(f"{n[-3:]} {y1 - y0 + 1}")
+                    hs.append(_scale_tag(n, grp[0][0], y1 - y0 + 1))
                 x += im.width + 3
             x += 10 - 3
             n0 = grp[0][0]
@@ -1141,10 +1177,10 @@ def scale_compare():
                            else n0.replace("prop_", "")[:-4] + ": " + " -> ".join(hs)))
         big = up(g, k)
         d = ImageDraw.Draw(big)
-        # dashed guides: character height (28) and one tile (16) above the ground line
+        # dashed guides: character height (28) and one tile (16) above the ground line (+ any extra guides)
         ch_h = _strip_sprite("char").height
-        for hgt, col in ((ch_h, (244, 201, 93)), (16, (239, 227, 198))):
-            yy = (base_y - hgt) * k
+        for hgt, col in guides:
+            yy = (base_y - (ch_h if hgt is None else hgt)) * k
             for xx in range(0, big.width, 12):
                 d.line((xx, yy, xx + 5, yy), fill=col, width=1)
         band = Image.new("RGBA", (big.width, 34), (26, 23, 20, 255))
@@ -1156,17 +1192,15 @@ def scale_compare():
         paste(blk, big, (0, band.height))
         rows_img.append(blk)
     W = max(r.width for r in rows_img) + 20
-    head = Image.new("RGBA", (W, 30), (26, 23, 20, 255))
-    ImageDraw.Draw(head).text((10, 8), "stage 4 scale: old v02 (left of each group) -> new v03/v04, character 28 px "
-                                       "(gold dashes), one tile 16 px (pale dashes), 3x. Numbers = version and opaque height of the file in px (flames not counted).",
-                              font=fnt, fill=(239, 227, 198))
-    out = Image.new("RGBA", (W, head.height + sum(r.height + 8 for r in rows_img)), (26, 23, 20, 255))
-    paste(out, head, (0, 0))
-    y = head.height
+    hd = Image.new("RGBA", (W, 30), (26, 23, 20, 255))
+    ImageDraw.Draw(hd).text((10, 8), head, font=fnt, fill=(239, 227, 198))
+    sheet = Image.new("RGBA", (W, hd.height + sum(r.height + 8 for r in rows_img)), (26, 23, 20, 255))
+    paste(sheet, hd, (0, 0))
+    y = hd.height
     for r in rows_img:
-        paste(out, r, (10, y))
+        paste(sheet, r, (10, y))
         y += r.height + 8
-    save(out.convert("RGB"), "stage4_scale_compare_v01.png")
+    save(sheet.convert("RGB"), out)
 
 
 # =====================================================================================

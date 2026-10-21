@@ -3,7 +3,7 @@
 # dependencies = ["pillow==11.3.0", "numpy==2.3.3"]
 # ///
 """4단계 소품 크기 고침 (s1, 2026-10-22): size-24 re-generation of the small real-world props of the size-32 bundle.
-기록: assets/concept/04-env/_records/s1.md (prompts.md에는 통합 때 옮긴다).
+기록: assets/concept/04-env/prompts.md "## 본 제작 손질 2" ### 1. 작은 소품 크기 (s1). (처음 적었던 _records/s1.md는 커밋되지 않았다.)
 
 usage (어디서 돌려도 된다. 경로는 이 파일 기준):
     uv run -q --python 3.14.6 --with pillow==11.3.0 --with numpy==2.3.3 python -I tools/art/stage4_props24.py

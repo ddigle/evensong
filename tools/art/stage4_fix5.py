@@ -3,7 +3,8 @@
 # dependencies = ["pillow==11.3.0", "numpy==2.3.3"]
 # ///
 """4단계 약한 것 손질 (s2, brief §5.7 손질 규칙). 생성 없음, 손으로 고침.
-기록: assets/concept/04-env/_records/s2.md (prompts.md "본 제작" 4절 "4. 약한 것"에서 고른 것).
+기록: assets/concept/04-env/prompts.md "## 본 제작 손질 2" ### 2. 손질 (s2). 고친 것은 "본 제작" 4절 "4. 약한 것"에서 골랐다.
+(처음 적었던 _records/s2.md는 커밋되지 않았다.)
 
 Run (paths are relative to this file, any cwd):
   uv run -q --python 3.14.6 --with pillow==11.3.0 --with numpy==2.3.3 python -I \
