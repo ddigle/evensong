@@ -37,13 +37,24 @@ func setup(script: String) -> void:
 		bot.parse(script)
 
 
+## This tick's local input: the bot's (once started), or the keys, the mouse and the use button.
 func local_action() -> NetBot.Action:
+	var p: Player = s.local.player if s.local != null else null
+	var feet: Vector2 = p.sim_position if p != null else Vector2.ZERO
 	if bot != null:
 		if bots_started:
-			return bot.step()
-		return NetBot.Action.new()
+			return bot.step(feet)
+		var idle: NetBot.Action = NetBot.Action.new()
+		idle.mouse = feet
+		return idle
 	var a: NetBot.Action = NetBot.Action.new()
 	a.dir = Player.read_input()
+	a.mouse = feet
+	if p != null and p.controls:
+		a.mouse = p.mouse_world()
+		a.aiming = p.mouse_aiming()
+		a.use_pressed = Input.is_action_just_pressed(&"use_item")
+		a.use_held = Input.is_action_pressed(&"use_item")
 	return a
 
 

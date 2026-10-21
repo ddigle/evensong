@@ -12,6 +12,10 @@ extends RefCounted
 ##      touching each other.
 ##   3. Ash: Config.ASH_ZONE_COUNT fixed corruption zones (noise-ragged discs) whose cells all lie
 ##      at least ASH_CLEARANCE_TILES outside the safe radius. CORRUPTION = zone id (1..).
+##   4. Gatherables (M2b, VEGETATION = WorldItems value): Config.GATHER_ON_GRASS on clean grass and
+##      Config.GATHER_ON_ASH on ash, in that order and count, every one with its cell centre at least
+##      GATHER_CLEARANCE_TILES beyond the safe radius, at least 2 cells from the map edge (so every
+##      side can be reached), and none in the 8 cells around another (PROVISIONAL counts and places).
 ##   Everything else is grass. Soil and ash never share a display cell (WorldData.set_terrain
 ##   refuses it, and the distances keep them far apart anyway).
 
@@ -21,7 +25,9 @@ const MAX_ATTEMPTS: int = 200
 ## and --smoke on another machine shows whether that machine generates the same world); whether
 ## the rules hold is checked separately over many seeds. When the generator or its constants
 ## change on purpose, update it (the failure prints the new value).
-const GOLDEN_HASH: String = "e04258e54b02b0ed09ce02c9a92c11a8"
+const GOLDEN_HASH: String = "ff2e1d90c4dc12d6dfad926584d440d0"
+## Cells kept free between a gatherable and the map edge (PROVISIONAL, Config).
+const GATHER_EDGE: int = Config.GATHER_EDGE_TILES
 
 ## Test only (--test-perturb-generator, set by the Cli autoload before the world is generated):
 ## shifts the ash edge noise seed, so this process generates a different world from the same seed,
@@ -38,6 +44,8 @@ static func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> World
 	_place_altar(data)
 	_place_soil(data, rng)
 	_place_ash(data, rng)
+	_place_gatherables(data, rng, Config.GATHER_ON_GRASS, Terrain.GRASS)
+	_place_gatherables(data, rng, Config.GATHER_ON_ASH, Terrain.ASH)
 	return data
 
 
@@ -133,3 +141,48 @@ static func _fill_zone(data: WorldData, noise: FastNoiseLite, c: Vector2i, radiu
 				continue
 			if data.set_terrain(cell, Terrain.ASH):
 				data.set_value(WorldData.Layer.CORRUPTION, cell, zone_id)
+
+
+## Whether a gatherable may lie on cell `c` of ground `terrain` (step 4 of the class comment).
+static func gatherable_spot_ok(data: WorldData, c: Vector2i, terrain: int) -> bool:
+	if c.x < GATHER_EDGE or c.y < GATHER_EDGE or c.x >= data.size.x - GATHER_EDGE or c.y >= data.size.y - GATHER_EDGE:
+		return false
+	if data.terrain_at(c) != terrain or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE:
+		return false
+	var min_px: float = Config.safe_radius_px() + Config.GATHER_CLEARANCE_TILES * Config.TILE
+	if ((Vector2(c) + Vector2(0.5, 0.5)) * Config.TILE).distance_to(data.altar_center_px()) < min_px:
+		return false
+	for oy: int in range(-1, 2):
+		for ox: int in range(-1, 2):
+			if data.get_value(WorldData.Layer.VEGETATION, c + Vector2i(ox, oy)) != 0:
+				return false
+	return true
+
+
+static func _place_gatherables(data: WorldData, rng: RandomNumberGenerator, counts: Dictionary[StringName, int],
+		terrain: int) -> void:
+	if data.size.x <= 2 * GATHER_EDGE or data.size.y <= 2 * GATHER_EDGE:
+		return
+	# Grass is most of the map: random cells. Ash is a few hundred cells: random picks from a list of
+	# them (random map cells would mostly miss).
+	var candidates: Array[Vector2i] = []
+	if terrain != Terrain.GRASS:
+		var floor_grid: PackedByteArray = data.layers[WorldData.Layer.FLOOR]
+		for i: int in floor_grid.size():
+			if floor_grid[i] == terrain:
+				candidates.append(Vector2i(i % data.size.x, i / data.size.x))
+		if candidates.is_empty():
+			return
+	for id: StringName in counts:
+		var value: int = WorldItems.value_of(id)
+		for n: int in counts[id]:
+			for attempt: int in MAX_ATTEMPTS:
+				var c: Vector2i = Vector2i.ZERO
+				if candidates.is_empty():
+					c = Vector2i(rng.randi_range(GATHER_EDGE, data.size.x - GATHER_EDGE - 1),
+						rng.randi_range(GATHER_EDGE, data.size.y - GATHER_EDGE - 1))
+				else:
+					c = candidates[rng.randi_range(0, candidates.size() - 1)]
+				if gatherable_spot_ok(data, c, terrain):
+					data.set_value(WorldData.Layer.VEGETATION, c, value)
+					break

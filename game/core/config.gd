@@ -75,6 +75,57 @@ const NET_UNIQUE_CLASSES: bool = false
 ## this way.
 const SPAWN_FACING: RigData.Dir = RigData.Dir.SOUTH
 
+# --- PROVISIONAL, M2a (items, hotbar, aim, body actions) ------------------------------------
+
+## PROVISIONAL (not in docs; gameplay-design §1 ○ only says weapons and tools are switched on the
+## hotbar with Q / E): hotbar slots per player.
+const HOTBAR_SLOTS: int = 8
+## PROVISIONAL (not in docs): inventory slots per player; the hotbar is the first HOTBAR_SLOTS of them.
+const INVENTORY_SLOTS: int = 24
+## PROVISIONAL (not in docs): stack size per item kind (items/item_db.gd).
+const STACK_TOOL: int = 1
+const STACK_MATERIAL: int = 99
+const STACK_GATHERABLE: int = 99
+## PROVISIONAL (not in docs; ● gameplay-design §2.1 R12 only decides the aim type, "에임형 (마우스
+## 방향 스킬샷)"): the player faces the mouse while aiming = the use button held, an action
+## playing, or the mouse moved within the last AIM_HOLD_SEC seconds. Otherwise the facing follows
+## the movement as in M1 (Movement.facing_for).
+const AIM_HOLD_SEC: float = 1.0
+## PROVISIONAL (not in docs): length of one body action frame in simulation ticks (6 = 0.1 s). An
+## action lasts its frame count times this (pickaxe 0.6 s, sword 0.8 s, throw 0.7 s).
+const ACTION_FRAME_TICKS: int = 6
+## PROVISIONAL (not in docs): a body action locks movement (and the facing) until it ends.
+const ACTION_LOCKS_MOVEMENT: bool = true
+## PROVISIONAL (○ gameplay-design §3.2 "홀드하면 연속", said for mining): holding the use button
+## starts the action again as soon as it ends.
+const ACTION_REPEAT_WHILE_HELD: bool = true
+
+# --- PROVISIONAL, M2b (gatherables, drops, pickup) ------------------------------------------
+
+## PROVISIONAL (○ brief §5.7 slice range "야생 약초·균류 채집물" and game-concept §12 name the wild
+## herbs and fungi, not how many or where; the stones are not in the docs: the agent took them from
+## the 04-env/prompts.md batch label "칸 0~19 채집물"): gatherables SurfaceGen scatters over clean
+## grass outside the altar light, per item id, in this order. The three wild herbs (the herbs of the
+## ● R28 crops: healing, buff, poison; wild ones are the agent's reading of "야생 약초"), the four
+## clean mushrooms and the four clean stones. The herb clump is an item but is not scattered.
+const GATHER_ON_GRASS: Dictionary[StringName, int] = {
+	&"wild_healing": 8, &"wild_buff": 8, &"wild_poison": 8,
+	&"mushroom_a": 4, &"mushroom_b": 4, &"mushroom_c": 4, &"mushroom_d": 4,
+	&"stone_a": 6, &"stone_b": 5, &"stone_c": 5, &"stone_mossy": 4,
+}
+## PROVISIONAL (04-env/prompts.md marks these three "오염 쪽"; counts not in docs): gatherables on ash.
+const GATHER_ON_ASH: Dictionary[StringName, int] = {&"mushroom_ash": 6, &"stone_veined": 4, &"stone_mould": 4}
+## PROVISIONAL (not in docs; the stage-4 mockups put the gatherables outside the light, the fields
+## inside): gatherables lie at least this many tiles beyond the safe radius (cell centres).
+const GATHER_CLEARANCE_TILES: int = 1
+## PROVISIONAL (not in docs): gatherables lie at least this many tiles inside the map edge
+## (SurfaceGen.gatherable_spot_ok).
+const GATHER_EDGE_TILES: int = 2
+## PROVISIONAL (○ gameplay-design §3.2 "마우스 방향의 인접 타일", said for mining; §3.4 ○ "F로 식물·드롭
+## 줍기"): F, a use and the debug drop act on the target tile, which must be within this many tiles
+## (Chebyshev) of the feet tile and not the feet tile itself. The host refuses anything further.
+const REACH_TILES: int = 1
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -133,6 +184,24 @@ const NET_TRANSPORT_PEER_LIMIT: int = 16
 ## batch for seconds (measured, H-fix). M1 traffic is small (at most about 23 KB/s for 9 players), so
 ## the throttle never lowers: deceleration 0. Interval and acceleration are ENet's defaults.
 const NET_ENET_THROTTLE: Vector3i = Vector3i(5000, 2, 0)
+## IMPL (M2b): a player's requests ride on its input frames (one per frame). Pick up, drop and give:
+## the host takes at most one every NET_OP_INTERVAL_TICKS ticks per player, with a burst of
+## NET_OP_BURST, and refuses the rest as "rate". A use is bounded by the action it starts (one at a
+## time; a refused use costs a check and a counter), a hotbar select by the frames themselves (it
+## changes no world state, and a client predicts it, so a "rate" refusal would leave its hotbar
+## wrong). Ten a second is above anyone pressing keys and well below a client spamming every frame.
+const NET_OP_INTERVAL_TICKS: int = 6
+const NET_OP_BURST: int = 4
+## IMPL (M2b): local requests (keys, --give) waiting for a frame (NetSession.queue_op); one beyond
+## this is dropped and logged. A client's --give list of the debug kit's 23 items fits.
+const NET_LOCAL_OPS_MAX: int = 64
+## IMPL (M2b): the host logs a member's refused requests per reason: the first this many, then every
+## NET_REFUSAL_LOG_EVERY-th (with the count). The counters (results) count every one.
+const NET_REFUSAL_LOG_FIRST: int = 8
+const NET_REFUSAL_LOG_EVERY: int = 60
+## IMPL (M2b): most items lying on the ground at once (a debug drop beyond it is refused), so a
+## spamming client cannot grow the world or the late-join snapshot without bound.
+const MAX_DROPS: int = 256
 ## IMPL: a join that has not been welcomed after this long fails (ENet itself gives up after ~31 s).
 const NET_CONNECT_TIMEOUT_SEC: float = 10.0
 ## IMPL: the host drops a connection that has not said hello after this long, and a refused one

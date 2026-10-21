@@ -13,7 +13,7 @@ const Runner := preload("res://tests/run_all.gd")
 const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_hello": NetProtocol.CH_CONTROL, "_rpc_world": NetProtocol.CH_CONTROL, "_rpc_welcome": NetProtocol.CH_CONTROL,
 	"_rpc_refused": NetProtocol.CH_CONTROL, "_rpc_joined": NetProtocol.CH_CONTROL,
-	"_rpc_left": NetProtocol.CH_CONTROL, "_rpc_edit": NetProtocol.CH_CONTROL,
+	"_rpc_left": NetProtocol.CH_CONTROL, "_rpc_edit": NetProtocol.CH_CONTROL, "_rpc_inventory": NetProtocol.CH_CONTROL,
 	"_rpc_keyframe": NetProtocol.CH_CONTROL, "_rpc_go": NetProtocol.CH_CONTROL,
 	"_rpc_done": NetProtocol.CH_CONTROL, "_rpc_finish": NetProtocol.CH_CONTROL,
 	"_rpc_input": NetProtocol.CH_INPUT, "_rpc_state": NetProtocol.CH_STATE,
@@ -51,20 +51,24 @@ func run() -> Array[String]:
 
 func _check_frame_codes() -> void:
 	var seen: Dictionary[int, bool] = {}
+	for look: int in range(-1, 4):
+		for dy: int in range(-1, 2):
+			for dx: int in range(-1, 2):
+				var code: int = NetProtocol.frame_code(Vector2i(dx, dy), look)
+				seen[code] = true
+				var f: NetProtocol.InputFrame = NetProtocol.frame_from_code(code, 7)
+				check(f != null and f.dir == Vector2i(dx, dy) and f.look == look and f.seq == 7, "code %d round trip" % code)
+	check_eq(seen.size(), NetProtocol.CODE_COUNT, "45 distinct codes (9 directions x (no look + 4 looks))")
+	check_eq(NetProtocol.CODE_COUNT, 45, "a frame code is still one byte: direction + look (M2b)")
 	for dy: int in range(-1, 2):
 		for dx: int in range(-1, 2):
-			var code: int = NetProtocol.frame_code(Vector2i(dx, dy))
-			seen[code] = true
-			var f: NetProtocol.InputFrame = NetProtocol.frame_from_code(code, 7)
-			check(f != null and f.dir == Vector2i(dx, dy) and f.seq == 7, "code %d round trip" % code)
-	check_eq(seen.size(), NetProtocol.CODE_COUNT, "9 distinct codes (8 ways + none)")
-	check_eq(NetProtocol.CODE_COUNT, 9, "a frame code is the direction only: no facing on the wire")
-	check(not ("facing" in NetProtocol.InputFrame.new()), "input frames carry no facing (the host derives it)")
+			check(NetProtocol.frame_code(Vector2i(dx, dy)) < 9, "without a look a frame is an M1 code (0..8)")
+	check(not ("facing" in NetProtocol.InputFrame.new()), "input frames carry no facing of their own (look = aim, or -1)")
 	var accepted: int = 0
 	for code: int in range(NetProtocol.CODE_COUNT, 256):
 		if NetProtocol.frame_from_code(code, 1) != null:
 			accepted += 1
-	check_eq(accepted, 0, "codes 9..255 are not frames (also the old facing codes)")
+	check_eq(accepted, 0, "codes 45..255 are not frames")
 	check_eq(NetProtocol.frame_code(Vector2i(5, -9)), NetProtocol.frame_code(Vector2i(1, -1)),
 		"a longer direction is clamped to -1..1")
 
@@ -81,7 +85,7 @@ func _check_inputs_codec() -> void:
 		check(p.frames[i].seq == 1000 + i and p.frames[i].dir == frames[i].dir, "input frame %d round trip" % i)
 	var bad: PackedByteArray = bytes.duplicate()
 	bad[NetProtocol.INPUT_HEADER + 2] = 200
-	bad[NetProtocol.INPUT_HEADER + 3] = 9 + 4  # what "east, facing east" used to be
+	bad[NetProtocol.INPUT_HEADER + 3] = NetProtocol.CODE_COUNT
 	p = NetProtocol.decode_inputs(bad)
 	check(p.ok and p.frames.size() == 3 and p.bad_frames == 2 and p.frames[2].seq == 1004,
 		"invalid codes drop those frames only (their seq stays used)")
@@ -93,6 +97,85 @@ func _check_inputs_codec() -> void:
 	big.resize(NetProtocol.INPUT_HEADER + Config.NET_MAX_FRAMES_PER_PACKET + 1)
 	big[4] = Config.NET_MAX_FRAMES_PER_PACKET + 1
 	check(not NetProtocol.decode_inputs(big).ok, "input packet over the frame limit")
+	_check_request_codec()
+
+
+## M2b: requests ride on frames (one per frame, after the codes), round trip exactly, and every
+## malformed request section is refused as a whole.
+func _check_request_codec() -> void:
+	var frames: Array[NetProtocol.InputFrame] = []
+	for i: int in 8:
+		frames.append(NetProtocol.InputFrame.new(50 + i, Vector2i(i % 3 - 1, 0)))
+	frames[1].look = RigData.Dir.WEST
+	frames[1].op = NetProtocol.Op.USE
+	frames[1].slot = 3
+	frames[1].cell = Vector2i(127, 95)
+	frames[2].op = NetProtocol.Op.PICKUP
+	frames[2].cell = Vector2i(-1, 6)  # a target tile off the map's west edge (feet in column 0): signed
+	frames[4].op = NetProtocol.Op.SELECT
+	frames[4].slot = 7
+	frames[5].op = NetProtocol.Op.DROP
+	frames[5].slot = 23
+	frames[5].count = 0
+	frames[5].cell = Vector2i(300, 2)
+	frames[7].op = NetProtocol.Op.GIVE
+	frames[7].item_index = WorldItems.GIVE_KIT
+	frames[7].count = 9
+	frames[7].grade = ItemDB.Grade.FINE
+	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
+	var ops_bytes: int = 1 + (2 + 5) + (2 + 4) + (2 + 1) + (2 + 6) + (2 + 3)
+	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 8 + ops_bytes, "8 frames + 5 requests = header + 8 B + %d B" % ops_bytes)
+	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
+	var same: bool = p.ok and p.frames.size() == 8
+	for i: int in mini(p.frames.size(), 8):
+		same = same and p.frames[i].same_request(frames[i]) and p.frames[i].look == frames[i].look and p.frames[i].dir == frames[i].dir
+	check(same, "every request round trips with its frame")
+	var plain: Array[NetProtocol.InputFrame] = [NetProtocol.InputFrame.new(1, Vector2i(1, 0))]
+	check_eq(NetProtocol.encode_inputs(plain).size(), NetProtocol.INPUT_HEADER + 1, "no request: no request section (M1 size)")
+	# Every truncation of the request section is refused.
+	var short_ok: int = 0
+	for n: int in range(NetProtocol.INPUT_HEADER + 9, bytes.size()):
+		if NetProtocol.decode_inputs(bytes.slice(0, n)).ok:
+			short_ok += 1
+	check_eq(short_ok, 0, "every truncated request section is refused (%d lengths)" % (bytes.size() - NetProtocol.INPUT_HEADER - 9))
+	var at: int = NetProtocol.INPUT_HEADER + 8
+	var cases: Dictionary[String, PackedByteArray] = {}
+	var b: PackedByteArray = bytes.duplicate()
+	b[at] = 0
+	cases["request count 0"] = b
+	b = bytes.duplicate()
+	b[at] = 9
+	cases["more requests than frames"] = b
+	b = bytes.duplicate()
+	b[at + 1] = 8
+	cases["request on frame 8 of 8"] = b
+	b = bytes.duplicate()
+	b[at + 1 + 7] = 1  # second request on frame 1 again (indices must rise)
+	cases["two requests on one frame"] = b
+	b = bytes.duplicate()
+	b[at + 2] = NetProtocol.OP_SIZES.size()
+	cases["unknown request kind"] = b
+	b = bytes.duplicate()
+	b[at + 3] = Config.HOTBAR_SLOTS  # use: slot outside the hotbar
+	cases["use slot outside the hotbar"] = b
+	b = bytes.duplicate()
+	b.append(0)
+	cases["trailing byte"] = b
+	var give_at: int = bytes.size() - 3
+	b = bytes.duplicate()
+	b[give_at] = ItemDB.count()
+	cases["give: unknown item"] = b
+	b = bytes.duplicate()
+	b[give_at + 2] = ItemDB.GRADE_NAMES.size()
+	cases["give: unknown grade"] = b
+	for label: String in cases:
+		check(not NetProtocol.decode_inputs(cases[label]).ok, "refused: %s" % label)
+	# A bad frame code drops that frame and its request, the rest stays.
+	var bad: PackedByteArray = bytes.duplicate()
+	bad[NetProtocol.INPUT_HEADER + 2] = 200
+	p = NetProtocol.decode_inputs(bad)
+	check(p.ok and p.frames.size() == 7 and p.bad_frames == 1 and p.frames[1].op == NetProtocol.Op.USE
+		and p.frames[2].op == NetProtocol.Op.NONE and p.frames[2].seq == 53, "a bad code drops its frame and request only")
 
 
 func _check_states_codec() -> void:
@@ -104,10 +187,14 @@ func _check_states_codec() -> void:
 		s.facing = i % 4
 		s.walking = i % 2 == 0
 		s.ack = 4000000000 - i
+		if i % 3 == 0:
+			s.action = RigData.ACTION_ANIMS[i % RigData.ACTION_ANIMS.size()]
+			s.action_tick = PlayerSim.action_ticks(s.action) - 1 - i
+		s.held = ItemDB.id_at(i * 2) if i < 8 else &""
 		states.append(s)
 	var bytes: PackedByteArray = NetProtocol.encode_states(123456, states)
 	check_eq(bytes.size(), NetProtocol.STATE_HEADER + NetProtocol.STATE_SIZE * Config.MAX_PLAYERS,
-		"9-player batch = 5 + 9 x 14 B")
+		"9-player batch = 5 + 9 x 16 B (M2b: + action frames, held item)")
 	var b: NetProtocol.StateBatch = NetProtocol.decode_states(bytes)
 	check(b.ok and b.tick == 123456 and b.states.size() == Config.MAX_PLAYERS, "state batch decodes")
 	var exact: bool = true
@@ -123,6 +210,18 @@ func _check_states_codec() -> void:
 	var nan: PackedByteArray = bytes.duplicate()
 	nan.encode_float(NetProtocol.STATE_HEADER + 1, NAN)
 	check(not NetProtocol.decode_states(nan).ok, "a NaN position is rejected")
+	var walk_action: PackedByteArray = bytes.duplicate()
+	walk_action[NetProtocol.STATE_HEADER + 9] = RigData.Anim.IDLE << 3
+	check(not NetProtocol.decode_states(walk_action).ok, "an action value that is no body action (idle) is rejected")
+	var long_action: PackedByteArray = bytes.duplicate()
+	long_action[NetProtocol.STATE_HEADER + 14] = PlayerSim.action_ticks(states[0].action)
+	check(not NetProtocol.decode_states(long_action).ok, "action frames past the action's end are rejected")
+	var idle_tick: PackedByteArray = bytes.duplicate()
+	idle_tick[NetProtocol.STATE_HEADER + NetProtocol.STATE_SIZE + 14] = 3
+	check(not NetProtocol.decode_states(idle_tick).ok, "action frames without an action are rejected")
+	var bad_held: PackedByteArray = bytes.duplicate()
+	bad_held[NetProtocol.STATE_HEADER + 15] = ItemDB.count() + 1
+	check(not NetProtocol.decode_states(bad_held).ok, "an unknown held item is rejected")
 	check(NetProtocol.decode_states(NetProtocol.encode_states(9, [] as Array[NetProtocol.PlayerState])).ok,
 		"an empty batch is valid")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
@@ -217,6 +316,7 @@ func _check_garbage() -> void:
 		NetProtocol.decode_info(bytes)
 		NetProtocol.decode_hello(bytes)
 		NetProtocol.decode_refusal(bytes)
+		NetProtocol.decode_inventory(bytes)
 		EditLog.decode_one(bytes)
 		if WorldSnapshot.decode_raw(bytes) != null:
 			worlds += 1
@@ -762,8 +862,8 @@ func _check_snapshot() -> void:
 			data.set_value(layer, Vector2i(rng.randi_range(0, data.size.x - 1), rng.randi_range(0, data.size.y - 1)),
 				rng.randi_range(1, 255))
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y,
-		"raw snapshot = header + six layers")
+	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2,
+		"raw snapshot = header + six layers + drop count (0)")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	if check(back != null, "raw snapshot decodes"):
 		var same: bool = back.size == data.size and back.world_seed == data.world_seed and back.altar_rect == data.altar_rect

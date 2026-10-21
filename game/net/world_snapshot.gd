@@ -6,7 +6,9 @@ extends RefCounted
 ## might generate a different world from the same seed. The seed and the generator's hash travel in
 ## the welcome only as a diagnostic.
 ##
-## Raw      header + the six layers in WorldData.Layer order, w x h bytes each (row-major)
+## Raw      header + the six layers in WorldData.Layer order, w x h bytes each (row-major) + the
+##          drops (M2b: WorldData.drops_bytes(), u16 count + 11 B each, by id; gatherables are the
+##          VEGETATION layer)
 ##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (6)
 ## Packed   raw compressed with zstd. Godot's zstd decoder returns nothing for bad input (deflate
 ##          logs an engine error), so a broken snapshot is counted, not logged.
@@ -26,7 +28,7 @@ const COMPRESSION: FileAccess.CompressionMode = FileAccess.COMPRESSION_ZSTD
 ## loads (GameWorld.load_data) in under a second here; 2048 would mean ~25 MB, minutes of streaming
 ## and ~13 s / 1.4 GB to load. Raise it together with those when maps grow.
 const MAX_SIDE: int = 512
-const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE
+const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE + 2 + WorldData.DROP_BYTES * Config.MAX_DROPS
 ## zstd never grows data by more than a small fraction; a receiver refuses more than this.
 const MAX_PACKED: int = MAX_RAW + MAX_RAW / 64 + 1024
 
@@ -138,7 +140,7 @@ static func md5(bytes: PackedByteArray) -> PackedByteArray:
 	return ctx.finish()
 
 
-## Header + layers, uncompressed.
+## Header + layers + drops, uncompressed.
 static func raw_bytes(data: WorldData) -> PackedByteArray:
 	var out: PackedByteArray = PackedByteArray()
 	out.resize(HEADER_SIZE)
@@ -152,11 +154,13 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 	out.encode_u8(20, WorldData.LAYER_COUNT)
 	for grid: PackedByteArray in data.layers:
 		out.append_array(grid)
+	out.append_array(data.drops_bytes())
 	return out
 
 
 ## The world from raw_bytes(), or null when the bytes do not describe a valid one (size, layer
-## count, altar inside the map, floor values that are terrains).
+## count, altar inside the map, floor values that are terrains, drops: at most Config.MAX_DROPS,
+## each a valid item stack inside the map, ids unique, nothing after them).
 static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < HEADER_SIZE:
 		return null
@@ -166,7 +170,11 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.decode_u8(20) != WorldData.LAYER_COUNT:
 		return null
 	var cells: int = size.x * size.y
-	if raw.size() != HEADER_SIZE + WorldData.LAYER_COUNT * cells:
+	var drops_at: int = HEADER_SIZE + WorldData.LAYER_COUNT * cells
+	if raw.size() < drops_at + 2:
+		return null
+	var drop_count: int = raw.decode_u16(drops_at)
+	if drop_count > Config.MAX_DROPS or raw.size() != drops_at + 2 + WorldData.DROP_BYTES * drop_count:
 		return null
 	var altar: Rect2i = Rect2i(raw.decode_u16(12), raw.decode_u16(14), raw.decode_u16(16), raw.decode_u16(18))
 	if altar.has_area() and not Rect2i(Vector2i.ZERO, size).encloses(altar):
@@ -183,6 +191,11 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 		terrains += floor_grid.count(t)
 	if terrains != cells:
 		return null
+	for i: int in drop_count:
+		var d: WorldData.Drop = WorldData.read_drop(raw, drops_at + 2 + WorldData.DROP_BYTES * i, size)
+		if d == null or data.drops.has(d.id):
+			return null
+		data.drops[d.id] = d
 	return data
 
 

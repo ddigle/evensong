@@ -8,12 +8,18 @@ extends "res://tests/base_test.gd"
 ##         makes another world from the seed, like a machine whose float noise differs): it must
 ##         still end with the host's world, because the world comes from the host as a snapshot. In
 ##         parallel a client joins a port nobody listens on (must fail).
+##         M2b: the host swings a pickaxe, walks to a wild herb, picks it (c1 sees it vanish) and drops
+##         5 stones there; c1 asks for a sword (give request) and swings it. Each sees the other's held
+##         item and actions. The late joiner (herbalist) arrives with the herb gone and the stones in
+##         its snapshot, picks the stones up and then a herb of its own (FINE grade).
 ##   four  1 host + 3 clients (cap lowered to 4 with --max-players): all move, one leaves, a late
 ##         joiner takes the freed spawn slot and gets the edited world, a fifth player is refused
-##         ("full"). The real cap (9) is unit-tested in test_net.gd; `-- --net-full` runs it here
+##         ("full"). M2b: before c1 leaves, the host drops 5 stones next to the three clients, who all
+##         press F on that tile every tick for 1.5 s (a race, and request spam): exactly one gets them. The real cap (9) is unit-tested in test_net.gd; `-- --net-full` runs it here
 ##         with 10 processes. This host cuts its world snapshots into 32-byte chunks
-##         (--test-snapshot-chunk-bytes), so every joiner gets its world in 11 chunks over two
-##         ticks, with the welcome after the last one (the M1 world is one 1 KB chunk otherwise).
+##         (--test-snapshot-chunk-bytes), so every joiner gets its world in about 18 chunks over
+##         three ticks (M2b world, about 570 B; 11 chunks over two ticks in M1), with the welcome
+##         after the last one (the world is one 1 KB chunk otherwise).
 ##   lag   1 host + 1 client whose traffic is held back 120 ms round trip with 15% loss
 ##         (net/link_sim.gd): prediction must still match the host. Alongside it, "drop": a host
 ##         that goes away (its --net-timeout) under a client started like a human would (no
@@ -21,11 +27,12 @@ extends "res://tests/base_test.gd"
 ##   stall 1 host + 1 walking client: the host blocks 0.7 s outside its physics ticks (bot "stall"),
 ##         and the client's input queue must catch up afterwards (not stay rate limited behind). Then
 ##         the host edits the world every 4 ticks while a late joiner streams its world in 1-byte
-##         chunks: the edits made meanwhile follow its welcome and its world equals the host's.
+##         chunks: the edits made meanwhile follow its welcome and its world equals the host's. M2b:
+##         some of those edits are drops the host puts down while the joiner streams.
 ##
 ## Checked: exit codes, positions hash, world hash and ground picture (view hash) equal to the
-## host's, everyone sees every player, ground view = data, client prediction error <=
-## PREDICTION_BOUND_PX and no facing correction (the host derives the facing), no malformed
+## host's, everyone sees every player, ground view = data, items drawn = data (gatherables, drops),
+## client prediction error <= PREDICTION_BOUND_PX and no facing or action correction, no malformed
 ## messages, input tokens refilled at the host's real-time pace, every snapshot sent at
 ## NET_SNAPSHOT_CHUNKS_PER_TICK per tick, late joiners' snapshot and log position, no "ERROR:" line in any child log, every process
 ## gone at the end (left-overs are killed and fail the test). Ports come from the runner's block
@@ -47,28 +54,50 @@ const INSTANCE_TIMEOUT_SEC: int = 70
 ## The debug edit: till one grass cell two rows below the altar (seed 1).
 const EDIT: String = "edit:62,50,soil"
 
-const PAIR_HOST: String = "move:1,0,90;move:0,1,60;move:-1,-1,60;wait:90;" + EDIT + ";mark:edited;wait:60"
-const PAIR_C1: String = "move:-1,0,90;move:0,-1,60;move:1,1,60;wait:90;move:0,1,30;wait:30"
+## pair (M2b, seed 1): the host starts with a pickaxe and 20 stones (--give, its own), swings the
+## pickaxe east (3 actions), walks next to the wild buff at PAIR_HERB, picks it, selects the stones
+## and drops 5 on that tile, then edits. c1 asks for a sword (give request), flips through three
+## hotbar slots back to it (predicted selects, one per frame: never refused as "rate"), swings it west
+## (2), then stands still and aims south: the look alone turns it, and the host must see that facing
+## (the frame is recorded for the turn, Prediction.step_frame; the positions hash carries the facing).
+const PAIR_HERB: Vector2i = Vector2i(47, 51)
+const PAIR_HOST_GIVE: String = "--give=pickaxe,stone_a:20"
+const PAIR_HOST: String = ("move:1,0,90;move:0,1,60;move:-1,-1,60;wait:90;aim:20,0;use:80;aim:off;walkto:48,51;" +
+	"aimat:47,51;pick;wait:6;select:2;wait:6;drop:5;wait:10;" + EDIT + ";mark:edited;wait:60")
+const PAIR_C1: String = ("move:-1,0,90;move:0,-1,60;move:1,1,60;wait:90;move:0,1,30;wait:30;select:3;select:2;select:1;" +
+	"wait:10;aim:-20,0;use:60;aim:off;wait:60;aim:0,20;wait:20;aim:off;wait:60")
+## The late herbalist: picks up the host's 5 stones (a drop it got in its snapshot), then the wild buff
+## at PAIR_FINE_HERB (FINE: the herbalist's).
+const PAIR_FINE_HERB: Vector2i = Vector2i(44, 58)
+const PAIR_LATE: String = "walkto:48,45;walkto:48,50;aimat:47,51;pick;wait:10;walkto:45,57;aimat:44,58;pick;wait:20"
 const LATE: String = "move:0,1,40;move:1,0,20;wait:10"
-## four: chunk size of the host's world snapshots (test hook), so a 341 B world takes 11 chunks.
+## four: chunk size of the host's world snapshots (test hook), so a ~570 B world takes ~18 chunks.
 const FOUR_CHUNK_BYTES: int = 32
-## Everyone moves 150 ticks, then 3 s with nobody moving (the idle measurement), then the edit and
-## c1 leaving at about the same time.
-const FOUR_HOST: String = "move:1,0,90;move:0,1,60;wait:180;" + EDIT + ";mark:edited;wait:60"
-const FOUR_C1: String = "move:-1,0,90;move:0,-1,60;wait:180;leave"
-const FOUR_C2: String = "move:0,1,90;move:1,0,60;wait:60"
-const FOUR_C3: String = "move:1,1,60;move:-1,0,90;wait:60"
+## Everyone moves 150 ticks, then 3 s with nobody moving (the idle measurement). M2b race: the host
+## (5 of its stones) walks above FOUR_DROP and drops them there; c1, c2, c3 stand on the other sides
+## and press F on that tile every tick for 1.5 s from before the drop appears. Then the edit and c1
+## leaving at about the same time.
+const FOUR_DROP: Vector2i = Vector2i(63, 53)
+const FOUR_HOST: String = ("move:1,0,90;move:0,1,60;wait:180;walkto:63,52;aimat:63,53;wait:150;drop:5;mark:dropped;" +
+	"wait:150;" + EDIT + ";mark:edited;wait:60")
+const FOUR_C1: String = "move:-1,0,90;move:0,-1,60;wait:180;walkto:66,50;walkto:64,53;aimat:63,53;wait:100;pick:90;wait:30;leave"
+const FOUR_C2: String = "move:0,1,90;move:1,0,60;wait:180;walkto:66,50;walkto:62,53;aimat:63,53;wait:60;pick:90;wait:30"
+const FOUR_C3: String = "move:1,1,60;move:-1,0,90;wait:180;walkto:63,54;aimat:63,53;wait:120;pick:90;wait:30"
 const LAG_HOST: String = "move:1,0,60;move:0,1,30;wait:60"
 const LAG_C1: String = "move:-1,-1,45;move:-1,0,30;move:1,1,40;move:0,-1,25;wait:30"
 const FULL_BOT: String = "move:1,0,90;wait:120"
 ## stall: the host blocks this long in a process step (bot "stall") while c1 walks, then edits the
 ## world every STALL_EDIT_EVERY ticks, STALL_EDITS times, while the late joiner c2 streams its world
-## in 1-byte chunks (341 chunks, 43 ticks).
+## in 1-byte chunks (about 567 chunks, 71 ticks; 341 and 43 in M1).
 const STALL_MS: int = 700
 const STALL_EDITS: int = 60
 const STALL_EDIT_EVERY: int = 4
 const STALL_CHUNK_BYTES: int = 1
 const STALL_C1: String = "move:1,0,60;move:0,1,60;move:-1,0,60;move:0,-1,60;wait:30"
+## M2b: every STALL_DROP_EVERY-th edit of the host's loop is followed by a drop of one stone (it starts
+## with 99) on the tile south of its feet, while c2 streams.
+const STALL_DROP_EVERY: int = 10
+const STALL_DROPS: int = STALL_EDITS / STALL_DROP_EVERY
 ## drop: the host quits by its --net-timeout; the client (no --net-out) runs this many frames.
 const DROP_HOST_SEC: int = 6
 const DROP_CLIENT_FRAMES: int = 480
@@ -127,16 +156,21 @@ func _session_pair() -> void:
 	var dead_port: int = Runner.free_port(port + 1, Runner.port_last)
 	if not check(port > 0 and dead_port > 0, "pair: free ports"):
 		return
-	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2",
-		"--bot=" + PAIR_HOST])
+	# c1 asks for its sword: a host from the editor build (debug) honours give requests by itself, an
+	# exported release host only with --test-allow-give (NetSession.gives_allowed).
+	var host_flags: Array = ["--host=%d" % port, "--net-start=1", "--net-expect=2", "--bot=" + PAIR_HOST, PAIR_HOST_GIVE]
+	if not _use_path:
+		host_flags.append("--test-allow-give")
+	var host: Instance = _launch(dir, "host", host_flags)
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "pair: host listens"):
 		await _reap()
 		return
 	var dead: Instance = _launch(dir, "nohost", ["--join=127.0.0.1:%d" % dead_port, "--class=miner", "--bot=wait:10"])
-	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + PAIR_C1])
+	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + PAIR_C1,
+		"--give=sword"])
 	var t_late: int = Time.get_ticks_msec()
 	if check(await _wait_files([dir.path_join("host.edited.marker")], STEP_WAIT_SEC), "pair: host edited the world"):
-		var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=" + LATE,
+		var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=" + PAIR_LATE,
 			"--test-perturb-generator"])
 		note("pair: late joiner started %.1f s after the first client" % ((Time.get_ticks_msec() - t_late) / 1000.0))
 		check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json"),
@@ -146,11 +180,12 @@ func _session_pair() -> void:
 			return
 		_expect_codes("pair", {host: 0, c1: 0, c2: 0, dead: NetSession.EXIT_FAILED})
 		_check_agreement("pair", host, [c1, c2], 3)
-		_check_late_joiner("pair", host, c2, true)
+		_check_late_joiner("pair", host, c2, true, 3)
+		_check_pair_items(host, c1, c2)
 		check(_flag(c1.result, "generator_match"), "pair/c1: an unperturbed joiner's generator matches the host's")
 		check(str(dead.result.get("ended", "")).begins_with("failed: not admitted"),
 			"pair: joining a port nobody listens on fails after the connect timeout (%s)" % dead.result.get("ended", ""))
-		check(_log_has(c1, "edit floor 62,50=1 index=0"), "pair: the early client got the edit live")
+		check(_log_has(c1, "edit floor 62,50=1 index=2"), "pair: the early client got the edit live")
 		_traffic_notes("pair", host, c1, 2)
 	else:
 		await _reap()
@@ -162,7 +197,8 @@ func _session_four() -> void:
 	if not check(port > 0, "four: free port"):
 		return
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--max-players=4", "--net-start=3",
-		"--net-expect=4", "--net-expect-refused=1", "--bot=" + FOUR_HOST, "--test-snapshot-chunk-bytes=%d" % FOUR_CHUNK_BYTES])
+		"--net-expect=4", "--net-expect-refused=1", "--bot=" + FOUR_HOST, "--test-snapshot-chunk-bytes=%d" % FOUR_CHUNK_BYTES,
+		"--give=stone_a:5"])
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "four: host listens"):
 		await _reap()
 		return
@@ -186,7 +222,8 @@ func _session_four() -> void:
 	_expect_codes("four", {host: 0, c1: 0, c2: 0, c3: 0, c4: 0, c5: NetSession.EXIT_REFUSED})
 	check_eq(host.result.get("max_players", 0), 4, "four: test cap 4")
 	_check_agreement("four", host, [c2, c3, c4], 4)
-	_check_late_joiner("four", host, c4, false)
+	_check_late_joiner("four", host, c4, false, 3)
+	_check_four_race(host, [c1, c2, c3])
 	var four_chunks: int = ceili(_num(c4.result, "snapshot_bytes") / FOUR_CHUNK_BYTES)
 	check(four_chunks > Config.NET_SNAPSHOT_CHUNKS_PER_TICK and _num(c4.result, "snapshot_chunks") == float(four_chunks),
 		"four/c4: its world came in %d chunks of %d B (more than one tick's %d)" % [four_chunks, FOUR_CHUNK_BYTES,
@@ -259,9 +296,10 @@ func _session_stall() -> void:
 	var port: int = _port()
 	if not check(port > 0, "stall: free port"):
 		return
-	var host_bot: String = "mark:editing;wait:5;stall:%d;%s;wait:30" % [STALL_MS, _edits_script(STALL_EDITS, STALL_EDIT_EVERY)]
+	var host_bot: String = "mark:editing;wait:5;stall:%d;%s;wait:30" % [STALL_MS, _edits_script(STALL_EDITS, STALL_EDIT_EVERY,
+		STALL_DROP_EVERY)]
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2",
-		"--test-snapshot-chunk-bytes=%d" % STALL_CHUNK_BYTES, "--bot=" + host_bot])
+		"--test-snapshot-chunk-bytes=%d" % STALL_CHUNK_BYTES, "--bot=" + host_bot, "--give=stone_a:99"])
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "stall: host listens"):
 		await _reap()
 		return
@@ -287,13 +325,22 @@ func _session_stall() -> void:
 		g.get("credit_used"))
 	note("stall %d ms: c1's queue peak %s frames, rate limited %s ticks, hitch credit used %s ticks, refill %s ticks in %s takes" % [
 		STALL_MS, g.get("waiting_peak"), g.get("rate_limited_ticks"), g.get("credit_used"), g.get("refilled"), g.get("takes")])
-	# Edits while c2 streamed.
-	check_eq(_num(host.result, "edits"), float(STALL_EDITS), "stall: the host made %d edits" % STALL_EDITS)
+	# Edits while c2 streamed (floor edits and drops).
+	var all_edits: int = STALL_EDITS + STALL_DROPS
+	check_eq(_num(host.result, "edits"), float(all_edits), "stall: the host made %d edits (%d of them drops)" % [all_edits,
+		STALL_DROPS])
+	var host_drops: Array = host.result.get("drops", [])
+	check_eq(host_drops.size(), STALL_DROPS, "stall: %d drops lie on the ground" % STALL_DROPS)
 	for c: Instance in [c1, c2]:
-		check_eq(_num(c.result, "edits"), float(STALL_EDITS), "stall/%s: log position %d (every edit)" % [c.name, STALL_EDITS])
+		check_eq(_num(c.result, "edits"), float(all_edits), "stall/%s: log position %d (every edit)" % [c.name, all_edits])
+		check_eq(c.result.get("drops", []), host_drops, "stall/%s: the same drops as the host" % c.name)
 	var stream: Dictionary = _stream_for(host, c2)
 	var catch_up: int = roundi(_num(stream, "catch_up_edits"))
 	check(catch_up > 0, "stall/c2: edits made while its world streamed came after the welcome (%d catch-up edits)" % catch_up)
+	var drops_in_snapshot: int = _log_int(c2, "drops=")
+	check(drops_in_snapshot >= 0 and drops_in_snapshot < STALL_DROPS,
+		"stall/c2: %d drops came in its snapshot, the other %d as edits while it streamed" % [drops_in_snapshot,
+		STALL_DROPS - drops_in_snapshot])
 	check(_num(stream, "chunks") > 300.0 and _num(c2.result, "snapshot_chunks") == _num(stream, "chunks"),
 		"stall/c2: its world came in %s one-byte chunks" % stream.get("chunks"))
 	note("stall/c2: world in %s chunks over %s ticks, snapshot at edit %s, %d edits after it sent after the welcome" % [
@@ -301,8 +348,9 @@ func _session_stall() -> void:
 
 
 ## A bot script of `count` floor edits (grass -> soil, each allowed by EditLog.check after the ones
-## before it, on the seed-1 world), one every `every` ticks.
-static func _edits_script(count: int, every: int) -> String:
+## before it, on the seed-1 world), one every `every` ticks; after every `drop_every`-th (0 = none) one
+## stone dropped (in place of a tick of waiting).
+static func _edits_script(count: int, every: int, drop_every: int = 0) -> String:
 	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	var parts: PackedStringArray = []
 	var origin: Vector2i = data.altar_rect.position + Vector2i(-10, data.altar_rect.size.y + 3)
@@ -312,19 +360,24 @@ static func _edits_script(count: int, every: int) -> String:
 				break
 			var e: EditLog.WorldEdit = EditLog.WorldEdit.new(WorldData.Layer.FLOOR, Vector2i(x, y), Terrain.SOIL)
 			if EditLog.check(data, e).is_empty() and data.set_terrain(e.cell, e.value):
-				parts.append("edit:%d,%d,soil;wait:%d" % [x, y, every - 1])
+				if drop_every > 0 and (parts.size() + 1) % drop_every == 0:
+					parts.append("edit:%d,%d,soil;drop:1;wait:%d" % [x, y, every - 2])
+				else:
+					parts.append("edit:%d,%d,soil;wait:%d" % [x, y, every - 1])
 	return ";".join(parts)
 
 
-## The host's record of the stream that sent `joiner` its world ({} if none).
+## The host's record of the stream that sent `joiner` its world ({} if none). The last one for its
+## slot: a late joiner can take the slot of a player who left (four).
 func _stream_for(host: Instance, joiner: Instance) -> Dictionary:
 	var slot: int = roundi(_num(joiner.result, "slot"))
 	var streams: Array = host.result.get("streams", [])
+	var found: Dictionary = {}
 	for item: Variant in streams:
 		var d: Dictionary = item
 		if roundi(_num(d, "slot")) == slot:
-			return d
-	return {}
+			found = d
+	return found
 
 
 ## Opt-in (--net-full): the real cap. 1 host + 8 clients = 9 players, a tenth is refused.
@@ -390,6 +443,9 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		check(_num(view, "mismatches") == 0.0 and _num(view, "missing") == 0.0 and _num(view, "fallbacks") == 0.0,
 			"%s/%s: ground view = data %s" % [label, inst.name, view])
 		check_eq(r.get("bad_messages", -1), 0, "%s/%s: no malformed messages" % [label, inst.name])
+		var items: Dictionary = r.get("items_view", {})
+		check(_num(items, "mismatches") == 0.0 and _num(items, "gatherables") > 0.0,
+			"%s/%s: gatherables and drops drawn = data %s" % [label, inst.name, items])
 		check_eq(r.get("unknown_senders", -1), 0, "%s/%s: no input from strangers" % [label, inst.name])
 	for c: Instance in clients:
 		var r: Dictionary = c.result
@@ -410,6 +466,9 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		check(_num(p, "reconciles") > 5, "%s/%s: prediction was reconciled (%s)" % [label, c.name, p.get("reconciles", 0)])
 		check_eq(p.get("pending", -1), 0, "%s/%s: every input frame acknowledged" % [label, c.name])
 		check_eq(_num(p, "facing_corrections"), 0.0, "%s/%s: the host's derived facing = the predicted one" % [label, c.name])
+		check_eq(_num(p, "action_corrections"), 0.0, "%s/%s: the host's body actions = the predicted ones" % [label, c.name])
+		check_eq(r.get("gatherables", -1), h.get("gatherables", -2), "%s/%s: the same gatherables left" % [label, c.name])
+		check_eq(r.get("drops", []), h.get("drops", []), "%s/%s: the same drops" % [label, c.name])
 		check(_flag(r, "bot_finished"), "%s/%s: bot finished" % [label, c.name])
 		var samples: float = _num(r, "interp_samples")
 		var starved: float = _num(r, "interp_starved")
@@ -445,11 +504,13 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 ## A late joiner: its world is the host's edited world, received as a snapshot with the log
 ## position after the edit; its own generator only shows up in the diagnostic (`perturbed`: it makes
 ## another world, and that does not matter).
-func _check_late_joiner(label: String, host: Instance, late: Instance, perturbed: bool) -> void:
+func _check_late_joiner(label: String, host: Instance, late: Instance, perturbed: bool, position: int) -> void:
 	var r: Dictionary = late.result
 	var h: Dictionary = host.result
 	var who: String = "%s/%s" % [label, late.name]
-	check_eq(r.get("edits", -1), 1, "%s: log position 1 (the edit came inside the snapshot)" % who)
+	check_eq(_num(_stream_for(host, late), "edit_position"), float(position),
+		"%s: its snapshot held the first %d edits (they came inside it)" % [who, position])
+	check_eq(r.get("edits", -1), h.get("edits", -2), "%s: then every later edit (log position %s)" % [who, h.get("edits")])
 	check_eq(r.get("world_hash", ""), h.get("world_hash", "?"), "%s: the host's world" % who)
 	check_ne(r.get("world_hash", ""), h.get("generator_hash", "?"), "%s: the edited world, not the bare seed" % who)
 	check_eq(r.get("host_generator_hash", ""), h.get("generator_hash", "?"), "%s: the welcome carried the host's generator hash" % who)
@@ -461,11 +522,134 @@ func _check_late_joiner(label: String, host: Instance, late: Instance, perturbed
 		check(_log_has(late, "generator=differs"), "%s: the diagnostic says the generators differ" % who)
 	else:
 		check(_flag(r, "generator_match"), "%s: its own generator matches the host's (same build, same machine)" % who)
-	check(_log_has(late, "welcome slot=") and _log_has(late, "edits=1"), "%s: welcome logged the edit position" % who)
+	check(_log_has(late, "welcome slot=") and _log_has(late, "edits=%d" % position), "%s: welcome logged the edit position" % who)
 	var join_ms: float = _num(r, "join_ms")
 	check(join_ms > 0.0 and join_ms < 5000.0, "%s: world ready %.1f ms after connecting" % [who, join_ms])
 	note("%s late join: world %s B packed (%s B raw) in %s chunk(s), ready %.1f ms after connecting (check + decode + draw %.1f ms)" % [
 		who, r.get("snapshot_bytes"), r.get("snapshot_raw"), r.get("snapshot_chunks"), join_ms, _num(r, "world_build_ms")])
+
+
+## pair (M2b): held items and actions seen across, the gatherable gone everywhere, the drop in the
+## late joiner's snapshot, the herbalist's FINE herb, inventories as the host keeps them.
+func _check_pair_items(host: Instance, c1: Instance, c2: Instance) -> void:
+	var hs: int = roundi(_num(host.result, "slot"))
+	var s1: int = roundi(_num(c1.result, "slot"))
+	var s2: int = roundi(_num(c2.result, "slot"))
+	# Held items: everyone agrees on what each player holds.
+	for inst: Instance in [host, c1, c2]:
+		check_eq(_player(inst, hs).get("held", "?"), "stone_a", "pair/%s: the host holds the stones" % inst.name)
+		check_eq(_player(inst, s1).get("held", "?"), "sword", "pair/%s: c1 holds the sword it asked for" % inst.name)
+	# Actions: the host simulated c1's sword swings, c1 saw the host's pickaxe swings.
+	var host_saw: Dictionary = _player(host, s1).get("actions", {})
+	var c1_saw: Dictionary = _player(c1, hs).get("actions", {})
+	var c1_own: Dictionary = _player(c1, s1).get("actions", {})
+	var host_own: Dictionary = _player(host, hs).get("actions", {})
+	check(_num(host_saw, "sword") >= 2.0 and _num(c1_own, "sword") == _num(host_saw, "sword"),
+		"pair: c1's sword swings, predicted by c1 and run by the host (%s / %s)" % [c1_own, host_saw])
+	check(_num(c1_saw, "pickaxe") >= 2.0 and _num(c1_saw, "pickaxe") == _num(host_own, "pickaxe"),
+		"pair: c1 saw every pickaxe swing of the host (%s of %s)" % [c1_saw, host_own])
+	check(_log_has(host, "host action slot=%d item=sword action=sword" % s1), "pair: the host logged c1's sword action")
+	# c1 stood still and aimed south at the end: the look alone turned it, on c1 and on the host.
+	for inst: Instance in [host, c1, c2]:
+		check_eq(_num(_player(inst, s1), "facing", -1.0), float(RigData.Dir.SOUTH),
+			"pair/%s: c1 faces south (turned by its look while standing)" % inst.name)
+	var all_ops: Dictionary = host.result.get("ops", {})
+	var c1_ops: Dictionary = all_ops.get(str(s1), {})
+	var c1_done: Dictionary = c1_ops.get("done", {})
+	check_eq(_num(c1_done, "select", 0.0), 3.0, "pair: the host handled c1's 3 hotbar selects (one per frame)")
+	# The gatherable the host picked: gone on c1 live, gone in c2's snapshot, and everyone agrees.
+	var herb: String = "at=%d,%d" % [PAIR_HERB.x, PAIR_HERB.y]
+	check(_log_has(host, "host pickup slot=%d item=wild_buff count=1 grade=common %s" % [hs, herb]),
+		"pair: the host (paladin) picked the wild buff, common grade")
+	check(_log_has(c1, "edit vegetation %d,%d=0" % [PAIR_HERB.x, PAIR_HERB.y]), "pair/c1: saw the herb vanish (live edit)")
+	check(_log_has(host, "host drop slot=%d item=stone_a count=5 grade=none %s" % [hs, herb]), "pair: the host dropped 5 stones")
+	check(_log_has(c1, "edit drop+ "), "pair/c1: saw the drop appear (live edit)")
+	var all: int = roundi(_num(host.result, "gatherables"))
+	check(_log_has(c2, "gatherables=%d drops=1" % (all + 1)),
+		"pair/c2: its snapshot already lacked the picked herb and held the drop (welcome: %d gatherables, 1 drop)" % (all + 1))
+	# c2 picked the drop and a herb: the herbalist's herb is FINE.
+	check(_log_has(host, "host pickup slot=%d item=stone_a count=5 grade=none %s" % [s2, herb]), "pair/c2: picked up the drop")
+	check(_log_has(host, "host pickup slot=%d item=wild_buff count=1 grade=fine at=%d,%d" % [s2, PAIR_FINE_HERB.x,
+		PAIR_FINE_HERB.y]), "pair/c2: the herbalist's herb is FINE (● gameplay-design §3.4)")
+	check_eq(host.result.get("drops", ["?"]), [], "pair: no drop left")
+	# Inventories: the host's copy = what each owner shows.
+	for pair: Array in [[c1, s1], [c2, s2]]:
+		var c: Instance = pair[0]
+		var slot: int = pair[1]
+		check_eq(_player(c, slot).get("inventory", "?"), _player(host, slot).get("inventory", "!"),
+			"pair/%s: its inventory = the host's copy (%s)" % [c.name, _player(host, slot).get("inventory", "")])
+		check(_num(c.result, "inventories") >= 1.0, "pair/%s: got its inventory from the host" % c.name)
+	check_eq(_player(c2, s2).get("inventory", ""), "0:stone_a x5, 1:wild_buff x1 (fine)", "pair/c2: what it picked up")
+	var ops: Dictionary = host.result.get("ops", {})
+	for slot: String in ops:
+		var o: Dictionary = ops[slot]
+		check_eq(o.get("refused", {"?": 1}), {}, "pair: no request of slot %s refused" % slot)
+	note("pair items: host saw c1 %s, c1 saw the host %s; %d gatherables left" % [host_saw, c1_saw, all])
+
+
+## four (M2b): three clients press F on the host's 5 stones every tick from before they land:
+## exactly one gets them, the spam is refused as "rate", the misses as "nothing there".
+func _check_four_race(host: Instance, clients: Array[Instance]) -> void:
+	var drop: String = "at=%d,%d" % [FOUR_DROP.x, FOUR_DROP.y]
+	check(_log_has(host, "host drop slot=0 item=stone_a count=5 grade=none %s" % drop), "four: the host dropped 5 stones")
+	check_eq(_log_count(host, "item=stone_a count=5 grade=none %s" % drop) - 1, 1, "four: exactly one pickup of them")
+	var winners: Array[String] = []
+	var have: int = 0
+	for c: Instance in clients:
+		var inv: String = str(_player(c, roundi(_num(c.result, "slot"))).get("inventory", "?"))
+		if inv.contains("stone_a"):
+			winners.append(c.name)
+			have += 1 if inv == "0:stone_a x5" else 100
+	check(winners.size() == 1 and have == 1, "four: exactly one client holds the 5 stones (%s)" % [winners])
+	var ops: Dictionary = host.result.get("ops", {})
+	var rate: int = 0
+	var nothing: int = 0
+	var done: int = 0
+	for slot: String in ops:
+		if slot == "0":
+			continue
+		var o: Dictionary = ops[slot]
+		var refused: Dictionary = o.get("refused", {})
+		var ok: Dictionary = o.get("done", {})
+		rate += roundi(_num(refused, "rate", 0.0))
+		nothing += roundi(_num(refused, WorldItems.WHY_NOTHING, 0.0))
+		done += roundi(_num(ok, "pickup", 0.0))
+	check(rate > 0 and nothing > 0 and done <= 1, "four: spammed F refused as rate (%d) and nothing there (%d), %d pickup(s) by the clients still in" % [
+		rate, nothing, done])
+	note("four race: %s got the stones; host refused %d requests as rate, %d as nothing there" % [winners, rate, nothing])
+
+
+## A player entry of an instance's result by slot ({} if none).
+func _player(inst: Instance, slot: int) -> Dictionary:
+	var players: Array = inst.result.get("players", [])
+	for item: Variant in players:
+		var d: Dictionary = item
+		if roundi(_num(d, "slot")) == slot:
+			return d
+	return {}
+
+
+## How many lines of the instance's log contain `text`.
+func _log_count(inst: Instance, text: String) -> int:
+	var n: int = 0
+	for line: String in FileAccess.get_file_as_string(inst.log_path).split("\n"):
+		if line.contains(text):
+			n += 1
+	return n
+
+
+## The number right after `key` in the instance's welcome line (-1 if none).
+func _log_int(inst: Instance, key: String) -> int:
+	for line: String in FileAccess.get_file_as_string(inst.log_path).split("\n"):
+		if line.contains(" welcome ") and line.contains(key):
+			var rest: String = line.substr(line.find(key) + key.length())
+			var digits: String = ""
+			for ch: String in rest:
+				if not ch.is_valid_int():
+					break
+				digits += ch
+			return digits.to_int() if not digits.is_empty() else -1
+	return -1
 
 
 func _expect_codes(label: String, codes: Dictionary) -> void:
@@ -523,6 +707,17 @@ func _traffic_notes(label: String, host: Instance, client: Instance, players: in
 			var c: Dictionary = cs[key]
 			note("%s client %s %s moving: sends %s B/s (%s B/s with UDP/IP), receives %s B/s" % [label, client.name, key,
 				c.get("sent_bps"), c.get("wire_sent_bps"), c.get("received_bps")])
+	# M2b: while someone plays a body action ("act<n>/<players>") and around requests ("req/<players>").
+	for key: String in hs:
+		if key.begins_with("act") or key.begins_with("req"):
+			var a: Dictionary = hs[key]
+			note("%s host %s: sends %s B/s (%s B/s with UDP/IP) in %s pkt/s, receives %s B/s, over %s s" % [label, key,
+				a.get("sent_bps"), a.get("wire_sent_bps"), a.get("packets_ps"), a.get("received_bps"), a.get("sec")])
+	for key: String in cs:
+		if key.begins_with("act") or key.begins_with("req"):
+			var a2: Dictionary = cs[key]
+			note("%s client %s %s: sends %s B/s (%s B/s with UDP/IP), receives %s B/s, over %s s" % [label, client.name, key,
+				a2.get("sent_bps"), a2.get("wire_sent_bps"), a2.get("received_bps"), a2.get("sec")])
 	note("%s host: %d state batches + %d keyframes in %d ticks" % [label, batches, roundi(_num(host.result, "keyframes")), ticks])
 	if hs.has("joining"):
 		var j: Dictionary = hs["joining"]

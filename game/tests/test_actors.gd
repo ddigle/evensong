@@ -33,6 +33,33 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/tiles/tiles_ash_var_1_v02.png": "assets/concept/04-env/tiles_ash_var_1_v02.png",
 	"res://art/tiles/tiles_ash_var_2_v02.png": "assets/concept/04-env/tiles_ash_var_2_v02.png",
 	"res://art/tiles/tiles_ash_var_3_v02.png": "assets/concept/04-env/tiles_ash_var_3_v02.png",
+	"res://art/chars/base_body_v02_pickaxe.png": "assets/concept/03-pixel/base_body_v02_pickaxe.png",
+	"res://art/chars/base_body_v02_hoe.png": "assets/concept/03-pixel/base_body_v02_hoe.png",
+	"res://art/chars/base_body_v02_sickle.png": "assets/concept/03-pixel/base_body_v02_sickle.png",
+	"res://art/chars/base_body_v02_watering.png": "assets/concept/03-pixel/base_body_v02_watering.png",
+	"res://art/chars/base_body_v02_sword.png": "assets/concept/03-pixel/base_body_v02_sword.png",
+	"res://art/chars/base_body_v02_bow.png": "assets/concept/03-pixel/base_body_v02_bow.png",
+	"res://art/chars/base_body_v02_magic.png": "assets/concept/03-pixel/base_body_v02_magic.png",
+	"res://art/chars/base_body_v02_throw.png": "assets/concept/03-pixel/base_body_v02_throw.png",
+	"res://art/items/item_sprig_healing_v02.png": "assets/concept/04-env/item_sprig_healing_v02.png",
+	"res://art/items/item_sprig_buff_v02.png": "assets/concept/04-env/item_sprig_buff_v02.png",
+	"res://art/items/item_sprig_poison_v02.png": "assets/concept/04-env/item_sprig_poison_v02.png",
+	"res://art/items/item_wild_healing_v02.png": "assets/concept/04-env/item_wild_healing_v02.png",
+	"res://art/items/item_wild_buff_v02.png": "assets/concept/04-env/item_wild_buff_v02.png",
+	"res://art/items/item_wild_poison_v02.png": "assets/concept/04-env/item_wild_poison_v02.png",
+	"res://art/items/item_wild_herb_clump_v02.png": "assets/concept/04-env/item_wild_herb_clump_v02.png",
+	"res://art/items/item_mushroom_a_v02.png": "assets/concept/04-env/item_mushroom_a_v02.png",
+	"res://art/items/item_mushroom_b_v02.png": "assets/concept/04-env/item_mushroom_b_v02.png",
+	"res://art/items/item_mushroom_c_v02.png": "assets/concept/04-env/item_mushroom_c_v02.png",
+	"res://art/items/item_mushroom_d_v02.png": "assets/concept/04-env/item_mushroom_d_v02.png",
+	"res://art/items/item_mushroom_ash_v02.png": "assets/concept/04-env/item_mushroom_ash_v02.png",
+	"res://art/items/item_stone_a_v02.png": "assets/concept/04-env/item_stone_a_v02.png",
+	"res://art/items/item_stone_b_v02.png": "assets/concept/04-env/item_stone_b_v02.png",
+	"res://art/items/item_stone_c_v02.png": "assets/concept/04-env/item_stone_c_v02.png",
+	"res://art/items/item_stone_mossy_v02.png": "assets/concept/04-env/item_stone_mossy_v02.png",
+	"res://art/items/item_stone_veined_v02.png": "assets/concept/04-env/item_stone_veined_v02.png",
+	"res://art/items/item_stone_mould_v02.png": "assets/concept/04-env/item_stone_mould_v02.png",
+	"res://art/items/item_stone_block_v02.png": "assets/concept/04-env/item_stone_block_v02.png",
 }
 const SIZES: Dictionary[String, Vector2i] = {
 	"res://art/chars/base_body_v02_walk.png": Vector2i(192, 96),
@@ -56,8 +83,10 @@ const ORDER: Dictionary[String, Array] = {
 	"cleric": [[&"body", &"float"], [&"body", &"float"], [&"body", &"float"], [&"body", &"float"]],
 	"herbalist": [[&"body", &"waist"], [&"body", &"waist"], [&"body", &"waist"], [&"body", &"waist"]],
 }
-## v01 -> v02 re-pivot from 03-pixel/prompts.md "발 맞춤" (walk, idle) x (south, east, north).
-const PIVOT: Array[Array] = [[4, 3, 4], [5, 2, 3]]
+## v01 -> v02 re-pivot from 03-pixel/prompts.md "발 맞춤" (walk, idle) and the body actions ("8차" throw
+## +4 +4 +3; the 64 cell actions sit on walk frame 0, "10차") x (south, east, north).
+const PIVOT: Array[Array] = [[4, 3, 4], [5, 2, 3], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4],
+	[4, 3, 4], [4, 4, 3]]
 const TICK: float = 1.0 / 60.0
 
 
@@ -199,7 +228,7 @@ func _check_layers_follow_anchors() -> void:
 	for class_id: String in Config.CLASSES:
 		var c: Character = _new_character(class_id, RigData.Dir.SOUTH)
 		var sig: RigData.Signature = c.signature
-		for anim: int in RigData.ANIM_NAMES.size():
+		for anim: int in RigData.BASE_ANIMS:
 			c.walking = anim == RigData.Anim.WALK
 			check_eq(c.anim, anim, "walking selects the %s animation" % RigData.ANIM_NAMES[anim])
 			check(c.body.texture == RigData.sheet(anim), "%s uses the %s sheet" % [class_id, RigData.ANIM_NAMES[anim]])
@@ -372,10 +401,10 @@ func _check_movement_altar() -> void:
 static func _body_pixels(dir: int) -> Dictionary[Vector2i, bool]:
 	var out: Dictionary[Vector2i, bool] = {}
 	var row: int = RigData.sheet_row(dir)
-	for anim: int in RigData.ANIM_NAMES.size():
+	for anim: int in RigData.BASE_ANIMS:
 		var sheet: Image = LightGen.to_rgba8(RigData.sheet(anim).get_image())
 		for f: int in RigData.frame_count(anim):
-			var r: Rect2i = RigData.body_rect(row, f)
+			var r: Rect2i = RigData.body_rect(row, f, anim)
 			for y: int in r.size.y:
 				for x: int in r.size.x:
 					if sheet.get_pixel(r.position.x + x, r.position.y + y).a8 == 0:
@@ -467,7 +496,7 @@ static func _widest_composites() -> Array:
 	var which_right: String = ""
 	for class_id: String in Config.CLASSES:
 		for dir: int in 4:
-			for anim: int in RigData.ANIM_NAMES.size():
+			for anim: int in RigData.BASE_ANIMS:
 				for f: int in RigData.frame_count(anim):
 					var used: Rect2i = CheckRender.compose(class_id, dir, anim, f).get_used_rect()
 					var name: String = "%s facing %s" % [class_id, RigData.DIR_NAMES[dir]]
@@ -765,4 +794,6 @@ func _check_main_scene() -> void:
 	for d: Character in main.dummies:
 		dummy_classes.append(d.class_id)
 	check_eq(dummy_classes, PackedStringArray(["paladin", "miner", "archer", "herbalist"]), "dummies are the other classes")
-	check_eq(world.entities.get_child_count(), 1 + 1 + 4, "entities: altar + player + 4 dummies (old ones freed)")
+	var items: int = world.items.plants.size() + world.items.drops.size()
+	check_eq(world.entities.get_child_count() - items, 1 + 1 + 4,
+		"entities: altar + player + 4 dummies (old ones freed) besides the %d gatherables and drops (M2b)" % items)

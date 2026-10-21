@@ -11,6 +11,12 @@ extends Node2D
 ## Rig's child order is the draw order and changes with the direction. Tree order instead of
 ## z_index: z_index would also move a layer behind other characters or the ground.
 ## Every sprite uses light layer Config.LIGHT_LAYER_ACTORS (the hard-edged altar light).
+##
+## Body actions (M2a, brief §5.6 "슬라이스 몸 동작"): show_action(anim, frame) shows a frame of an
+## action sheet instead of walk / idle until end_action(). The caller times it (actors/player.gd, in
+## simulation ticks); advance() leaves it alone. A 64 cell action frame sits so its feet row (y=47)
+## lands on the same feet as the 32 walk frame (● R26). The other signature layers stay on their
+## per-frame anchors; the one the action holds in hand is hidden (● R27, RigData.hides_signature).
 
 const SLOT_NODE_NAMES: Dictionary[StringName, StringName] = {
 	RigData.SLOT_BODY: &"Body", RigData.SLOT_BACK: &"Back", RigData.SLOT_ARM: &"Arm",
@@ -31,6 +37,8 @@ const SLOT_NODE_NAMES: Dictionary[StringName, StringName] = {
 var frame: int = 0:
 	set = set_frame
 var anim: int = RigData.Anim.IDLE
+## The body action shown (a RigData action anim), or -1 for walk / idle.
+var action: int = -1
 var signature: RigData.Signature
 
 var rig: Node2D
@@ -70,8 +78,11 @@ func _process(delta: float) -> void:
 		advance(delta)
 
 
-## Moves the animation on by `seconds` (tests call this instead of waiting).
+## Moves the walk / idle animation on by `seconds` (tests call this instead of waiting). Body
+## actions are timed by whoever shows them (show_action).
 func advance(seconds: float) -> void:
+	if action >= 0:
+		return
 	var step: float = RigData.frame_time(anim)
 	_time += seconds
 	var steps: int = 0
@@ -99,6 +110,8 @@ func set_direction(value: RigData.Dir) -> void:
 
 func set_walking(value: bool) -> void:
 	walking = value
+	if action >= 0:
+		return  # the action keeps showing; end_action() picks walk or idle
 	var next: int = RigData.Anim.WALK if value else RigData.Anim.IDLE
 	if next != anim:
 		anim = next
@@ -110,6 +123,27 @@ func set_walking(value: bool) -> void:
 func set_frame(value: int) -> void:
 	frame = posmod(value, RigData.frame_count(anim))
 	_refresh()
+
+
+## Shows frame `p_frame` (clamped to the action's frames) of body action `p_anim` (a RigData action).
+func show_action(p_anim: int, p_frame: int) -> void:
+	if not RigData.is_action(p_anim):
+		push_error("Character: %d is not a body action" % p_anim)
+		return
+	action = p_anim
+	anim = p_anim
+	_time = 0.0
+	frame = clampi(p_frame, 0, RigData.frame_count(p_anim) - 1)
+
+
+## Back to walk / idle (by `walking`) from frame 0. Nothing if no action is shown.
+func end_action() -> void:
+	if action < 0:
+		return
+	action = -1
+	anim = RigData.Anim.WALK if walking else RigData.Anim.IDLE
+	_time = 0.0
+	frame = 0
 
 
 func sheet_row() -> int:
@@ -138,9 +172,11 @@ func _refresh() -> void:
 	var sheet: Texture2D = RigData.sheet(anim)
 	if body.texture != sheet:
 		body.texture = sheet
-	body.region_rect = Rect2(RigData.body_rect(row, frame))
+	body.region_rect = Rect2(RigData.body_rect(row, frame, anim))
+	body.position = Vector2(-RigData.FRAME_ORIGIN - RigData.body_offset(anim))
+	var held: bool = RigData.hides_signature(signature, anim)
 	for slot: StringName in RigData.SLOTS:
-		slots[slot].visible = slot == signature.slot
+		slots[slot].visible = slot == signature.slot and not held
 	var s: Sprite2D = slots[signature.slot]
 	if s.texture != signature.texture:
 		s.texture = signature.texture

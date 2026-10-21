@@ -11,11 +11,26 @@ extends RefCounted
 ##   stall:<ms>                   test only: block the whole process that long after this tick, in
 ##                                the process step (NetSession._process): a long frame, the kind
 ##                                Godot follows with catch-up physics ticks before it polls the network
+## M2b (items and actions; the mouse is the aim set here):
+##   walkto:<x>,<y>[,<ticks>]     walk to the centre of tile x,y (gives up after <ticks>, default 600)
+##   aim:<dx>,<dy> | aim:off      from now on aim at the feet + (dx, dy) px / stop aiming
+##   aimat:<x>,<y>                from now on aim at the centre of tile x,y
+##   use:<ticks>                  hold the use button (left click) that many ticks, standing
+##   pick[:<times>]               press F (pick up from the target tile) on each of the next <times> ticks
+##   select:<1..8>                select that hotbar slot (Q / E)
+##   drop[:<count>]               debug: drop <count> (default all) of the selected stack on the target tile
+##   give:<id>[:<count>[:<grade>]]  debug: items into the inventory (a client asks the host for them)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
-const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall"]
+const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
+	"select", "drop", "give"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
+const WALK_LIMIT_TICKS: int = 600
+## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
+const ARRIVE_PX: float = 0.6
+
+enum Aiming { NONE, OFFSET, CELL }
 
 class Command:
 	extends RefCounted
@@ -26,6 +41,12 @@ class Command:
 	var terrain: int = 0
 	var name: String = ""
 	var stall_ms: int = 0
+	var offset: Vector2 = Vector2.ZERO
+	var aiming: int = Aiming.NONE
+	var slot: int = 0
+	var count: int = 0
+	var item: StringName = &""
+	var grade: int = -1
 
 
 ## What the bot does this tick.
@@ -37,12 +58,22 @@ class Action:
 	var leave: bool = false
 	## Test only: block the process this long after the tick (NetSession._process).
 	var stall_ms: int = 0
+	## M2b: where the mouse is (world px) and whether the player aims; the use button.
+	var mouse: Vector2 = Vector2.ZERO
+	var aiming: bool = false
+	var use_pressed: bool = false
+	var use_held: bool = false
+	## M2b: a request this tick (op and fields; PICKUP / DROP get the target tile when the frame is built).
+	var op: NetProtocol.InputFrame
 
 
 var commands: Array[Command] = []
 var index: int = 0
 var finished: bool = false
 var _left: int = -1
+var _aiming: int = Aiming.NONE
+var _aim: Vector2 = Vector2.ZERO
+var _held_last: bool = false
 
 
 ## Parses `text`; returns "" or the first error.
@@ -51,6 +82,7 @@ func parse(text: String) -> String:
 	index = 0
 	_left = -1
 	finished = false
+	_aiming = Aiming.NONE
 	for part: String in text.split(";", false):
 		var item: String = part.strip_edges()
 		if item.is_empty():
@@ -97,6 +129,55 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			if args.size() != 1 or not _whole(args[0], 1) or args[0].to_int() > MAX_STALL_MS:
 				return "expected stall:<ms> with ms in 1..%d" % MAX_STALL_MS
 			c.stall_ms = args[0].to_int()
+		"walkto":
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or (args.size() == 3 and not _whole(args[2], 1)):
+				return "expected walkto:<x>,<y>[,<ticks>]"
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.ticks = args[2].to_int() if args.size() == 3 else WALK_LIMIT_TICKS
+		"aim":
+			if args.size() == 1 and args[0] == "off":
+				c.aiming = Aiming.NONE
+			elif args.size() == 2 and args[0].is_valid_float() and args[1].is_valid_float():
+				c.aiming = Aiming.OFFSET
+				c.offset = Vector2(args[0].to_float(), args[1].to_float())
+			else:
+				return "expected aim:<dx>,<dy> or aim:off"
+		"aimat":
+			if args.size() != 2 or not _whole(args[0], 0) or not _whole(args[1], 0):
+				return "expected aimat:<x>,<y>"
+			c.aiming = Aiming.CELL
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+		"use":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected use:<ticks>"
+			c.ticks = args[0].to_int()
+		"pick":
+			if args.size() > 1 or (args.size() == 1 and not _whole(args[0], 1)):
+				return "expected pick[:<times>]"
+			c.ticks = args[0].to_int() if args.size() == 1 else 1
+		"select":
+			if args.size() != 1 or not _whole(args[0], 1) or args[0].to_int() > Config.HOTBAR_SLOTS:
+				return "expected select:<1..%d>" % Config.HOTBAR_SLOTS
+			c.slot = args[0].to_int() - 1
+		"drop":
+			if args.size() > 1 or (args.size() == 1 and not _whole(args[0], 1)) or (args.size() == 1 and args[0].to_int() > 255):
+				return "expected drop[:<count 1..255>]"
+			c.count = args[0].to_int() if args.size() == 1 else 0
+		"give":
+			if args.size() != 1:
+				return "expected give:<id>[:<count>[:<grade>]]"
+			var parts: PackedStringArray = args[0].split(":")
+			c.item = StringName(parts[0])
+			if not ItemDB.has(c.item):
+				return "unknown item %s" % parts[0]
+			c.count = parts[1].to_int() if parts.size() > 1 and _whole(parts[1], 1) else 1
+			if parts.size() > 1 and not _whole(parts[1], 1) or c.count > 255:
+				return "count must be 1..255"
+			if parts.size() > 2:
+				c.grade = ItemDB.grade_from_name(parts[2])
+				if not ItemDB.valid_grade(c.item, c.grade):
+					return "%s takes no grade %s" % [parts[0], parts[2]]
 		_:
 			return "unknown command (%s)" % ", ".join(OPS)
 	return ""
@@ -110,9 +191,17 @@ static func _axis(text: String) -> bool:
 	return text.is_valid_int() and absi(text.to_int()) <= 1
 
 
-## Advances one tick.
-func step() -> Action:
+## Advances one tick. `feet` = the local player's feet now (walkto and the aim need it).
+func step(feet: Vector2 = Vector2.ZERO) -> Action:
 	var a: Action = Action.new()
+	_fill_aim(a, feet)
+	_advance(a, feet)
+	a.use_pressed = a.use_held and not _held_last
+	_held_last = a.use_held
+	return a
+
+
+func _advance(a: Action, feet: Vector2) -> void:
 	while not finished:
 		var c: Command = commands[index]
 		match c.op:
@@ -124,32 +213,106 @@ func step() -> Action:
 					a.dir = c.dir
 					if _left == 0:
 						_next()
-					return a
+					return
 				_next()
 			"edit":
 				a.edit = c
 				_next()
-				return a
+				return
 			"mark":
 				a.mark = c.name
 				_next()
-				return a
+				return
 			"leave":
 				a.leave = true
 				_next()
-				return a
+				return
 			"stall":
 				a.stall_ms = c.stall_ms
 				_next()
-				return a
-	return a
+				return
+			"walkto":
+				if _left < 0:
+					_left = c.ticks
+				var target: Vector2 = (Vector2(c.cell) + Vector2(0.5, 0.5)) * Config.TILE
+				var d: Vector2 = target - feet
+				a.dir = Vector2i(_toward(d.x), _toward(d.y))
+				_left -= 1
+				if a.dir == Vector2i.ZERO or _left <= 0:
+					_next()
+				if a.dir != Vector2i.ZERO:
+					return
+			"aim", "aimat":
+				_aiming = c.aiming
+				_aim = c.offset if c.aiming == Aiming.OFFSET else (Vector2(c.cell) + Vector2(0.5, 0.5)) * Config.TILE
+				_next()
+				_fill_aim(a, feet)
+			"use":
+				if _left < 0:
+					_left = c.ticks
+				if _left > 0:
+					_left -= 1
+					a.use_held = true
+					if _left == 0:
+						_next()
+					return
+				_next()
+			"pick":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				a.op = NetProtocol.InputFrame.new()
+				a.op.op = NetProtocol.Op.PICKUP
+				if _left <= 0:
+					_next()
+				return
+			"select":
+				a.op = NetProtocol.InputFrame.new()
+				a.op.op = NetProtocol.Op.SELECT
+				a.op.slot = c.slot
+				_next()
+				return
+			"drop":
+				a.op = NetProtocol.InputFrame.new()
+				a.op.op = NetProtocol.Op.DROP
+				a.op.count = c.count
+				a.op.slot = -1  # the selected slot, filled in when the frame is built
+				_next()
+				return
+			"give":
+				a.op = NetProtocol.InputFrame.new()
+				a.op.op = NetProtocol.Op.GIVE
+				a.op.item_index = ItemDB.index_of(c.item)
+				a.op.count = c.count
+				a.op.grade = maxi(c.grade, 0) if c.grade >= 0 else ItemDB.normalize_grade(c.item)
+				_next()
+				return
+
+
+## The direction (-1/0/1) that brings an axis distance `d` toward 0, 0 when within ARRIVE_PX.
+static func _toward(d: float) -> int:
+	if absf(d) <= ARRIVE_PX:
+		return 0
+	return 1 if d > 0.0 else -1
+
+
+func _fill_aim(a: Action, feet: Vector2) -> void:
+	a.aiming = _aiming != Aiming.NONE
+	match _aiming:
+		Aiming.OFFSET:
+			a.mouse = feet + _aim
+		Aiming.CELL:
+			a.mouse = _aim
+		_:
+			a.mouse = feet
 
 
 ## Total ticks of wait/move commands (how long the script runs at least).
 func duration_ticks() -> int:
 	var n: int = 0
 	for c: Command in commands:
-		n += c.ticks
+		if c.op == "wait" or c.op == "move":
+			n += c.ticks
 	return n
 
 

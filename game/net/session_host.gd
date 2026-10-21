@@ -10,6 +10,17 @@ extends RefCounted
 ## (players as they are now, the snapshot's edit log position) + every edit made since the snapshot.
 ## Only then does it count as a remote peer (state batches, edits, joined / left, go): everything
 ## on the reliable channel reaches it after the world, in order.
+##
+## M2b: each tick the host builds its own player's frame from its keys / mouse / bot (Player.make_frame)
+## and runs it like a client's: run_frame() checks the frame's request at that frame's position and
+## applies it before the frame is stepped (PlayerSim.step). Use: the slot must hold a tool, the target
+## tile must be next to the feet, no action may still be playing ("busy"); a refused use is simply not
+## started (the client's prediction is corrected by the next state). Select, pick up, drop and give
+## also pass the request rate (NetMember tokens, "rate"); give from a client only in debug builds or
+## with --test-allow-give ("give off"). World changes go out as numbered edits (apply_world_edit); a
+## member whose inventory changed gets it after the tick (ack = its last handled frame). Members are
+## handled in slot order, frames in seq order, edits applied at once: two players picking up the same
+## thing in one tick -> the lower slot gets it, the other finds nothing.
 
 ## A joiner whose world is still being sent.
 class Stream:
@@ -43,7 +54,13 @@ var joining_ticks: int = 0
 
 var connected_ms: Dictionary[int, int] = {}
 var refused_ms: Dictionary[int, int] = {}
+## Gatherables picked and drops picked up (whole or in part) in this session, for the results.
+var pickups: int = 0
 var _last_take_usec: int = 0
+## Something a request changed this tick (a selection shows in the state batch: not quiet).
+var _changed: bool = false
+## Remote frames handled this tick (each moves the acknowledgement in the next state batch).
+var _frames: int = 0
 
 
 func _init(p_session: NetSession) -> void:
@@ -189,12 +206,19 @@ func _welcome_for(st: Stream) -> NetProtocol.Welcome:
 
 # --- world edits -----------------------------------------------------------------------------
 
-## Checks, applies, logs and sends a world edit. Returns "" or why it was refused.
+## The debug floor edit (bot "edit"): checks (EditLog.check), applies, logs and sends. Returns "" or
+## why it was refused.
 func edit(world_edit: EditLog.WorldEdit) -> String:
 	var why: String = EditLog.check(s.world.data, world_edit)
 	if not why.is_empty():
 		s.log_event("edit_refused", "%s: %s" % [world_edit.describe(), why])
 		return why
+	apply_world_edit(world_edit)
+	return ""
+
+
+## Applies, logs and sends an edit the rules already allowed (debug edit, or a request's outcome).
+func apply_world_edit(world_edit: EditLog.WorldEdit) -> void:
 	s.world.apply_edit(world_edit)
 	var payload: PackedByteArray = EditLog.encode_one(world_edit, s.edit_log.size())
 	s.edit_log.append(world_edit)
@@ -202,7 +226,156 @@ func edit(world_edit: EditLog.WorldEdit) -> String:
 		s.send_edit(peer, payload)
 	s.log_event("edit", "%s index=%d world=%s" % [world_edit.describe(), s.edit_log.size() - 1,
 		s.world.data.content_hash().left(12)])
-	return ""
+
+
+# --- requests (M2b) --------------------------------------------------------------------------
+
+## Runs one input frame of member `m`: its request first (checked at this frame's position), then the
+## step. The frame's `anim` is decided here, whatever the sender resolved.
+func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	frame.anim = -1
+	frame.item = &""
+	if m.gate != null:
+		_frames += 1
+	if frame.op != NetProtocol.Op.NONE:
+		s.request_ticks = 3
+	if frame.op == NetProtocol.Op.USE:
+		var why: Array[String] = []
+		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)
+		if anim >= 0 and p.to_sim().busy_next():
+			anim = -1
+			why.append("busy")
+		if anim >= 0:
+			frame.anim = anim
+			frame.item = p.inventory.stack_at(frame.slot).id
+			m.count_done("use")
+		else:
+			_refuse_op(m, frame, why[0])
+	elif frame.op != NetProtocol.Op.NONE:
+		_run_op(m, frame)
+	p.step_frame(frame, Config.NET_TICK)
+	if p.action_anim >= 0 and p.action_tick == 0:
+		m.count_action(p.action_anim)
+		s.log_event("action", "slot=%d item=%s action=%s target=%d,%d" % [m.slot, p.action_item,
+			RigData.ANIM_NAMES[p.action_anim], p.action_cell.x, p.action_cell.y])
+
+
+## Select, then pick up, drop, give: rate, then the rules (items/world_items.gd).
+func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if frame.op == NetProtocol.Op.SELECT:
+		# Not rate limited: at most one per frame, frames are limited by the input gate, and it changes
+		# no world state (only the held item in the state batches). The client predicted it, so an
+		# accepted one sends nothing back; a refused one sends the owner its inventory (_refuse_op).
+		if frame.slot < 0 or frame.slot >= p.inventory.hotbar_size:
+			_refuse_op(m, frame, WorldItems.WHY_BAD_SLOT)
+			return
+		p.inventory.select(frame.slot)
+		m.count_done("select")
+		_changed = true
+		return
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var o: WorldItems.Outcome = null
+	match frame.op:
+		NetProtocol.Op.PICKUP:
+			o = WorldItems.pickup(s.world.data, p.sim_position, m.class_id, p.inventory, frame.cell)
+		NetProtocol.Op.DROP:
+			# Debug F7: a client's only where its give would be honoured (an exported release refuses
+			# it, so a client cannot grow the edit log by dropping and picking up in a loop).
+			if m.peer_id != 1 and not s.give_allowed:
+				_refuse_op(m, frame, "drop off")
+				return
+			var slot: int = frame.slot if frame.slot >= 0 else p.inventory.selected
+			o = WorldItems.drop(s.world.data, p.sim_position, p.inventory, slot, frame.count, frame.cell)
+		NetProtocol.Op.GIVE:
+			if m.peer_id != 1 and not s.give_allowed:
+				_refuse_op(m, frame, "give off")
+				return
+			o = WorldItems.give(p.inventory, frame.item_index, frame.count, frame.grade)
+	if o == null:
+		_refuse_op(m, frame, "unknown request")
+		return
+	if not o.ok():
+		_refuse_op(m, frame, o.why)
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		apply_world_edit(e)
+	var op_name: String = NetProtocol.OP_NAMES[frame.op]
+	m.count_done(op_name)
+	m.inventory_dirty = true
+	_changed = true
+	if frame.op == NetProtocol.Op.PICKUP:
+		pickups += 1
+	s.log_event(op_name, "slot=%d item=%s count=%d grade=%s at=%d,%d" % [m.slot, o.item, o.count,
+		ItemDB.GRADE_NAMES[clampi(o.grade, 0, 2)], frame.cell.x, frame.cell.y])
+
+
+## Counts a refused request. A client predicted its hotbar selection, so a refused select sends the
+## owner its inventory (the host's selection and ack). The log line is thinned per member and reason
+## (the first Config.NET_REFUSAL_LOG_FIRST, then every NET_REFUSAL_LOG_EVERY-th, with the count), so a
+## client sending a refused request every frame cannot flood the host log; the counters see them all.
+func _refuse_op(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
+	var n: int = m.count_refused(why)
+	if frame.op == NetProtocol.Op.SELECT and m.gate != null:
+		m.inventory_dirty = true
+	if n <= Config.NET_REFUSAL_LOG_FIRST or n % Config.NET_REFUSAL_LOG_EVERY == 0:
+		s.log_event("request_refused", "slot=%d %s: %s n=%d" % [m.slot, frame.describe_op(), why, n])
+
+
+## The host's own frame for this tick (keys / mouse / bot) with one waiting local request attached.
+func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
+	var p: Player = s.local.player
+	var f: NetProtocol.InputFrame = p.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
+		action.use_held)
+	attach_local_op(s, p, f, action)
+	return f
+
+
+## Puts a request on frame `f` unless it already carries a use: the bot's request of this tick at
+## once (a script that spams requests really sends them every frame), else the next waiting one from
+## the keys, paced like the host's rate (NetSession.take_local_token; a select is not rate limited and
+## goes on the next free frame) so key presses and --give normally are not refused as "rate" (they
+## still can be when the host gets them bunched, after a lost packet or a host hitch: README).
+## PICKUP / DROP aim at the target tile; a DROP without a slot drops the selected one. A client
+## applies a hotbar selection at once (predicted).
+static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
+	var q: NetProtocol.InputFrame = null
+	if action.op != null:
+		if f.op != NetProtocol.Op.NONE:
+			session.queue_op(action.op)
+			return
+		q = action.op
+		if session.role == NetSession.Role.CLIENT and q.op == NetProtocol.Op.SELECT:
+			p.inventory.select(q.slot)
+	elif f.op == NetProtocol.Op.NONE and not session.local_ops.is_empty() \
+			and (session.local_ops[0].op == NetProtocol.Op.SELECT or session.take_local_token()):
+		q = session.local_ops.pop_front()
+	if q == null:
+		return
+	f.op = q.op
+	f.slot = q.slot
+	f.count = q.count
+	f.item_index = q.item_index
+	f.grade = q.grade
+	f.cell = q.cell
+	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP:
+		f.cell = p.aim_cell
+	if q.op == NetProtocol.Op.DROP and q.slot < 0:
+		f.slot = p.inventory.selected
+
+
+## Each member whose inventory changed gets it (its own only), with its last handled frame.
+func _send_inventories() -> void:
+	var peers: Array[int] = remote_peers()
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		if not m.inventory_dirty or m.gate == null or not peers.has(m.peer_id):
+			continue
+		m.inventory_dirty = false
+		s.send_inventory(m.peer_id, NetProtocol.encode_inventory(m.player.inventory, m.gate.last_seq))
 
 
 # --- movement --------------------------------------------------------------------------------
@@ -219,9 +392,12 @@ func on_input(peer_id: int, payload: PackedByteArray) -> void:
 
 
 func tick(action: NetBot.Action, now: int) -> void:
-	# The facing of every player follows its input (Player.apply_input -> Movement.facing_for):
-	# clients send directions only.
-	s.local.player.apply_input(action.dir, Config.NET_TICK)
+	_changed = false
+	for slot: int in s.slots():
+		s.members[slot].refill_ops()
+	# Every player runs the same frame rule (run_frame): the facing follows the look or the direction
+	# (Movement.facing_for), requests are checked at the frame's position.
+	run_frame(s.local, _local_frame(action))
 	# Real time since the last tick refills the input gates (a hitch's lost ticks included).
 	var now_usec: int = Time.get_ticks_usec()
 	var elapsed_ticks: float = InputGate.ticks_between(_last_take_usec, now_usec)
@@ -231,9 +407,14 @@ func tick(action: NetBot.Action, now: int) -> void:
 		if m.gate == null:
 			continue
 		for frame: NetProtocol.InputFrame in m.gate.take(elapsed_ticks):
-			m.player.apply_input(frame.dir, Config.NET_TICK)
+			run_frame(m, frame)
+	# A request's change, or any client frame handled (its acknowledgement goes out): not quiet.
+	if _changed or _frames > 0:
+		broadcast.note_activity(s.tick)
+	_frames = 0
 	for slot: int in s.members:
-		if s.members[slot].player.walking:
+		var pl: Player = s.members[slot].player
+		if pl.walking or pl.action_anim >= 0:
 			broadcast.note_activity(s.tick)  # before this tick's batch decision
 			break
 	if action.edit != null:
@@ -248,6 +429,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 	_pump_streams()
 	if s.tick % (Config.NET_TICK_RATE / Config.NET_STATE_HZ) == 0:
 		_send_states()
+	_send_inventories()
 	s.bots.host_after_tick(now)
 
 

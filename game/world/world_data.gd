@@ -10,8 +10,13 @@ extends RefCounted
 ## read OUTSIDE_TERRAIN.
 ##
 ## M1 uses FLOOR (grass / soil / ash), CORRUPTION (zone id 1.. per ash cell, 0 = clean) and
-## PLACEABLE (PLACEABLE_ALTAR on the altar footprint). WALL, ORE and VEGETATION stay 0 until the
-## features that use them exist.
+## PLACEABLE (PLACEABLE_ALTAR on the altar footprint). M2b puts the gatherables in VEGETATION (the
+## thing growing or lying on a tile that F picks: 1 + its index in WorldItems.GATHERABLES, 0 =
+## none; items/world_items.gd). WALL and ORE stay 0 until the features that use them exist.
+##
+## Drops (M2b): items lying on the ground are not tiles but a list (`drops`, by id): item, count,
+## grade and a pixel position. They are part of the world like the layers: the content hash covers
+## them, the late-join snapshot carries them and edits add, change and remove them (net/edit_log.gd).
 
 enum Layer { FLOOR, WALL, ORE, VEGETATION, CORRUPTION, PLACEABLE }
 
@@ -26,6 +31,47 @@ var world_seed: int = 0
 ## Altar footprint in cells (PLACEABLE_ALTAR cells). Empty rect = no altar.
 var altar_rect: Rect2i = Rect2i()
 var layers: Array[PackedByteArray] = []
+## Items on the ground by id (M2b).
+var drops: Dictionary[int, Drop] = {}
+## Next id new_drop_id() hands out (not part of the world's content: only the host makes drops).
+var drop_serial: int = 1
+
+
+## An item lying on the ground (M2b, debug drop). Whoever picks it up first gets it
+## (PROVISIONAL, ○ gameplay-design §5 "드롭은 주운 사람 것").
+class Drop:
+	extends RefCounted
+	var id: int = 0
+	var item: StringName = &""
+	var count: int = 0
+	var grade: int = 0
+	## World px (whole pixels): the centre of the tile it was dropped on.
+	var pos: Vector2i = Vector2i.ZERO
+
+	func _init(p_id: int = 0, p_item: StringName = &"", p_count: int = 0, p_grade: int = 0,
+			p_pos: Vector2i = Vector2i.ZERO) -> void:
+		id = p_id
+		item = p_item
+		count = p_count
+		grade = p_grade
+		pos = p_pos
+
+	## The tile it lies on.
+	func cell() -> Vector2i:
+		return Vector2i(floori(pos.x / float(Config.TILE)), floori(pos.y / float(Config.TILE)))
+
+	func copy() -> Drop:
+		return Drop.new(id, item, count, grade, pos)
+
+	func same_as(o: Drop) -> bool:
+		return o != null and id == o.id and item == o.item and count == o.count and grade == o.grade and pos == o.pos
+
+	func describe() -> String:
+		return "drop %d %s x%d g%d at %d,%d" % [id, item, count, grade, pos.x, pos.y]
+
+
+## Bytes per drop in drops_bytes(): u32 id, u8 item index, u8 count, u8 grade, u16 x, u16 y.
+const DROP_BYTES: int = 11
 
 
 func _init(p_size: Vector2i = Vector2i.ZERO) -> void:
@@ -119,7 +165,7 @@ func altar_center_px() -> Vector2:
 	return (Vector2(altar_rect.position) + Vector2(altar_rect.size) / 2.0) * Config.TILE
 
 
-## md5 of the size, seed, altar and every layer. Equal hashes = equal worlds.
+## md5 of the size, seed, altar, every layer and the drops. Equal hashes = equal worlds.
 func content_hash() -> String:
 	var ctx: HashingContext = HashingContext.new()
 	ctx.start(HashingContext.HASH_MD5)
@@ -128,4 +174,72 @@ func content_hash() -> String:
 	ctx.update(header.to_byte_array())
 	for grid: PackedByteArray in layers:
 		ctx.update(grid)
+	ctx.update(drops_bytes())
 	return ctx.finish().hex_encode()
+
+
+# --- drops (M2b) -----------------------------------------------------------------------------
+
+## Drop ids in ascending order.
+func drop_ids() -> Array[int]:
+	var ids: Array[int] = []
+	ids.assign(drops.keys())
+	ids.sort()
+	return ids
+
+
+## A new drop id (larger than any drop's).
+func new_drop_id() -> int:
+	for id: int in drops:
+		drop_serial = maxi(drop_serial, id + 1)
+	drop_serial += 1
+	return drop_serial - 1
+
+
+## Drops lying on tile `c`, lowest id first.
+func drops_at(c: Vector2i) -> Array[Drop]:
+	var out: Array[Drop] = []
+	for id: int in drop_ids():
+		if drops[id].cell() == c:
+			out.append(drops[id])
+	return out
+
+
+## Every drop as bytes, by id: u16 count, then DROP_BYTES per drop (the snapshot and the content
+## hash use it).
+func drops_bytes() -> PackedByteArray:
+	var ids: Array[int] = drop_ids()
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(2 + DROP_BYTES * ids.size())
+	out.encode_u16(0, ids.size())
+	for i: int in ids.size():
+		write_drop(out, 2 + DROP_BYTES * i, drops[ids[i]])
+	return out
+
+
+static func write_drop(out: PackedByteArray, at: int, d: Drop) -> void:
+	out.encode_u32(at, d.id)
+	out.encode_u8(at + 4, maxi(ItemDB.index_of(d.item), 0))
+	out.encode_u8(at + 5, d.count)
+	out.encode_u8(at + 6, d.grade)
+	out.encode_u16(at + 7, d.pos.x)
+	out.encode_u16(at + 9, d.pos.y)
+
+
+## The drop at `at`, or null when it is not a valid one in a world of `world_size` cells (unknown
+## item, count outside 1..stack size, a grade the item cannot have, outside the map).
+static func read_drop(bytes: PackedByteArray, at: int, world_size: Vector2i) -> Drop:
+	if at < 0 or bytes.size() < at + DROP_BYTES:
+		return null
+	var d: Drop = Drop.new(bytes.decode_u32(at), ItemDB.id_at(bytes.decode_u8(at + 4)), bytes.decode_u8(at + 5),
+		bytes.decode_u8(at + 6), Vector2i(bytes.decode_u16(at + 7), bytes.decode_u16(at + 9)))
+	if not valid_drop(d, world_size):
+		return null
+	return d
+
+
+static func valid_drop(d: Drop, world_size: Vector2i) -> bool:
+	var def: ItemDB.ItemDef = ItemDB.get_def(d.item)
+	if def == null or d.count < 1 or d.count > def.stack_max or not ItemDB.valid_grade(d.item, d.grade):
+		return false
+	return d.pos.x >= 0 and d.pos.y >= 0 and d.pos.x < world_size.x * Config.TILE and d.pos.y < world_size.y * Config.TILE
