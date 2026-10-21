@@ -6,13 +6,23 @@ extends RefCounted
 ## - Frames are handled in seq order, once each. Older or repeated frames (every packet repeats
 ##   the unacknowledged ones) are ignored. `last_seq` is the ack the host sends back.
 ## - Directions are clamped to -1..1 per axis and Movement normalises diagonals, so no frame moves
-##   faster than Config.WALK_SPEED. Codes outside the 36 valid ones never become frames.
-## - Rate limit: a token per host tick, at most Config.NET_INPUT_BURST saved up. A frame without a
-##   token waits (it is not acknowledged, so the client keeps sending it); a client cannot move
-##   more ticks than real time allows, only catch up a short burst after jitter.
+##   faster than Config.WALK_SPEED. Codes outside the 9 valid ones never become frames. Frames
+##   carry no facing: the host derives it (Player.apply_input -> Movement.facing_for).
+## - Rate limit: a token per host tick of real time (take(elapsed_ticks)), at most
+##   Config.NET_INPUT_BURST saved up. A frame without a token waits (it is not acknowledged, so the
+##   client keeps sending it); a client cannot move more ticks than real time allows, only catch up
+##   a short burst after jitter. Tokens only ever grow by elapsed real time, so that bound holds
+##   whatever the client sends.
+## - Host hitch: when the host misses ticks (a long frame), the real time it lost still refills the
+##   tokens (bounded by MAX_REFILL_TICKS), and the saving cap is lifted by the frames that were
+##   waiting meanwhile: those frames really are that old. So a walking client's queue drains back to
+##   the jitter target instead of staying behind for as long as it keeps walking.
 ## - Smoothing: one frame per tick while at most Config.NET_INPUT_JITTER_FRAMES wait, more when it
 ##   falls behind, so the other players see a client walk at an even 60 Hz on the host.
 ## - Bounded: at most 2 * NET_MAX_FRAMES_PER_PACKET frames wait; packets beyond that are dropped.
+
+## Most host ticks one take() refills: the queue holds at most this many frames anyway.
+const MAX_REFILL_TICKS: int = 2 * Config.NET_MAX_FRAMES_PER_PACKET
 
 var last_seq: int = 0
 var tokens: float = float(Config.NET_INPUT_BURST)
@@ -47,14 +57,16 @@ func receive(packet: NetProtocol.InputPacket) -> void:
 			overflow += 1
 			continue
 		frame.dir = Vector2i(clampi(frame.dir.x, -1, 1), clampi(frame.dir.y, -1, 1))
-		frame.facing = clampi(frame.facing, 0, 3)
 		waiting.append(frame)
 		newest = frame.seq
 
 
-## One host tick: returns the frames to simulate now, in order.
-func take() -> Array[NetProtocol.InputFrame]:
-	tokens = minf(tokens + 1.0, float(Config.NET_INPUT_BURST))
+## One host tick: returns the frames to simulate now, in order. `elapsed_ticks` = host ticks of real
+## time since the previous take() (the session measures it; about 1 on a steady host, more after a
+## hitch, about 0 for the catch-up ticks Godot runs right after one).
+func take(elapsed_ticks: float = 1.0) -> Array[NetProtocol.InputFrame]:
+	var refill: float = clampf(elapsed_ticks, 0.0, float(MAX_REFILL_TICKS))
+	tokens = minf(tokens + refill, float(Config.NET_INPUT_BURST + waiting.size()))
 	var out: Array[NetProtocol.InputFrame] = []
 	var want: int = mini(waiting.size(), maxi(1, waiting.size() - Config.NET_INPUT_JITTER_FRAMES))
 	while out.size() < want:

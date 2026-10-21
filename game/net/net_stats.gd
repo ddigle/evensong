@@ -2,7 +2,8 @@ class_name NetStats
 extends RefCounted
 ## Traffic per situation. Every tick adds the transport's byte counts since the last tick to a
 ## bucket named "<moving>/<players>" (players walking / players in the session, as the host sees
-## them). Rates per bucket = bytes / bucket time. Bytes are ENet's (its headers included); "wire"
+## them), or "joining" while the host sends a joiner its world (net/session_host.gd). Rates per
+## bucket = bytes / bucket time. Bytes are ENet's (its headers included); "wire"
 ## adds the UDP/IPv4 header (28 B) per datagram.
 
 const UDP_IP_HEADER: int = 28

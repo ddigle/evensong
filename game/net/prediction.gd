@@ -11,12 +11,15 @@ extends RefCounted
 ## and replays the frames the host has not handled yet. Same code, same float32 numbers, same
 ## order: the replay lands where the prediction already was, and `max_error_px` stays 0. A frame the
 ## host never applied, or a host that disagrees for any other reason, shows up as an error and the
-## host's position wins.
+## host's position wins. The facing is not sent with the frames: the host derives it with the same
+## rule (Movement.facing_for), and `facing_corrections` counts states whose facing differed from the
+## prediction for that frame (0 when both sides agree).
 
 class Pending:
 	extends RefCounted
 	var frame: NetProtocol.InputFrame
 	var pos_after: Vector2 = Vector2.ZERO
+	var facing_after: int = RigData.Dir.SOUTH
 
 
 var data: WorldData
@@ -26,14 +29,16 @@ var walking: bool = false
 var next_seq: int = 1
 var pending: Array[Pending] = []
 
-## Last host state for this player: its ack and position.
+## Last host state for this player: its ack, position and facing.
 var base_seq: int = 0
 var base_pos: Vector2 = Vector2.ZERO
+var base_facing: int = RigData.Dir.SOUTH
 
 var frames: int = 0
 var reconciles: int = 0
 var corrections: int = 0
 var max_error_px: float = 0.0
+var facing_corrections: int = 0
 var stale: int = 0
 var dropped_unsent: int = 0
 
@@ -45,6 +50,7 @@ func setup(p_data: WorldData, p_pos: Vector2, p_facing: int, ack: int) -> void:
 	pos = p_pos
 	facing = p_facing
 	base_pos = p_pos
+	base_facing = p_facing
 	base_seq = ack
 	next_seq = ack + 1
 	pending.clear()
@@ -60,8 +66,9 @@ func step(dir: Vector2i) -> NetProtocol.InputFrame:
 	if not recorded:
 		return null
 	var p: Pending = Pending.new()
-	p.frame = NetProtocol.InputFrame.new(next_seq, dir, facing)
+	p.frame = NetProtocol.InputFrame.new(next_seq, dir)
 	p.pos_after = pos
+	p.facing_after = facing
 	next_seq += 1
 	pending.append(p)
 	frames += 1
@@ -92,33 +99,42 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 		stale += 1
 		return -1.0
 	var predicted: Vector2 = base_pos
+	var predicted_facing: int = base_facing
 	if state.ack > base_seq:
 		predicted = state.pos  # a frame we no longer hold: nothing to compare
+		predicted_facing = state.facing
 		for p: Pending in pending:
 			if p.frame.seq == state.ack:
 				predicted = p.pos_after
+				predicted_facing = p.facing_after
 				break
 	var error: float = predicted.distance_to(state.pos)
 	reconciles += 1
 	if error > 0.0:
 		corrections += 1
+	if predicted_facing != state.facing:
+		facing_corrections += 1
 	max_error_px = maxf(max_error_px, error)
 	base_seq = state.ack
 	base_pos = state.pos
+	base_facing = state.facing
 	while not pending.is_empty() and pending[0].frame.seq <= state.ack:
 		pending.pop_front()
-	# Replay what the host has not handled yet, from the host's position.
+	# Replay what the host has not handled yet, from the host's position and facing, with the same
+	# rules the host applies to each frame (Player.apply_input).
 	pos = state.pos
 	facing = state.facing
 	for p: Pending in pending:
+		facing = Movement.facing_for(p.frame.dir, facing)
 		pos = Movement.step(data, pos, p.frame.dir, Config.NET_TICK)
-		facing = p.frame.facing
 		p.pos_after = pos
+		p.facing_after = facing
 	return error
 
 
 func to_dict() -> Dictionary:
 	return {
 		"frames": frames, "reconciles": reconciles, "corrections": corrections, "max_error_px": max_error_px,
+		"facing_corrections": facing_corrections,
 		"stale": stale, "pending": pending.size(), "dropped_unsent": dropped_unsent, "next_seq": next_seq,
 	}
