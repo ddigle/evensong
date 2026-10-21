@@ -58,9 +58,9 @@
 ## 엔진
 
 ● Godot 4.7 (game-concept §13, R30). 공식 4.7.2-stable 빌드로 고정하고 저장소 밖 `C:\dev\tools\godot\4.7.2\`에 둔다(설치는 README 시작하기, 내보내기 템플릿 포함). 버전을 올리는 것은 사람이 정한다.
-- 에이전트는 콘솔 빌드 `Godot_v4.7.2-stable_win64_console.exe`를 `--headless`로 돌려 임포트·테스트·내보내기를 한다. 명령과 테스트 러너 형식은 `prototypes/engine-spike/README.md`를 본다. 스크린샷·렌더 측정은 창이 필요해서 `--headless`로는 안 된다. 에디터(`-e`)는 사람이 연다
+- 에이전트는 콘솔 빌드 `Godot_v4.7.2-stable_win64_console.exe`를 `--headless`로 돌려 임포트·테스트·내보내기를 한다. 명령과 테스트 러너 형식은 `game/README.md`를 본다. 스크린샷·렌더 측정은 창이 필요해서 `--headless`로는 안 된다. 에디터(`-e`)는 사람이 연다
 - 타입을 붙인 GDScript만 쓴다(C# 없음). Godot 4 API만 쓴다(TileMapLayer, `@export`·`@onready`, Callable 시그널)
-- `prototypes/engine-spike/`는 버리는 시험 프로젝트다. game/은 새로 짜고, 스파이크 코드는 참고만 한다
-- game/ 엔진 프로젝트는 사람이 수직 슬라이스 구현을 시작하기로 정한 뒤 만든다
+- `game/`이 수직 슬라이스 프로젝트다(2026-10-21 시작, game-concept §13). 구조·명령·테스트·임시값은 `game/README.md`에 있다. 문서가 정하지 않은 숫자는 이름 붙은 상수(임시값)로 넣고 그 표에 적는다. 임시값을 정하는 것은 사람이다
+- `prototypes/engine-spike/`는 버리는 시험 프로젝트다. 스파이크 코드는 참고만 한다
 
 개발 기기는 Windows 11 x64 데스크탑(Ryzen 9 9950X3D, RTX 5090)이다. WSL이 아니라 Windows에서 직접 작업하고, 원격에서는 SSH로 접속해 쓰기도 한다(설정은 README 시작하기, 점검은 tools/check-setup.ps1). SSH 세션에는 GUI가 없으므로 로그인 창이나 엔진 에디터가 필요한 일은 사람에게 넘긴다. 에이전트는 다른 환경(클라우드 컨테이너 등)에서 돌 수도 있다. 배포 빌드는 x86_64다.
