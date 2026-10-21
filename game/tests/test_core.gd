@@ -1,7 +1,8 @@
 extends "res://tests/base_test.gd"
 ## Core: project settings (and that they reach the root window), GDScript warnings as errors,
 ## input map, export presets, CLI parsing, the smoke checks, every script compiles, and the test
-## runner itself (run on tests/fixtures in a child process).
+## runner itself (run on tests/fixtures in child processes, each with a deadline: a hung child is
+## killed and fails the check instead of hanging the run), and its test port block.
 
 const Runner := preload("res://tests/run_all.gd")
 const TestCase := preload("res://tests/base_test.gd")
@@ -29,6 +30,11 @@ const FIXTURES: Dictionary[String, String] = {
 	"case_timeout.gd": "FAIL",
 }
 const SKIP_DIRS: PackedStringArray = ["res://.godot", "res://build", "res://shots"]
+## How long a runner child may take (the fixtures need about 3 s) before it is killed.
+const CHILD_DEADLINE_SEC: float = 60.0
+## The hang check: a child that would run for 30 s (case_timeout.gd under a long --timeout) is
+## killed after this.
+const HANG_DEADLINE_SEC: float = 2.0
 
 
 func run() -> Array[String]:
@@ -41,7 +47,9 @@ func run() -> Array[String]:
 	_check_scripts_compile()
 	_check_warnings_are_errors()
 	_check_runner_helpers()
-	_check_runner_fixtures()
+	await _check_port_block()
+	await _check_runner_fixtures()
+	await _check_child_deadline()
 	return failures
 
 
@@ -256,11 +264,81 @@ func _check_runner_helpers() -> void:
 	check_eq(Runner.match_errors(errs.slice(0, 1), allow).size(), 0, "count -1 accepts zero matches")
 
 
+## The run's port block: chosen and held by the runner, every port free when it was chosen. A held
+## block cannot be claimed again (the lock), a block with a busy port is skipped (also a port an
+## IPv4-only socket holds), bad bases are refused, a runner given a held block runs nothing.
+func _check_port_block() -> void:
+	var count: int = Config.NET_TEST_PORT_COUNT
+	check_eq(count, 20, "20 test ports")
+	check_eq(Runner.port_last - Runner.port_first + 1, count, "the run's block has %d ports (%d-%d)" % [count,
+		Runner.port_first, Runner.port_last])
+	var env: String = OS.get_environment(Runner.PORT_ENV)
+	var args: Dictionary[String, String] = Runner.parse_args(OS.get_cmdline_user_args())
+	if not args.has("port-base") and not args.has("ports-from-parent") and env.is_empty():
+		check_eq((Runner.port_first - Config.NET_TEST_PORT_FIRST) % count, 0,
+			"default: 24621-24640 or a block above it (%d)" % Runner.port_first)
+	note("test ports %d-%d (%s)" % [Runner.port_first, Runner.port_last, "--port-base" if args.has("port-base")
+		else ("--ports-from-parent" if args.has("ports-from-parent") else (Runner.PORT_ENV if not env.is_empty() else "default"))])
+	if not args.has("ports-from-parent"):
+		check(Runner.claim_port_block(Runner.port_first, count) == null,
+			"this run holds its block: claiming it again fails (another runner moves on)")
+	check_eq(Runner.parse_port_base("25000", count), 25000, "port base 25000")
+	for bad: String in ["0", "-3", "abc", "65530", ""]:
+		check_eq(Runner.parse_port_base(bad, count), -1, "port base '%s' refused" % bad)
+	# A block with one busy UDP port is not claimed; once it is free, it is.
+	var base: int = _spare_block(count)
+	if not check(base > 0, "a spare block for the claim check"):
+		return
+	var busy: UDPServer = UDPServer.new()
+	busy.listen(base + 7)
+	check(Runner.claim_port_block(base, count) == null, "a block with a busy UDP port is skipped")
+	check_eq(Runner.free_port(base + 7, base + 9), base + 8, "free_port skips the busy port (no engine error)")
+	busy.stop()
+	# An IPv4-only holder (another program's socket on 0.0.0.0 or 127.0.0.1): Windows lets a dual-stack
+	# "*" socket share its port, and the test clients' 127.0.0.1 traffic would go to the holder.
+	for address: String in ["0.0.0.0", "127.0.0.1"]:
+		var v4: PacketPeerUDP = PacketPeerUDP.new()
+		if not check_eq(v4.bind(base + 7, address), OK, "an IPv4-only socket holds port %d on %s" % [base + 7, address]):
+			continue
+		check(not Runner.udp_ports_free(base + 7, 1), "a port held on %s only is busy" % address)
+		check(Runner.claim_port_block(base, count) == null, "a block with a port held on %s is skipped" % address)
+		check_eq(Runner.free_port(base + 7, base + 9), base + 8, "free_port skips a port held on %s" % address)
+		v4.close()
+	check(Runner.udp_ports_free(base + 7, 1), "the port is free again once the holders are gone")
+	var lock: TCPServer = Runner.claim_port_block(base, count)
+	check(lock != null and lock.is_listening(), "a free block is claimed")
+	check(Runner.claim_port_block(base, count) == null, "and cannot be claimed twice")
+	# A runner told to use that held block (--port-base) fails at startup and runs no file.
+	var held: Array = await _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=case_", "--only=pass",
+		"--timeout=2", "--port-base=%d" % base]), CHILD_DEADLINE_SEC, false)
+	var held_code: int = held[0]
+	var held_text: String = held[1]
+	check_eq(held_code, 1, "a runner whose --port-base block is held exits 1")
+	check_has(held_text, "no test ports claimed", "and says it claimed no ports")
+	check_has(held_text, "FAIL (startup)", "with FAIL (startup)")
+	check(not held_text.contains("PASS case_pass.gd") and held_text.contains("no file ran"),
+		"and runs no test file (they would use ports it does not hold)")
+	if lock != null:
+		lock.stop()
+
+
+## A block above the run's own, free right now (for the claim checks), or -1.
+static func _spare_block(count: int) -> int:
+	for i: int in range(1, 20):
+		var base: int = Runner.port_last + 1 + i * count
+		var lock: TCPServer = Runner.claim_port_block(base, count)
+		if lock != null:
+			lock.stop()
+			return base
+	return -1
+
+
 ## Runs the runner on tests/fixtures in a child process: every fixture must end as expected. A second
 ## child runs late_error.gd alone: an error after the last file must still fail the run.
 func _check_runner_fixtures() -> void:
 	var t0: int = Time.get_ticks_msec()
-	var result: Array = _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=case_", "--timeout=2"]))
+	var result: Array = await _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=case_", "--timeout=2"]),
+		CHILD_DEADLINE_SEC)
 	var code: int = result[0]
 	var text: String = result[1]
 	check_eq(code, 1, "runner exits 1 when fixtures fail")
@@ -275,8 +353,10 @@ func _check_runner_fixtures() -> void:
 	check_has(text, "left ParkedNode (Node) under the root", "a node left under the root is named")
 	check(not text.contains("fixture: error from a node left under the root"),
 		"the runner freed the left node before it could log into case_pass.gd")
+	check_has(text, "ports %d-%d" % [Runner.port_first, Runner.port_last], "the child runner uses the block passed down")
 
-	result = _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=late_", "--timeout=2"]))
+	result = await _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=late_", "--timeout=2"]),
+		CHILD_DEADLINE_SEC)
 	code = result[0]
 	text = result[1]
 	check_eq(code, 1, "runner exits 1 on an error after the last file")
@@ -290,14 +370,51 @@ func _check_runner_fixtures() -> void:
 		Time.get_ticks_msec() - t0])
 
 
-## Runs tests/run_all.gd with `user_args` in a headless child process. Returns [exit code, output].
-static func _run_runner(user_args: PackedStringArray) -> Array:
-	var output: Array = []
-	var args: PackedStringArray = ["--headless", "--path", ProjectSettings.globalize_path("res://"), "--script",
-		"res://tests/run_all.gd", "--"]
+## A child that does not finish is killed at its deadline and reported, and this run goes on: the
+## runner on case_timeout.gd with a long --timeout would take 30 s.
+func _check_child_deadline() -> void:
+	var t0: int = Time.get_ticks_msec()
+	var result: Array = await _run_runner(PackedStringArray(["--dir=res://tests/fixtures", "--prefix=case_",
+		"--only=timeout", "--timeout=60"]), HANG_DEADLINE_SEC)
+	var ms: int = Time.get_ticks_msec() - t0
+	var timed_out: bool = result[2]
+	var pid: int = result[3]
+	check(timed_out, "a child past its deadline is reported as timed out (exit %d after %d ms)" % [result[0], ms])
+	check(ms < int(HANG_DEADLINE_SEC * 1000.0) + 5000, "and the wait ends at the deadline (%d ms)" % ms)
+	check(pid > 0 and not OS.is_process_running(pid), "the hung child was killed")
+	note("hung child killed after %d ms (deadline %.0f s)" % [ms, HANG_DEADLINE_SEC])
+
+
+## Runs tests/run_all.gd with `user_args` in a headless child process (output to a log file, the
+## run's port block passed down unless `pass_ports` is false) and waits at most `deadline_sec`,
+## polling so this runner keeps going. A child still running then is killed. Returns [exit code
+## (-1 if killed or not started), output, timed out, pid].
+func _run_runner(user_args: PackedStringArray, deadline_sec: float, pass_ports: bool = true) -> Array:
+	var log_path: String = ProjectSettings.globalize_path("user://runner_child_%d_%d.log" % [OS.get_process_id(),
+		Time.get_ticks_usec()])
+	var args: PackedStringArray = ["--headless", "--path", ProjectSettings.globalize_path("res://"), "--log-file", log_path,
+		"--script", "res://tests/run_all.gd", "--"]
 	args.append_array(user_args)
-	var code: int = OS.execute(OS.get_executable_path(), args, output, true)
-	return [code, "\n".join(output)]
+	if pass_ports:
+		args.append("--ports-from-parent=%d" % Runner.port_first)
+	var pid: int = OS.create_process(OS.get_executable_path(), args, false)
+	if not check(pid > 0, "runner child started"):
+		return [-1, "", false, pid]
+	var deadline: int = Time.get_ticks_msec() + int(deadline_sec * 1000.0)
+	while OS.is_process_running(pid) and Time.get_ticks_msec() < deadline:
+		await tree.create_timer(0.05).timeout
+	var timed_out: bool = OS.is_process_running(pid)
+	var code: int = -1
+	if timed_out:
+		OS.kill(pid)
+		var gone: int = Time.get_ticks_msec() + 5000
+		while OS.is_process_running(pid) and Time.get_ticks_msec() < gone:
+			await tree.create_timer(0.05).timeout
+	else:
+		code = OS.get_process_exit_code(pid)
+	var text: String = FileAccess.get_file_as_string(log_path)
+	DirAccess.remove_absolute(log_path)
+	return [code, text, timed_out, pid]
 
 
 static func _scripts_under(dir: String) -> PackedStringArray:

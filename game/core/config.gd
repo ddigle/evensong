@@ -91,10 +91,13 @@ const ASH_EDGE_NOISE_TILES: float = 3.0
 const ASH_EDGE_NOISE_FREQUENCY: float = 0.2
 ## IMPL: free camera pan speed (px/s) in world.tscn (map viewer; main.tscn uses PlayerCamera).
 const FREE_CAMERA_SPEED: float = 240.0
-## IMPL: default host port for --host. Tests use NET_TEST_PORT_FIRST..LAST.
+## IMPL: default host port for --host. Tests use a block of NET_TEST_PORT_COUNT ports from
+## NET_TEST_PORT_FIRST by default (tests/run_all.gd: -- --port-base=<n> or EVENSONG_TEST_PORT_BASE
+## picks another, the runner probes the whole block first).
 const DEFAULT_PORT: int = 24600
 const NET_TEST_PORT_FIRST: int = 24621
 const NET_TEST_PORT_LAST: int = 24640
+const NET_TEST_PORT_COUNT: int = NET_TEST_PORT_LAST - NET_TEST_PORT_FIRST + 1
 ## IMPL: the fixed simulation tick (= the project's physics ticks per second, Godot default 60).
 ## Host and clients step every player with Movement.step(..., NET_TICK) once per input frame.
 const NET_TICK_RATE: int = 60
@@ -109,9 +112,27 @@ const NET_INPUT_BURST: int = 30
 ## IMPL: the host keeps up to this many received frames per client waiting and applies one per tick
 ## (more when it falls behind), so other players see a client walk smoothly.
 const NET_INPUT_JITTER_FRAMES: int = 3
+## IMPL: when a client has fallen behind (bunched packets, a host hitch), the host applies at most
+## this many of its frames per tick: others see it catch up at 4x walking speed instead of a jump.
+const NET_INPUT_CATCH_UP_FRAMES: int = 4
+## IMPL: late join world snapshot (net/world_snapshot.gd): the compressed world goes out in chunks
+## of at most this many bytes (one chunk + headers fits one ~1400 B UDP datagram, no ENet
+## fragmentation), at most this many chunks per host tick to each joiner (8 KB per tick = 480 KB/s).
+const NET_SNAPSHOT_CHUNK_BYTES: int = 1024
+const NET_SNAPSHOT_CHUNKS_PER_TICK: int = 8
 ## IMPL: connection limits. ENet accepts more peers than MAX_PLAYERS so the host can tell a tenth
 ## player "full" instead of the transport silently dropping it (the host does the counting).
 const NET_TRANSPORT_PEER_LIMIT: int = 16
+## IMPL: ENet packet throttle per connection (interval ms, acceleration, deceleration;
+## ENetPacketPeer.throttle_configure). ENet lowers the throttle by `deceleration` on every
+## acknowledgement whose round trip is more than 2 x variance above the previous epoch's lowest, and
+## a low throttle drops that share of unreliable packets (our state batches) and shrinks the window of
+## reliable data in flight. With both ends polling at 60 Hz the round trip is quantised (about 16 or
+## 33 ms on localhost) and drifts with the frames' phase; with frequent reliable messages (a host
+## editing every 4 ticks) the throttle fell to 0 in about 1.5 s and a walking client got no state
+## batch for seconds (measured, H-fix). M1 traffic is small (at most about 23 KB/s for 9 players), so
+## the throttle never lowers: deceleration 0. Interval and acceleration are ENet's defaults.
+const NET_ENET_THROTTLE: Vector3i = Vector3i(5000, 2, 0)
 ## IMPL: a join that has not been welcomed after this long fails (ENet itself gives up after ~31 s).
 const NET_CONNECT_TIMEOUT_SEC: float = 10.0
 ## IMPL: the host drops a connection that has not said hello after this long, and a refused one
@@ -127,6 +148,14 @@ const IDLE_FRAME_TIME: float = 0.2
 ## Movement collides this box with the map bounds and with blocked cells (the altar footprint).
 const FEET_HALF_WIDTH: float = 5.0
 const FEET_HEIGHT: float = 4.0
+## IMPL: extra room (px, beyond the feet box) the feet keep from the altar footprint's west and
+## east faces while they are level with it (feet between its top and bottom edge, where the
+## character is drawn behind the altar). The base body reaches 9 px right and 9 px left of the feet
+## in its widest frame (any direction, walk or idle) and the altar art is opaque from column 0 to 46
+## of its 48 px footprint, so with (5, 3) a body pressed against either face touches the art
+## without going behind it. Carried gear on the back or arm can still reach behind the edge (README).
+## tests/test_actors.gd measures it again from the sheets and the art.
+const ALTAR_SIDE_CLEARANCE: Vector2i = Vector2i(5, 3)
 ## IMPL: the feet stay at least this far below the map's top edge, so the head (frame row 4 =
 ## 28 px above the feet) never leaves the map.
 const HEAD_ROOM_PX: float = 28.0

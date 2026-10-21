@@ -6,6 +6,7 @@ extends SceneTree
 ##   godot ... --script res://tests/run_all.gd -- --timeout=300         (seconds per file, default 120)
 ##   godot ... --script res://tests/run_all.gd -- --dir=res://tests/fixtures --prefix=case_
 ##                                                  (other folder / file prefix: the runner's self-test)
+##   godot ... --script res://tests/run_all.gd -- --port-base=25000   (test port block, see below)
 ##
 ## Finds <dir>/<prefix>*.gd, instantiates each (they extend res://tests/base_test.gd), awaits
 ## run() -> Array[String] (failure messages; empty = pass) and prints one PASS / FAIL line per
@@ -26,6 +27,19 @@ extends SceneTree
 ## Not caught: work a file leaves running that logs later than that (charged to whichever file is
 ## running then, or missed when it comes after the final frames). Warnings are printed, not counted.
 ##
+## Test ports: the network tests use one block of Config.NET_TEST_PORT_COUNT UDP ports, chosen
+## here once per run (port_first..port_last) and passed down (tests read Runner.port_first /
+## port_last; child processes get explicit ports or --ports-from-parent). The base is --port-base=<n>,
+## else the EVENSONG_TEST_PORT_BASE environment variable, else Config.NET_TEST_PORT_FIRST (24621) and,
+## when that block is taken, the next blocks up (PORT_BLOCK_TRIES). A block is taken when another
+## runner holds its lock (a TCP listener on 127.0.0.1:<base>, held for the whole run: binding it is
+## atomic, and the OS frees it when that run ends or crashes) or when any of its UDP ports is in use
+## (probed with UDPServer on the dual-stack, IPv4 wildcard and loopback addresses, PROBE_ADDRESSES;
+## UDPServer reports a busy port without an engine error). Remaining race: a program that is not
+## this runner (or a runner without the lock) can still take a port of the block after the probe;
+## the session tests then fail to host on it. An explicit base that is taken fails the run
+## (FAIL (startup)) instead of moving on, and no test file runs (they would have no ports).
+##
 ## Exit code: 0 = every file passed, 1 = any failure, load error, timeout, error outside the files
 ## or no test files.
 
@@ -37,6 +51,19 @@ const DEFAULT_TIMEOUT_SEC: float = 120.0
 const SETTLE_FRAMES: int = 2
 ## Frames the runner waits after the last file before it takes the errors one last time.
 const FINAL_SETTLE_FRAMES: int = 10
+const PORT_ENV: String = "EVENSONG_TEST_PORT_BASE"
+## Blocks tried from the default base when no base is given (24621, 24641, ... 24801).
+const PORT_BLOCK_TRIES: int = 10
+## Addresses a UDP port is probed on. "*" is a dual-stack IPv6 socket, and Windows lets that share a
+## port with another program's IPv4 socket (which then gets the IPv4 traffic the test clients send
+## to 127.0.0.1); a probe on the IPv4 wildcard and on loopback finds those. Measured on Windows 11:
+## a holder on 0.0.0.0 fails only the "0.0.0.0" probe, a holder on 127.0.0.1 only the "127.0.0.1" one.
+const PROBE_ADDRESSES: PackedStringArray = ["*", "0.0.0.0", "127.0.0.1"]
+
+## The run's test port block (see the class comment). Static so test files reach it through their
+## preload of this script.
+static var port_first: int = Config.NET_TEST_PORT_FIRST
+static var port_last: int = Config.NET_TEST_PORT_LAST
 
 
 ## Collects error and warning messages from every thread.
@@ -85,6 +112,7 @@ var _log: ErrorLog = ErrorLog.new()
 var _done: bool = false
 var _result: Variant = null
 var _run_token: int = 0  # a timed-out run() that finishes later must not end the next file
+var _port_lock: TCPServer
 
 
 func _initialize() -> void:
@@ -162,16 +190,25 @@ func _run_all() -> void:
 	var timeout_sec: float = timeout_text.to_float() if timeout_text.is_valid_float() else DEFAULT_TIMEOUT_SEC
 
 	var files: PackedStringArray = discover(dir, prefix, only)
-	print("EVENSONG_TESTS start: %d file(s) in %s%s" % [files.size(), dir,
-		"" if only.is_empty() else " (only %s)" % ",".join(only)])
+	var port_problem: String = _choose_ports(args)
+	print("EVENSONG_TESTS start: %d file(s) in %s%s, %s" % [files.size(), dir,
+		"" if only.is_empty() else " (only %s)" % ",".join(only),
+		"ports %d-%d" % [port_first, port_last] if port_problem.is_empty() else "no test ports claimed"])
 	var failed: int = 0
 	var startup: Array[String] = _log.take_errors()
+	if not port_problem.is_empty():
+		startup.append("test ports: %s" % port_problem)
 	_print_warnings(_log.take_warnings())
 	if not startup.is_empty():
 		failed += 1
 		print("FAIL (startup) %d error(s) before the first test" % startup.size())
 		for message: String in startup:
 			print("  - %s" % message)
+	if not port_problem.is_empty():
+		# The files would use a block this run does not hold (another run's, maybe): run none.
+		print("EVENSONG_TESTS done: 0 passed, 0 failed, 0 checks, 0 ms (+ startup errors; no file ran: test ports not claimed)")
+		_finish(1)
+		return
 	if files.is_empty():
 		print("FAIL no test files found")
 		_finish(1)
@@ -294,8 +331,87 @@ func _print_warnings(warnings: Array[String]) -> void:
 
 
 func _finish(code: int) -> void:
+	if _port_lock != null:
+		_port_lock.stop()
 	OS.remove_logger(_log)
 	quit(code)
+
+
+## Sets port_first / port_last for this run. Returns "" or what went wrong.
+func _choose_ports(args: Dictionary[String, String]) -> String:
+	var count: int = Config.NET_TEST_PORT_COUNT
+	if args.has("ports-from-parent"):
+		var inherited: int = parse_port_base(args["ports-from-parent"], count)
+		if inherited < 0:
+			return "bad --ports-from-parent=%s" % args["ports-from-parent"]
+		_set_ports(inherited)
+		return ""  # the parent runner probed and holds this block
+	var text: String = args.get("port-base", OS.get_environment(PORT_ENV))
+	var bases: Array[int] = []
+	if not text.is_empty():
+		var base: int = parse_port_base(text, count)
+		if base < 0:
+			return "bad port base '%s' (--port-base or %s: 1..%d)" % [text, PORT_ENV, 65536 - count]
+		bases.append(base)
+	else:
+		for i: int in PORT_BLOCK_TRIES:
+			bases.append(Config.NET_TEST_PORT_FIRST + i * count)
+	for base: int in bases:
+		var lock: TCPServer = claim_port_block(base, count)
+		if lock != null:
+			_port_lock = lock
+			_set_ports(base)
+			return ""
+	return "no free block of %d ports at %s (another run holds it, or a port is in use)" % [count,
+		", ".join(PackedStringArray(bases.map(func(b: int) -> String: return str(b))))]
+
+
+static func _set_ports(base: int) -> void:
+	port_first = base
+	port_last = base + Config.NET_TEST_PORT_COUNT - 1
+
+
+## A port base from text, or -1 (the block must fit below 65536).
+static func parse_port_base(text: String, count: int) -> int:
+	if not text.is_valid_int() or text.to_int() < 1 or text.to_int() + count - 1 > 65535:
+		return -1
+	return text.to_int()
+
+
+## Claims the block base..base+count-1: takes its lock (TCP 127.0.0.1:<base>) and checks every UDP
+## port of it is free. Returns the held lock, or null (lock held by another run, or a port busy).
+static func claim_port_block(base: int, count: int) -> TCPServer:
+	var lock: TCPServer = TCPServer.new()
+	if lock.listen(base, "127.0.0.1") != OK:
+		return null
+	if not udp_ports_free(base, count):
+		lock.stop()
+		return null
+	return lock
+
+
+## True if no UDP port in base..base+count-1 is in use (each bound and released once on every
+## PROBE_ADDRESSES address).
+static func udp_ports_free(base: int, count: int) -> bool:
+	for port: int in range(base, base + count):
+		for address: String in PROBE_ADDRESSES:
+			var probe: UDPServer = UDPServer.new()
+			var err: Error = probe.listen(port, address)
+			probe.stop()
+			if err != OK:
+				return false
+	return true
+
+
+## A UDP port in first..last (either order) nobody uses, or -1. No engine error for busy ports.
+static func free_port(first: int, last: int) -> int:
+	var step: int = 1 if last >= first else -1
+	var port: int = first
+	while port != last + step:
+		if udp_ports_free(port, 1):
+			return port
+		port += step
+	return -1
 
 
 ## ["--a", "--b=1", "x"] -> {"a": "", "b": "1"}.

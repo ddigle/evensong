@@ -129,8 +129,9 @@ static func _check_world(r: Report, table: WangTable) -> void:
 	r.expect(data.count_value(WorldData.Layer.FLOOR, Terrain.SOIL) > 0, "no tilled soil generated")
 	r.expect(data.count_value(WorldData.Layer.FLOOR, Terrain.ASH) > 0, "no ash generated")
 	r.expect_eq(data.soil_ash_contacts(), 0, "display cells mixing soil and ash")
-	# Same world as the x86_64 desktop? A different hash here means late join would refuse this
-	# machine (exit code 5), or the generator changed without updating GOLDEN_HASH.
+	# Same world as the x86_64 desktop? A different hash here means this machine's generator makes
+	# another world from the same seed (late join still works: the host sends its world), or the
+	# generator changed without updating GOLDEN_HASH.
 	r.expect_eq(data.content_hash(), SurfaceGen.GOLDEN_HASH, "seed %d world hash (SurfaceGen.GOLDEN_HASH)" %
 		Config.DEFAULT_SEED)
 	var view: GroundView = GroundView.new()
@@ -191,7 +192,8 @@ static func _check_light(r: Report) -> void:
 
 ## Session pieces: the physics tick the net code assumes, the transports (ENet works in this build:
 ## a host on a free loopback port opens and closes; Steam follows GodotSteam), the wire format,
-## the real player cap, and the Net node in main.tscn.
+## the late join world snapshot (zstd in this build: packed, chunked, received, same world), the
+## real player cap, and the Net node in main.tscn.
 static func _check_net(r: Report) -> void:
 	r.expect_eq(int(Engine.physics_ticks_per_second), Config.NET_TICK_RATE, "physics ticks per second")
 	r.expect_eq(Config.NET_TICK_RATE % Config.NET_STATE_HZ, 0, "state batches on whole ticks")
@@ -217,6 +219,15 @@ static func _check_net(r: Report) -> void:
 		[s] as Array[NetProtocol.PlayerState]))
 	r.expect(batch.ok and batch.tick == 77 and batch.states.size() == 1 and batch.states[0].same_as(s),
 		"state batch round trip")
+	var world: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(world)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var received: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size,
+		packed.world_md5)
+	r.expect(received != null and received.content_hash() == world.content_hash(), "world snapshot round trip: %s" % rx.error)
+	r.fields.append("snapshot=%dB/%dB" % [packed.bytes.size(), packed.raw_size])
 	var roster: Roster = Roster.new()
 	for i: int in Config.MAX_PLAYERS:
 		roster.admit(i + 1, Config.CLASSES[i % Config.CLASSES.size()])

@@ -3,12 +3,15 @@ extends Camera2D
 ## Camera centred on one player (● gameplay-design §1: each player has an independent camera).
 ## It sits on whole pixels (the player node is already rounded) and stays inside `bounds` (the map),
 ## so no void shows at the edges; where the map is smaller than the view it centres on the map.
+## It runs after the players' _process (process_priority 1), so it follows the position the target
+## is drawn at this frame (Player draws between simulation ticks).
 
 var target: Node2D
 var bounds: Rect2 = Rect2()
 
 
 func _ready() -> void:
+	process_priority = 1
 	position_smoothing_enabled = false
 	follow()
 

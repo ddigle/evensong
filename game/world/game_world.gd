@@ -45,12 +45,18 @@ func _ready() -> void:
 
 func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> void:
 	var t0: int = Time.get_ticks_usec()
-	data = SurfaceGen.generate(world_seed, size)
+	var generated_data: WorldData = SurfaceGen.generate(world_seed, size)
+	generation_ms = (Time.get_ticks_usec() - t0) / 1000.0
+	load_data(generated_data)
+
+
+## Shows `p_data` (generated here, or a late joiner's world received from the host): draws the
+## ground, places the altar and its light, resets the free camera and the overlay.
+func load_data(p_data: WorldData) -> void:
+	data = p_data
 	var t1: int = Time.get_ticks_usec()
 	ground.setup(data)
-	var t2: int = Time.get_ticks_usec()
-	generation_ms = (t1 - t0) / 1000.0
-	view_ms = (t2 - t1) / 1000.0
+	view_ms = (Time.get_ticks_usec() - t1) / 1000.0
 	safe_zone = SafeZone.for_world(data)
 	_place_altar()
 	lighting.setup(safe_zone, lighting.evening_on)
