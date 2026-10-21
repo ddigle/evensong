@@ -13,7 +13,16 @@
   surface     stage4_mockup_v04_day(.png 3배, _1x) / _eve (제단 빛 밖을 어둡게, 불꽃·후광은 빛)
   dungeon     stage4_dungeon_v05 (.png 3배, _1x): 왼쪽 = 지상의 던전 입구 둘레, 오른쪽 = 던전 방
   candidates  stage4_candidates_v01.png: ? 결정 대기 후보를 나란히 (3배, 라벨)
-  all         위 넷
+
+손질 2 통합 (s3, 2026-10-22 새벽, 생성 없음. 기록은 prompts.md "본 제작 손질 2"). 위 출력은 바이트까지 그대로 다시 나온다:
+  fix2        prop_candles_black_b_v04 (s1 v03에 s2 아이템 검은 초와 같은 잿빛 테),
+              prop_lantern_ground_v03_lit / _v03_emissive (s1의 24px 땅 랜턴에 s2와 같은 규칙의 켜짐판)
+  surface5    stage4_mockup_v05_day / _eve: v03 소품·흙길·모루·작업대·아이템, 늘린 랜턴 기둥(저녁에 켜짐 + 빛),
+              v03 촛대와 성물 제작대에 공유 불꽃
+  dungeon6    stage4_dungeon_v06: v03 위협 소품·창고 구석·던전 소품(바닥에서 뗀 판)·아이템, 켜진 땅 랜턴 v03
+  scale       stage4_scale_compare_v01.png: 옛 소품(v02)과 새 소품(v03)을 캐릭터 옆에 (3배)
+  rules       손질 2의 채택 후보 전부에 손질 규칙 검사 (색 수, 밝기, 차가운 회색, 반투명, 외곽선)
+  all         위 모두 (rules 제외)
 
 화면은 480x270 (game-concept §7, R31). 캐릭터는 03-pixel 기본 몸 걷기 v02 첫 프레임 + 표식 레이어
 (R27 방식: 레이어는 v01 걷기 첫 프레임에 그렸으므로 남 +4, 동 +3, 북 +4 내려 붙인다. 서쪽은 동쪽 합성의 좌우 반전).
@@ -264,12 +273,12 @@ GRASS = ["tiles_grass_base_v02.png"] + [f"tiles_grass_var_{i}_v02.png" for i in 
 ASH = [f"tiles_ash_plain_{i}_v01.png" for i in range(1, 4)]
 
 
-def surface_ground(V, watered, seed):
+def surface_ground(V, watered, seed, path_png="tiles_grass-path_v02.png", path_js="tiles_grass-path_v01.json"):
     """V: (rows+1) x (cols+1) vertex terrain, 'G' grass + one of P (path) / S (soil) / A (ash) per cell."""
-    js_path = os.path.join(ENV, "tiles_grass-path_v01.json")
+    js_path = os.path.join(ENV, path_js)
     js_soil = os.path.join(ENV, "tiles_grass-soil_v01.json")
     js_ash = os.path.join(PIX, "tiles_grass-corruption_v02.json")
-    sets = {"P": wang("tiles_grass-path_v02.png", js_path), "S": wang("tiles_grass-soil_v03.png", js_soil),
+    sets = {"P": wang(path_png, js_path), "S": wang("tiles_grass-soil_v03.png", js_soil),
             "A": wang("tiles_grass-corruption_v05.png", js_ash)}
     sw = wang("tiles_grass-soil_v03_watered.png", js_soil)
     inner = {"P": [sets["P"][("lower",) * 4]] + [load(f"tiles_path_var_{i}_v01.png") for i in (1, 2, 3)],
@@ -499,10 +508,8 @@ def dungeon_ground(cols, rows, seed, ore):
     return im
 
 
-def dungeon():
-    full = Image.new("RGBA", (SW, 272), OUT)
-    allem = Image.new("RGBA", (SW, 272), T)
-
+def dungeon_left(full, allem):
+    """left panel of the dungeon mockup: the surface entrance on ash ground (v05 and v06 share it)."""
     # --- left panel: surface entrance (ash) 160 px ---
     cols, rows = 10, 17
     V = vgrid(cols, rows)
@@ -539,6 +546,17 @@ def dungeon():
     lb, le = sc.render(g)
     paste(full, lb.crop((0, 0, 158, 272)), (0, 0))
     paste(allem, le.crop((0, 0, 158, 272)), (0, 0))
+
+
+DUNGEON_ORE = {(4, 0): "tiles_ore_copper_a_v02.png", (5, 1): "tiles_ore_copper_b_v02.png",
+               (14, 0): "tiles_ore_iron_a_v02.png", (19, 8): "tiles_ore_iron_b_v02.png",
+               (0, 12): "tiles_ore_copper_a_v02.png"}
+
+
+def dungeon():
+    full = Image.new("RGBA", (SW, 272), OUT)
+    allem = Image.new("RGBA", (SW, 272), T)
+    dungeon_left(full, allem)
 
     # --- right panel: dungeon room 320 px ---
     cols, rows = 20, 17
@@ -775,6 +793,453 @@ def candidates():
     save(out.convert("RGB"), "stage4_candidates_v01.png")
 
 
+# =====================================================================================
+# 손질 2 통합 (s3, 2026-10-22 새벽): s1 크기 고침(size 24) + s2 손질을 목업에 넣는다. 생성 없음.
+# 위의 fix / surface / dungeon / candidates 출력(v04·v05·v01)은 건드리지 않는다.
+# =====================================================================================
+def _fix5():
+    """s2 script (tools/art/stage4_fix5.py): same candle rim / lit-glass rules, imported, not copied."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import stage4_fix5
+    return stage4_fix5
+
+
+# ground lantern v03 (s1, 24 x 24): the two glass panes are open (transparent) between the bars,
+# rows 12-16, x9-10 and x13-14. '.' keeps the pixel. Same colours/levels as the s2 lit lanterns:
+# glass body <= #f4c95d, the core #fff6dc next to the centre bar (the flame sits behind it).
+GROUND_V03_LIT = ((9, 12), ["B....B",
+                            "HH..HH",
+                            "HE..EH",
+                            "HH..HH",
+                            "D....D"])
+
+
+def fix2():
+    f5 = _fix5()
+    # 1. black candles b (s1 v03): 10 near-black colours, a dark lump on the dungeon floor at 1x.
+    #    s2's item rule: wax just inside the outer outline on the left / top -> ash rim #8c7b66,
+    #    upper-left corners #b2a693. No flame colour (heretic fire colour is still ?).
+    src = load("prop_candles_black_b_v03.png")
+    out, n = f5.candle_rim(src)
+    assert n > 0
+    save(out, "prop_candles_black_b_v04.png")
+    print("  candles_black_b rim px", n)
+    # 2. ground lantern v03 lit pair (s2 made lit pairs for the v02 lanterns only)
+    unlit = load("prop_lantern_ground_v03.png")
+    px = unlit.load()
+    (x0, y0), rows = GROUND_V03_LIT
+    for y, r in enumerate(rows):
+        for x, ch in enumerate(r):
+            if ch != ".":
+                assert px[x0 + x, y0 + y][3] == 0, (x0 + x, y0 + y)     # only the open panes
+    lit = unlit.copy()
+    f5.overlay(lit, (x0, y0), rows, f5.GLOW)
+    em = f5.emissive_from(lit, unlit)
+    bx = f5.glow_box(lit, unlit)
+    save(lit, "prop_lantern_ground_v03_lit.png")
+    save(em, "prop_lantern_ground_v03_emissive.png")
+    print("  lantern_ground_v03_lit glass box", bx, "glow centre", ((bx[0] + bx[2] + 1) / 2, (bx[1] + bx[3] + 1) / 2))
+
+
+# flames for the v03 light props: file -> [(flame strip, flame frame top-left in prop coordinates)]
+# (anchors from the s2 record: candle stands grew to 32 x 40, relic bench v03 has a cold wick)
+LIGHTS_V5 = {
+    "prop_candle_stand_a_v03.png": [("flame_small_v01.png", (14, 0))],
+    "prop_candle_stand_b_v03.png": [("flame_small_v01.png", (15, -1))],
+    "prop_candle_stand_c_v03.png": [("flame_small_v01.png", (15, -1)), ("flame_small_v01.png", (7, 4)),
+                                    ("flame_small_v01.png", (22, 4))],
+    "relic_bench_v03.png": [("flame_small_v01.png", (37, -4))],
+    "prop_fire_basket_v02.png": [("flame_large_v01.png", (13, -2))],
+    "prop_campfire_ring_v02.png": [("flame_large_v01.png", (13, 4))],
+    "prop_wall_torch_a_v02.png": [("flame_large_v01.png", (9, -4))],
+}
+# lit lanterns: glow centre in file coordinates (s2 record; ground v03 from fix2) = engine point light
+GLOW_V5 = {
+    "prop_lantern_post_a_v03_lit.png": (23, 21),
+    "prop_lantern_post_b_v03_lit.png": (22.5, 18),
+    "prop_lantern_post_c_v03_lit.png": (16, 14.5),
+    "prop_lantern_ground_v02_lit.png": (16, 22),
+    "prop_lantern_wall_v02_lit.png": (16.5, 22),
+    "prop_lantern_ground_v03_lit.png": (12, 14.5),
+}
+
+
+class Scene5(Scene):
+    """Scene with multi-flame light props and lit lanterns. put5 returns the canvas top-left."""
+
+    def put5(self, name, x, foot, phase=0):
+        im = load(name)
+        em = None
+        if name in LIGHTS_V5:
+            e = Image.new("RGBA", (im.width + 16, im.height + 16), T)
+            for i, (strip, (fx, fy)) in enumerate(LIGHTS_V5[name]):
+                paste(e, flame(strip, (phase + i * 2) % 4), (fx + 8, fy + 8))
+            em = (e, (-8, -8))
+        elif name.endswith("_lit.png"):
+            # the glowing glass does not darken at evening (same layer as the flames)
+            mask = load(name.replace("_lit.png", "_emissive.png")).getchannel("A")
+            em = (Image.composite(im, Image.new("RGBA", im.size, T), mask), (0, 0))
+        _, _, _, by = bbox(im)
+        y = foot - by - 1
+        self.items.append((foot, self.n, im, (x, y), em))
+        self.n += 1
+        return x, y
+
+
+def flame_lights(name, xy, r=(6, 34)):
+    """eve light circles for the flames of a light prop placed at xy (canvas top-left)."""
+    out = []
+    for strip, (fx, fy) in LIGHTS_V5[name]:
+        w = 4 if "small" in strip else 6
+        h = 7 if "small" in strip else 10
+        out.append((xy[0] + fx + w / 2, xy[1] + fy + h / 2, r[0], r[1]))
+    return out
+
+
+def ash_decals(sc, kind, rnd):
+    """surface v04 decal scatter (same names, order and rules)."""
+    ash_cells = [c for c, k in kind.items() if k == "A"]
+    decals = (["decal_crack_1_v01.png", "decal_crack_2_v01.png", "decal_crack_3_v01.png", "decal_crack_4_v01.png"] * 2
+              + ["decal_vein_1_v01.png", "decal_vein_2_v01.png", "decal_vein_3_v01.png"]
+              + ["decal_bone_1_v01.png", "decal_bone_2_v01.png", "decal_bone_3_v01.png",
+                 "decal_mould_1_v01.png", "decal_mould_2_v01.png", "decal_mould_3_v01.png"]
+              + ["decal_rubble_1_v01.png", "decal_rubble_2_v01.png", "decal_rubble_3_v01.png", "decal_rubble_4_v01.png"] * 2)
+    taken = []
+    for name in decals:
+        for _ in range(200):
+            cx, cy = rnd.choice(ash_cells)
+            x, y = cx * 16 + rnd.randint(0, 10), cy * 16 + rnd.randint(0, 10)
+            if all(abs(x - tx) > 12 or abs(y - ty) > 10 for tx, ty in taken):
+                taken.append((x, y))
+                sc.decal(load(name), (x, y))
+                break
+    for i, y in enumerate((20, 70, 118, 190, 236)):
+        ex = ASH_EDGE[min(17, y // 16)] * 16
+        sc.decal(load(f"decal_ashcreep_{i % 3 + 1}_v01.png"), (ex - 26 - (i % 2) * 6, y))
+
+
+def surface5_scene(lit):
+    """v04 layout with the new files. lit = evening (lanterns lit). Returns (base, emissive, light circles)."""
+    V, watered = surface_map()
+    ground, kind = surface_ground(V, watered, 20261021, "tiles_grass-path_v03.png", "tiles_grass-path_v03.json")
+    sc = Scene5(SW, SH)
+    ash_decals(sc, kind, random.Random(4))
+    lights = [(256, 84, 100, 150)]                       # 제단 빛 (안전 반경, v04와 같음)
+
+    crops = load("crops_v03_sheet.png")
+
+    def crop(r, c):
+        return crops.crop((c * 16, r * 16, c * 16 + 16, r * 16 + 16))
+    for r in range(3):
+        for i in range(5):
+            sc.put(crop(r, i), (6 + i) * 16, (2 + r) * 16 + 16)
+    for i, (r, stage) in enumerate(((0, 1), (1, 2), (2, 1), (0, 3), (1, 0))):         # 물 준 줄
+        sc.put(crop(r, stage), (6 + i) * 16, 5 * 16 + 16)
+    for i in range(3):                                                                    # 시든 작물
+        sc.put(crop(i, 6), (20 + i) * 16, 14 * 16 + 16)
+
+    # 제단과 둘레: 촛대 v03 (32x40, 공유 불꽃), 공유 창고 + v03 통·상자·자루 (size 24)
+    alt, alt_em = altar_lit()
+    sc.items.append((109, -1, alt, (232, 52), (alt_em, (0, 0))))
+    for name, x, foot, ph in (("prop_candle_stand_a_v03.png", 200, 106, 1), ("prop_candle_stand_b_v03.png", 268, 106, 3)):
+        lights += flame_lights(name, sc.put5(name, x, foot, ph))
+    sc.put5("storage_chest_v02.png", 296, 118)
+    for name, x, foot in (("prop_barrel_a_v03.png", 338, 117), ("prop_crate_a_v03.png", 353, 121),
+                          ("prop_sack_a_v03.png", 370, 119), ("prop_barrel_c_v03.png", 282, 130),
+                          ("prop_sack_small_v03.png", 296, 132)):
+        sc.put5(name, x, foot)
+    # 작업대: 조제대 v05, 기본 작업대 v03, 모루 v03, 성물 제작대 v03 (빈 심지 + 공유 불꽃)
+    sc.put5("alchemy_table_v05.png", 92, 134)
+    sc.put5("workbench_v03.png", 144, 134)
+    sc.put5("anvil_v03.png", 196, 136)
+    lights += flame_lights("relic_bench_v03.png", sc.put5("relic_bench_v03.png", 324, 56, 2), (4, 26))
+    # 작업대 옆에 떨어진 재료 (v03 정면 아이콘; 정면 여부는 사람 확인 대기, v02도 둠)
+    for name, x, foot in (("item_planks_a_v03.png", 150, 150), ("item_ingot_iron_a_v03.png", 222, 146),
+                          ("item_stone_block_v03.png", 80, 150), ("item_cloth_a_v03.png", 312, 70)):
+        sc.put5(name, x, foot)
+    # 조명: 불 바구니·모닥불 (v04와 같음), 랜턴 기둥 v03 셋 (낮 꺼짐, 저녁 켜짐 + 빛)
+    sc.put5("prop_fire_basket_v02.png", 292, 54, 2)
+    sc.put5("prop_campfire_ring_v02.png", 230, 246, 0)
+    lights += [(308, 28, 12, 54), (246, 224, 16, 64)]
+    for name, x, foot in (("prop_lantern_post_a_v03", 30, 150), ("prop_lantern_post_c_v03", 318, 150),
+                          ("prop_lantern_post_b_v03", 96, 214)):
+        nm = f"{name}_lit.png" if lit else f"{name}.png"
+        xy = sc.put5(nm, x, foot)
+        gx, gy = GLOW_V5[f"{name}_lit.png"]
+        if lit:
+            lights.append((xy[0] + gx, xy[1] + gy, 5, 32))      # smaller than the altar pool (safety = altar light)
+    # 채집물 (v04와 같음. 나뭇가지는 game-concept §12 ?(나무)와 닿을 수 있어 기록에 적음)
+    for name, x, foot in (("item_wild_herb_clump_v02.png", 8, 30), ("item_mushroom_a_v02.png", 30, 58),
+                          ("item_stone_a_v02.png", 56, 24), ("item_sticks_a_v02.png", 12, 96),
+                          ("item_wild_healing_v02.png", 50, 104), ("item_mushroom_d_v02.png", 66, 70),
+                          ("item_wild_healing_v02.png", 8, 236), ("item_wild_buff_v02.png", 34, 250),
+                          ("item_mushroom_c_v02.png", 66, 232), ("item_stone_mossy_v02.png", 100, 252),
+                          ("item_sticks_b_v02.png", 128, 228), ("item_mushroom_b_v02.png", 160, 262),
+                          ("item_stone_b_v02.png", 210, 18),
+                          ("item_wild_buff_v02.png", 348, 236), ("item_wild_poison_v02.png", 370, 82),
+                          ("crop_poison_wild_v01.png", 378, 200), ("item_wild_poison_v02.png", 360, 256)):
+        sc.put5(name, x, foot)
+    # 위협 소품 (잿빛 땅. 곰팡이 덩이만 v03)
+    for name, x, foot in (("prop_bone_pile_a_v02.png", 406, 40), ("prop_idol_broken_a_v02.png", 446, 62),
+                          ("prop_ritual_stone_a_v02.png", 420, 104), ("prop_brazier_dark_a_v02.png", 446, 150),
+                          ("prop_skull_stake_v02.png", 404, 186), ("prop_bramble_dead_b_v02.png", 446, 214),
+                          ("prop_boulder_corrupt_v02.png", 410, 262), ("item_mushroom_ash_v02.png", 452, 252),
+                          ("item_skull_small_a_v02.png", 430, 140), ("item_mould_clump_v03.png", 458, 98),
+                          ("item_stone_veined_v02.png", 424, 220)):
+        sc.put5(name, x, foot)
+    sc.put_char("cleric", "S", 256, 142)
+    sc.put_char("herbalist", "W", 190, 98)
+    sc.put_char("miner", "N", 212, 166)
+    sc.put_char("paladin", "W", 330, 186)
+    sc.put_char("archer", "E", 372, 168)
+    base, emis = sc.render(ground)
+    return base, emis, lights
+
+
+def surface5():
+    base, _, _ = surface5_scene(False)
+    finish(base.crop((0, 0, SW, SH)), "stage4_mockup_v05_day")
+    base, emis, lights = surface5_scene(True)
+    h, w = base.height, base.width
+    edge_px = np.array([ASH_EDGE[min(len(ASH_EDGE) - 1, int(y // 16))] * 16 for y in range(h)], float)
+    xx = np.arange(w)[None, :].astype(float)
+    ash_amt = np.clip((xx - (edge_px[:, None] - 12)) / 20.0, 0, 1)
+    eve = darken(base, emis, lights, ash_amt).crop((0, 0, SW, SH))
+    finish(eve, "stage4_mockup_v05_eve")
+
+
+def dungeon6():
+    full = Image.new("RGBA", (SW, 272), OUT)
+    allem = Image.new("RGBA", (SW, 272), T)
+    dungeon_left(full, allem)          # 왼쪽 판(지상의 던전 입구)은 v05와 같다
+
+    cols, rows = 20, 17
+    g = dungeon_ground(cols, rows, 5, DUNGEON_ORE)
+    sc = Scene5(320, 272)
+    tops = load("wall_crack_top_v01.png")
+    faces = load("wall_crack_face_v01.png")
+    for stage, cx in ((1, 7), (2, 11), (3, 16)):
+        sc.decal(tops.crop(((stage - 1) * 16, 0, stage * 16, 16)), (cx * 16, 16))
+        sc.decal(faces.crop(((stage - 1) * 16, 0, stage * 16, 24)), (cx * 16, 32 + 3))
+    sc.decal(load("prop_cobweb_v02.png"), (31, 31))
+    for x in (76, 216):                       # 플레이어가 놓는 횃불 (공유 불꽃, v05와 같음)
+        sc.put5("prop_wall_torch_a_v02.png", x, 62, x)
+    sc.put5("prop_mine_frame_v02.png", 136, 72)
+    sc.put5("prop_beam_broken_v02.png", 104, 82)
+    # 이단의 제단 둘레 (불은 ? 색이 정해질 때까지 꺼 둠): v03 위협 소품 (size 24) + 검은 초 b v04
+    sc.put5("heretic_shrine_v02.png", 52, 160)
+    for name, x, foot in (("prop_brazier_dark_c_v03.png", 24, 160), ("prop_candles_black_a_v03.png", 102, 157),
+                          ("prop_candles_black_b_v04.png", 118, 170), ("prop_skull_pile_v03.png", 34, 196),
+                          ("prop_offering_bowl_v03.png", 94, 188), ("prop_bone_cage_v03.png", 128, 200),
+                          ("item_candle_black_a_v03.png", 36, 174), ("item_bone_charm_v03.png", 70, 204)):
+        sc.put5(name, x, foot)
+    # 창고 구석 (v03 size 24) + 플레이어가 놓은 켜진 땅 랜턴 v03
+    for name, x, foot in (("prop_crate_a_v03.png", 20, 252), ("prop_barrel_b_v03.png", 40, 252),
+                          ("prop_sack_b_v03.png", 58, 254), ("prop_jar_clay_v03.png", 80, 250),
+                          ("prop_pottery_broken_v03.png", 100, 254), ("prop_barrel_c_v03.png", 30, 236),
+                          ("prop_lantern_ground_v03_lit.png", 124, 252), ("prop_chain_a_v02.png", 150, 232)):
+        sc.put5(name, x, foot)
+    # 잔해·기둥 토막·석순 v03 (바닥에서 뗀 판), 광석 아이템
+    for name, x, foot in (("prop_rubble_a_v03.png", 172, 100), ("prop_pillar_stub_a_v03.png", 250, 97),
+                          ("prop_stalagmite_a_v03.png", 242, 197), ("prop_rubble_c_v03.png", 196, 253),
+                          ("prop_stalagmite_b_v03.png", 280, 251), ("prop_pillar_stub_c_v03.png", 140, 133),
+                          ("item_ore_copper_a_v02.png", 120, 96), ("item_ore_iron_a_v02.png", 232, 214),
+                          ("item_ore_iron_c_v03.png", 262, 226)):
+        sc.put5(name, x, foot)
+    # 오른쪽 벽 철 광맥 칸을 치는 광부 (v05와 같은 자리. 보스 구역 요소 ?는 넣지 않음)
+    strike = miner_strike()
+    sc.items.append((144, 999, strike, (250, 144 - 48), None))
+    sc.put_char("archer", "E", 166, 160)
+    sc.put_char("herbalist", "S", 196, 222)
+    rb, re_ = sc.render(g)
+    paste(full, rb, (160, 0))
+    paste(allem, re_, (160, 0))
+    finish(full.crop((0, 0, SW, SH)), "stage4_dungeon_v06")
+
+
+# =====================================================================================
+# scale compare: old (v02) and new (v03) props on one ground line next to the character, 3x
+# =====================================================================================
+SCALE_ROWS = [
+    ("grass", [("char",), ("prop_crate_a_v02", "prop_crate_a_v03"), ("prop_barrel_a_v02", "prop_barrel_a_v03"),
+               ("prop_barrel_b_v02", "prop_barrel_b_v03"), ("prop_barrel_c_v02", "prop_barrel_c_v03"),
+               ("prop_barrel_tipped_v02", "prop_barrel_tipped_v03"), ("prop_sack_a_v02", "prop_sack_a_v03"),
+               ("prop_sack_b_v02", "prop_sack_b_v03", "prop_sack_small_v03"), ("storage_chest_v02",), ("char",)]),
+    ("grass", [("char",), ("prop_crate_smashed_v02", "prop_crate_smashed_v03"),
+               ("prop_barrel_smashed_v03", "prop_barrel_smashed_v04"),
+               ("prop_pottery_broken_v02", "prop_pottery_broken_v03"), ("prop_jar_clay_v02", "prop_jar_clay_v03"),
+               ("prop_lantern_ground_v02", "prop_lantern_ground_v03", "prop_lantern_ground_v03_lit"),
+               ("workbench_v03",), ("char",)]),
+    ("grass", [("char",), ("prop_lantern_post_a_v02", "prop_lantern_post_a_v03"),
+               ("prop_lantern_post_b_v02", "prop_lantern_post_b_v03"), ("prop_lantern_post_c_v02", "prop_lantern_post_c_v03"),
+               ("prop_candle_stand_a_v02", "prop_candle_stand_a_v03"), ("prop_candle_stand_b_v02", "prop_candle_stand_b_v03"),
+               ("prop_candle_stand_c_v02", "prop_candle_stand_c_v03"), ("char",)]),
+    ("dungeon", [("char",), ("prop_offering_bowl_v02", "prop_offering_bowl_v03"),
+                 ("prop_candles_black_a_v02", "prop_candles_black_a_v03"),
+                 ("prop_candles_black_b_v02", "prop_candles_black_b_v03", "prop_candles_black_b_v04"),
+                 ("prop_skull_pile_v02", "prop_skull_pile_v03"), ("prop_brazier_dark_c_v02", "prop_brazier_dark_c_v03"),
+                 ("prop_bone_cage_v02", "prop_bone_cage_v03"), ("char",)]),
+]
+# flames shown on the candle stands (old v02 anchors = surface v04 LIGHT_ANCHORS; candelabrum c from the s2 record)
+SCALE_FLAMES_V02 = {"prop_candle_stand_a_v02": [(14, -5)], "prop_candle_stand_b_v02": [(15, -4)],
+                    "prop_candle_stand_c_v02": [(15, -4), (7, 1), (22, 1)]}
+
+
+def _strip_sprite(name):
+    """sprite cropped to its opaque columns, rows kept from the top of the opaque box to the bottom."""
+    if name == "char":
+        im, _ = character("base", "S")       # bare base body, no signature (03-pixel walk v02, 28 px)
+    else:
+        im = load(f"{name}.png")
+        fl = [("flame_small_v01.png", a) for a in SCALE_FLAMES_V02.get(name, [])] + LIGHTS_V5.get(f"{name}.png", [])
+        if fl:
+            big = Image.new("RGBA", (im.width, im.height + 8), T)
+            paste(big, im, (0, 8))
+            for i, (strip, (fx, fy)) in enumerate(fl):
+                paste(big, flame(strip, i % 4), (fx, fy + 8))
+            im = big
+    x0, y0, x1, y1 = bbox(im)
+    return im.crop((x0, y0, x1 + 1, y1 + 1))
+
+
+def scale_compare():
+    k = 3
+    fnt = ImageFont.load_default(size=13)     # Pillow's bundled font: same bytes with the pinned pillow
+    fl_e = (255, 246, 220)
+    rows_img = []
+    floor = load("tiles_dungeon_v02.png").crop((32, 32, 48, 48))
+    for ground, groups in SCALE_ROWS:
+        sprites = [[(n, _strip_sprite(n)) for n in g] for g in groups]
+        top = max(im.height for grp in sprites for _, im in grp)
+        H = top + 14
+        W = sum(sum(im.width for _, im in grp) + 3 * (len(grp) - 1) for grp in sprites) + 10 * len(sprites) + 10
+        if ground == "grass":
+            g = grass_patch((W + 15) // 16, (H + 15) // 16, 21).crop((0, 0, W, H))
+        else:
+            g = Image.new("RGBA", (W, H), T)
+            for yy in range(0, H, 16):
+                for xx in range(0, W, 16):
+                    paste(g, floor, (xx, yy))
+        base_y = H - 6                         # ground line (bottom opaque row + 1)
+        x = 8
+        labels = []    # one label per group: name + opaque height of each file (prop only, no flame)
+        for grp in sprites:
+            gx = x
+            hs = []
+            for n, im in grp:
+                paste(g, im, (x, base_y - im.height))
+                if n == "char":
+                    hs.append(f"{im.height}")
+                else:
+                    _, y0, _, y1 = bbox(load(f"{n}.png"))
+                    hs.append(f"{n[-3:]} {y1 - y0 + 1}")
+                x += im.width + 3
+            x += 10 - 3
+            n0 = grp[0][0]
+            labels.append((gx, n0, "character " + hs[0] if n0 == "char"
+                           else n0.replace("prop_", "")[:-4] + ": " + " -> ".join(hs)))
+        big = up(g, k)
+        d = ImageDraw.Draw(big)
+        # dashed guides: character height (28) and one tile (16) above the ground line
+        ch_h = _strip_sprite("char").height
+        for hgt, col in ((ch_h, (244, 201, 93)), (16, (239, 227, 198))):
+            yy = (base_y - hgt) * k
+            for xx in range(0, big.width, 12):
+                d.line((xx, yy, xx + 5, yy), fill=col, width=1)
+        band = Image.new("RGBA", (big.width, 34), (26, 23, 20, 255))
+        db = ImageDraw.Draw(band)
+        for i, (lx, n, text) in enumerate(labels):
+            db.text((lx * k, 2 + (i % 2) * 16), text, font=fnt, fill=fl_e if n != "char" else (244, 201, 93))
+        blk = Image.new("RGBA", (big.width, big.height + band.height), (26, 23, 20, 255))
+        paste(blk, band, (0, 0))
+        paste(blk, big, (0, band.height))
+        rows_img.append(blk)
+    W = max(r.width for r in rows_img) + 20
+    head = Image.new("RGBA", (W, 30), (26, 23, 20, 255))
+    ImageDraw.Draw(head).text((10, 8), "stage 4 scale: old v02 (left of each group) -> new v03/v04, character 28 px "
+                                       "(gold dashes), one tile 16 px (pale dashes), 3x. Numbers = version and opaque height of the file in px (flames not counted).",
+                              font=fnt, fill=(239, 227, 198))
+    out = Image.new("RGBA", (W, head.height + sum(r.height + 8 for r in rows_img)), (26, 23, 20, 255))
+    paste(out, head, (0, 0))
+    y = head.height
+    for r in rows_img:
+        paste(out, r, (10, y))
+        y += r.height + 8
+    save(out.convert("RGB"), "stage4_scale_compare_v01.png")
+
+
+# =====================================================================================
+# rules: brief §5.7 hand-fix rules on every adoption candidate of this pass (s1, s2, s3)
+# =====================================================================================
+RULES_DROPPED = {"prop_barrel_smashed_v04.png"}      # s3: not adopted (reads as an intact barrel with a ring)
+RULES_THREAT = ("prop_offering_bowl", "prop_candles_black", "prop_skull_pile", "prop_brazier_dark", "prop_bone_cage",
+                "item_mould_clump", "item_candle_black", "item_bone_charm")
+
+
+def rule_files():
+    """adoption candidates of 손질 2: s1 18 (size 24 props, smashed barrel v04 dropped), s2 49, s3 3."""
+    s1 = [f"prop_{n}_v03.png" for n in ("crate_a", "barrel_a", "barrel_b", "barrel_c", "barrel_tipped", "crate_smashed",
+                                        "sack_a", "sack_b", "sack_small", "pottery_broken", "jar_clay", "lantern_ground",
+                                        "offering_bowl", "candles_black_a", "candles_black_b", "skull_pile",
+                                        "brazier_dark_c", "bone_cage")]
+    s2 = [f"prop_{n}_v03.png" for n in ("lantern_post_a", "lantern_post_b", "lantern_post_c", "candle_stand_a",
+                                        "candle_stand_b", "candle_stand_c", "rubble_a", "rubble_b", "rubble_c",
+                                        "pillar_stub_a", "pillar_stub_b", "pillar_stub_c", "stalagmite_a", "stalagmite_b")]
+    s2 += [f"prop_lantern_post_{c}_v03_{k}.png" for c in "abc" for k in ("lit", "emissive")]
+    s2 += [f"prop_lantern_{n}_v02_{k}.png" for n in ("ground", "wall") for k in ("lit", "emissive")]
+    s2 += ["relic_bench_v03.png", "anvil_v03.png", "workbench_v03.png", "tiles_grass-path_v03.png",
+           "build_stone_candA_v02.png", "build_wood_candB_v02.png"]
+    s2 += [f"altar_up1_candA_v02{s}.png" for s in ("", "_unlit", "_litbase", "_emissive")]
+    s2 += [f"item_{n}_v03.png" for n in ("mould_clump", "leather_c", "candle_black_a", "candle_black_b", "ore_iron_c",
+                                         "bone_charm", "stone_block", "ingot_copper_a", "ingot_copper_b", "ingot_iron_a",
+                                         "ingot_iron_b", "planks_a", "planks_b", "planks_c", "cloth_a")]
+    s3 = ["prop_candles_black_b_v04.png", "prop_lantern_ground_v03_lit.png", "prop_lantern_ground_v03_emissive.png"]
+    names = sorted(s1 + s2 + s3)
+    assert len(names) == len(set(names)) == 70 and not set(names) & RULES_DROPPED, len(names)
+    return names
+
+
+def rules(names=None):
+    import colorsys
+    names = names or rule_files()
+    fl_e = (0xFF, 0xF6, 0xDC)
+    lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    bad = []
+    for n in names:
+        im = load(n)
+        a = np.asarray(im)
+        alphas = sorted(set(np.unique(a[..., 3]).tolist()))
+        op = a[..., 3] > 0
+        cols = {tuple(int(v) for v in c[:3]) for c in a[op]}
+        if n.endswith("_emissive.png"):
+            lv = sorted({c[0] for c in cols})
+            ok = set(alphas) <= {0, 255} and all(c[0] == c[1] == c[2] for c in cols)
+            print(f"{n}: emissive levels {lv}, alpha {alphas} -> {'OK' if ok else 'CHECK'}")
+            bad += [] if ok else [n]
+            continue
+        kind = "item" if n.startswith("item_") else ("tile" if n.startswith(("tiles_", "build_")) else "object")
+        limit = {"item": 16, "object": 24, "tile": None}[kind]
+        side = "threat" if n.startswith(RULES_THREAT) or "rubble" in n or "pillar" in n or "stalagmite" in n else "life"
+        maxl = max(lum(c) for c in cols if c != fl_e)
+        core = fl_e in cols
+        cool = [c for c in cols if c[2] > c[0] and colorsys.rgb_to_hsv(*[v / 255 for v in c])[1] < 0.35]
+        # outline: opaque pixels with a transparent (or off-canvas) 4-neighbour
+        pad = np.pad(op, 1)
+        edge = op & ~(pad[:-2, 1:-1] & pad[2:, 1:-1] & pad[1:-1, :-2] & pad[1:-1, 2:])
+        is_out = (a[..., 0] == 0x1A) & (a[..., 1] == 0x17) & (a[..., 2] == 0x14)
+        out_pct = 100.0 * (edge & is_out).sum() / max(edge.sum(), 1)
+        cap = 226.0 if kind == "tile" else 215.0
+        ok_n = limit is None or len(cols) <= limit
+        ok = ok_n and maxl <= cap and not cool and set(alphas) <= {0, 255} and (kind == "tile" or out_pct >= 90)
+        print(f"{n}: {kind}/{side} {len(cols)} colours (<= {limit or '-'}), max luma {maxl:.1f}"
+              f"{' + flame core 245.7' if core else ''}, alpha {alphas}, cool greys {len(cool)}, "
+              f"outline {out_pct:.0f}% of edge px -> {'OK' if ok else 'CHECK'}")
+        bad += [] if ok else [n]
+    print(f"{len(names)} files, CHECK: {bad if bad else 'none'}")
+    return bad
+
+
 def main(what):
     if what in ("fix", "all"):
         fix()
@@ -784,6 +1249,16 @@ def main(what):
         dungeon()
     if what in ("candidates", "all"):
         candidates()
+    if what in ("fix2", "all"):
+        fix2()
+    if what in ("surface5", "all"):
+        surface5()
+    if what in ("dungeon6", "all"):
+        dungeon6()
+    if what in ("scale", "all"):
+        scale_compare()
+    if what == "rules":
+        rules()
 
 
 if __name__ == "__main__":
