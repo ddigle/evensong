@@ -4,27 +4,38 @@ extends "res://tests/base_test.gd"
 ## (--net-out); all must agree with the host.
 ##
 ##   pair  1 host + 1 client moving together, then still; the host edits the world; a late joiner
-##         gets the edited world. In parallel a client joins a port nobody listens on (must fail).
+##         gets the edited world. That joiner runs with --test-perturb-generator (its own generator
+##         makes another world from the seed, like a machine whose float noise differs): it must
+##         still end with the host's world, because the world comes from the host as a snapshot. In
+##         parallel a client joins a port nobody listens on (must fail).
 ##   four  1 host + 3 clients (cap lowered to 4 with --max-players): all move, one leaves, a late
 ##         joiner takes the freed spawn slot and gets the edited world, a fifth player is refused
 ##         ("full"). The real cap (9) is unit-tested in test_net.gd; `-- --net-full` runs it here
-##         with 10 processes.
+##         with 10 processes. This host cuts its world snapshots into 32-byte chunks
+##         (--test-snapshot-chunk-bytes), so every joiner gets its world in 11 chunks over two
+##         ticks, with the welcome after the last one (the M1 world is one 1 KB chunk otherwise).
 ##   lag   1 host + 1 client whose traffic is held back 120 ms round trip with 15% loss
 ##         (net/link_sim.gd): prediction must still match the host. Alongside it, "drop": a host
 ##         that goes away (its --net-timeout) under a client started like a human would (no
 ##         --net-out): the client must play on alone, without errors.
+##   stall 1 host + 1 walking client: the host blocks 0.7 s outside its physics ticks (bot "stall"),
+##         and the client's input queue must catch up afterwards (not stay rate limited behind). Then
+##         the host edits the world every 4 ticks while a late joiner streams its world in 1-byte
+##         chunks: the edits made meanwhile follow its welcome and its world equals the host's.
 ##
-## Checked: exit codes, positions hash and world hash equal to the host's, everyone sees every
-## player, ground view = data, client prediction error <= PREDICTION_BOUND_PX, no malformed
-## messages, no "ERROR:" line in any child log, every process gone at the end (left-overs are
-## killed and fail the test). Traffic per situation is printed as notes.
+## Checked: exit codes, positions hash, world hash and ground picture (view hash) equal to the
+## host's, everyone sees every player, ground view = data, client prediction error <=
+## PREDICTION_BOUND_PX and no facing correction (the host derives the facing), no malformed
+## messages, input tokens refilled at the host's real-time pace, every snapshot sent at
+## NET_SNAPSHOT_CHUNKS_PER_TICK per tick, late joiners' snapshot and log position, no "ERROR:" line in any child log, every process
+## gone at the end (left-overs are killed and fail the test). Ports come from the runner's block
+## (tests/run_all.gd). Traffic and late join sizes and times are printed as notes.
 ##
 ## Runner flags (after "--"): --net-exe=<path> starts the children from that executable instead of
 ## this editor build (e.g. build/evensong.console.exe, relative to game/), --net-full adds the
 ## 10-process cap test, --net-keep keeps the run folder (user://net_test/...) even when passing.
 
 const Runner := preload("res://tests/run_all.gd")
-const NetUnit := preload("res://tests/test_net.gd")
 
 const PREDICTION_BOUND_PX: float = 0.5
 ## Share of frames drawing a walking player past its newest state (100 ms buffer, localhost).
@@ -39,6 +50,8 @@ const EDIT: String = "edit:62,50,soil"
 const PAIR_HOST: String = "move:1,0,90;move:0,1,60;move:-1,-1,60;wait:90;" + EDIT + ";mark:edited;wait:60"
 const PAIR_C1: String = "move:-1,0,90;move:0,-1,60;move:1,1,60;wait:90;move:0,1,30;wait:30"
 const LATE: String = "move:0,1,40;move:1,0,20;wait:10"
+## four: chunk size of the host's world snapshots (test hook), so a 341 B world takes 11 chunks.
+const FOUR_CHUNK_BYTES: int = 32
 ## Everyone moves 150 ticks, then 3 s with nobody moving (the idle measurement), then the edit and
 ## c1 leaving at about the same time.
 const FOUR_HOST: String = "move:1,0,90;move:0,1,60;wait:180;" + EDIT + ";mark:edited;wait:60"
@@ -48,6 +61,14 @@ const FOUR_C3: String = "move:1,1,60;move:-1,0,90;wait:60"
 const LAG_HOST: String = "move:1,0,60;move:0,1,30;wait:60"
 const LAG_C1: String = "move:-1,-1,45;move:-1,0,30;move:1,1,40;move:0,-1,25;wait:30"
 const FULL_BOT: String = "move:1,0,90;wait:120"
+## stall: the host blocks this long in a process step (bot "stall") while c1 walks, then edits the
+## world every STALL_EDIT_EVERY ticks, STALL_EDITS times, while the late joiner c2 streams its world
+## in 1-byte chunks (341 chunks, 43 ticks).
+const STALL_MS: int = 700
+const STALL_EDITS: int = 60
+const STALL_EDIT_EVERY: int = 4
+const STALL_CHUNK_BYTES: int = 1
+const STALL_C1: String = "move:1,0,60;move:0,1,60;move:-1,0,60;move:0,-1,60;wait:30"
 ## drop: the host quits by its --net-timeout; the client (no --net-out) runs this many frames.
 const DROP_HOST_SEC: int = 6
 const DROP_CLIENT_FRAMES: int = 480
@@ -83,11 +104,11 @@ func run() -> Array[String]:
 	_run_dir = ProjectSettings.globalize_path("user://net_test").path_join("run_%d_%d" % [OS.get_process_id(),
 		Time.get_ticks_msec()])
 	DirAccess.make_dir_recursive_absolute(_run_dir)
-	allow_error("Couldn't create an ENet host", -1)  # probing for a free port
 	var t0: int = Time.get_ticks_msec()
 	await _session_pair()
 	await _session_four()
 	await _session_lag()
+	await _session_stall()
 	if args.has("net-full"):
 		await _session_full()
 	_check_logs()
@@ -103,7 +124,7 @@ func run() -> Array[String]:
 func _session_pair() -> void:
 	var dir: String = _session_dir("pair")
 	var port: int = _port()
-	var dead_port: int = NetUnit.free_port(port + 1, Config.NET_TEST_PORT_LAST)
+	var dead_port: int = Runner.free_port(port + 1, Runner.port_last)
 	if not check(port > 0 and dead_port > 0, "pair: free ports"):
 		return
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2",
@@ -115,7 +136,8 @@ func _session_pair() -> void:
 	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + PAIR_C1])
 	var t_late: int = Time.get_ticks_msec()
 	if check(await _wait_files([dir.path_join("host.edited.marker")], STEP_WAIT_SEC), "pair: host edited the world"):
-		var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=" + LATE])
+		var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=" + LATE,
+			"--test-perturb-generator"])
 		note("pair: late joiner started %.1f s after the first client" % ((Time.get_ticks_msec() - t_late) / 1000.0))
 		check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json"),
 			dir.path_join("nohost.json")], STEP_WAIT_SEC), "pair: every instance wrote its result")
@@ -124,7 +146,8 @@ func _session_pair() -> void:
 			return
 		_expect_codes("pair", {host: 0, c1: 0, c2: 0, dead: NetSession.EXIT_FAILED})
 		_check_agreement("pair", host, [c1, c2], 3)
-		_check_late_joiner("pair", host, c2)
+		_check_late_joiner("pair", host, c2, true)
+		check(_flag(c1.result, "generator_match"), "pair/c1: an unperturbed joiner's generator matches the host's")
 		check(str(dead.result.get("ended", "")).begins_with("failed: not admitted"),
 			"pair: joining a port nobody listens on fails after the connect timeout (%s)" % dead.result.get("ended", ""))
 		check(_log_has(c1, "edit floor 62,50=1 index=0"), "pair: the early client got the edit live")
@@ -139,7 +162,7 @@ func _session_four() -> void:
 	if not check(port > 0, "four: free port"):
 		return
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--max-players=4", "--net-start=3",
-		"--net-expect=4", "--net-expect-refused=1", "--bot=" + FOUR_HOST])
+		"--net-expect=4", "--net-expect-refused=1", "--bot=" + FOUR_HOST, "--test-snapshot-chunk-bytes=%d" % FOUR_CHUNK_BYTES])
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "four: host listens"):
 		await _reap()
 		return
@@ -163,7 +186,14 @@ func _session_four() -> void:
 	_expect_codes("four", {host: 0, c1: 0, c2: 0, c3: 0, c4: 0, c5: NetSession.EXIT_REFUSED})
 	check_eq(host.result.get("max_players", 0), 4, "four: test cap 4")
 	_check_agreement("four", host, [c2, c3, c4], 4)
-	_check_late_joiner("four", host, c4)
+	_check_late_joiner("four", host, c4, false)
+	var four_chunks: int = ceili(_num(c4.result, "snapshot_bytes") / FOUR_CHUNK_BYTES)
+	check(four_chunks > Config.NET_SNAPSHOT_CHUNKS_PER_TICK and _num(c4.result, "snapshot_chunks") == float(four_chunks),
+		"four/c4: its world came in %d chunks of %d B (more than one tick's %d)" % [four_chunks, FOUR_CHUNK_BYTES,
+		Config.NET_SNAPSHOT_CHUNKS_PER_TICK])
+	var c4_stream: Dictionary = _stream_for(host, c4)
+	check_eq(_num(c4_stream, "ticks"), float(ceili(float(four_chunks) / Config.NET_SNAPSHOT_CHUNKS_PER_TICK)),
+		"four/c4: the host sent those chunks over %d ticks" % ceili(float(four_chunks) / Config.NET_SNAPSHOT_CHUNKS_PER_TICK))
 	check_eq(c1.result.get("ended", ""), "left", "four: c1 left")
 	check_eq(c4.result.get("slot", -1), c1.result.get("slot", -2), "four: the late joiner reuses the slot c1 left")
 	check_eq(c5.result.get("refused", ""), "full", "four: a fifth player is refused as full")
@@ -183,7 +213,7 @@ func _session_lag() -> void:
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "lag: host listens"):
 		await _reap()
 		return
-	var drop_port: int = NetUnit.free_port(port + 1, Config.NET_TEST_PORT_LAST)
+	var drop_port: int = Runner.free_port(port + 1, Runner.port_last)
 	var drop_host: Instance = null
 	var drop_client: Instance = null
 	if check(drop_port > 0, "drop: free port"):
@@ -217,6 +247,84 @@ func _session_lag() -> void:
 	note("lag 120 ms / 15%%: %d of %d client packets dropped, %d reconciles, max prediction error %s px, host drawn past its newest state in %d of %d frames" % [
 		dropped, sent, p.get("reconciles", 0), p.get("max_error_px", "?"), roundi(_num(c1.result, "interp_starved")),
 		roundi(_num(c1.result, "interp_samples"))])
+
+
+## The host stalls (a 0.7 s frame outside the physics ticks, where Godot polls the network only
+## after its catch-up ticks) while c1 walks: c1's frames must still catch up, not stay rate limited
+## behind for the rest of the walk. Then the host edits the world every few ticks while a late
+## joiner (c2) receives its world in 341 one-byte chunks: the edits made during the stream reach c2
+## after its welcome (the catch-up edits) and its world ends equal to the host's.
+func _session_stall() -> void:
+	var dir: String = _session_dir("stall")
+	var port: int = _port()
+	if not check(port > 0, "stall: free port"):
+		return
+	var host_bot: String = "mark:editing;wait:5;stall:%d;%s;wait:30" % [STALL_MS, _edits_script(STALL_EDITS, STALL_EDIT_EVERY)]
+	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2",
+		"--test-snapshot-chunk-bytes=%d" % STALL_CHUNK_BYTES, "--bot=" + host_bot])
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "stall: host listens"):
+		await _reap()
+		return
+	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=miner", "--bot=" + STALL_C1])
+	if not check(await _wait_files([dir.path_join("host.editing.marker")], STEP_WAIT_SEC), "stall: host bot started"):
+		await _reap()
+		return
+	var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=wait:10"])
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json")],
+		STEP_WAIT_SEC), "stall: every instance wrote its result")
+	await _reap()
+	if not _load_results(dir, [host, c1, c2]):
+		return
+	_expect_codes("stall", {host: 0, c1: 0, c2: 0})
+	_check_agreement("stall", host, [c1, c2], 3)
+	check_eq(_num(host.result, "stalled_ms"), float(STALL_MS), "stall: the host really blocked %d ms" % STALL_MS)
+	var gates: Dictionary = host.result.get("gates", {})
+	var g: Dictionary = gates.get(str(roundi(_num(c1.result, "slot"))), {})
+	check(_num(g, "waiting_peak") >= 0.6 * STALL_MS * Config.NET_TICK_RATE / 1000.0, "stall: c1's frames piled up during the stall (%s waiting)" % g.get("waiting_peak"))
+	check(_num(g, "rate_limited_ticks") <= 2.0, "stall: c1's queue caught up after it, not rate limited behind (%s ticks)" %
+		g.get("rate_limited_ticks"))
+	check(_num(g, "credit_used") > 0.0, "stall: the lost time reached the frames polled after the catch-up ticks (credit %s)" %
+		g.get("credit_used"))
+	note("stall %d ms: c1's queue peak %s frames, rate limited %s ticks, hitch credit used %s ticks, refill %s ticks in %s takes" % [
+		STALL_MS, g.get("waiting_peak"), g.get("rate_limited_ticks"), g.get("credit_used"), g.get("refilled"), g.get("takes")])
+	# Edits while c2 streamed.
+	check_eq(_num(host.result, "edits"), float(STALL_EDITS), "stall: the host made %d edits" % STALL_EDITS)
+	for c: Instance in [c1, c2]:
+		check_eq(_num(c.result, "edits"), float(STALL_EDITS), "stall/%s: log position %d (every edit)" % [c.name, STALL_EDITS])
+	var stream: Dictionary = _stream_for(host, c2)
+	var catch_up: int = roundi(_num(stream, "catch_up_edits"))
+	check(catch_up > 0, "stall/c2: edits made while its world streamed came after the welcome (%d catch-up edits)" % catch_up)
+	check(_num(stream, "chunks") > 300.0 and _num(c2.result, "snapshot_chunks") == _num(stream, "chunks"),
+		"stall/c2: its world came in %s one-byte chunks" % stream.get("chunks"))
+	note("stall/c2: world in %s chunks over %s ticks, snapshot at edit %s, %d edits after it sent after the welcome" % [
+		stream.get("chunks"), stream.get("ticks"), stream.get("edit_position"), catch_up])
+
+
+## A bot script of `count` floor edits (grass -> soil, each allowed by EditLog.check after the ones
+## before it, on the seed-1 world), one every `every` ticks.
+static func _edits_script(count: int, every: int) -> String:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var parts: PackedStringArray = []
+	var origin: Vector2i = data.altar_rect.position + Vector2i(-10, data.altar_rect.size.y + 3)
+	for y: int in range(origin.y, data.size.y):
+		for x: int in range(origin.x, data.size.x):
+			if parts.size() >= count:
+				break
+			var e: EditLog.WorldEdit = EditLog.WorldEdit.new(WorldData.Layer.FLOOR, Vector2i(x, y), Terrain.SOIL)
+			if EditLog.check(data, e).is_empty() and data.set_terrain(e.cell, e.value):
+				parts.append("edit:%d,%d,soil;wait:%d" % [x, y, every - 1])
+	return ";".join(parts)
+
+
+## The host's record of the stream that sent `joiner` its world ({} if none).
+func _stream_for(host: Instance, joiner: Instance) -> Dictionary:
+	var slot: int = roundi(_num(joiner.result, "slot"))
+	var streams: Array = host.result.get("streams", [])
+	for item: Variant in streams:
+		var d: Dictionary = item
+		if roundi(_num(d, "slot")) == slot:
+			return d
+	return {}
 
 
 ## Opt-in (--net-full): the real cap. 1 host + 8 clients = 9 players, a tenth is refused.
@@ -265,11 +373,14 @@ func _session_full() -> void:
 func _check_agreement(label: String, host: Instance, clients: Array[Instance], players: int) -> void:
 	var h: Dictionary = host.result
 	check_eq(h.get("ended", ""), "finished", "%s: host finished" % label)
-	# Physics ticks keep real time in a headless child (bandwidth per second relies on it).
+	# Physics ticks keep real time in a headless child (bandwidth per second relies on it). A test
+	# stall (bot "stall") loses its time but the 8 catch-up ticks Godot runs after it.
 	var sim_sec: float = _num(h, "ticks") * Config.NET_TICK
-	var wall_sec: float = _num(h, "wall_sec")
+	var stalled_sec: float = maxf(_num(h, "stalled_ms"), 0.0) / 1000.0
+	var wall_sec: float = _num(h, "wall_sec") - stalled_sec
 	check(wall_sec > 1.0 and absf(sim_sec - wall_sec) <= 0.05 * wall_sec + 0.25,
-		"%s: host ticks keep real time (%.2f s simulated, %.2f s wall since hosting)" % [label, sim_sec, wall_sec])
+		"%s: host ticks keep real time (%.2f s simulated, %.2f s wall since hosting, %.2f s stalled not counted)" % [label,
+		sim_sec, wall_sec, stalled_sec])
 	var host_players: Array = h.get("players", [])
 	check_eq(host_players.size(), players, "%s: host has %d players" % [label, players])
 	check(_flag(h, "bot_finished"), "%s: host bot finished" % label)
@@ -286,6 +397,10 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		check_eq(r.get("positions_hash", ""), h.get("positions_hash", "?"), "%s/%s: positions = host (%s vs %s)" % [
 			label, c.name, JSON.stringify(r.get("players", [])), JSON.stringify(h.get("players", []))])
 		check_eq(r.get("world_hash", ""), h.get("world_hash", "?"), "%s/%s: world = host" % [label, c.name])
+		check_eq(r.get("view_hash", ""), h.get("view_hash", "?"), "%s/%s: draws the host's ground (view hash)" % [label, c.name])
+		check(_num(r, "snapshot_chunks") >= 1.0 and _num(r, "snapshot_bytes") > 0.0,
+			"%s/%s: got its world as a snapshot (%s B in %s chunks)" % [label, c.name, r.get("snapshot_bytes"),
+			r.get("snapshot_chunks")])
 		var seen: Array = r.get("players", [])
 		check_eq(seen.size(), players, "%s/%s: sees all %d players" % [label, c.name, players])
 		var p: Dictionary = r.get("prediction", {})
@@ -294,6 +409,7 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 			PREDICTION_BOUND_PX, err])
 		check(_num(p, "reconciles") > 5, "%s/%s: prediction was reconciled (%s)" % [label, c.name, p.get("reconciles", 0)])
 		check_eq(p.get("pending", -1), 0, "%s/%s: every input frame acknowledged" % [label, c.name])
+		check_eq(_num(p, "facing_corrections"), 0.0, "%s/%s: the host's derived facing = the predicted one" % [label, c.name])
 		check(_flag(r, "bot_finished"), "%s/%s: bot finished" % [label, c.name])
 		var samples: float = _num(r, "interp_samples")
 		var starved: float = _num(r, "interp_starved")
@@ -301,19 +417,55 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 			check(starved <= INTERP_STARVED_MAX * samples,
 				"%s/%s: other players drawn from the buffer (%d of %d frames past the newest state)" % [label, c.name,
 				starved, samples])
+	check(_num(h, "snapshots_sent") >= float(clients.size()), "%s: the host sent a snapshot to every joiner (%s)" % [
+		label, h.get("snapshots_sent")])
 	var gates: Dictionary = h.get("gates", {})
 	for slot: String in gates:
 		var g: Dictionary = gates[slot]
 		check(_num(g, "bad_packets") == 0.0 and _num(g, "bad_frames") == 0.0 and _num(g, "gaps") == 0.0
 			and _num(g, "overflow") == 0.0, "%s: host input gate for slot %s clean %s" % [label, slot, g])
+		# The rate limit runs on the host's real-time clock (InputGate.ticks_between): over the gate's
+		# life its refill must be about one tick per host tick (plus what a test stall lost).
+		var takes: float = _num(g, "takes")
+		var refilled: float = _num(g, "refilled")
+		check(takes > 30.0 and refilled >= 0.9 * takes - 5.0 and refilled <= 1.1 * takes + 10.0 + stalled_sec * Config.NET_TICK_RATE,
+			"%s: slot %s's input tokens follow real time (refill %.1f ticks over %d host ticks)" % [label, slot, refilled,
+			roundi(takes)])
+	# Each joiner's world went out at NET_SNAPSHOT_CHUNKS_PER_TICK chunks per host tick.
+	var streams: Array = h.get("streams", [])
+	for item: Variant in streams:
+		var st: Dictionary = item
+		var chunks: float = _num(st, "chunks")
+		check(_num(st, "ticks") == float(ceili(chunks / Config.NET_SNAPSHOT_CHUNKS_PER_TICK)),
+			"%s: slot %d's world went out at %d chunks per tick (%d chunks in %d ticks)" % [label, roundi(_num(st, "slot")),
+			Config.NET_SNAPSHOT_CHUNKS_PER_TICK, roundi(chunks), roundi(_num(st, "ticks"))])
+	check(streams.size() >= clients.size(), "%s: the host recorded a stream for every joiner (%d)" % [label, streams.size()])
 
 
-func _check_late_joiner(label: String, host: Instance, late: Instance) -> void:
+## A late joiner: its world is the host's edited world, received as a snapshot with the log
+## position after the edit; its own generator only shows up in the diagnostic (`perturbed`: it makes
+## another world, and that does not matter).
+func _check_late_joiner(label: String, host: Instance, late: Instance, perturbed: bool) -> void:
 	var r: Dictionary = late.result
-	check_eq(r.get("edits", -1), 1, "%s/%s: late joiner got the edit log (1 edit)" % [label, late.name])
-	check_ne(r.get("world_hash", ""), r.get("pristine_hash", ""), "%s/%s: its world is not the bare seed" % [label, late.name])
-	check_eq(r.get("pristine_hash", ""), host.result.get("pristine_hash", "?"), "%s: same seed world" % label)
-	check(_log_has(late, "welcome slot=") and _log_has(late, "edits=1"), "%s/%s: welcome carried the edit" % [label, late.name])
+	var h: Dictionary = host.result
+	var who: String = "%s/%s" % [label, late.name]
+	check_eq(r.get("edits", -1), 1, "%s: log position 1 (the edit came inside the snapshot)" % who)
+	check_eq(r.get("world_hash", ""), h.get("world_hash", "?"), "%s: the host's world" % who)
+	check_ne(r.get("world_hash", ""), h.get("generator_hash", "?"), "%s: the edited world, not the bare seed" % who)
+	check_eq(r.get("host_generator_hash", ""), h.get("generator_hash", "?"), "%s: the welcome carried the host's generator hash" % who)
+	if perturbed:
+		var own: String = r.get("generator_hash", "")
+		var hosts: String = h.get("generator_hash", "?")
+		check(not _flag(r, "generator_match") and own != hosts,
+			"%s: its own generator makes another world (perturbed) and it still has the host's" % who)
+		check(_log_has(late, "generator=differs"), "%s: the diagnostic says the generators differ" % who)
+	else:
+		check(_flag(r, "generator_match"), "%s: its own generator matches the host's (same build, same machine)" % who)
+	check(_log_has(late, "welcome slot=") and _log_has(late, "edits=1"), "%s: welcome logged the edit position" % who)
+	var join_ms: float = _num(r, "join_ms")
+	check(join_ms > 0.0 and join_ms < 5000.0, "%s: world ready %.1f ms after connecting" % [who, join_ms])
+	note("%s late join: world %s B packed (%s B raw) in %s chunk(s), ready %.1f ms after connecting (check + decode + draw %.1f ms)" % [
+		who, r.get("snapshot_bytes"), r.get("snapshot_raw"), r.get("snapshot_chunks"), join_ms, _num(r, "world_build_ms")])
 
 
 func _expect_codes(label: String, codes: Dictionary) -> void:
@@ -372,6 +524,10 @@ func _traffic_notes(label: String, host: Instance, client: Instance, players: in
 			note("%s client %s %s moving: sends %s B/s (%s B/s with UDP/IP), receives %s B/s" % [label, client.name, key,
 				c.get("sent_bps"), c.get("wire_sent_bps"), c.get("received_bps")])
 	note("%s host: %d state batches + %d keyframes in %d ticks" % [label, batches, roundi(_num(host.result, "keyframes")), ticks])
+	if hs.has("joining"):
+		var j: Dictionary = hs["joining"]
+		note("%s host while sending joiners their world: %s B in %s packets over %s s (counted apart from idle)" % [label,
+			j.get("sent"), j.get("packets"), j.get("sec")])
 
 
 # --- processes -----------------------------------------------------------------------------------
@@ -383,7 +539,7 @@ func _session_dir(label: String) -> String:
 
 
 func _port() -> int:
-	return NetUnit.free_port(Config.NET_TEST_PORT_FIRST, Config.NET_TEST_PORT_LAST)
+	return Runner.free_port(Runner.port_first, Runner.port_last)
 
 
 ## A test instance: result and markers in `dir`, quits by itself after `timeout_sec`.

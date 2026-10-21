@@ -1,7 +1,8 @@
 class_name EnetTransport
 extends NetTransport
 ## ENet transport (built into Godot): ENetMultiplayerPeer over UDP. The host binds every interface
-## (LAN, Tailscale 100.x). Byte counts come from ENetConnection statistics.
+## (LAN, Tailscale 100.x). Byte counts come from ENetConnection statistics. Every connection gets
+## Config.NET_ENET_THROTTLE (ENet's packet throttle never lowers, so it never drops state batches).
 
 var _peer: ENetMultiplayerPeer
 
@@ -23,6 +24,7 @@ func host(p_api: MultiplayerAPI) -> void:
 		_fail.call_deferred("cannot listen on port %d (%s)" % [options.port, error_string(err)])
 		return
 	_peer = peer
+	peer.peer_connected.connect(_configure_peer)
 	api.multiplayer_peer = peer
 	_open.call_deferred()
 
@@ -82,7 +84,18 @@ func close() -> void:
 func _on_connected() -> void:
 	if api.connection_failed.is_connected(_on_connection_failed):
 		api.connection_failed.disconnect(_on_connection_failed)
+	_configure_peer(1)
 	_open()
+
+
+## A new connection (the host's to a client, a client's to the host): Config.NET_ENET_THROTTLE.
+func _configure_peer(peer_id: int) -> void:
+	if _peer == null:
+		return
+	var p: ENetPacketPeer = _peer.get_peer(peer_id)
+	if p != null:
+		var t: Vector3i = Config.NET_ENET_THROTTLE
+		p.throttle_configure(t.x, t.y, t.z)
 
 
 func _on_connection_failed() -> void:

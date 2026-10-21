@@ -8,9 +8,14 @@ extends RefCounted
 ##                                replicated like a real edit (late joiners get it)
 ##   mark:<name>                  write the marker file <net-out>/<net-name>.<name>.marker
 ##   leave                        client: leave the session (exit 0)
+##   stall:<ms>                   test only: block the whole process that long after this tick, in
+##                                the process step (NetSession._process): a long frame, the kind
+##                                Godot follows with catch-up physics ticks before it polls the network
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
-const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave"]
+const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall"]
+## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
+const MAX_STALL_MS: int = 5000
 
 class Command:
 	extends RefCounted
@@ -20,6 +25,7 @@ class Command:
 	var cell: Vector2i = Vector2i.ZERO
 	var terrain: int = 0
 	var name: String = ""
+	var stall_ms: int = 0
 
 
 ## What the bot does this tick.
@@ -29,6 +35,8 @@ class Action:
 	var edit: Command
 	var mark: String = ""
 	var leave: bool = false
+	## Test only: block the process this long after the tick (NetSession._process).
+	var stall_ms: int = 0
 
 
 var commands: Array[Command] = []
@@ -85,6 +93,10 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"leave":
 			if args.size() != 0:
 				return "leave takes no arguments"
+		"stall":
+			if args.size() != 1 or not _whole(args[0], 1) or args[0].to_int() > MAX_STALL_MS:
+				return "expected stall:<ms> with ms in 1..%d" % MAX_STALL_MS
+			c.stall_ms = args[0].to_int()
 		_:
 			return "unknown command (%s)" % ", ".join(OPS)
 	return ""
@@ -124,6 +136,10 @@ func step() -> Action:
 				return a
 			"leave":
 				a.leave = true
+				_next()
+				return a
+			"stall":
+				a.stall_ms = c.stall_ms
 				_next()
 				return a
 	return a

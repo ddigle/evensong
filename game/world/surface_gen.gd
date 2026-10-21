@@ -1,9 +1,10 @@
 class_name SurfaceGen
 extends RefCounted
-## Seeded surface start area (M1). Same seed + size -> same WorldData. Late join relies on this on
-## every machine (RandomNumberGenerator = PCG32 and integer cell math, but FastNoiseLite is float
-## math). Checked on x86_64 only: GOLDEN_HASH below is the x86_64 result, --smoke compares the
-## running build with it, and a joining client compares its world md5 with the host's.
+## Seeded surface start area (M1). Same seed + size -> same WorldData on one machine
+## (RandomNumberGenerator = PCG32 and integer cell math, but FastNoiseLite is float math, so another
+## architecture may differ). Checked on x86_64 only: GOLDEN_HASH below is the x86_64 result and
+## --smoke compares the running build with it. Late join does not depend on it: the host sends its
+## world (net/world_snapshot.gd) and a joiner only reports whether its own generator agrees.
 ##
 ##   1. Altar site: Config.ALTAR_FOOTPRINT cells at the map centre (PLACEABLE_ALTAR).
 ##   2. Tilled soil: Config.SOIL_PATCH_COUNT rectangles, every cell completely inside the altar
@@ -21,6 +22,12 @@ const MAX_ATTEMPTS: int = 200
 ## the rules hold is checked separately over many seeds. When the generator or its constants
 ## change on purpose, update it (the failure prints the new value).
 const GOLDEN_HASH: String = "e04258e54b02b0ed09ce02c9a92c11a8"
+
+## Test only (--test-perturb-generator, set by the Cli autoload before the world is generated):
+## shifts the ash edge noise seed, so this process generates a different world from the same seed,
+## like a machine whose float noise came out differently. tests/test_net_session.gd gives it to a
+## late joiner, which must still end with the host's world.
+static var test_perturb: bool = false
 
 
 static func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> WorldData:
@@ -84,7 +91,7 @@ static func _place_soil(data: WorldData, rng: RandomNumberGenerator) -> void:
 
 static func _place_ash(data: WorldData, rng: RandomNumberGenerator) -> void:
 	var noise: FastNoiseLite = FastNoiseLite.new()
-	noise.seed = data.world_seed & 0x7fffffff
+	noise.seed = (data.world_seed & 0x7fffffff) ^ (1 if test_perturb else 0)
 	noise.frequency = Config.ASH_EDGE_NOISE_FREQUENCY
 	var altar: Vector2 = data.altar_center_px()
 	var min_dist_px: float = Config.safe_radius_px() + Config.ASH_CLEARANCE_TILES * Config.TILE

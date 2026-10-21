@@ -19,6 +19,9 @@ func _ready() -> void:
 			printerr("EVENSONG_CLI error: %s" % message)
 		get_tree().quit(2)
 		return
+	SurfaceGen.test_perturb = options.test_perturb_generator  # before the scene generates its world
+	if options.test_snapshot_chunk_bytes > 0:
+		WorldSnapshot.chunk_bytes = options.test_snapshot_chunk_bytes
 	if options.smoke:
 		var report: Smoke.Report = Smoke.run(get_tree())
 		print(report.line())

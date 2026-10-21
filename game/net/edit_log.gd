@@ -1,13 +1,13 @@
 class_name EditLog
 extends RefCounted
-## The world's edit log: every change the host made to the generated world, in order. The world
-## of a session = SurfaceGen.generate(seed) + this log, which is what a late joiner gets (spike
-## RESULTS §5 used a full snapshot; M1 worlds are small and barely edited, so seed + log is
-## smaller and checks generation too: the joiner compares its world hash with the host's).
+## The world's edit log: every change the host made to the world, in order, numbered from 0. The
+## host keeps all of them. A late joiner gets the world itself (net/world_snapshot.gd) plus the log
+## position the snapshot was taken at (`base`); edits from that index on reach it as single edit
+## messages, in order (the index tells it whether one is missing).
 ##
 ## An edit is absolute ("cell = value", not "toggle"), so applying it twice changes nothing.
 ## M1 has no gameplay edits; the only source is the host's debug edit (bot command "edit", floor
-## grass <-> soil, i.e. tilling). Encoding: u32 count, then count x (u8 layer, u16 x, u16 y, u8 value).
+## grass <-> soil, i.e. tilling). Edit message: u32 index, then u8 layer, u16 x, u16 y, u8 value.
 
 const HEADER_SIZE: int = 4
 const EDIT_SIZE: int = 6
@@ -31,15 +31,26 @@ class WorldEdit:
 			value]
 
 
+## Edits that were already in the world this log started from (a joiner's snapshot); 0 on the host.
+var base: int = 0
+## The edits from index `base` on.
 var edits: Array[WorldEdit] = []
 
 
+## Log position: how many edits the world contains (= the index of the next edit).
 func size() -> int:
-	return edits.size()
+	return base + edits.size()
 
 
 func append(edit: WorldEdit) -> void:
 	edits.append(edit)
+
+
+## Edit number `index` (base <= index < size()), or null.
+func edit_at(index: int) -> WorldEdit:
+	if index < base or index >= size():
+		return null
+	return edits[index - base]
 
 
 ## Host-side check before an edit is applied and logged: inside the map, a floor terrain the debug
@@ -70,15 +81,6 @@ static func apply_to_data(data: WorldData, edit: WorldEdit) -> bool:
 	return true
 
 
-func encode() -> PackedByteArray:
-	var out: PackedByteArray = PackedByteArray()
-	out.resize(HEADER_SIZE + EDIT_SIZE * edits.size())
-	out.encode_u32(0, edits.size())
-	for i: int in edits.size():
-		_write_edit(out, HEADER_SIZE + EDIT_SIZE * i, edits[i])
-	return out
-
-
 static func encode_one(edit: WorldEdit, index: int) -> PackedByteArray:
 	var out: PackedByteArray = PackedByteArray()
 	out.resize(HEADER_SIZE + EDIT_SIZE)
@@ -92,28 +94,6 @@ static func decode_one(bytes: PackedByteArray) -> Array:
 	if bytes.size() != HEADER_SIZE + EDIT_SIZE:
 		return [-1, null]
 	return [bytes.decode_u32(0), _read_edit(bytes, HEADER_SIZE)]
-
-
-## Bytes an encoded log starting at `at` takes, or -1 if `bytes` is too short for it.
-static func encoded_size(bytes: PackedByteArray, at: int) -> int:
-	if bytes.size() < at + HEADER_SIZE:
-		return -1
-	var count: int = bytes.decode_u32(at)
-	var total: int = HEADER_SIZE + EDIT_SIZE * count
-	if count > 1 << 20 or bytes.size() < at + total:
-		return -1
-	return total
-
-
-## Log from encode(), or null when malformed.
-static func decode(bytes: PackedByteArray) -> EditLog:
-	if encoded_size(bytes, 0) != bytes.size():
-		return null
-	var log: EditLog = EditLog.new()
-	var count: int = bytes.decode_u32(0)
-	for i: int in count:
-		log.edits.append(_read_edit(bytes, HEADER_SIZE + EDIT_SIZE * i))
-	return log
 
 
 static func _write_edit(out: PackedByteArray, at: int, edit: WorldEdit) -> void:

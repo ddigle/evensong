@@ -17,7 +17,9 @@ extends SceneTree
 ##            background plus a CPU composite of the sheets (layer order, re-pivot + anchors, west
 ##            mirror), pixel for pixel.
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
-##            the lower feet (and the altar by its footprint bottom) is drawn on top.
+##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
+##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
+##            none of their pixels may fall on the altar art (nothing of them hidden).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -331,6 +333,28 @@ func _check_rig() -> void:
 		_fail("rig", line)
 
 
+## Feet position after walking `dir` from `start` until something stops it (Movement rules).
+func _pressed(start: Vector2, dir: Vector2i) -> Vector2i:
+	var p: Vector2 = start
+	for i: int in 240:
+		p = Movement.step(world.data, p, dir, Config.NET_TICK)
+	return Vector2i(p.round())
+
+
+## Opaque pixels of `comp` (feet at canvas (32, 40)) pasted with the feet at `feet` that land on an
+## opaque pixel of `mask`.
+static func _hidden_by(comp: Image, feet: Vector2i, mask: Image) -> int:
+	var o: Vector2i = feet - Vector2i(32, 40)
+	var n: int = 0
+	for y: int in comp.get_height():
+		for x: int in comp.get_width():
+			var p: Vector2i = o + Vector2i(x, y)
+			if comp.get_pixel(x, y).a8 > 0 and p.x >= 0 and p.y >= 0 and p.x < mask.get_width() and p.y < mask.get_height() \
+					and mask.get_pixel(p.x, p.y).a8 > 0:
+				n += 1
+	return n
+
+
 func _check_ysort() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(zone.center))
@@ -346,6 +370,8 @@ func _check_ysort() -> void:
 		["paladin", RigData.Dir.EAST, Vector2i(fp.position.x - 66, fp.end.y + 24)],  # behind it (added later)
 		["archer", RigData.Dir.SOUTH, Vector2i(fp.position.x + 12, fp.end.y - 3)],   # behind the altar
 		["cleric", RigData.Dir.NORTH, Vector2i(fp.position.x + 34, fp.end.y + 6)],   # in front of the altar
+		["miner", RigData.Dir.EAST, _pressed(Vector2(fp.position.x - 40, fp.position.y + 30), Vector2i(1, 0))],  # at the west face
+		["archer", RigData.Dir.WEST, _pressed(Vector2(fp.end.x + 40, fp.position.y + 20), Vector2i(-1, 0))],   # at the east face
 	]
 	var chars: Array[Character] = []
 	for s: Array in setups:
@@ -362,14 +388,18 @@ func _check_ysort() -> void:
 		_save(got, "ysort.png")
 	# Expected: background, then characters by feet y (the altar is already in the background:
 	# characters above its bottom row keep the altar's pixels).
-	var order: Array[int] = [0, 1, 2, 3]
+	var order: Array[int] = [0, 1, 2, 3, 4, 5]
 	order.sort_custom(func(a: int, b: int) -> bool: return chars[a].position.y < chars[b].position.y)
 	var expected: Image = bg.duplicate() as Image
 	var altar_y: float = world.altar.position.y
+	var side_hidden: int = 0
 	for i: int in order:
 		var c: Character = chars[i]
 		var keep: Image = altar_alpha if c.position.y < altar_y else null
-		paste(expected, compose(c.class_id, c.direction, c.anim, c.frame), Vector2i(c.position) - origin, keep)
+		var comp: Image = compose(c.class_id, c.direction, c.anim, c.frame)
+		if i >= 4:
+			side_hidden += _hidden_by(comp, Vector2i(c.position) - origin, altar_alpha)
+		paste(expected, comp, Vector2i(c.position) - origin, keep)
 	var n: int = count_diff(got, expected)
 	# The setups must actually overlap something, or the check proves nothing.
 	var naive: Image = bg.duplicate() as Image
@@ -380,8 +410,9 @@ func _check_ysort() -> void:
 	for c: Character in chars:
 		world.entities.remove_child(c)
 		c.free()
-	var line: String = "characters=%d mismatches=%d pixels_that_tree_order_would_get_wrong=%d" % [chars.size(), n, naive_diff]
-	if n == 0 and naive_diff > 0:
+	var line: String = "characters=%d mismatches=%d pixels_that_tree_order_would_get_wrong=%d side_pixels_hidden=%d" % [
+		chars.size(), n, naive_diff, side_hidden]
+	if n == 0 and naive_diff > 0 and side_hidden == 0:
 		print("EVENSONG_RENDER ysort ok %s" % line)
 	else:
 		_fail("ysort", line)

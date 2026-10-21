@@ -1,9 +1,12 @@
 extends "res://tests/base_test.gd"
 ## Actors: art copies, the anchor table (measured again from the sheets), the character rig (layer
 ## order per direction, west mirror, anchors and v01 -> v02 shift applied to every frame, animation),
-## movement rules (speed, 8 ways, map bounds, altar footprint, sliding, determinism, facing), spawn
-## slots, and the run scene main.tscn (local player from the keys, dummies, camera follow and clamp,
-## y-sort parent, safe-zone rule, evening toggle).
+## movement rules (speed, 8 ways, map bounds, altar footprint and side clearance measured from the
+## art, sliding, determinism, facing), drawing between simulation ticks, spawn slots, and the run
+## scene main.tscn (local player from the keys, dummies, camera follow and clamp, y-sort parent,
+## safe-zone rule, evening toggle).
+
+const CheckRender := preload("res://tools/check_render.gd")
 
 ## Our art in game/art and where it was copied from (repo-relative). Checked byte for byte when the
 ## repo's assets/ folder is next to game/ (it is not in an exported build or a bare game/ copy).
@@ -68,7 +71,9 @@ func run() -> Array[String]:
 	_check_movement_open_ground()
 	_check_movement_bounds()
 	_check_movement_altar()
+	_check_altar_side_clearance()
 	_check_movement_never_blocked()
+	_check_draw_smoothing()
 	_check_facing()
 	_check_spawn_slots()
 	await _check_main_scene()
@@ -303,31 +308,176 @@ func _check_movement_altar() -> void:
 	check_eq(fp, Rect2(992, 736, 48, 48), "altar footprint px (3x3 at the map centre)")
 	var c: Vector2 = fp.get_center()
 	var hw: float = Config.FEET_HALF_WIDTH
-	# From each side, walking at the altar stops flush against the footprint.
+	var west: float = float(Config.ALTAR_SIDE_CLEARANCE.x)
+	var east: float = float(Config.ALTAR_SIDE_CLEARANCE.y)
+	check(west > 0.0 and east > 0.0, "the altar has side clearance on both sides %s" % Config.ALTAR_SIDE_CLEARANCE)
+	# North and south faces: the feet box stops flush against the footprint (no side clearance).
 	check_eq(_run_ticks(data, Vector2(c.x, fp.end.y + 40), Vector2i(0, -1), 120), Vector2(c.x, fp.end.y + Config.FEET_HEIGHT),
 		"from the south: feet box top touches the footprint bottom")
 	check_eq(_run_ticks(data, Vector2(c.x, fp.position.y - 40), Vector2i(0, 1), 120), Vector2(c.x, fp.position.y),
 		"from the north: feet touch the footprint top")
-	check_eq(_run_ticks(data, Vector2(fp.position.x - 40, c.y), Vector2i(1, 0), 120), Vector2(fp.position.x - hw, c.y),
-		"from the west: feet box touches the footprint")
-	check_eq(_run_ticks(data, Vector2(fp.end.x + 40, c.y), Vector2i(-1, 0), 120), Vector2(fp.end.x + hw, c.y),
-		"from the east: feet box touches the footprint")
+	for x: float in [fp.position.x - hw + 1.0, fp.end.x + hw - 1.0]:
+		check_eq(_run_ticks(data, Vector2(x, fp.end.y + 40), Vector2i(0, -1), 120).y, fp.end.y + Config.FEET_HEIGHT,
+			"from the south at the corner column x=%.0f: still flush with the footprint" % x)
+	# West and east faces: while the feet are level with the footprint the side clearance holds.
+	for y: float in [fp.position.y + 0.5, fp.position.y + 1.0, c.y, fp.end.y - 1.0, fp.end.y - 0.5]:
+		check_eq(_run_ticks(data, Vector2(fp.position.x - 40, y), Vector2i(1, 0), 120), Vector2(fp.position.x - hw - west, y),
+			"from the west at y=%.1f: the feet keep %d px from the face" % [y, roundi(west)])
+		check_eq(_run_ticks(data, Vector2(fp.end.x + 40, y), Vector2i(-1, 0), 120), Vector2(fp.end.x + hw + east, y),
+			"from the east at y=%.1f: the feet keep %d px from the face" % [y, roundi(east)])
+	# Not level with it: on the top edge the box is above the footprint (passes along the north face);
+	# on the bottom edge the character is drawn in front of the altar and stops flush as before.
+	check(_run_ticks(data, Vector2(fp.position.x - 40, fp.position.y), Vector2i(1, 0), 120).x > fp.end.x + hw,
+		"feet on the top edge pass along the north face")
+	check_eq(_run_ticks(data, Vector2(fp.position.x - 40, fp.end.y), Vector2i(1, 0), 120), Vector2(fp.position.x - hw, fp.end.y),
+		"feet on the bottom edge (drawn in front) stop flush against the footprint")
+	check_eq(_run_ticks(data, Vector2(fp.end.x + 40, fp.end.y), Vector2i(-1, 0), 120), Vector2(fp.end.x + hw, fp.end.y),
+		"and from the east")
+	# Walking north along either face at the clearance slides past; one pixel closer, the band's
+	# bottom stops the feet on the footprint's bottom edge (drawn in front there).
+	var along_w: Vector2 = _run_ticks(data, Vector2(fp.position.x - hw - west, fp.end.y + 10), Vector2i(0, -1), 90)
+	check(along_w.x == fp.position.x - hw - west and along_w.y < fp.position.y, "walks north along the west face (%s)" % along_w)
+	var along_e: Vector2 = _run_ticks(data, Vector2(fp.end.x + hw + east, fp.end.y + 10), Vector2i(0, -1), 90)
+	check(along_e.x == fp.end.x + hw + east and along_e.y < fp.position.y, "walks north along the east face (%s)" % along_e)
+	check_eq(_run_ticks(data, Vector2(fp.position.x - hw - west + 1.0, fp.end.y + 10), Vector2i(0, -1), 90).y, fp.end.y,
+		"one pixel closer: stops on the footprint's bottom edge")
 	# Diagonal into the south face slides east along it, then passes the corner.
 	var p: Vector2 = Vector2(fp.position.x + 6, fp.end.y + 10)
-	var ys: PackedFloat32Array = []
 	for i: int in 30:
 		p = Movement.step(data, p, Vector2i(1, -1), TICK)
-		ys.append(p.y)
 	check_eq(p.y, fp.end.y + Config.FEET_HEIGHT, "diagonal slides along the south face")
 	check(p.x > fp.position.x + 6 + 20, "and keeps moving east (%.1f)" % p.x)
-	# Box edges: touching is allowed, one more pixel is not.
-	check(Movement.can_stand(data, Vector2(fp.position.x - hw, c.y)), "touching the footprint is allowed")
-	check(not Movement.can_stand(data, Vector2(fp.position.x - hw + 0.5, c.y)), "overlapping by half a pixel is blocked")
+	# Diagonal into the west face slides north along it (26 ticks: still level with the footprint).
+	p = Vector2(fp.position.x - 30, c.y)
+	for i: int in 26:
+		p = Movement.step(data, p, Vector2i(1, -1), TICK)
+	check(p.x == fp.position.x - hw - west and p.y > fp.position.y and p.y < c.y - 20.0,
+		"diagonal slides north along the west face (%s)" % p)
+	# Box edges: touching is allowed, half a pixel more is not.
+	check(Movement.can_stand(data, Vector2(fp.position.x - hw - west, c.y)), "touching the west band is allowed")
+	check(not Movement.can_stand(data, Vector2(fp.position.x - hw - west + 0.5, c.y)), "half a pixel into the west band is blocked")
+	check(Movement.can_stand(data, Vector2(fp.end.x + hw + east, c.y)), "touching the east band is allowed")
+	check(not Movement.can_stand(data, Vector2(fp.end.x + hw + east - 0.5, c.y)), "half a pixel into the east band is blocked")
+	check(Movement.can_stand(data, Vector2(fp.position.x - hw, fp.end.y)), "beside the footprint on its bottom edge is allowed")
 	check(not Movement.can_stand(data, c), "standing on the altar is blocked")
 	check_eq(Movement.blocked_cells(data, fp).size(), 9, "all 9 footprint cells are blocked")
+	check_eq(Movement.side_bands(data).size(), 2, "two side bands")
+	check(Movement.side_bands(WorldData.new(Vector2i(8, 8))).is_empty(), "no altar, no side bands")
 	# Already inside (bad data): moving out is allowed, not stuck.
 	var out: Vector2 = _run_ticks(data, Vector2(fp.position.x + 2, c.y), Vector2i(-1, 0), 30)
-	check(out.x < fp.position.x - hw + 0.01, "a player inside the footprint can walk out (%.1f)" % out.x)
+	check(out.x < fp.position.x - hw - west + 0.01, "a player inside the footprint can walk out (%.1f)" % out.x)
+
+
+## Body pixels (dx, dy from the feet) of every frame of the base body facing `dir`, walk and idle.
+static func _body_pixels(dir: int) -> Dictionary[Vector2i, bool]:
+	var out: Dictionary[Vector2i, bool] = {}
+	var row: int = RigData.sheet_row(dir)
+	for anim: int in RigData.ANIM_NAMES.size():
+		var sheet: Image = LightGen.to_rgba8(RigData.sheet(anim).get_image())
+		for f: int in RigData.frame_count(anim):
+			var r: Rect2i = RigData.body_rect(row, f)
+			for y: int in r.size.y:
+				for x: int in r.size.x:
+					if sheet.get_pixel(r.position.x + x, r.position.y + y).a8 == 0:
+						continue
+					var dx: int = x - RigData.FRAME_ORIGIN.x
+					if RigData.is_mirrored(dir):
+						dx = -dx - 1
+					out[Vector2i(dx, y - RigData.FRAME_ORIGIN.y)] = true
+	return out
+
+
+## Pixels of `pixels` (offsets from the node at `node`) that land on an opaque altar art pixel.
+static func _on_altar_art(pixels: Dictionary[Vector2i, bool], node: Vector2i, art: Image, art_origin: Vector2i) -> int:
+	var n: int = 0
+	for offset: Vector2i in pixels:
+		var a: Vector2i = node + offset - art_origin
+		if a.x >= 0 and a.y >= 0 and a.x < art.get_width() and a.y < art.get_height() and art.get_pixel(a.x, a.y).a8 > 0:
+			n += 1
+	return n
+
+
+## The side clearance is measured, not guessed: the base body's widest reach left / right of the
+## feet (every direction and frame) against the altar art's opaque columns. Then, pressed against
+## either face at every level row, no body pixel of any frame lies on the altar art (the character
+## is drawn behind the altar there, so it would be hidden). Carried gear is measured and noted.
+func _check_altar_side_clearance() -> void:
+	var reach_left: int = 0
+	var reach_right: int = 0
+	var body: Array[Dictionary] = []
+	for dir: int in 4:
+		var px: Dictionary[Vector2i, bool] = _body_pixels(dir)
+		body.append(px)
+		for offset: Vector2i in px:
+			reach_left = maxi(reach_left, -offset.x)
+			reach_right = maxi(reach_right, offset.x)
+	var art: Image = LightGen.to_rgba8(Altar.LIT.get_image())
+	var art_left: int = art.get_width()
+	var art_right: int = -1
+	for y: int in art.get_height():
+		for x: int in art.get_width():
+			if art.get_pixel(x, y).a8 > 0:
+				art_left = mini(art_left, x)
+				art_right = maxi(art_right, x)
+	var hw: int = roundi(Config.FEET_HALF_WIDTH)
+	var fp_w: int = Config.ALTAR_FOOTPRINT.x * Config.TILE
+	# West: node.x + reach_right < footprint x + art_left. East: node.x - reach_left > footprint x + art_right.
+	var want: Vector2i = Vector2i(maxi(0, reach_right + 1 - art_left - hw), maxi(0, art_right + 1 + reach_left - fp_w - hw))
+	check_eq(Config.ALTAR_SIDE_CLEARANCE, want, "side clearance from the body reach (left %d, right %d px) and the art columns %d..%d" % [
+		reach_left, reach_right, art_left, art_right])
+	note("altar side clearance %s: body reaches %d px left / %d px right of the feet, altar art opaque columns %d..%d of %d" % [
+		Config.ALTAR_SIDE_CLEARANCE, reach_left, reach_right, art_left, art_right, fp_w])
+	var data: WorldData = _open_world()
+	var fp: Rect2i = Rect2i(data.altar_rect.position * Config.TILE, data.altar_rect.size * Config.TILE)
+	var altar_y: int = fp.end.y  # the Altar node's y: characters whose feet are above it are drawn behind it
+	var hidden: int = 0
+	var rows: int = 0
+	var pressed_x: Vector2i = Vector2i(-1, -1)
+	for y: int in range(fp.position.y + 1, fp.end.y):
+		for side: int in 2:
+			var start: Vector2 = Vector2(fp.position.x - 40 if side == 0 else fp.end.x + 40, y)
+			var pressed: Vector2 = _run_ticks(data, start, Vector2i(1 if side == 0 else -1, 0), 120)
+			var node: Vector2i = Vector2i(pressed.round())
+			if node.y >= altar_y:
+				continue
+			rows += 1
+			pressed_x[side] = node.x
+			for dir: int in 4:
+				var px: Dictionary[Vector2i, bool] = body[dir]
+				hidden += _on_altar_art(px, node, art, fp.position)
+	check(rows >= 2 * (fp.size.y - 2), "pressed against both faces at every level row (%d)" % rows)
+	check_eq(hidden, 0, "no body pixel of any frame lies on the altar art while pressed against a side face")
+	# Carried gear (back, arm, waist, float layers) may reach further than the body: how far behind
+	# the art's edge it can get at the pressed positions (README known issues).
+	var gear: Array = _widest_composites()
+	var gear_left: int = gear[0]
+	var gear_right: int = gear[1]
+	var behind_west: int = pressed_x.x + gear_right - (fp.position.x + art_left) + 1
+	var behind_east: int = (fp.position.x + art_right) - (pressed_x.y - gear_left) + 1
+	note("altar sides: carried gear can still reach %d px behind the west edge (%s) and %d px behind the east edge (%s); the body never" % [
+		maxi(behind_west, 0), gear[3], maxi(behind_east, 0), gear[2]])
+
+
+## [widest reach left of the feet, right of the feet, which composite reaches left, which right] over
+## every class, direction and frame (body + signature layer, tools/check_render.gd compose()).
+static func _widest_composites() -> Array:
+	var left: int = 0
+	var right: int = 0
+	var which_left: String = ""
+	var which_right: String = ""
+	for class_id: String in Config.CLASSES:
+		for dir: int in 4:
+			for anim: int in RigData.ANIM_NAMES.size():
+				for f: int in RigData.frame_count(anim):
+					var used: Rect2i = CheckRender.compose(class_id, dir, anim, f).get_used_rect()
+					var name: String = "%s facing %s" % [class_id, RigData.DIR_NAMES[dir]]
+					if 32 - used.position.x > left:
+						left = 32 - used.position.x
+						which_left = name
+					if used.end.x - 1 - 32 > right:
+						right = used.end.x - 1 - 32
+						which_right = name
+	return [left, right, which_left, which_right]
 
 
 ## Random walks never end inside the altar or outside the map, and are deterministic.
@@ -354,6 +504,127 @@ func _check_movement_never_blocked() -> void:
 		runs.append(trail)
 	check_eq(bad, 0, "random walk (2 x 3000 ticks) never stands on the altar or off the map")
 	check(runs[0] == runs[1], "same inputs -> same positions (deterministic)")
+
+
+## Drawing between simulation ticks (Player.update_draw / draw_position): whole pixels, from the
+## previous tick to the current one, simulation untouched. On a 144 Hz display (frames every 1/144 s,
+## ticks every 1/60 s) the drawn steps become even.
+func _check_draw_smoothing() -> void:
+	var a: Vector2 = Vector2(10.0, 20.0)
+	check_eq(Player.draw_position(a, Vector2(11.2, 20.0), 0.0), Vector2(10, 20), "fraction 0 = the previous tick")
+	check_eq(Player.draw_position(a, Vector2(11.2, 20.0), 1.0), Vector2(11, 20), "fraction 1 = this tick, rounded")
+	check_eq(Player.draw_position(a, Vector2(14.0, 26.0), 0.5), Vector2(12, 23), "half way between the ticks")
+	check_eq(Player.draw_position(a, Vector2(14.0, 26.0), 0.3), Vector2(11, 22), "rounded to whole pixels")
+	check_eq(Player.draw_position(a, Vector2(14.0, 26.0), 1.7), Vector2(14, 26), "fraction clamped to 1")
+	check_eq(Player.draw_position(a, Vector2(14.0, 26.0), -0.5), Vector2(10, 20), "and to 0")
+	var data: WorldData = _open_world()
+	var start: Vector2 = Vector2(400.3, 400.0)
+	var smooth: Player = Player.new()
+	var plain: Player = Player.new()
+	plain.smooth_draw = false
+	for p: Player in [smooth, plain]:
+		p.local_input = false
+		p.setup(data, "paladin", start, RigData.Dir.SOUTH)
+	check(smooth.smooth_draw, "players draw between ticks by default")
+	# One second walking east (and a stop), physics at 60 Hz, frames at 144 Hz.
+	var frames: int = 144
+	var ticks_done: int = 0
+	var steps_smooth: Dictionary[int, int] = {}
+	var steps_plain: Dictionary[int, int] = {}
+	var prev_smooth: float = smooth.position.x
+	var prev_plain: float = plain.position.x
+	var same_sim: bool = true
+	var off_segment: int = 0
+	for frame: int in range(1, frames + 1):
+		var t: float = float(frame) / frames
+		while (ticks_done + 1) * TICK <= t + 1e-9:
+			ticks_done += 1
+			var input: Vector2i = Vector2i(1, 0) if ticks_done <= 50 else Vector2i.ZERO
+			for p: Player in [smooth, plain]:
+				p.begin_tick()
+				p.apply_input(input, TICK)
+			same_sim = same_sim and smooth.sim_position == plain.sim_position and smooth.facing == plain.facing \
+				and smooth.walking == plain.walking
+		var fraction: float = (t - ticks_done * TICK) / TICK
+		smooth.update_draw(fraction)
+		plain.update_draw(fraction)
+		var lo: float = minf(smooth.tick_from.x, smooth.sim_position.x)
+		var hi: float = maxf(smooth.tick_from.x, smooth.sim_position.x)
+		if smooth.position.x < roundf(lo) or smooth.position.x > roundf(hi):
+			off_segment += 1
+		var ds: int = roundi(smooth.position.x - prev_smooth)
+		var dp: int = roundi(plain.position.x - prev_plain)
+		steps_smooth[ds] = steps_smooth.get(ds, 0) + 1
+		steps_plain[dp] = steps_plain.get(dp, 0) + 1
+		prev_smooth = smooth.position.x
+		prev_plain = plain.position.x
+	check(same_sim, "drawing between ticks never changes the simulation (position, facing, walking)")
+	check_eq(off_segment, 0, "drawn between the previous and this tick, every frame")
+	check_eq(smooth.position, smooth.sim_position.round(), "after the stop: drawn exactly on the simulation")
+	check_eq(smooth.position, plain.position, "and where plain drawing puts it")
+	check(not steps_smooth.has(2), "no 2 px jump between two 144 Hz frames %s" % steps_smooth)
+	check(steps_plain.has(2), "(plain drawing at the rounded tick position does jump 2 px %s)" % steps_plain)
+	note("144 Hz frames over 50 walking ticks: drawn x steps between ticks %s, at the rounded tick %s (px: frames)" % [
+		steps_smooth, steps_plain])
+	# A correction (show_state without tick) moves the whole step; an unchanged state changes nothing.
+	smooth.teleport(Vector2(100.0, 100.0))
+	smooth.begin_tick()
+	smooth.apply_input(Vector2i(1, 0), TICK)
+	check_eq(smooth.tick_from, Vector2(100.0, 100.0), "the step is drawn from where the tick started")
+	smooth.show_state(smooth.sim_position, smooth.facing, smooth.walking)
+	check_eq(smooth.tick_from, Vector2(100.0, 100.0), "an unchanged state keeps the drawing step")
+	smooth.show_state(smooth.sim_position + Vector2(0, 5), smooth.facing, smooth.walking)
+	check_eq(smooth.tick_from, Vector2(100.0, 105.0), "a correction moves the whole step")
+	# A client's predicted step: begin_tick, then the step shown as part of the tick.
+	var before_tick: Vector2 = smooth.sim_position
+	smooth.begin_tick()
+	smooth.show_state(before_tick + Vector2(1.2, 0), smooth.facing, true, true)
+	check(smooth.tick_from == before_tick and smooth.sim_position == before_tick + Vector2(1.2, 0),
+		"a predicted step is drawn from the tick's start")
+	smooth.update_draw(0.5)
+	check_eq(smooth.position, (before_tick + Vector2(0.6, 0)).round(), "half way through it at fraction 0.5")
+	# A tick that does not move the player (a host-side player whose frame is late): it stands still,
+	# it does not jump back to where the previous tick started.
+	smooth.begin_tick()
+	smooth.update_draw(0.0)
+	check_eq(smooth.position, smooth.sim_position.round(), "a tick without a step draws the player where it is")
+	# Two frames in one tick (a client caught up by one frame) are still drawn between the ends.
+	smooth.teleport(Vector2(200.0, 200.0))
+	smooth.begin_tick()
+	smooth.apply_input(Vector2i(1, 0), TICK)
+	smooth.apply_input(Vector2i(1, 0), TICK)
+	smooth.update_draw(0.5)
+	check_eq(smooth.position, Vector2(201, 200), "two steps in a tick: drawn half way at fraction 0.5")
+	# Many frames in one tick (the host catching a client up after a hitch) going around the altar's
+	# corner: the straight line between the tick's ends cuts through the altar, so the tick is drawn
+	# at its end, never on that line.
+	var world: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var altar_px: Rect2 = Rect2(Vector2(world.altar_rect.position * Config.TILE), Vector2(world.altar_rect.size * Config.TILE))
+	var corner: Player = Player.new()
+	corner.local_input = false
+	corner.setup(world, "archer", altar_px.position + Vector2(-14.0, altar_px.size.y + 12.0), RigData.Dir.NORTH)
+	corner.begin_tick()
+	for i: int in 60:
+		corner.apply_input(Vector2i(0, -1), TICK)  # north past the altar's west side
+	for i: int in 30:
+		corner.apply_input(Vector2i(1, 0), TICK)  # then east above its north side
+	var inside: int = 0
+	var off_end: int = 0
+	for k: int in 11:
+		corner.update_draw(k / 10.0)
+		if corner.position != corner.sim_position.round():
+			off_end += 1
+		if altar_px.has_point(corner.position + Vector2(0.0, -1.0)):
+			inside += 1
+	var chord_mid: Vector2 = Player.draw_position(corner.tick_from, corner.sim_position, 0.5)
+	check(altar_px.has_point(chord_mid + Vector2(0.0, -1.0)), "(the chord of this tick does cross the altar at %s)" % chord_mid)
+	check(off_end == 0 and inside == 0, "a 90-step tick is drawn where it ended, never inside the altar (%d off, %d inside)" % [
+		off_end, inside])
+	check(corner.sim_position.y < altar_px.position.y and corner.sim_position.x > altar_px.position.x,
+		"(the steps really went around the corner: %s)" % corner.sim_position)
+	corner.free()
+	smooth.free()
+	plain.free()
 
 
 func _check_facing() -> void:
@@ -440,7 +711,7 @@ func _check_main_scene() -> void:
 	Input.action_press("move_down")
 	check_eq(Player.read_input(), Vector2i(1, 1), "move_right + move_down -> (1, 1)")
 	Input.action_release("move_down")
-	for i: int in 20:
+	for i: int in 12:  # spawn slot 0 is 20 px from the altar's west side band: stay clear of it
 		await tree.physics_frame
 	check(player.character.walking, "walking while the key is held")
 	Input.action_release("move_right")
@@ -448,11 +719,14 @@ func _check_main_scene() -> void:
 	await tree.physics_frame
 	var moved: float = player.sim_position.x - x0
 	var step: float = Config.WALK_SPEED * TICK
-	check(moved > step * 10.0, "move_right moved the player east (%.2f px)" % moved)
+	check(moved > step * 6.0, "move_right moved the player east (%.2f px)" % moved)
 	check(absf(moved / step - roundf(moved / step)) < 0.01, "moved a whole number of ticks (%.2f px)" % moved)
 	check_eq(player.facing, RigData.Dir.EAST, "faces east")
 	check(not player.character.walking, "idle after release")
 	await await_frames(1)
+	check(player.tick_from == player.sim_position and player.position == player.sim_position.round(),
+		"standing: each physics tick starts the drawing where the player is (drawn at %s, sim %s)" % [player.position,
+		player.sim_position])
 	check_eq(main.camera.get_screen_center_position(), player.position, "camera follows the player")
 	check_eq(main.camera.global_position, main.camera.global_position.round(), "camera on whole pixels")
 	# Camera clamps at the map corners.

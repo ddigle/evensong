@@ -28,6 +28,10 @@ extends RefCounted
 ##   --net-expect-refused=<n>     host: ... and the host has refused n joins
 ##   --net-timeout=<sec>          quit with code 6 after this long (a stuck test cannot hang)
 ##   --net-lag=<ms>, --net-loss=<percent>   client: simulated round trip and loss (net/link_sim.gd)
+##   --test-perturb-generator     this process generates different worlds from the same seed
+##                                (SurfaceGen.test_perturb): a joiner must still get the host's world
+##   --test-snapshot-chunk-bytes=<1..1024>  host: cut world snapshots into chunks this small
+##                                (WorldSnapshot.chunk_bytes), so a small world streams over several ticks
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -58,6 +62,8 @@ var net_expect_refused: int = 0
 var net_timeout: float = 0.0
 var net_lag: int = 0
 var net_loss: float = 0.0
+var test_perturb_generator: bool = false
+var test_snapshot_chunk_bytes: int = 0
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -92,6 +98,13 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.no_evening = true
 			"keep-running":
 				o.keep_running = true
+			"test-perturb-generator":
+				o.test_perturb_generator = true
+			"test-snapshot-chunk-bytes":
+				o.test_snapshot_chunk_bytes = _parse_positive(value, raw, o.errors, 0)
+				if o.test_snapshot_chunk_bytes > Config.NET_SNAPSHOT_CHUNK_BYTES:
+					o.errors.append("%s: at most %d" % [raw, Config.NET_SNAPSHOT_CHUNK_BYTES])
+					o.test_snapshot_chunk_bytes = 0
 			"host":
 				o.host = true
 				if has_value:

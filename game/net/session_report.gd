@@ -42,20 +42,47 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		if m.gate != null:
 			gates[str(slot)] = m.gate.to_dict()
 	var view: Dictionary[String, int] = s.world.ground.verify()
-	return {
+	var out: Dictionary = {
 		"name": s.instance_name(), "role": NetSession.ROLE_NAMES[s.role], "ended": reason,
 		"slot": s.local.slot if s.local != null else -1, "class": s.local_class(), "ticks": s.tick,
 		"wall_sec": s.seconds_running(), "players": players, "positions_hash": positions_hash(s.members),
-		"world_hash": s.world.data.content_hash(), "pristine_hash": s.pristine_hash, "edits": s.edit_log.size(),
-		"view": view, "stats": s.stats.to_dict(), "prediction": s.prediction.to_dict() if s.prediction != null else {},
-		"gates": gates, "refusals": s.refusals, "refused": s.refused_reason, "done_peers": s.done_count(),
-		"link": s.link.to_dict(), "batches": s.broadcast.batches, "keyframes": s.broadcast.keyframes,
-		"quiet_violations": s.broadcast.quiet_violations,
-		"bad_messages": s.bad_messages, "stale_batches": s.stale_batches, "unknown_senders": s.unknown_senders,
-		"interp_samples": s.interp_samples, "interp_starved": s.interp_starved,
-		"bot_finished": s.bot.finished if s.bot != null else true,
-		"max_players": s.roster.max_players if s.roster != null else 0,
+		"world_hash": s.world.data.content_hash(), "generator_hash": s.generator_hash, "edits": s.edit_log.size(),
+		"view": view, "view_hash": s.world.ground.view_hash(), "stats": s.stats.to_dict(),
+		"link": s.link.to_dict(), "bad_messages": s.bad_messages, "unknown_senders": s.unknown_senders,
+		"stalled_ms": s.stalled_ms,
+		"bot_finished": s.bots.bot.finished if s.bots.bot != null else true, "done_peers": s.bots.done_count(),
+		# Host side (defaults on a client).
+		"gates": gates, "refusals": {}, "batches": 0, "keyframes": 0, "quiet_violations": 0, "max_players": 0,
+		"snapshots_sent": 0, "snapshot_bytes_sent": 0, "streams": [],
+		# Client side (defaults on the host).
+		"prediction": {}, "refused": "", "stale_batches": 0, "interp_samples": 0, "interp_starved": 0,
+		"join_ms": -1.0, "world_build_ms": -1.0, "snapshot_bytes": 0, "snapshot_raw": 0, "snapshot_chunks": 0,
+		"host_generator_hash": "", "generator_match": false,
 	}
+	if s.host != null:
+		out["refusals"] = s.host.refusals
+		out["batches"] = s.host.broadcast.batches
+		out["keyframes"] = s.host.broadcast.keyframes
+		out["quiet_violations"] = s.host.broadcast.quiet_violations
+		out["max_players"] = s.host.roster.max_players
+		out["snapshots_sent"] = s.host.snapshots_sent
+		out["snapshot_bytes_sent"] = s.host.snapshot_bytes_sent
+		out["streams"] = s.host.streams_done
+	if s.client != null:
+		var c: SessionClient = s.client
+		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
+		out["refused"] = c.refused_reason
+		out["stale_batches"] = c.stale_batches
+		out["interp_samples"] = c.interp_samples
+		out["interp_starved"] = c.interp_starved
+		out["join_ms"] = c.join_ms
+		out["world_build_ms"] = c.world_build_ms
+		out["snapshot_bytes"] = c.snapshot_bytes
+		out["snapshot_raw"] = c.snapshot_raw
+		out["snapshot_chunks"] = c.snapshot_chunks
+		out["host_generator_hash"] = c.host_generator_hash
+		out["generator_match"] = c.generator_match
+	return out
 
 
 ## Writes <dir>/<name>.json. False if it could not.
