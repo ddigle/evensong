@@ -9,7 +9,9 @@ extends RefCounted
 ##
 ## Tools = the hand tools that have a body action of their own (● brief §5.6 R25: the tool is drawn
 ## into the action). The magic and throw actions have no hand tool (cleric prayer / heal, herbalist
-## potion throw: skills and potions, not M2), so no item plays them (README "임시값").
+## potion throw: skills and potions, not M2), so no item plays them (README "임시값"). M4a: the cleric's
+## basic attack is a tool kind item too, `holy_light` (PROVISIONAL, Config.CLASS_WEAPONS), which plays
+## the magic action and lets a bolt go (combat/combat.gd); its icon is drawn in code. Throw still has none.
 ## Tool icons: no art exists, so they are PROVISIONAL placeholders drawn in code (items/item_icons.gd).
 ## Gatherable and material art: 04-env "본 제작" candidates (not yet adopted), copied to art/items/.
 ##
@@ -23,8 +25,9 @@ enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE }
 enum Grade { NONE, COMMON, FINE }
 
 const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable"]
-## IMPL (M3-fix): inventory slots the debug kit leaves free (debug_kit()).
-const DEBUG_KIT_FREE_SLOTS: int = 2
+## IMPL (M3-fix): inventory slots the debug kit leaves free (debug_kit()). M4a: 3 on an empty inventory,
+## so the offline player's start weapon (Config.START_WEAPON_SLOT) still leaves the M3-fix two.
+const DEBUG_KIT_FREE_SLOTS: int = 3
 const GRADE_NAMES: PackedStringArray = ["none", "common", "fine"]
 const ART_DIR: String = "res://art/items/"
 
@@ -125,14 +128,16 @@ static func grade_from_name(text: String) -> int:
 ## gatherable kinds, the material. It leaves DEBUG_KIT_FREE_SLOTS of the Config.INVENTORY_SLOTS slots
 ## free (M3-fix: with the torches it had filled all 24, so a herbalist's first FINE herb of a kind and
 ## every ore from mining found no slot): the two ash-side stones (stone_veined, stone_mould, which lie
-## on the surface's ash zones) are left out for that.
+## on the surface's ash zones) are left out for that. M4a: the mossy stone (it lies on the surface's
+## grass) is left out too, for the offline start weapon's slot. The cleric's holy light is not in it
+## (the cleric starts with it; --give=holy_light gives it to anyone).
 static func debug_kit() -> Array[Array]:
 	return [
 		[&"pickaxe", 1], [&"hoe", 1], [&"sickle", 1], [&"watering_can", 1], [&"sword", 1], [&"bow", 1], [&"torch", 10],
 		[&"wild_healing", 12], [&"mushroom_a", 5], [&"stone_a", 30], [&"stone_block", 8],
 		[&"wild_healing", 3, Grade.FINE], [&"wild_buff", 4], [&"wild_poison", 2], [&"herb_clump", 6],
 		[&"mushroom_b", 3], [&"mushroom_c", 2], [&"mushroom_d", 1], [&"mushroom_ash", 2],
-		[&"stone_b", 4], [&"stone_c", 4], [&"stone_mossy", 2],
+		[&"stone_b", 4], [&"stone_c", 4],
 	]
 
 
@@ -176,6 +181,9 @@ static func _build() -> void:
 	torch.icon_code = &"torch"
 	torch.place = WorldData.PLACEABLE_TORCH
 	_add(torch)
+	# M4a (appended): the cleric's basic attack (Config.CLASS_WEAPONS, PROVISIONAL): plays the magic action
+	# (03-pixel base_body_v02_magic, no hand tool drawn) and lets a holy-light bolt go (Combat).
+	_tool(&"holy_light", RigData.Anim.MAGIC)
 
 
 static func _tool(id: StringName, action: int) -> void:

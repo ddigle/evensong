@@ -41,6 +41,14 @@ extends "res://tests/base_test.gd"
 ##   four  (M3b) after the M2b race c2 and c3 go down (the map in 32-byte chunks) and swing at the same
 ##         rock from two sides (c3 at its face) until it breaks: exactly one break, the stone to the
 ##         one whose hit broke it. The late c4 joins while both are below and draws neither.
+##   fight (M4b, run by tests/test_net_fight.gd) host (paladin) + c1 (archer, 12 HP) + a late c2
+##         (cleric), seed 1, three heretics placed on the surface south of the light, spawns off. c1's
+##         arrows kill H2 from out of its sight; c1 walks up to H3 and is downed by one knife; the host
+##         kills H3 and holds F next to c1 until it is up; the host strikes H1 once and stands in its reach
+##         while c2 joins (mid-fight: H1 attacking the host, hurt); then all three kill H1. Everyone must
+##         agree (positions, worlds, the heretics' HP as each saw it, the last enemy view).
+##   fight4 (M4b, run by tests/test_net_fight.gd) host + 3 clients (archer, miner, cleric) kill two
+##         heretics together: four players in one fight, the traffic of a fight of four.
 ##
 ## Checked: exit codes, positions hash (with each player's map), world hash and picture (view hash)
 ## of the map each client is on equal to the host's (M3b: per map), everyone knows every player,
@@ -54,7 +62,8 @@ extends "res://tests/base_test.gd"
 ## Runner flags (after "--"): --net-exe=<path> starts the children from that executable instead of
 ## this editor build (e.g. build/evensong.console.exe, relative to game/), --net-full adds the
 ## 10-process cap test, --net-keep keeps the run folder (user://net_test/...) even when passing,
-## --net-sessions=<a,b> runs only those sessions (pair, four, lag, stall, cave, full).
+## --net-sessions=<a,b> runs only those sessions (pair, four, lag, stall, cave, full; fight, fight4 from
+## tests/test_net_fight.gd).
 
 const Runner := preload("res://tests/run_all.gd")
 
@@ -124,6 +133,33 @@ const CAVE_C2: String = "wait:20;mark:alone;waitmap:2,surface;wait:30;mark:sees;
 const LAG_HOST: String = "move:1,0,60;move:0,1,30;wait:60"
 const LAG_C1: String = "move:-1,-1,45;move:-1,0,30;move:1,1,40;move:0,-1,25;wait:30"
 const FULL_BOT: String = "move:1,0,90;wait:120"
+## fight (M4b, seed 1, surface tiles; the altar's light reaches about 7 tiles around 63,47): H1 (54,57),
+## H2 (63,61), H3 (74,58), in that order (heretic ids 1, 2, 3). c1 shoots H2 from (63,53), inside the light
+## (128 px: the nearest heretic, in the bow's reach, out of its sight) until two heretics are left, then
+## walks toward (72,57): H3 sees it, comes and downs it with one knife (12 HP). The host waits for that,
+## walks to c1 (H3 goes for it), kills H3, holds F next to c1 until it is up, closes in on H1, strikes it
+## once and stands in its reach (marked "ath1": the test starts c2) until c2 is in; then all three kill H1
+## (c1 starts shooting first, the host last, so that each of them hits it).
+const FIGHT_HERETICS: String = "--test-heretic=54,57/63,61/74,58"
+const FIGHT_HOST: String = ("select:8;wait:30;waitdown:1,3000;walkdown;fight:1200,1,20;walkdown;hold:330;mark:revived;" +
+	"closein:18,900;fight:20,0,18;wait:40;mark:ath1;waitmap:3,surface,1800;wait:200;fight:1500,0,20;wait:240")
+const FIGHT_C1: String = ("select:8;walkto:63,53;fight:1200,2;walkto:72,57;waitlife:down,900;waitlife:alive,2400;mark:up;wait:30;" +
+	"walkto:58,57;waitmap:3,surface,1800;wait:60;fight:1500,0;wait:240")
+const FIGHT_C2: String = "select:8;wait:30;mark:seen;walkto:58,55;fight:1500,0;wait:240"
+## fight4: H1 (60,57) and H2 (66,57), just south of the light; the paladin and the miner close in on the
+## nearest, the archer (63,52) and the cleric (62,52) shoot from the light's edge, until both are dead.
+const FIGHT4_HERETICS: String = "--test-heretic=60,57/66,57"
+const FIGHT4_HOST: String = "select:8;wait:60;fight:1500,0,20;wait:240"
+const FIGHT4_C1: String = "select:8;walkto:63,52;wait:30;fight:1500,0;wait:240"
+const FIGHT4_C2: String = "select:8;wait:60;fight:1500,0,18;wait:240"
+const FIGHT4_C3: String = "select:8;walkto:62,52;wait:30;fight:1500,0;wait:240"
+## fightlag (M4-fix): one heretic just south of the light; c1 (miner, a lagging and lossy link) walks next to
+## it and stands still for 9 s while it is struck again and again (every hit lands on a client that stood
+## still: its timers had run out), then walks back into the light. The host stands by.
+const FIGHTLAG_HERETIC: String = "--test-heretic=63,61"
+const FIGHTLAG_HOST: String = "wait:60"
+const FIGHTLAG_C1: String = "walkto:63,60;wait:540;walkto:63,52;wait:120"
+const FIGHTLAG_LINK: Array = ["--net-lag=120", "--net-loss=5"]
 ## stall: the host blocks this long in a process step (bot "stall") while c1 walks, then edits the
 ## world every STALL_EDIT_EVERY ticks, STALL_EDITS times, while the late joiner c2 streams its world
 ## in 1-byte chunks (about 567 chunks, 71 ticks; 341 and 43 in M1).
@@ -187,6 +223,10 @@ func run() -> Array[String]:
 		await _session_cave()
 	if args.has("net-full") or only.has("full"):
 		await _session_full()
+	if only.has("fight"):
+		await _session_fight()
+	if only.has("fight4"):
+		await _session_fight4()
 	if not only.is_empty():
 		note("only the sessions %s ran (--net-sessions)" % ", ".join(only))
 	_check_logs()
@@ -544,6 +584,238 @@ func _session_cave() -> void:
 	_cave_traffic_notes(host, c1)
 
 
+## M4b, see the file comment (run by tests/test_net_fight.gd).
+func _session_fight() -> void:
+	var dir: String = _session_dir("fight")
+	var port: int = _port()
+	if not check(port > 0, "fight: free port"):
+		return
+	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2", "--class=paladin",
+		"--bot=" + FIGHT_HOST, FIGHT_HERETICS, "--test-start-hp=archer:12"], 100)
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "fight: host listens"):
+		await _reap()
+		return
+	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=archer", "--bot=" + FIGHT_C1], 100)
+	if not check(await _wait_files([dir.path_join("host.ath1.marker")], 80.0), "fight: H2 and H3 down, c1 revived, the host at H1"):
+		await _reap()
+		return
+	var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + FIGHT_C2], 80)
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json")], 80.0),
+		"fight: every instance wrote its result")
+	await _reap()
+	if not _load_results(dir, [host, c1, c2]):
+		return
+	_expect_codes("fight", {host: 0, c1: 0, c2: 0})
+	_check_agreement("fight", host, [c1, c2], 3)
+	var hs: int = roundi(_num(host.result, "slot"))
+	var s1: int = roundi(_num(c1.result, "slot"))
+	var s2: int = roundi(_num(c2.result, "slot"))
+	var lines: PackedStringArray = _log_lines(host)
+	var hits: Dictionary = _hits_by_heretic(lines)
+	# H2: c1's arrows alone, from out of its sight.
+	check(_hit_slots(hits, 2) == [s1] and _killed(lines, 2, s1), "fight: c1's arrows alone killed H2 (%s)" % [hits.get(2, [])])
+	# c1 down by H3, the host kills H3, the host revives c1.
+	check(_count_lines(lines, "host hurt slot=%d map=0 amount=%d hp=0 DOWN" % [s1, Config.HERETIC_DAMAGE]) == 1,
+		"fight: one knife took c1 (12 HP) down")
+	check(_killed(lines, 3, hs) and _count_lines(lines, "host revived slot=%d map=0 hp=%d" % [s1, Config.REVIVE_HP]) == 1,
+		"fight: the host killed H3 and revived c1")
+	# H1: everyone's, seen the same way.
+	var h1_slots: Array = _hit_slots(hits, 1)
+	check(h1_slots.has(hs) and h1_slots.has(s1) and _count_lines(lines, "heretic=1 ") > 0 and _killed_by_any(lines, 1),
+		"fight: the host and c1 both hit H1 (%s) and it died" % [h1_slots])
+	var h1_seq: Array = _hp_sequence(hits, 1)
+	var c1_combat: Dictionary = c1.result.get("combat", {})
+	var c2_combat: Dictionary = c2.result.get("combat", {})
+	var c1_hp: Dictionary = c1_combat.get("foe_hp", {})
+	var c2_hp: Dictionary = c2_combat.get("foe_hp", {})
+	var c1_saw: Array = c1_hp.get("1", [])
+	var c2_saw: Array = c2_hp.get("1", [])
+	var c1_first: int = c1_saw[0] if not c1_saw.is_empty() else -1
+	var c2_first: int = c2_saw[0] if not c2_saw.is_empty() else -1
+	var c2_last: int = c2_saw.back() if not c2_saw.is_empty() else -1
+	check(_follows_seq(c1_saw, h1_seq) and c1_saw.size() >= 3 and c1_first == Config.HERETIC_HP,
+		"fight/c1: H1's HP as it saw it %s follows the host's %s" % [c1_saw, h1_seq])
+	check(_follows_seq(c2_saw, h1_seq) and c2_first >= 0 and c2_first < Config.HERETIC_HP and c2_last == 0,
+		"fight/c2 (late, mid-fight): it first saw H1 hurt (%s) and then the host's HP down to 0 (host %s)" % [c2_saw, h1_seq])
+	var host_combat: Dictionary = host.result.get("combat", {})
+	var host_maps: Dictionary = host_combat.get("maps", {})
+	var host_surface: Dictionary = host_maps.get("0", {})
+	for c: Instance in [c1, c2]:
+		var cc: Dictionary = c.result.get("combat", {})
+		check_eq(str(cc.get("hash", "")), str(host_surface.get("hash", "?")), "fight/%s: its last enemy view = the host's" % c.name)
+		var msgs: Dictionary = cc.get("enemy_msgs", {})
+		check(_num(msgs, "0") > 0.0 and _num(cc, "bad") == 0.0, "fight/%s: enemy batches came (%s), none malformed" % [c.name, msgs])
+		var p: Dictionary = c.result.get("prediction", {})
+		check_eq(_num(p, "vitals_corrections"), 0.0, "fight/%s: the prediction's own vitals never off the host's" % c.name)
+	var p1: Dictionary = c1.result.get("prediction", {})
+	check(_num(p1, "event_corrections") >= 2.0, "fight/c1: down and up were the host's events (%s)" % p1.get("event_corrections"))
+	check(_log_has(c2, "c2 welcome slot=%d" % s2), "fight/c2: joined mid-fight")
+	_fight_traffic_notes("fight", host, c1)
+
+
+func _session_fight4() -> void:
+	var dir: String = _session_dir("fight4")
+	var port: int = _port()
+	if not check(port > 0, "fight4: free port"):
+		return
+	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=3", "--net-expect=3", "--class=paladin",
+		"--bot=" + FIGHT4_HOST, FIGHT4_HERETICS])
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "fight4: host listens"):
+		await _reap()
+		return
+	var cs: Array[Instance] = [_launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=archer", "--bot=" + FIGHT4_C1]),
+		_launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=miner", "--bot=" + FIGHT4_C2]),
+		_launch(dir, "c3", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + FIGHT4_C3])]
+	var files: Array[String] = [dir.path_join("host.json")]
+	for c: Instance in cs:
+		files.append(dir.path_join(c.name + ".json"))
+	check(await _wait_files(files, 80.0), "fight4: every instance wrote its result")
+	await _reap()
+	var everyone: Array[Instance] = [host]
+	everyone.append_array(cs)
+	if not _load_results(dir, everyone):
+		return
+	_expect_codes("fight4", {host: 0, cs[0]: 0, cs[1]: 0, cs[2]: 0})
+	_check_agreement("fight4", host, cs, 4)
+	var lines: PackedStringArray = _log_lines(host)
+	check(_killed_by_any(lines, 1) and _killed_by_any(lines, 2), "fight4: both heretics died")
+	var hits: Dictionary = _hits_by_heretic(lines)
+	var slots: Dictionary = {}
+	for id: int in [1, 2]:
+		for s: Variant in _hit_slots(hits, id):
+			slots[s] = true
+	check(slots.size() >= 3, "fight4: at least three players landed hits (%s)" % [slots.keys()])
+	var host_combat: Dictionary = host.result.get("combat", {})
+	var host_maps: Dictionary = host_combat.get("maps", {})
+	var host_surface: Dictionary = host_maps.get("0", {})
+	for c: Instance in cs:
+		var cc: Dictionary = c.result.get("combat", {})
+		var seen: Dictionary = cc.get("foe_hp", {})
+		for id: int in [1, 2]:
+			var saw: Array = seen.get(str(id), [])
+			check(_follows_seq(saw, _hp_sequence(hits, id)), "fight4/%s: heretic %d's HP %s follows the host's %s" % [c.name, id,
+				saw, _hp_sequence(hits, id)])
+		check_eq(str(cc.get("hash", "")), str(host_surface.get("hash", "?")), "fight4/%s: its last enemy view = the host's" % c.name)
+		var p: Dictionary = c.result.get("prediction", {})
+		check_eq(_num(p, "vitals_corrections"), 0.0, "fight4/%s: the prediction's own vitals never off the host's" % c.name)
+	_fight_traffic_notes("fight4", host, cs[0])
+
+
+## M4-fix (run by tests/test_net_fight.gd): a client with a lagging, lossy link (round trip 120 ms, 5 % loss)
+## that stands still between the heretic's strikes. Every hit lands on a client whose timers had run out (it
+## sent no frames): the host never steps it itself and its prediction takes each hit as the host's event
+## only (no vitals correction). Before (M4b's quiet-client rule) such a hit started host steps at once.
+func _session_fightlag() -> void:
+	var dir: String = _session_dir("fightlag")
+	var port: int = _port()
+	if not check(port > 0, "fightlag: free port"):
+		return
+	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=1", "--class=cleric",
+		"--bot=" + FIGHTLAG_HOST, FIGHTLAG_HERETIC])
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "fightlag: host listens"):
+		await _reap()
+		return
+	var c1_flags: Array = ["--join=127.0.0.1:%d" % port, "--class=miner", "--bot=" + FIGHTLAG_C1]
+	c1_flags.append_array(FIGHTLAG_LINK)
+	var c1: Instance = _launch(dir, "c1", c1_flags)
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json")], 80.0), "fightlag: every instance wrote its result")
+	await _reap()
+	if not _load_results(dir, [host, c1]):
+		return
+	_expect_codes("fightlag", {host: 0, c1: 0})
+	_check_agreement("fightlag", host, [c1], 2)
+	var s1: int = roundi(_num(c1.result, "slot"))
+	var hurt: int = _count_lines(_log_lines(host), "host hurt slot=%d map=0 amount=%d" % [s1, Config.HERETIC_DAMAGE])
+	check(hurt >= 3, "fightlag: the heretic struck the standing c1 %d times" % hurt)
+	var ops: Dictionary = host.result.get("ops", {})
+	var o1: Dictionary = ops.get(str(s1), {})
+	check_eq(_num(o1, "host_steps"), 0.0, "fightlag: the host never stepped the lagging client itself")
+	var p: Dictionary = c1.result.get("prediction", {})
+	check(_num(p, "vitals_corrections") == 0.0 and _num(p, "event_corrections") >= float(hurt),
+		"fightlag/c1: each hit was the host's event only (events %s, vitals corrections %s)" % [p.get("event_corrections"),
+		p.get("vitals_corrections")])
+	var link: Dictionary = c1.result.get("link", {})
+	note("fightlag: c1 hurt %d times standing still; link %s" % [hurt, link])
+
+
+## Host log "hit slot=<s> map=<m> heretic=<id> amount=<n> hp=<hp>" lines: heretic id -> [[slot, hp], ...] in order.
+static func _hits_by_heretic(lines: PackedStringArray) -> Dictionary:
+	var out: Dictionary = {}
+	for line: String in lines:
+		if not line.contains("host hit slot="):
+			continue
+		var id: int = _int_after(line, "heretic=")
+		var list: Array = out.get(id, [])
+		list.append([_int_after(line, "slot="), _int_after(line, " hp=")])
+		out[id] = list
+	return out
+
+
+## The slots that hit heretic `id` (each once, sorted).
+static func _hit_slots(hits: Dictionary, id: int) -> Array:
+	var seen: Dictionary = {}
+	var list: Array = hits.get(id, [])
+	for h: Variant in list:
+		var pair: Array = h
+		seen[pair[0]] = true
+	var out: Array = seen.keys()
+	out.sort()
+	return out
+
+
+## The host's HP of heretic `id` hit after hit, from its full HP.
+static func _hp_sequence(hits: Dictionary, id: int) -> Array:
+	var out: Array = [Config.HERETIC_HP]
+	var list: Array = hits.get(id, [])
+	for h: Variant in list:
+		var pair: Array = h
+		out.append(pair[1])
+	return out
+
+
+static func _killed(lines: PackedStringArray, id: int, slot: int) -> bool:
+	for line: String in lines:
+		if line.contains("host hit slot=%d " % slot) and line.contains("heretic=%d " % id) and line.contains("KILLED"):
+			return true
+	return false
+
+
+static func _killed_by_any(lines: PackedStringArray, id: int) -> bool:
+	for line: String in lines:
+		if line.contains("host hit slot=") and line.contains("heretic=%d " % id) and line.contains("KILLED"):
+			return true
+	return false
+
+
+## `seen` (a client's HP values in order, repeats dropped) is part of `all` (the host's) in the same order
+## and ends where the host's does (a batch may miss a value between two hits, never invent or reorder one).
+static func _follows_seq(seen: Array, all: Array) -> bool:
+	if seen.is_empty() or all.is_empty() or seen.back() != all.back():
+		return false
+	var i: int = 0
+	for v: Variant in seen:
+		while i < all.size() and all[i] != v:
+			i += 1
+		if i >= all.size():
+			return false
+	return true
+
+
+## M4b traffic: the fight buckets (and the idle one with heretics standing).
+func _fight_traffic_notes(label: String, host: Instance, client: Instance) -> void:
+	var hs: Dictionary = host.result.get("stats", {})
+	var cs: Dictionary = client.result.get("stats", {})
+	for key: String in hs:
+		if key.begins_with("fight") or key.begins_with("0/") or key.begins_with("act"):
+			var b: Dictionary = hs[key]
+			var c: Dictionary = cs.get(key, {})
+			note("%s host %s: sends %s B/s (%s with UDP/IP) in %s pkt/s over %s s; %s receives %s B/s there" % [label, key,
+				b.get("sent_bps"), b.get("wire_sent_bps"), b.get("packets_ps"), b.get("sec"), client.name, c.get("received_bps", "-")])
+	var hc: Dictionary = host.result.get("combat", {})
+	note("%s host combat: enemy batches %s, enemy keyframes %s (urgent %s), shot messages %s" % [label, hc.get("enemy_batches_sent"),
+		hc.get("enemy_keyframes_sent"), hc.get("enemy_urgent_sends"), hc.get("shot_messages_sent")])
+
+
 ## A result's entry for map `key` ({} if none).
 static func _map_of(result: Dictionary, key: String) -> Dictionary:
 	var maps: Dictionary = result.get("maps", {})
@@ -844,7 +1116,9 @@ func _check_pair_items(host: Instance, c1: Instance, c2: Instance) -> void:
 		check_eq(_player(c, slot).get("inventory", "?"), _player(host, slot).get("inventory", "!"),
 			"pair/%s: its inventory = the host's copy (%s)" % [c.name, _player(host, slot).get("inventory", "")])
 		check(_num(c.result, "inventories") >= 1.0, "pair/%s: got its inventory from the host" % c.name)
-	check_eq(_player(c2, s2).get("inventory", ""), "0:stone_a x5, 1:wild_buff x1 (fine)", "pair/c2: what it picked up")
+	# M4b: and its class weapon in the last hotbar slot, which the host gave it when it joined.
+	check_eq(_player(c2, s2).get("inventory", ""), "0:stone_a x5, 1:wild_buff x1 (fine), %d:sickle x1" % Config.START_WEAPON_SLOT,
+		"pair/c2: what it picked up (and its start weapon)")
 	var ops: Dictionary = host.result.get("ops", {})
 	for slot: String in ops:
 		var o: Dictionary = ops[slot]
@@ -1060,8 +1334,12 @@ func _port() -> int:
 
 
 ## A test instance: result and markers in `dir`, quits by itself after `timeout_sec`.
-func _launch(dir: String, name: String, flags: Array, timeout_sec: int = INSTANCE_TIMEOUT_SEC) -> Instance:
+## M4b: every instance runs without heretic spawns unless `spawns` (the M2b / M3b sessions test what they
+## always tested; the combat sessions place their heretics with --test-heretic, or turn spawns on).
+func _launch(dir: String, name: String, flags: Array, timeout_sec: int = INSTANCE_TIMEOUT_SEC, spawns: bool = false) -> Instance:
 	var test_flags: Array = ["--net-out=" + dir, "--net-name=" + name, "--net-timeout=%d" % timeout_sec]
+	if not spawns:
+		test_flags.append("--test-no-spawns")
 	return _launch_plain(dir, name, [], test_flags + flags)
 
 

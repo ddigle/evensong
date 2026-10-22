@@ -17,6 +17,8 @@ extends RefCounted
 ## M3b: a state also says which map the player is on. A state on another map than the ones before it
 ## (the player went down or up) drops them: positions on two maps are never blended, and the player
 ## shows on its new map from the first state there (SessionClient draws only those on its own map).
+## M4b: a state also carries the player's vitals (null = at rest); the older state's are shown (a hurt or
+## down pose, the hit flash, the down and revive bars).
 
 const MAX_SNAPS: int = 64
 
@@ -30,6 +32,7 @@ class Snap:
 	var action_tick: int = 0
 	var held: StringName = &""
 	var map: int = Config.MAP_SURFACE
+	var vitals: Vitals = null
 
 	func copy_at(t: float) -> Snap:
 		var s: Snap = Snap.new()
@@ -41,6 +44,7 @@ class Snap:
 		s.action_tick = action_tick
 		s.held = held
 		s.map = map
+		s.vitals = vitals
 		return s
 
 	## The tick this snap's action started (only meaningful with an action).
@@ -62,6 +66,7 @@ func push(tick: int, state: NetProtocol.PlayerState) -> void:
 	s.action_tick = state.action_tick
 	s.held = state.held
 	s.map = state.map
+	s.vitals = state.vitals.copy() if state.vitals != null else null
 	if not snaps.is_empty():
 		var last: Snap = snaps.back()
 		if s.tick <= last.tick:

@@ -63,6 +63,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_dungeon(r)
 	_check_actors(r)
 	_check_items(r)
+	_check_combat(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -259,14 +260,71 @@ static func _check_items(r: Report) -> void:
 		if def.is_tool():
 			tools += 1
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
-	r.expect_eq(tools, 6, "tools")
+	r.expect_eq(tools, 7, "tools (M4a: + holy_light)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop"]:
+			"interact", "debug_drop", "dash"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
 		r.expect(ItemView.world_picture(id) != null, "world picture of gatherable %s" % id)
 	r.fields.append("items=%d actions=%d" % [ItemDB.ids().size(), RigData.ACTION_ANIMS.size()])
+
+
+## M4a: the hurt / death and heretic sheets (sizes from their cells and frames), every class weapon's
+## attack, the surface spawn tiles all outside the light, and a short fight in the seed's dungeon: a
+## heretic next to a player outside any light attacks after its telegraph and the hit lands; a sword
+## kills it; the dungeon spawns stop when the shrine breaks.
+static func _check_combat(r: Report) -> void:
+	for anim: int in RigData.POSE_ANIMS:
+		var tex: Texture2D = RigData.sheet(anim)
+		var want: Vector2i = Vector2i(32 * RigData.frame_count(anim), 32 * RigData.ROWS)
+		r.expect(tex != null and Vector2i(tex.get_size()) == want, "%s sheet missing or not %s" % [RigData.ANIM_NAMES[anim], want])
+	for a: int in HereticSim.ANIM_NAMES.size():
+		var tex2: Texture2D = Heretic.SHEETS[a]
+		var c: int = HereticSim.CELLS[a]
+		var want2: Vector2i = Vector2i(c * (HereticSim.FIRST_COLUMN[a] + HereticSim.FRAME_COUNTS[a]), c * RigData.ROWS)
+		r.expect(tex2 != null and Vector2i(tex2.get_size()) == want2, "heretic %s sheet not %s" % [HereticSim.ANIM_NAMES[a], want2])
+	for class_id: String in Config.CLASSES:
+		var weapon: StringName = Combat.class_weapon(class_id)
+		r.expect(ItemDB.has(weapon) and Combat.attack_for(weapon) != null, "class weapon of %s" % class_id)
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var zone: SafeZone = SafeZone.for_world(surface)
+	var cells: Array[Vector2i] = Arena.surface_spawn_cells(surface, zone)
+	var inside: int = 0
+	for c2: Vector2i in cells:
+		if zone.is_in_safe_zone(Arena.spawn_feet(c2)):
+			inside += 1
+	r.expect(not cells.is_empty() and inside == 0, "surface spawn tiles outside the light (%d, %d inside)" % [cells.size(), inside])
+	var dungeon: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var arena: Arena = Arena.new()
+	arena.setup(dungeon, Config.DEFAULT_SEED)
+	arena.spawning = false
+	var p: Player = Player.new()
+	p.setup(dungeon, "paladin", DungeonGen.arrival_point(dungeon))
+	var players: Array[Player] = [p]
+	var h: HereticSim = arena.spawn_heretic(p.sim_position + Vector2(14, 0))
+	var hit_at: int = -1
+	for t: int in 120:
+		p.begin_tick()
+		p.step_frame(NetProtocol.InputFrame.new(), Config.NET_TICK)
+		arena.step(players)
+		if hit_at < 0 and p.vitals.hp < Config.PLAYER_HP_MAX:
+			hit_at = t
+	r.expect_eq(p.vitals.hp, Config.PLAYER_HP_MAX - Config.HERETIC_DAMAGE, "the heretic's knife lands once")
+	r.expect(hit_at == Config.HERETIC_TELEGRAPH_TICKS, "the knife lands after the telegraph (tick %d)" % hit_at)
+	var swings: int = 0
+	while h.alive() and swings < 10:
+		arena.player_attack(p, &"sword", Combat.aim_code(h.pos - p.sim_position))
+		swings += 1
+	r.expect(not h.alive() and swings == ceili(float(Config.HERETIC_HP) / Combat.attack_for(&"sword").damage),
+		"a sword kills the heretic (%d swings)" % swings)
+	r.expect(arena.spawns_now(), "the dungeon spawns while the shrine stands")
+	for e: EditLog.WorldEdit in arena.damage_shrine(Config.SHRINE_HP):
+		EditLog.apply_to_data(dungeon, e)
+	r.expect(not arena.spawns_now() and dungeon.footprints(WorldData.PLACEABLE_SHRINE_BROKEN).size() == 1,
+		"the broken shrine stops the dungeon spawns")
+	p.free()
+	r.fields.append("combat=%d/%d spawn_tiles=%d" % [hit_at, swings, cells.size()])
 
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
@@ -368,4 +426,58 @@ static func _check_net(r: Report) -> void:
 			if state.get_node_name(i) == &"Net":
 				has_net = true
 	r.expect(has_net, "main.tscn has no Net node")
+	_check_net_combat(r, s)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
+
+
+## M4b: combat on the wire: a frame's dash, F held and a USE's aim, a state's vitals block, a map's enemy
+## batch from a real arena drawn by a client's NetCombat where the host has it, shot events.
+static func _check_net_combat(r: Report, s: NetProtocol.PlayerState) -> void:
+	var use: NetProtocol.InputFrame = NetProtocol.InputFrame.new(11, Vector2i(-1, 0))
+	use.dash = true
+	use.interact = true
+	use.op = NetProtocol.Op.USE
+	use.slot = Config.START_WEAPON_SLOT
+	use.cell = Vector2i(40, 30)
+	use.aim = 173
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([use] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames[0].same_request(use) and up.frames[0].dash and up.frames[0].interact and up.frames[0].aim == 173,
+		"a frame's dash, F held and a USE's aim round trip (M4b)")
+	var v: Vitals = Vitals.new()
+	v.hp = 30
+	v.life = Vitals.Life.DOWN
+	v.life_ticks = 77
+	v.revive_ticks = 12
+	s.vitals = v
+	var vb: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(79, [s] as Array[NetProtocol.PlayerState]))
+	r.expect(vb.ok and vb.states[0].same_as(s) and vb.states[0].vitals != null and vb.states[0].vitals.life == Vitals.Life.DOWN,
+		"a state's vitals block round trip (M4b)")
+	s.vitals = null
+	var d: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var arena: Arena = Arena.new()
+	arena.setup(d, Config.DEFAULT_SEED)
+	var feet: Vector2 = DungeonGen.arrival_point(d) + Vector2(40, 16)
+	var h: HereticSim = arena.spawn_heretic(feet)
+	h.state = HereticSim.State.ATTACK
+	h.state_ticks = 12
+	h.hp = 26
+	var payload: PackedByteArray = NetProtocol.encode_enemies(500, Config.MAP_DUNGEON, arena.shrine_hp_now(), arena.enemy_states(500))
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_DUNGEON, d)
+	var b: NetProtocol.EnemyBatch = NetProtocol.decode_enemies(payload)
+	nc.on_batch(b, payload, true)
+	nc.sample(500.0, 6.0)
+	var shown: HereticSim = nc.arena.heretics[0] if nc.arena.heretics.size() == 1 else null
+	r.expect(b.ok and shown != null and shown.pos == feet and shown.hp == 26 and shown.state == HereticSim.State.ATTACK
+		and shown.state_ticks == 12 and nc.arena.shrine_hp == Config.SHRINE_HP,
+		"an enemy batch drawn by a client where the host has it, its wind-up at once (M4b)")
+	var shot: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	shot.id = 9
+	shot.item = &"bow"
+	shot.owner = 1
+	shot.tick = 499
+	shot.pos = feet
+	shot.aim = 0
+	var se: NetProtocol.ShotEvents = NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_DUNGEON, [shot] as Array[NetProtocol.ShotEvent]))
+	r.expect(se.ok and se.events.size() == 1 and se.events[0].same_as(shot), "shot events round trip (M4b)")
+	r.fields.append("combat_wire=%dB" % payload.size())

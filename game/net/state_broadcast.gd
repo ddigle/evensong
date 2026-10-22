@@ -33,7 +33,12 @@ func note_activity(tick: int) -> void:
 
 
 func decide(tick: int, states: Array[NetProtocol.PlayerState]) -> Send:
-	var encoded: PackedByteArray = NetProtocol.encode_states(tick, states)
+	return decide_encoded(tick, NetProtocol.encode_states(tick, states))
+
+
+## The same decision for any batch whose first 4 bytes are its host tick (M4b: a map's enemy batch,
+## NetProtocol.encode_enemies, one StateBroadcast per map).
+func decide_encoded(tick: int, encoded: PackedByteArray) -> Send:
 	var body: PackedByteArray = encoded.slice(4)  # without the tick
 	if body != _last_body:
 		if tick - _last_activity_tick > QUIET_TICKS:

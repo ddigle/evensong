@@ -41,6 +41,17 @@ extends Node
 ## the members on their map, nobody else. States carry each player's map; a client draws only the
 ## players on its own map. Requests aimed at a tile carry the map they were aimed on.
 ##
+## M4b (combat): the host owns every fight. It keeps one Arena per map (combat/arena.gd: heretics, shots,
+## the shrine, the spawner) and steps those with players on them after the players' frames; every
+## player's HP, stamina, dash, stagger and down / dead state is part of its simulation (Vitals) and of its
+## state in the batches. A frame now also says whether Space was pressed (dash) and F held (revive,
+## give up), and a USE carries its aim. The host checks and resolves every attack, hit, revive, death (the
+## bag: world edits) and respawn (on the surface: a map stream from the dungeon). A client predicts its
+## own movement, dash and attack animation and timers (Prediction, PlayerSim.step) but never damage; it
+## draws the heretics of its map from the host's enemy batches (sent per map, only to the players on it,
+## unreliable while they change, a reliable keyframe after and on entering) and the shots from the host's
+## shot events (net/net_combat.gd). The host's own arenas are drawn by a CombatView per map.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -321,9 +332,13 @@ func _count_traffic() -> void:
 			acting += 1
 		maps[members[slot].map_id] = true
 	var key: String = "%d/%d" % [moving, members.size()] if acting == 0 else "act%d/%d" % [acting, members.size()]
+	# M4b: a fight (a heretic not idle at home or a shot in the air on a map with players) is its own bucket.
+	var fighting: bool = host.fighting() if host != null else (client != null and client.combat != null and client.combat.fighting())
+	if fighting:
+		key = "fight/%d" % members.size()
 	if request_ticks > 0:
 		request_ticks -= 1
-		if acting == 0:
+		if acting == 0 and not fighting:
 			key = "req/%d" % members.size()
 	if maps.size() > 1:
 		key += " split"
@@ -418,6 +433,27 @@ func _rpc_keyframe(payload: PackedByteArray) -> void:
 		client.on_keyframe(payload)
 
 
+## Client (M4b): an enemy batch of the map it is on (unreliable; may be late, lost or held back).
+@rpc("authority", "call_remote", "unreliable_ordered", 3)
+func _rpc_enemies(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_enemies(payload)
+
+
+## Client (M4b): the reliable enemy batch (after they went quiet, after a welcome or a map entry).
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_enemy_keyframe(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_enemy_keyframe(payload)
+
+
+## Client (M4b): shots let go and stopped on the map it is on.
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_shots(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_shots(payload)
+
+
 @rpc("authority", "call_remote", "reliable", 0)
 func _rpc_go() -> void:
 	if role == Role.CLIENT:
@@ -490,6 +526,18 @@ func send_keyframe(peer: int, payload: PackedByteArray) -> void:
 	_rpc_keyframe.rpc_id(peer, payload)
 
 
+func send_enemies(peer: int, payload: PackedByteArray) -> void:
+	_rpc_enemies.rpc_id(peer, payload)
+
+
+func send_enemy_keyframe(peer: int, payload: PackedByteArray) -> void:
+	_rpc_enemy_keyframe.rpc_id(peer, payload)
+
+
+func send_shots(peer: int, payload: PackedByteArray) -> void:
+	_rpc_shots.rpc_id(peer, payload)
+
+
 func send_go(peer: int) -> void:
 	_rpc_go.rpc_id(peer)
 
@@ -543,6 +591,8 @@ func continue_offline() -> void:
 		local.player.local_input = true
 		local.player.controls = true
 	local_ops.clear()
+	if client != null:
+		client.drop_combat()  # M4b: the heretics were the host's; Main sets up its own offline combat
 	log_event("offline", "playing on alone")
 	role = Role.OFFLINE
 

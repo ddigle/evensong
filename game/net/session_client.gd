@@ -28,6 +28,16 @@ extends RefCounted
 ## (Prediction.switch_map), and tells Main to show that map (local_map_changed). Edits carry their map:
 ## one for another map than the client's is a malformed message. The other players are drawn only while
 ## their (interpolated) state is on the client's map; their positions are still followed elsewhere.
+##
+## M4b (combat): frames carry Space (dash) and F held, a USE its aim; the prediction steps the vitals too
+## (dash, stagger, down, dead, respawn on the surface) and takes the host's in every state; a hit, a revive
+## and the revive's progress are the host's events (Prediction.event_corrections). The own player and the
+## others are drawn with their vitals (hurt / down poses, the hit flash, the HUD's bars). The heretics and
+## shots of the client's map come as enemy batches (CH_ENEMY, unreliable, through the link simulation like
+## the states; a reliable keyframe after a welcome, a map entry and when they go quiet) and shot events
+## (reliable) into a NetCombat (net/net_combat.gd), drawn every frame by a CombatView in the map's world:
+## positions a buffer behind like the players, the wind-up at once. Enemy messages for another map than
+## the loaded one (an unreliable batch overtaking a map entry) are skipped, never applied.
 
 var s: NetSession
 var prediction: Prediction
@@ -61,6 +71,13 @@ var left_maps: Array[Dictionary] = []
 ## (malformed).
 var others_on_welcome: int = 0
 var wrong_map_edits: int = 0
+## M4b: the combat of the loaded map and its view; enemy and shot messages received by map (a client
+## only ever gets its own map's: tests check the other count stays 0); malformed ones.
+var combat: NetCombat
+var combat_view: CombatView
+var enemy_msgs: Dictionary[int, int] = {}
+var shot_msgs: Dictionary[int, int] = {}
+var bad_combat: int = 0
 
 var _last_state_tick: int = -1
 
@@ -153,6 +170,12 @@ func on_welcome(payload: PackedByteArray) -> void:
 	prediction = Prediction.new()
 	var me: NetProtocol.PlayerState = s.local.state()
 	prediction.setup(s.world.data, me.pos, me.facing, 0)
+	prediction.spawn_feet = s.world.spawn_point(w.slot)
+	for info: NetProtocol.PlayerInfo in w.players:
+		if info.state.slot == w.slot and info.state.vitals != null:
+			prediction.sim.vit = info.state.vitals.copy()
+			prediction.base.vit = info.state.vitals.copy()
+	_combat_on(Config.MAP_SURFACE, s.world)
 	clock.observe(w.tick, Interpolation.RemoteClock.now_ticks())
 	_last_state_tick = w.tick
 	s.active = true
@@ -211,6 +234,7 @@ func on_map_entry(payload: PackedByteArray) -> void:
 	prediction.switch_map(data, e.map, e.state)
 	_show_predicted(false)
 	_show_others()
+	_combat_on(e.map, w)
 	map_entries += 1
 	var ms: float = (Time.get_ticks_usec() - t0) / 1000.0
 	last_entry = {"map": e.map, "bytes": e.packed_size, "raw": e.raw_size, "chunks": e.chunk_count,
@@ -253,7 +277,7 @@ func on_joined(payload: PackedByteArray) -> void:
 	if not s.active or s.bots.finish_wait >= 0:
 		return
 	var info: NetProtocol.PlayerInfo = NetProtocol.decode_info(payload)
-	if info == null or payload.size() != NetProtocol.INFO_SIZE or s.members.has(info.state.slot):
+	if info == null or payload.size() != NetProtocol.info_size_at(payload, 0) or s.members.has(info.state.slot):
 		s.bad_messages += 1
 		return
 	var m: NetMember = s.add_member(info.state.slot, 0, NetProtocol.class_name_of(info.class_index), info.state.pos,
@@ -358,8 +382,11 @@ func _apply_states(payload: PackedByteArray) -> void:
 		if st.slot == s.local.slot:
 			# M3b: a state on another map than the loaded one (the host moved this player, its map entry
 			# is still on the way) is skipped by the prediction.
+			var off: int = prediction.vitals_corrections
 			if prediction.reconcile(st) >= 0.0:
 				_show_predicted(false)
+			if prediction.vitals_corrections > off:
+				s.log_event("vitals_correction", prediction.last_vitals_mismatch)
 		elif s.members.has(st.slot) and s.members[st.slot].interp != null:
 			s.members[st.slot].interp.push(batch.tick, st)
 			s.members[st.slot].map_id = st.map
@@ -369,7 +396,7 @@ func _apply_states(payload: PackedByteArray) -> void:
 func _show_predicted(tick: bool) -> void:
 	var me: Player = s.local.player
 	var st: PlayerSim = prediction.sim
-	me.show_state(st.pos, st.facing, st.walking, tick, st.action, st.action_tick)
+	me.show_state(st.pos, st.facing, st.walking, tick, st.action, st.action_tick, st.vit)
 	me.action_cell = st.action_cell
 	me.refresh_aim()
 
@@ -377,7 +404,7 @@ func _show_predicted(tick: bool) -> void:
 func tick(action: NetBot.Action) -> void:
 	var me: Player = s.local.player
 	var f: NetProtocol.InputFrame = me.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
-		action.use_held)
+		action.use_held, action.dash, action.interact)
 	SessionHost.attach_local_op(s, me, f, action)
 	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
 	_show_predicted(true)
@@ -420,9 +447,117 @@ func draw_others() -> void:
 			# M3b: drawn only on this client's map; elsewhere followed (positions) but hidden.
 			m.player.visible = smp.map == s.local.map_id
 			m.player.state_held = smp.held
-			m.player.show_state(smp.pos, smp.facing, smp.walking, false, smp.action, smp.action_tick)
+			m.player.show_state(smp.pos, smp.facing, smp.walking, false, smp.action, smp.action_tick, smp.vitals)
 			if m.player.visible:
 				m.note_action(smp.action, smp.action_tick, t)
+	_draw_combat(t + interp_delay_ticks())
+
+
+# --- combat (M4b) ----------------------------------------------------------------------------------
+
+## The combat of map `map` (world `w`) from now on: a fresh NetCombat (the host's keyframe follows) and
+## its view in that world.
+func _combat_on(map: int, w: GameWorld) -> void:
+	if combat == null:
+		combat = NetCombat.new()
+	combat.reset(map, w.data)
+	combat.local_slot = s.local.slot if s.local != null else -1
+	if combat_view != null and is_instance_valid(combat_view):
+		combat_view.clear()
+		combat_view.get_parent().remove_child(combat_view)
+		combat_view.free()
+	combat_view = CombatView.new()
+	combat_view.name = &"Combat"
+	w.add_child(combat_view)
+	combat_view.setup(combat.arena, w.entities)
+
+
+## After losing the host (continue_offline): the host's heretics and shots are gone from the picture.
+func drop_combat() -> void:
+	if combat_view != null and is_instance_valid(combat_view):
+		combat_view.clear()
+		combat_view.get_parent().remove_child(combat_view)
+		combat_view.free()
+	combat_view = null
+	combat = null
+
+
+## Every frame: the heretics, shots and shrine of this client's map at host time `t_fresh` (net/net_combat.gd).
+func _draw_combat(t_fresh: float) -> void:
+	if combat == null or combat_view == null or not is_instance_valid(combat_view):
+		return
+	combat.sample(t_fresh, interp_delay_ticks())
+	var players: Array[Player] = []
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		if m.map_id == s.local.map_id and m.player.visible:
+			players.append(m.player)
+	combat_view.sync(players)
+
+
+## An enemy batch (unreliable: through the link simulation like the states).
+func on_enemies(payload: PackedByteArray) -> void:
+	if not s.active:
+		return
+	s.link.pass_through(_apply_enemies.bind(payload, false), Time.get_ticks_msec())
+
+
+func on_enemy_keyframe(payload: PackedByteArray) -> void:
+	if not s.active:
+		return
+	_apply_enemies(payload, true)
+
+
+func _apply_enemies(payload: PackedByteArray, keyframe: bool) -> void:
+	if not s.active or s.over or combat == null:
+		return
+	var b: NetProtocol.EnemyBatch = NetProtocol.decode_enemies(payload)
+	if not b.ok:
+		bad_combat += 1
+		s.bad_messages += 1
+		return
+	var n: int = enemy_msgs.get(b.map, 0)
+	enemy_msgs[b.map] = n + 1
+	clock.observe(b.tick, Interpolation.RemoteClock.now_ticks())
+	combat.on_batch(b, payload, keyframe)
+
+
+func on_shots(payload: PackedByteArray) -> void:
+	if not s.active or s.over or combat == null:
+		return
+	var e: NetProtocol.ShotEvents = NetProtocol.decode_shots(payload)
+	if not e.ok:
+		bad_combat += 1
+		s.bad_messages += 1
+		return
+	var n: int = shot_msgs.get(e.map, 0)
+	shot_msgs[e.map] = n + 1
+	combat.on_shots(e)
+
+
+## Enemy batches / shot messages received for map `map` (tests).
+func enemy_msgs_on(map: int) -> int:
+	var n: int = enemy_msgs.get(map, 0)
+	return n
+
+
+func shot_msgs_on(map: int) -> int:
+	var n: int = shot_msgs.get(map, 0)
+	return n
+
+
+func combat_result() -> Dictionary:
+	var out: Dictionary = combat.to_dict() if combat != null else {}
+	var em: Dictionary = {}
+	for map: int in enemy_msgs:
+		em[str(map)] = enemy_msgs[map]
+	var sm: Dictionary = {}
+	for map: int in shot_msgs:
+		sm[str(map)] = shot_msgs[map]
+	out["enemy_msgs"] = em
+	out["shot_msgs"] = sm
+	out["bad"] = bad_combat
+	return out
 
 
 static func interp_delay_ticks() -> float:

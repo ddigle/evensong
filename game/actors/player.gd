@@ -31,6 +31,14 @@ extends Node2D
 ## every player with step_frame(), and a client shows its predicted and the others' received states
 ## with show_state(). `controls` (mouse aim, target marker) is on for the local player offline and
 ## in sessions.
+##
+## M4a (offline; a session has no damage or dash yet): the simulation state holds the Vitals (HP,
+## stamina, dash, stagger, down / dead, actors/vitals.gd) and the playing action's aim. Space dashes,
+## F held revives a downed player next to it (combat/arena.gd) or, while down, gives up. take_hit() is
+## a hit (the heretic's knife); the picture shows base_body_v02_hurt while staggered, base_body_v02_death
+## while down (then lying), nothing while dead (the death bag marks the spot). Signals: died (drop the
+## bag), respawn_due (Main puts it back at the altar), action_impact on the weapon's hit frame
+## (Combat.impact_tick; the pickaxe's is the M3a mining frame).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -38,11 +46,19 @@ signal action_finished(anim: int)
 signal action_impact(item: StringName, anim: int, target: Vector2i)
 ## M3a, offline: a frame used a placeable item (the torch) from hotbar slot `slot` on tile `cell`.
 signal place_requested(slot: int, cell: Vector2i)
+## M4a: a hit landed (`downed`: it took the player to 0 HP), the down time ran out or the player gave up
+## (it is dead now), the respawn time is up, a revive got it back up.
+signal hurt(amount: int, downed: bool)
+signal died
+signal respawn_due
+signal revived
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
 ## and such a tick is drawn at its end (update_draw).
 const MAX_DRAWN_STEP_PX: float = 2.5 * Config.WALK_SPEED / Config.NET_TICK_RATE
+## IMPL (M4a): the hit flash tint (a placeholder: no flash art exists).
+const HIT_FLASH: Color = Color(1.0, 0.55, 0.45)
 
 ## Read the move_* actions each physics tick. Off for players driven by tests or the session.
 @export var local_input: bool = true
@@ -67,6 +83,11 @@ var action_anim: int = -1
 var action_tick: int = 0
 var action_item: StringName = &""
 var action_cell: Vector2i = Vector2i.ZERO
+## M4a: the playing action's aim (Combat.aim_code), health and the rest (actors/vitals.gd), and whether
+## the last frame held F.
+var action_aim: int = 0
+var vitals: Vitals = Vitals.new()
+var interact_held: bool = false
 var _mouse_moved_msec: int = -1000000
 ## make_frame(): the mouse aimed or the use button was held (step_frame() adds "an action plays").
 var _aim_input: bool = false
@@ -102,6 +123,7 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	walking = false
 	action_anim = -1
 	action_tick = 0
+	vitals = Vitals.new()
 	_sync_view()
 
 
@@ -114,7 +136,8 @@ func _physics_process(delta: float) -> void:
 	if local_input and data != null:
 		if controls:
 			tick_controls(read_input(), mouse_world(), mouse_aiming(), Input.is_action_just_pressed(&"use_item"),
-				Input.is_action_pressed(&"use_item"), delta)
+				Input.is_action_pressed(&"use_item"), delta, Input.is_action_just_pressed(&"dash"),
+				Input.is_action_pressed(&"interact"))
 		else:
 			apply_input(read_input(), delta)
 
@@ -143,9 +166,10 @@ func mouse_aiming() -> bool:
 ## mouse aims, use pressed this tick / held. make_frame() + step_frame(): the running action
 ## advances (and may end), the aim is updated, use may start an action (the selected hotbar item's),
 ## then the player moves (unless an action locks it) and faces the mouse while aiming or the
-## movement otherwise.
-func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, delta: float) -> void:
-	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held)
+## movement otherwise. M4a: `dash` (Space this tick) and `interact` (F held).
+func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, delta: float,
+		dash: bool = false, interact: bool = false) -> void:
+	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held, dash, interact)
 	step_frame(f, delta)
 	if f.op == NetProtocol.Op.USE and f.anim < 0:
 		place_requested.emit(f.slot, f.cell)
@@ -155,15 +179,19 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 ## mouse; a use (pressed, or held with Config.ACTION_REPEAT_WHILE_HELD) of a tool in the selected
 ## hotbar slot becomes the frame's USE op when no action will still be playing in that frame. The
 ## look is the facing toward the mouse while aiming or using, -1 otherwise (facing by movement).
-func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool) -> NetProtocol.InputFrame:
+func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, dash: bool = false,
+		interact: bool = false) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
+	f.dash = dash
+	f.interact = interact
+	f.aim = Combat.aim_code(mouse - Combat.aim_origin(sim_position))  # M4-fix: the drawn shot flies through the mouse
 	if data != null:
 		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
 	var to_mouse: Vector2 = mouse - sim_position
 	aim_sector = Aim.sector(to_mouse, aim_sector)
 	aim_cell = Aim.target_cell(sim_position, aim_sector)
-	var free: bool = not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
+	var free: bool = vitals.alive() and not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
 	if free and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
 		var anim: int = WorldItems.use_action(sim_position, inventory, inventory.selected, aim_cell)
 		if anim >= 0:
@@ -186,23 +214,31 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 
 
 ## Runs one input frame with PlayerSim.step (the frame's `anim` = the use it starts, -1 for none)
-## and shows the result. Emits action_finished, then action_started.
-func step_frame(frame: NetProtocol.InputFrame, delta: float) -> void:
+## and shows the result. Emits action_finished, then action_started. Returns the step's event bits
+## (PlayerSim.STARTED, DIED, RESPAWN ...; M4b: the host handles a death and a respawn with them).
+func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 	last_input = frame.dir
+	interact_held = frame.interact
 	var before: int = action_anim
 	var st: PlayerSim = to_sim()
-	var events: int = st.step(data, frame.dir, frame.look, frame.anim, frame.cell, delta)
+	var events: int = st.step(data, frame.dir, frame.look, frame.anim, frame.cell, delta, frame.dash, frame.interact,
+		frame.aim)
 	load_sim(st)
 	if events & PlayerSim.STARTED:
 		action_item = frame.item
-	aim_active = _aim_input or action_anim >= 0
+	aim_active = (_aim_input or action_anim >= 0) and vitals.alive()
 	_sync_view()
 	if events & PlayerSim.ENDED:
 		action_finished.emit(before)
 	if events & PlayerSim.STARTED:
 		action_started.emit(action_item, action_anim, action_cell)
-	if action_anim >= 0 and action_tick == Mining.impact_tick():
+	if action_anim >= 0 and action_tick == Combat.impact_tick(action_item):
 		action_impact.emit(action_item, action_anim, action_cell)
+	if events & PlayerSim.DIED:
+		died.emit()
+	if events & PlayerSim.RESPAWN:
+		respawn_due.emit()
+	return events
 
 
 ## The simulation state (a copy).
@@ -214,6 +250,8 @@ func to_sim() -> PlayerSim:
 	st.action = action_anim
 	st.action_tick = action_tick
 	st.action_cell = action_cell
+	st.action_aim = action_aim
+	st.vit = vitals.copy()
 	return st
 
 
@@ -225,6 +263,50 @@ func load_sim(st: PlayerSim) -> void:
 	action_anim = st.action
 	action_tick = st.action_tick
 	action_cell = st.action_cell
+	action_aim = st.action_aim
+	vitals = st.vit
+
+
+## M4a: a hit of `amount` (PlayerSim.hurt: nothing while down, dead or invulnerable). Returns the
+## PlayerSim event bits (HURT, DOWNED; 0 = it did not land).
+func take_hit(amount: int) -> int:
+	var st: PlayerSim = to_sim()
+	var events: int = st.hurt(amount)
+	if events == 0:
+		return 0
+	load_sim(st)
+	_sync_view()
+	hurt.emit(amount, events & PlayerSim.DOWNED != 0)
+	return events
+
+
+## M4a: a revive (combat/arena.gd) gets a downed player up with Config.REVIVE_HP.
+func revive_now() -> void:
+	var st: PlayerSim = to_sim()
+	st.revive()
+	load_sim(st)
+	_sync_view()
+	revived.emit()
+
+
+## M4a: back to full (a respawn): vitals reset, no action, the picture shown again.
+func respawn_vitals() -> void:
+	vitals.reset()
+	action_anim = -1
+	action_tick = 0
+	walking = false
+	_sync_view()
+
+
+## M4b: the respawn (PlayerSim.respawn, the rule the host and a client's prediction share): on `p_data`
+## (the surface) at feet `feet`, facing Config.SPAWN_FACING, full; drawn there at once.
+func respawn_at(p_data: WorldData, feet: Vector2) -> void:
+	data = p_data
+	var st: PlayerSim = to_sim()
+	st.respawn(feet)
+	load_sim(st)
+	tick_from = feet
+	_sync_view()
 
 
 ## Aiming after a frame stepped elsewhere (a client's prediction): the last make_frame()'s input
@@ -309,8 +391,9 @@ func apply_input(input: Vector2i, delta: float) -> void:
 ## correction, another player's interpolated state) the drawing keeps its offset to sim_position, so
 ## a correction moves the whole step and an unchanged state changes nothing.
 ## `p_action` / `p_action_tick` (M2b): the body action shown (-1 = none) and its frames so far.
+## `p_vitals` (M4b): the vitals shown (a copy is kept; null = at rest: full and up).
 func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false, p_action: int = -1,
-		p_action_tick: int = 0) -> void:
+		p_action_tick: int = 0, p_vitals: Vitals = null) -> void:
 	if not tick:
 		tick_from += pos - sim_position
 	sim_position = pos
@@ -318,17 +401,22 @@ func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false
 	walking = p_walking
 	action_anim = p_action if RigData.is_action(p_action) else -1
 	action_tick = p_action_tick if action_anim >= 0 else 0
+	vitals = p_vitals.copy() if p_vitals != null else Vitals.new()
 	_sync_view()
 
 
 ## M3a: moves the player onto another map's data at feet position `feet`, facing south, any action
-## stopped (Main.travel).
+## stopped (Main.travel). M4-fix: a dash under way stops too (its cooldown runs on), so a dash pressed just
+## before F on the stairs does not carry on from the arrival point (host, offline and, through the host's
+## state, the prediction alike).
 func set_world(p_data: WorldData, feet: Vector2) -> void:
 	data = p_data
 	action_anim = -1
 	action_tick = 0
 	walking = false
 	facing = RigData.Dir.SOUTH
+	vitals.dash_ticks = 0
+	vitals.dash_dir = Vector2i.ZERO
 	teleport(feet)
 
 
@@ -359,7 +447,15 @@ func _sync_view() -> void:
 	position = sim_position.round()
 	character.direction = facing as RigData.Dir
 	character.walking = walking
-	if action_anim >= 0:
+	character.visible = vitals.life != Vitals.Life.DEAD
+	character.modulate = HIT_FLASH if vitals.flash_ticks > 0 else Color.WHITE
+	if vitals.life == Vitals.Life.DOWN:
+		character.show_action(RigData.Anim.DEATH, mini(vitals.life_ticks / Config.DEATH_FRAME_TICKS,
+			RigData.frame_count(RigData.Anim.DEATH) - 1))
+	elif vitals.hurt_ticks > 0:
+		character.show_action(RigData.Anim.HURT, mini((Config.HURT_TICKS - vitals.hurt_ticks) / Config.HURT_FRAME_TICKS,
+			RigData.frame_count(RigData.Anim.HURT) - 1))
+	elif action_anim >= 0:
 		character.show_action(action_anim, action_frame())
 	else:
 		character.end_action()

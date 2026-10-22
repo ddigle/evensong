@@ -125,9 +125,10 @@ func set_frame(value: int) -> void:
 	_refresh()
 
 
-## Shows frame `p_frame` (clamped to the action's frames) of body action `p_anim` (a RigData action).
+## Shows frame `p_frame` (clamped to the action's frames) of body action `p_anim` (a RigData action;
+## M4a: or a pose, hurt / death).
 func show_action(p_anim: int, p_frame: int) -> void:
-	if not RigData.is_action(p_anim):
+	if not RigData.is_action(p_anim) and not RigData.is_pose(p_anim):
 		push_error("Character: %d is not a body action" % p_anim)
 		return
 	action = p_anim

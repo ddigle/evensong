@@ -24,10 +24,27 @@ extends RefCounted
 ##   waitmap:<players>,<map>[,<ticks>]  stand still until at least <players> players are on <map>
 ##                                (surface / dungeon / 0 / 1) as this machine knows it (the session
 ##                                sets map_counts each tick); gives up after <ticks> (default 1800)
+## M4a (offline; M4b: in sessions too):
+##   dash:<dx>,<dy>               press Space this tick, holding that direction (0,0 = the facing)
+##   hold:<ticks>                 hold F that many ticks, standing (revive a downed player next to you;
+##                                while down, give up)
+## M4b (the heretics as this machine draws them, `foes`, and the local player's life, `life`, set by the
+## session or Main before each step):
+##   aimfoe                       from now on aim at the nearest live heretic (none: not aiming; M4-fix: at
+##                                the middle of its figure, Combat.body_centre)
+##   fight:<ticks>[,<n>[,<px>]]   hold the use button aimed at the nearest live heretic (its middle) while more than n
+##                                (default 0) are there, at most that many ticks; with px, walk toward it
+##                                while it is farther than px (melee)
+##   closein:<px>[,<ticks>]       walk toward the nearest live heretic until within px of it (default 600)
+##   waitfoe:<n>[,<ticks>]        stand until at most n live heretics are there (default 1800)
+##   waitlife:<alive|down|dead>[,<ticks>]   stand until the local player is that (default 1800)
+##   waitdown:<n>[,<ticks>]       stand until at least n players on this map are down (default 1800)
+##   walkdown[:<ticks>]           walk next to the nearest downed player (within 12 px; default 600 ticks)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
-	"select", "drop", "give", "waitmap"]
+	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
+	"walkdown"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -35,7 +52,7 @@ const WAITMAP_LIMIT_TICKS: int = 1800
 ## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
 const ARRIVE_PX: float = 0.6
 
-enum Aiming { NONE, OFFSET, CELL }
+enum Aiming { NONE, OFFSET, CELL, FOE }
 
 class Command:
 	extends RefCounted
@@ -71,11 +88,21 @@ class Action:
 	var use_held: bool = false
 	## M2b: a request this tick (op and fields; PICKUP / DROP get the target tile when the frame is built).
 	var op: NetProtocol.InputFrame
+	## M4a: Space this tick, F held.
+	var dash: bool = false
+	var interact: bool = false
 
 
 var commands: Array[Command] = []
 ## M3b: players per map as this machine knows it (set by the session before each step; waitmap).
 var map_counts: Dictionary[int, int] = {}
+## M4b: the live heretics' feet as this machine draws them, and the local player's life (Vitals.Life).
+var foes: Array[Vector2] = []
+var life: int = Vitals.Life.ALIVE
+## M4b: where the players on this map that are down lie, as this machine knows it.
+var downed: Array[Vector2] = []
+## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
+const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
 var finished: bool = false
 var _left: int = -1
@@ -186,6 +213,48 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				c.grade = ItemDB.grade_from_name(parts[2])
 				if not ItemDB.valid_grade(c.item, c.grade):
 					return "%s takes no grade %s" % [parts[0], parts[2]]
+		"dash":
+			if args.size() != 2 or not _axis(args[0]) or not _axis(args[1]):
+				return "expected dash:<dx>,<dy> with dx, dy in -1..1"
+			c.dir = Vector2i(args[0].to_int(), args[1].to_int())
+		"hold":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected hold:<ticks>"
+			c.ticks = args[0].to_int()
+		"aimfoe":
+			if args.size() != 0:
+				return "aimfoe takes no arguments"
+		"fight":
+			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() >= 2 and not _whole(args[1], 0)) \
+					or (args.size() == 3 and not args[2].is_valid_float()):
+				return "expected fight:<ticks>[,<n>[,<px>]]"
+			c.ticks = args[0].to_int()
+			c.count = args[1].to_int() if args.size() >= 2 else 0
+			c.offset = Vector2(args[2].to_float() if args.size() == 3 else 0.0, 0.0)
+		"walkdown":
+			if args.size() > 1 or (args.size() == 1 and not _whole(args[0], 1)):
+				return "expected walkdown[:<ticks>]"
+			c.ticks = args[0].to_int() if args.size() == 1 else WALK_LIMIT_TICKS
+		"waitdown":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitdown:<n>[,<ticks>]"
+			c.count = args[0].to_int()
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
+		"closein":
+			if args.size() < 1 or args.size() > 2 or not args[0].is_valid_float() or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected closein:<px>[,<ticks>]"
+			c.offset = Vector2(args[0].to_float(), 0.0)
+			c.ticks = args[1].to_int() if args.size() == 2 else WALK_LIMIT_TICKS
+		"waitfoe":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 0) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitfoe:<n>[,<ticks>]"
+			c.count = args[0].to_int()
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
+		"waitlife":
+			if args.size() < 1 or args.size() > 2 or not Vitals.LIFE_NAMES.has(args[0]) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitlife:<alive|down|dead>[,<ticks>]"
+			c.count = Vitals.LIFE_NAMES.find(args[0])
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
 		"waitmap":
 			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitmap:<players>,<map>[,<ticks>]"
@@ -295,6 +364,21 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.op.slot = -1  # the selected slot, filled in when the frame is built
 				_next()
 				return
+			"dash":
+				a.dir = c.dir
+				a.dash = true
+				_next()
+				return
+			"hold":
+				if _left < 0:
+					_left = c.ticks
+				if _left > 0:
+					_left -= 1
+					a.interact = true
+					if _left == 0:
+						_next()
+					return
+				_next()
 			"waitmap":
 				if _left < 0:
 					_left = c.ticks
@@ -303,6 +387,73 @@ func _advance(a: Action, feet: Vector2) -> void:
 				if there >= c.count or _left <= 0:
 					_next()
 				return
+			"aimfoe":
+				_aiming = Aiming.FOE
+				_next()
+				_fill_aim(a, feet)
+			"fight":
+				if _left < 0:
+					_left = c.ticks
+				var target: Variant = nearest_foe(feet)
+				if target == null or _left <= 0 or foes.size() <= c.count:
+					_next()
+				else:
+					_left -= 1
+					var at: Vector2 = target
+					a.aiming = true
+					a.mouse = Combat.body_centre(at)  # M4-fix: the middle of the figure, like a player clicking on it
+					if c.offset.x > 0.0 and feet.distance_to(at) > c.offset.x:
+						a.dir = Vector2i(_toward(at.x - feet.x), _toward(at.y - feet.y))
+					else:
+						a.use_held = true
+					return
+			"closein":
+				if _left < 0:
+					_left = c.ticks
+				var foe: Variant = nearest_foe(feet)
+				_left -= 1
+				var near: bool = foe == null
+				if not near:
+					var to: Vector2 = foe
+					near = feet.distance_to(to) <= c.offset.x
+					if not near and _left > 0:
+						a.dir = Vector2i(_toward(to.x - feet.x), _toward(to.y - feet.y))
+						return
+				_next()
+			"waitfoe":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if foes.size() <= c.count or _left <= 0:
+					_next()
+				return
+			"waitlife":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if life == c.count or _left <= 0:
+					_next()
+				return
+			"waitdown":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if downed.size() >= c.count or _left <= 0:
+					_next()
+				return
+			"walkdown":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				var mate: Variant = _nearest(downed, feet)
+				var near: bool = mate == null
+				if not near:
+					var to: Vector2 = mate
+					near = feet.distance_to(to) <= DOWN_NEAR_PX
+					if not near and _left > 0:
+						a.dir = Vector2i(_toward(to.x - feet.x), _toward(to.y - feet.y))
+						return
+				_next()
 			"give":
 				a.op = NetProtocol.InputFrame.new()
 				a.op.op = NetProtocol.Op.GIVE
@@ -327,8 +478,32 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 			a.mouse = feet + _aim
 		Aiming.CELL:
 			a.mouse = _aim
+		Aiming.FOE:
+			var foe: Variant = nearest_foe(feet)
+			a.aiming = foe != null
+			if foe != null:
+				var foe_feet: Vector2 = foe
+				a.mouse = Combat.body_centre(foe_feet)  # M4-fix: the middle of the figure
+			else:
+				a.mouse = feet
 		_:
 			a.mouse = feet
+
+
+## M4b: the nearest live heretic's feet to `feet` (Vector2), or null when none is there.
+func nearest_foe(feet: Vector2) -> Variant:
+	return _nearest(foes, feet)
+
+
+static func _nearest(points: Array[Vector2], feet: Vector2) -> Variant:
+	var best: Variant = null
+	var best_d: float = INF
+	for f: Vector2 in points:
+		var d: float = f.distance_to(feet)
+		if d < best_d:
+			best_d = d
+			best = f
+	return best
 
 
 ## Total ticks of wait/move commands (how long the script runs at least).

@@ -38,7 +38,12 @@ const PLACEABLE_TORCH: int = 3
 const PLACEABLE_EXIT: int = 4
 const PLACEABLE_SHRINE: int = 5
 const PLACEABLE_WALL_TORCH: int = 6
-const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch"]
+## M4a: a death bag lies on this tile (its contents are the drops on the tile; F takes them all; it does
+## not block), and the heretic shrine once broken by combat (Config.SHRINE_HP; it still blocks).
+const PLACEABLE_BAG: int = 7
+const PLACEABLE_SHRINE_BROKEN: int = 8
+const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch", "bag",
+	"shrine_broken"]
 
 var size: Vector2i = Vector2i.ZERO
 var world_seed: int = 0
@@ -178,9 +183,10 @@ func soil_ash_contacts() -> int:
 
 
 ## Whether placeable value `p` blocks walking (M3a: everything but a torch; a wall torch sits on a
-## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block").
+## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block"). M4a: a
+## death bag does not block; the broken shrine does (PROVISIONAL, README "임시값" M4a).
 static func placeable_blocks(p: int) -> bool:
-	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH
+	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH and p != PLACEABLE_BAG
 
 
 ## The footprint (cells) of the placeable covering tile `c`: the rectangle of equal values that

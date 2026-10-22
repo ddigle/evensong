@@ -17,6 +17,11 @@ extends RefCounted
 ## M3b: going to another map (F on the surface entrance or the dungeon's exit stairs) is travel(): the
 ## same reach, and the way on that tile names the map (portal_destination). Offline Main and the host
 ## (net/session_host.gd) both use it; in a session the host moves the player and sends it the map.
+## M4a: the death penalty (● gameplay-design §2.6 R12, the partial drop; durability is M7) is
+## death_drop(): part of the materials and consumables (every kind but tools) falls in a bag on the
+## death spot. The bag is a PLACEABLE_BAG tile (it does not block) holding ordinary drops: the world's
+## layers, drops and edits carry it as they are (M4b can send it as it sends the rest). F on a bag tile
+## takes every drop on it (anyone may; the bag never goes away by itself: PROVISIONAL, README "임시값").
 
 ## Gatherable item ids by VEGETATION value - 1. The wire and the snapshot carry the value, so the
 ## order only grows at the end.
@@ -55,6 +60,11 @@ const WHY_NOT_PORTAL: String = "no way there"
 const WHY_WRONG_MAP: String = "wrong map"
 ## M3b: a TRAVEL while the host is still sending the player the map it went to.
 const WHY_LOADING: String = "still loading"
+## M4a: a death left nothing to drop / no free tile for the bag near the death spot.
+const WHY_NOTHING_TO_DROP: String = "nothing to drop"
+const WHY_NO_ROOM: String = "no room for a bag"
+## M4a: how far (tiles, rings around the death tile) the bag looks for a free tile.
+const BAG_SEARCH_TILES: int = 3
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
 ## debug give from a client goes out as several requests (Main.give_requests).
 const GIVE_COUNT_MAX: int = 255
@@ -119,7 +129,8 @@ static func in_reach(feet: Vector2, c: Vector2i) -> bool:
 	return n >= 1 and n <= Config.REACH_TILES
 
 
-## F on tile `c`: the gatherable there, else the lowest-id drop there, into `inv`.
+## F on tile `c`: the gatherable there, else the lowest-id drop there, into `inv`. M4a: on a death bag
+## tile, every drop there (as much as fits; the bag goes when it is empty).
 static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Inventory, c: Vector2i) -> Outcome:
 	if not data.in_bounds(c):
 		return Outcome.refused(WHY_OUTSIDE)
@@ -127,6 +138,8 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		return Outcome.refused(WHY_REACH)
 	if is_portal(data, c):
 		return Outcome.refused(WHY_PORTAL)
+	if data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_BAG:
+		return open_bag(data, inv, c)
 	var o: Outcome = Outcome.new()
 	var plant: StringName = gatherable_at(data, c)
 	if not plant.is_empty():
@@ -157,6 +170,121 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		rest.count -= n
 		o.edits.append(EditLog.WorldEdit.drop_put(rest))
 	return o
+
+
+## M4a: F on the death bag on tile `c`: every drop there into `inv` (lowest id first, each as much as
+## fits; the rest stays). The bag tile clears when nothing is left. `item` / `count` = the first item
+## taken and how many items in all.
+static func open_bag(data: WorldData, inv: Inventory, c: Vector2i) -> Outcome:
+	var o: Outcome = Outcome.new()
+	var here: Array[WorldData.Drop] = data.drops_at(c)
+	var left: int = here.size()
+	for d: WorldData.Drop in here:
+		var n: int = mini(d.count, inv.room_for(d.item, d.grade))
+		if n < 1:
+			continue
+		inv.add(d.item, n, d.grade)
+		if o.item.is_empty():
+			o.item = d.item
+			o.grade = d.grade
+		o.count += n
+		if n == d.count:
+			o.edits.append(EditLog.WorldEdit.drop_remove(d.id))
+			left -= 1
+		else:
+			var rest: WorldData.Drop = d.copy()
+			rest.count -= n
+			o.edits.append(EditLog.WorldEdit.drop_put(rest))
+	if left == 0:
+		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_NONE))
+	elif o.count == 0:
+		return Outcome.refused(WHY_FULL)
+	return o
+
+
+## M4a: a free tile for a death bag: on the map, nothing blocking, no placeable, no gatherable, no drop.
+static func bag_spot_ok(data: WorldData, c: Vector2i) -> bool:
+	return data.in_bounds(c) and not Movement.is_blocked(data, c) \
+		and data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_NONE \
+		and data.get_value(WorldData.Layer.VEGETATION, c) == 0 and data.drops_at(c).is_empty()
+
+
+## M4a: the tile the bag of a player dying with feet at `feet` lies on: the feet tile, else the nearest
+## free tile within BAG_SEARCH_TILES rings (row by row in a ring), else Walls.NO_CELL.
+static func bag_cell(data: WorldData, feet: Vector2) -> Vector2i:
+	var f: Vector2i = Aim.feet_cell(feet)
+	for r: int in BAG_SEARCH_TILES + 1:
+		for y: int in range(f.y - r, f.y + r + 1):
+			for x: int in range(f.x - r, f.x + r + 1):
+				if maxi(absi(x - f.x), absi(y - f.y)) == r and bag_spot_ok(data, Vector2i(x, y)):
+					return Vector2i(x, y)
+	return Walls.NO_CELL
+
+
+## M4a, the death penalty (● gameplay-design §2.6: "인벤토리의 재료·소모품 중 일부가 죽은 자리에 가방으로
+## 떨어지고 되찾을 수 있다"; tools, i.e. every weapon and tool, stay): takes part of `inv`'s non-tool stacks
+## by `rule` (Config.DEATH_DROP_RULE: half of every stack rounded up, or every stack of
+## Config.DEATH_DROP_RANDOM_KINDS item kinds picked with `seed`) and returns the edits that put them in
+## a bag on the death tile (bag_cell): the bag tile first, then one drop per stack at the tile's centre.
+## At most Config.MAX_DROPS drops lie on a map; what does not fit stays in the inventory, and when not one
+## fits there is no bag at all (M4-fix: refused, nothing lost).
+static func death_drop(data: WorldData, feet: Vector2, inv: Inventory, rule: int = Config.DEATH_DROP_RULE,
+		seed_value: int = 0) -> Outcome:
+	var want: Dictionary[int, int] = death_drop_counts(inv, rule, seed_value)
+	if want.is_empty():
+		return Outcome.refused(WHY_NOTHING_TO_DROP)
+	if data.drops.size() >= Config.MAX_DROPS:
+		return Outcome.refused(WHY_TOO_MANY)  # M4-fix: not even one drop fits: no empty bag, nothing lost
+	var c: Vector2i = bag_cell(data, feet)
+	if c == Walls.NO_CELL:
+		return Outcome.refused(WHY_NO_ROOM)
+	var o: Outcome = Outcome.new()
+	o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_BAG))
+	var center: Vector2i = c * Config.TILE + Vector2i(Config.TILE / 2, Config.TILE / 2)
+	var room: int = Config.MAX_DROPS - data.drops.size()
+	var slots: Array[int] = []
+	slots.assign(want.keys())
+	slots.sort()
+	for slot: int in slots:
+		if room <= 0:
+			break
+		var stack: ItemStack = inv.stack_at(slot)
+		var n: int = want[slot]
+		o.edits.append(EditLog.WorldEdit.drop_put(WorldData.Drop.new(data.new_drop_id(), stack.id, n, stack.grade, center)))
+		room -= 1
+		if o.item.is_empty():
+			o.item = stack.id
+			o.grade = stack.grade
+		o.count += n
+		inv.remove(slot, n)
+	return o
+
+
+## M4a: how many of each inventory slot a death drops (slot -> count, only non-tool stacks), by `rule`.
+static func death_drop_counts(inv: Inventory, rule: int, seed_value: int) -> Dictionary[int, int]:
+	var out: Dictionary[int, int] = {}
+	var kinds: Array[StringName] = []
+	for slot: int in inv.size():
+		var stack: ItemStack = inv.stack_at(slot)
+		if stack == null or stack.def() == null or stack.def().is_tool():
+			continue
+		if rule == Config.DEATH_DROP_HALF:
+			out[slot] = (stack.count + 1) / 2
+		elif not kinds.has(stack.id):
+			kinds.append(stack.id)
+	if rule == Config.DEATH_DROP_HALF:
+		return out
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var picked: Array[StringName] = []
+	while not kinds.is_empty() and picked.size() < Config.DEATH_DROP_RANDOM_KINDS:
+		var k: StringName = kinds.pop_at(rng.randi_range(0, kinds.size() - 1))
+		picked.append(k)
+	for slot: int in inv.size():
+		var stack: ItemStack = inv.stack_at(slot)
+		if stack != null and picked.has(stack.id):
+			out[slot] = stack.count
+	return out
 
 
 ## Debug drop: `count` (0 = all) of the stack in `slot` onto tile `c`, at its centre. Not onto a

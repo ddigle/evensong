@@ -4,7 +4,7 @@ extends RefCounted
 ## (actors/rig_measure.gd). Do not edit by hand: run the tool and commit. tests/test_actors.gd
 ## measures again and fails if this file is out of date.
 ##
-## [anim (walk, idle, pickaxe, hoe, sickle, watering, sword, bow, magic, throw)][sheet row (south, east, north)][frame] -> offset of the
+## [anim (walk, idle, pickaxe, hoe, sickle, watering, sword, bow, magic, throw, hurt, death)][sheet row (south, east, north)][frame] -> offset of the
 ## torso / head band against walk frame 0, in px.
 
 const TORSO: Array[Array] = [
@@ -58,6 +58,16 @@ const TORSO: Array[Array] = [
 		[Vector2i(-2, 1), Vector2i(-1, 1), Vector2i(-2, 0), Vector2i(-1, 1), Vector2i(-1, 2), Vector2i(-2, 1), Vector2i(-2, 1)],
 		[Vector2i(2, 1), Vector2i(1, 1), Vector2i(4, 0), Vector2i(-3, 2), Vector2i(0, 2), Vector2i(0, 1), Vector2i(0, 0)],
 	],
+	[
+		[Vector2i(1, 0), Vector2i(2, 0), Vector2i(2, 0), Vector2i(1, 0), Vector2i(-2, 0), Vector2i(-2, 1)],
+		[Vector2i(1, 1), Vector2i(1, 1), Vector2i(-3, 3), Vector2i(-3, 3), Vector2i(0, 1), Vector2i(1, 2)],
+		[Vector2i(-2, 1), Vector2i(-2, 1), Vector2i(-3, 1), Vector2i(-2, 1), Vector2i(-1, 1), Vector2i(-1, 1)],
+	],
+	[
+		[Vector2i(0, 1), Vector2i(0, -1), Vector2i(0, 0), Vector2i(1, -1), Vector2i(3, 0), Vector2i(0, -2), Vector2i(0, 1)],
+		[Vector2i(2, 1), Vector2i(0, 1), Vector2i(0, 2), Vector2i(2, 1), Vector2i(1, 0), Vector2i(2, -1), Vector2i(0, 2)],
+		[Vector2i(1, -1), Vector2i(-1, 0), Vector2i(-1, -1), Vector2i(-2, 0), Vector2i(-1, 1), Vector2i(-4, 1), Vector2i(-3, 3)],
+	],
 ]
 const HEAD: Array[Array] = [
 	[
@@ -109,5 +119,15 @@ const HEAD: Array[Array] = [
 		[Vector2i(-3, 1), Vector2i(-2, -1), Vector2i(0, 0), Vector2i(4, 3), Vector2i(5, 6), Vector2i(0, 0), Vector2i(-1, -2)],
 		[Vector2i(0, 2), Vector2i(-1, 2), Vector2i(-1, 1), Vector2i(2, 2), Vector2i(3, 4), Vector2i(-1, 2), Vector2i(0, 2)],
 		[Vector2i(4, -1), Vector2i(3, 1), Vector2i(0, 1), Vector2i(-4, 1), Vector2i(-6, 4), Vector2i(1, 1), Vector2i(0, 0)],
+	],
+	[
+		[Vector2i(-1, 1), Vector2i(-1, 0), Vector2i(1, 1), Vector2i(-1, 0), Vector2i(-3, 1), Vector2i(-3, 2)],
+		[Vector2i(1, 1), Vector2i(-2, 1), Vector2i(-8, 1), Vector2i(-7, 2), Vector2i(-3, 1), Vector2i(3, 3)],
+		[Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, 0), Vector2i(1, 0), Vector2i(3, 0), Vector2i(2, -1)],
+	],
+	[
+		[Vector2i(-2, 0), Vector2i(-1, -1), Vector2i(-4, 1), Vector2i(-1, 1), Vector2i(0, 2), Vector2i(-1, 3), Vector2i(-4, 8)],
+		[Vector2i(2, 1), Vector2i(0, 1), Vector2i(-4, 3), Vector2i(-5, 2), Vector2i(-4, 2), Vector2i(-7, 7), Vector2i(-4, 8)],
+		[Vector2i(3, -1), Vector2i(0, 1), Vector2i(5, 4), Vector2i(2, 1), Vector2i(1, 2), Vector2i(2, 6), Vector2i(3, 8)],
 	],
 ]

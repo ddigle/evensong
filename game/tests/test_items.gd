@@ -9,6 +9,8 @@ const TOOLS: Dictionary[StringName, int] = {
 	&"pickaxe": RigData.Anim.PICKAXE, &"hoe": RigData.Anim.HOE, &"sickle": RigData.Anim.SICKLE,
 	&"watering_can": RigData.Anim.WATERING, &"sword": RigData.Anim.SWORD, &"bow": RigData.Anim.BOW,
 }
+## M4a: the cleric's basic attack, a tool kind item playing the magic action (not in the debug kit).
+const M4_TOOLS: Dictionary[StringName, int] = {&"holy_light": RigData.Anim.MAGIC}
 ## Item -> [icon file, world file] (04-env "본 제작" names), written out here on purpose.
 const ART: Dictionary[StringName, Array] = {
 	&"stone_block": ["item_stone_block_v02.png", "item_stone_block_v02.png"],
@@ -52,8 +54,8 @@ func run() -> Array[String]:
 
 func _check_table() -> void:
 	var ids: Array[StringName] = ItemDB.ids()
-	check_eq(ids.size(), TOOLS.size() + ART.size() + PLACEABLES.size(),
-		"item count = 6 tools + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch)")
+	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size(),
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch)")
 	var kinds: Dictionary[int, int] = {}
 	for id: StringName in ids:
 		var def: ItemDB.ItemDef = ItemDB.get_def(id)
@@ -61,9 +63,10 @@ func _check_table() -> void:
 			continue
 		var seen: int = kinds.get(def.kind, 0)
 		kinds[def.kind] = seen + 1
-		if TOOLS.has(id):
+		if TOOLS.has(id) or M4_TOOLS.has(id):
+			var want_action: int = TOOLS[id] if TOOLS.has(id) else M4_TOOLS[id]
 			check_eq(def.kind, ItemDB.Kind.TOOL, "%s is a tool" % id)
-			check_eq(def.action, TOOLS[id], "%s plays the %s action" % [id, RigData.ANIM_NAMES[TOOLS[id]]])
+			check_eq(def.action, want_action, "%s plays the %s action" % [id, RigData.ANIM_NAMES[want_action]])
 			check_eq(def.stack_max, Config.STACK_TOOL, "%s stacks to STACK_TOOL" % id)
 			check(not def.graded, "%s has no grade" % id)
 			check_eq(String(def.icon_code), String(id), "%s icon is drawn in code" % id)
@@ -85,15 +88,17 @@ func _check_table() -> void:
 				"%s stack size" % id)
 			check_eq(def.graded, HERBS.has(id), "%s graded only if a herb" % id)
 	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0),
-		kinds.get(ItemDB.Kind.PLACEABLE, 0)], [6, 3, 15, 1], "items per kind (tool, material, gatherable, placeable)")
-	# Every action with a hand tool has exactly one tool; magic and throw have none (README).
+		kinds.get(ItemDB.Kind.PLACEABLE, 0)], [7, 3, 15, 1], "items per kind (tool (M4a: 7), material, gatherable, placeable)")
+	# Every action with a hand tool has exactly one tool; throw has none (README). M4a: magic has the
+	# cleric's holy light.
 	var actions: Array[int] = []
 	for id: StringName in ids:
 		var a: int = ItemDB.get_def(id).action
 		if a >= 0:
 			check(not actions.has(a), "one tool per action (%s)" % RigData.ANIM_NAMES[a])
 			actions.append(a)
-	check(not actions.has(RigData.Anim.MAGIC) and not actions.has(RigData.Anim.THROW), "no item plays magic or throw")
+	check(not actions.has(RigData.Anim.THROW), "no item plays throw")
+	check_eq(ItemDB.get_def(&"holy_light").action, RigData.Anim.MAGIC, "M4a: the holy light plays magic")
 	check(ItemDB.get_def(&"nothing") == null and not ItemDB.has(&"nothing"), "unknown id")
 	check_eq(ItemDB.normalize_grade(&"stone_a", ItemDB.Grade.FINE), ItemDB.Grade.NONE, "ungraded items drop the grade")
 	check_eq(ItemDB.normalize_grade(&"wild_buff"), ItemDB.Grade.COMMON, "herbs default to common")
@@ -374,7 +379,10 @@ func _check_main_keys() -> void:
 		return
 	check(main.hud.inventory == player.inventory, "HUD shows the local player's inventory")
 	check(player.controls, "the offline local player has controls")
-	check_eq(player.inventory.free_slots(), Config.INVENTORY_SLOTS - _given_slots(), "starts with the --give items only")
+	check_eq(player.inventory.free_slots(), Config.INVENTORY_SLOTS - _given_slots() - 1,
+		"starts with the --give items and (M4a) the class weapon only")
+	check_eq(player.inventory.stack_at(Config.START_WEAPON_SLOT).id, Combat.class_weapon(player.class_id()),
+		"M4a: the class weapon in its hotbar slot")
 	_press(&"debug_give")
 	await await_frames(1)
 	check_eq(player.inventory.stack_at(0).id, &"pickaxe", "F5 gives the debug kit (pickaxe first)")

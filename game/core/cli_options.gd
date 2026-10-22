@@ -52,6 +52,19 @@ extends RefCounted
 ## M3a (offline):
 ##   --start-map=<surface|dungeon>  start on that map (dungeon: at its arrival point)
 ##   --bot=<script>               offline too: the bot drives the local player instead of the keys
+## M4a (offline screenshot / test flags):
+##   --test-at=<x>,<y>            put the local player on tile x,y of the start map (feet low in the tile)
+##   --test-heretic=<x>,<y>[/<x>,<y>...]   heretics on those tiles of the start map at the start
+##   --test-down                  the local player starts downed (0 HP)
+##   --test-ally=<class>[:down]   a second player (no input) beside the local one, downed with :down
+##   --test-shrine-hp=<n>         the dungeon shrine starts with n (1..Config.SHRINE_HP) hit points (with --start-map=dungeon)
+## M4b (also in sessions: the host applies them to its arenas and members):
+##   --test-heretic=...           a host puts them on the surface
+##   --test-dungeon-heretic=<x>,<y>[/...]   heretics on those dungeon tiles at the start (offline, host)
+##   --test-shrine-hp=<n>         a host's dungeon shrine starts with n hit points
+##   --test-no-spawns             no heretic spawns (offline and host; the test heretics still come)
+##   --test-start-hp=<class>:<hp>[,...]   host: members of that class start with that HP (tests: one hit
+##                                downs them)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -96,6 +109,18 @@ var test_action: Array[int] = []
 var test_action_lineup: int = -2
 ## --start-map (M3a): Config.MAP_SURFACE or MAP_DUNGEON.
 var start_map: int = Config.MAP_SURFACE
+## M4a test flags: tile (Vector2i or null), heretic tiles, start downed, an ally class (and downed),
+## the shrine's starting HP (0 = Config.SHRINE_HP).
+var test_at: Variant = null
+var test_heretics: Array[Vector2i] = []
+var test_down: bool = false
+var test_ally: String = ""
+var test_ally_down: bool = false
+var test_shrine_hp: int = 0
+## M4b test flags: dungeon heretic tiles, spawns off, start HP by class (host).
+var test_dungeon_heretics: Array[Vector2i] = []
+var test_no_spawns: bool = false
+var test_start_hp: Dictionary[String, int] = {}
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -241,11 +266,58 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.test_action = [anim, action_frame]
 			"test-action-lineup":
 				o.test_action_lineup = _parse_frame(value, RigData.Anim.PICKAXE, raw, o.errors) if has_value else -1
+			"test-at":
+				var at: Array[Vector2i] = _parse_tiles(value, raw, o.errors)
+				if at.size() == 1:
+					o.test_at = at[0]
+				elif not at.is_empty():
+					o.errors.append("%s: expected --test-at=<x>,<y>" % raw)
+			"test-heretic":
+				o.test_heretics = _parse_tiles(value, raw, o.errors)
+			"test-down":
+				o.test_down = true
+			"test-ally":
+				var ally: PackedStringArray = value.split(":")
+				if not Config.CLASSES.has(ally[0]) or ally.size() > 2 or (ally.size() == 2 and ally[1] != "down"):
+					o.errors.append("%s: expected --test-ally=<%s>[:down]" % [raw, "|".join(Config.CLASSES)])
+				else:
+					o.test_ally = ally[0]
+					o.test_ally_down = ally.size() == 2
+			"test-shrine-hp":
+				# M4-fix: at most Config.SHRINE_HP (a client refuses an enemy batch with more: decode_enemies).
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.SHRINE_HP:
+					o.errors.append("%s: expected --test-shrine-hp=<1..%d>" % [raw, Config.SHRINE_HP])
+				else:
+					o.test_shrine_hp = value.to_int()
+			"test-dungeon-heretic":
+				o.test_dungeon_heretics = _parse_tiles(value, raw, o.errors)
+			"test-no-spawns":
+				o.test_no_spawns = true
+			"test-start-hp":
+				for part: String in value.split(",", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not Config.CLASSES.has(kv[0]) or not kv[1].is_valid_int() or kv[1].to_int() < 1 \
+							or kv[1].to_int() > Config.PLAYER_HP_MAX:
+						o.errors.append("%s: expected --test-start-hp=<class>:<1..%d>[,...]" % [raw, Config.PLAYER_HP_MAX])
+						break
+					o.test_start_hp[kv[0]] = kv[1].to_int()
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:
 		o.errors.append("--host and --join cannot be used together")
 	return o
+
+
+## "<x>,<y>[/<x>,<y>...]" -> tiles (whole numbers >= 0); an error and none if bad.
+static func _parse_tiles(value: String, raw: String, errors: PackedStringArray) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for part: String in value.split("/"):
+		var xy: PackedStringArray = part.split(",")
+		if xy.size() != 2 or not xy[0].is_valid_int() or not xy[1].is_valid_int() or xy[0].to_int() < 0 or xy[1].to_int() < 0:
+			errors.append("%s: expected tiles <x>,<y>[/<x>,<y>...]" % raw)
+			return [] as Array[Vector2i]
+		out.append(Vector2i(xy[0].to_int(), xy[1].to_int()))
+	return out
 
 
 ## Whole number >= 0.
