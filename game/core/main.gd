@@ -526,6 +526,7 @@ func players_on(map_id: int) -> Array[Player]:
 
 ## One combat tick on the local player's map (after the local player stepped): the allies' own tick (no
 ## input: their down / respawn timers), then the arena; its edits go into the world, the view follows.
+## The other maps' arenas wait (M4-fix: emptied once when the local player leaves them).
 func step_combat(delta: float) -> void:
 	if not ensure_combat(current_map):
 		return
@@ -539,6 +540,16 @@ func step_combat(delta: float) -> void:
 		w.apply_edit(e)
 		_log_edit(e)
 	combat_views[current_map].sync(players)
+	# M4-fix: the map just left is emptied once (Arena.on_emptied: an attack under way stops without its
+	# knife, shots in the air are gone, the spawn timer starts over), so a heretic frozen mid-swing does not
+	# finish it on the player's return.
+	for id: int in arenas:
+		if id != current_map and arenas[id].occupied:
+			arenas[id].idle_tick()
+			var raw: Variant = combat_views.get(id, null)
+			if raw != null and is_instance_valid(raw):
+				var v: CombatView = raw
+				v.sync([] as Array[Player])
 
 
 func _attack(p: Player, item: StringName) -> void:

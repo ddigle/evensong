@@ -1444,8 +1444,12 @@ func _check_cli() -> void:
 			PackedStringArray(["--max-players=0"]), PackedStringArray(["--bot=fly:1"]), PackedStringArray(["--bot="]),
 			PackedStringArray(["--net-name=a/b"]), PackedStringArray(["--net-expect=x"]),
 			PackedStringArray(["--net-timeout=0"]), PackedStringArray(["--net-loss=101"]), PackedStringArray(["--net-lag=-5"]),
-			PackedStringArray(["--test-snapshot-chunk-bytes=0"]), PackedStringArray(["--test-snapshot-chunk-bytes=1025"])]:
+			PackedStringArray(["--test-snapshot-chunk-bytes=0"]), PackedStringArray(["--test-snapshot-chunk-bytes=1025"]),
+			PackedStringArray(["--test-shrine-hp=%d" % (Config.SHRINE_HP + 1)]), PackedStringArray(["--test-shrine-hp=0"])]:
 		check_eq(CliOptions.parse(argv).errors.size(), 1, "%s is one error" % " ".join(argv))
+	# M4-fix: up to Config.SHRINE_HP (a client refuses an enemy batch with more).
+	check_eq(CliOptions.parse(PackedStringArray(["--test-shrine-hp=%d" % Config.SHRINE_HP])).test_shrine_hp, Config.SHRINE_HP,
+		"--test-shrine-hp up to SHRINE_HP")
 
 
 ## Which RPCs clients may call (only hello, input, done), channel and reliability of each.

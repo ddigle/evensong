@@ -150,6 +150,14 @@ func run() -> Array[String]:
 	await _check_four_fight()
 	await _check_telegraph_window()
 	await _check_silent_client()
+	# M4-fix
+	await _check_two_revivers()
+	await _check_idle_then_hit()
+	await _check_trickle_client()
+	await _check_burst_client()
+	await _check_leave_mid_windup()
+	await _check_dungeon_death()
+	await _check_respawn_waits_for_stream()
 	return failures
 
 
@@ -382,7 +390,9 @@ static func spot(r: Rig) -> Vector2:
 	return r.surface.data.altar_center_px() + FIGHT_OFFSET
 
 
-## The batches client `c` got whose heretic HP differ from the host's HP at that batch's tick.
+## The batches client `c` got whose heretic HP differ from the host's HP at that batch's tick. The host's
+## HP is noted right after the tick that encoded the batch, so this checks the codec and the delivery (a
+## timing bug would not show here: the client's HP order against the host's, _follows, does that).
 static func hp_mismatches(r: Rig, c: Client) -> int:
 	var n: int = 0
 	for b: NetProtocol.EnemyBatch in c.batches:
@@ -588,7 +598,7 @@ func _check_two_fight_one() -> void:
 		"both landed hits (host sword %d, client bow %d)" % [r.s.local.combat_count("hits"), hm1.combat_count("hits")])
 	check_eq(r.s.local.combat_count("kills") + hm1.combat_count("kills"), 1, "one kill")
 	check(c.batches.size() > 5, "the client got enemy batches (%d)" % c.batches.size())
-	check_eq(hp_mismatches(r, c), 0, "every batch the client got had the host's HP at that tick")
+	check_eq(hp_mismatches(r, c), 0, "every batch the client got decoded to the host's HP at that tick (codec, delivery)")
 	var seen: Array = c.s.client.combat.hp_seen(h.id)
 	check(_follows(seen, host_hp_seq(r, h.id)), "the client saw the heretic's HP go %s, in the host's order %s" % [seen,
 		host_hp_seq(r, h.id)])
@@ -922,7 +932,7 @@ func _check_four_fight() -> void:
 	var kills: int = r.s.local.combat_count("kills")
 	for c: Client in cs:
 		kills += hm(r, c).combat_count("kills")
-		check_eq(hp_mismatches(r, c), 0, "four/peer %d: every batch had the host's HP at that tick" % c.peer)
+		check_eq(hp_mismatches(r, c), 0, "four/peer %d: every batch decoded to the host's HP at that tick (codec, delivery)" % c.peer)
 		check(_follows(c.s.client.combat.hp_seen(h1.id), host_hp_seq(r, h1.id))
 			and _follows(c.s.client.combat.hp_seen(h2.id), host_hp_seq(r, h2.id)),
 			"four/peer %d: both heretics' HP went the host's way (%s, %s)" % [c.peer, c.s.client.combat.hp_seen(h1.id),
@@ -947,6 +957,9 @@ func _check_four_fight() -> void:
 ## of D ticks, the client draws the wind-up from tick T + D on (the batch goes at once, the wind-up is
 ## drawn fresh); a dash pressed R ticks after that dodges the knife (lands at T + 30) while the dash frame
 ## reaches the host by then: R <= 29 - 2 D. Measured for D = 0, 3, 6, 9 by trying every R.
+## Assumed, not measured (M4-fix review): the client draws at host time "now - D" (its RemoteClock exact, so
+## "seen D ticks after" follows from the sample time the test passes), and nothing of a map entry's build time
+## (README "M4b 판정"). The test's link delays only what this rig delays (all messages, both ways).
 func _check_telegraph_window() -> void:
 	var lines: PackedStringArray = []
 	for d: int in [0, 3, 6, 9]:
@@ -1038,4 +1051,278 @@ func _check_silent_client() -> void:
 	c.ticking = true
 	_tick(r, Config.RESPAWN_TICKS + 40)
 	check(m.player.vitals.alive(), "and it respawned when it was due")
+	_free_rig(r)
+
+
+# --- M4-fix ----------------------------------------------------------------------------------------
+
+## ● gameplay-design §2.6 "성직자는 즉시" whoever else holds F too and whatever the slots' order: a paladin
+## host (slot 0) and a cleric client revive a downed client at once; a downed archer host, revived by a
+## paladin and a cleric client in either slot order, too (before: the first reviver in slot order set the
+## time, 300 ticks; review probes).
+func _check_two_revivers() -> void:
+	# The host (paladin, slot 0) and a cleric client hold F by a downed archer client.
+	var r: Rig = _rig("paladin")
+	await await_frames(1)
+	var f: Vector2 = spot(r)
+	var down: Client = _join(r, 101, "archer", f)
+	var cl: Client = _join(r, 102, "cleric", f + Vector2(-10, 0))
+	var md: NetMember = hm(r, down)
+	r.s.local.player.teleport(f + Vector2(10, 0))
+	md.player.take_hit(Config.PLAYER_HP_MAX)
+	_tick(r, 2)
+	r.action = holding_f()
+	cl.action = holding_f()
+	var t: int = 0
+	while md.player.vitals.life == Vitals.Life.DOWN and t < Config.REVIVE_TICKS + 10:
+		_tick(r)
+		t += 1
+	check(md.player.vitals.alive() and t <= 3, "paladin host (slot 0) + cleric client holding F: revived at once (%d ticks)" % t)
+	_free_rig(r)
+	# A downed archer host: a paladin and a cleric client, both slot orders.
+	for order: Array in [["paladin", "cleric"], ["cleric", "paladin"]]:
+		var class_a: String = order[0]
+		var class_b: String = order[1]
+		var r2: Rig = _rig("archer")
+		await await_frames(1)
+		var at: Vector2 = spot(r2)
+		r2.s.local.player.teleport(at)
+		var c1: Client = _join(r2, 101, class_a, at + Vector2(10, 0))
+		var c2: Client = _join(r2, 102, class_b, at + Vector2(-10, 0))
+		r2.s.local.player.take_hit(Config.PLAYER_HP_MAX)
+		_tick(r2, 2)
+		c1.action = holding_f()
+		c2.action = holding_f()
+		var u: int = 0
+		while r2.s.local.player.vitals.life == Vitals.Life.DOWN and u < Config.REVIVE_TICKS + 10:
+			_tick(r2)
+			u += 1
+		check(r2.s.local.player.vitals.alive() and u <= 3, "%s (slot %d) and %s (slot %d) holding F by the downed host: revived at once (%d ticks)" % [
+			class_a, hm(r2, c1).slot, class_b, hm(r2, c2).slot, u])
+		_free_rig(r2)
+
+
+## A client that stood still for over a second is hit (host events only): with a one-way delay of 3 or 9
+## ticks the host never steps it itself and the prediction takes the hit as the host's event alone (no
+## vitals correction): the clock debt counts only while it is timed (README "M4-fix 클라이언트 시계").
+## Before, the idle second counted as silence: the host stepped it at once and then ran its frames too.
+func _check_idle_then_hit() -> void:
+	for d: int in [3, 9]:
+		var r: Rig = _rig("cleric")
+		r.delay = d
+		await await_frames(1)
+		var c: Client = _join(r, 101, "miner", spot(r))
+		var m: NetMember = hm(r, c)
+		_tick(r, 70)  # standing: no frame at all
+		var start_hp: int = m.player.vitals.hp
+		m.player.take_hit(12)
+		var t: int = 0
+		while (not m.player.vitals.idle() or not c.s.local.player.vitals.idle()) and t < 400:
+			_tick(r)
+			t += 1
+		_tick(r, 2 * d + 6)
+		check(m.player.vitals.idle() and m.player.vitals.hp == start_hp - 12, "delay %d: the hit landed and its timers ran out (%d ticks)" % [d, t])
+		check_eq(m.host_steps, 0, "delay %d: the host never stepped the client itself" % d)
+		check_eq(c.s.local.player.sim_position, m.player.sim_position, "delay %d: where the host has it" % d)
+		check(c.s.client.prediction.event_corrections >= 1, "delay %d: the hit came as the host's event" % d)
+		check_prediction("idle then hit, delay %d" % d, c)
+		_free_rig(r)
+
+
+## A downed client that sends one frame every 20 ticks still dies on host time (the clock debt passes the
+## threshold, the host steps it; before, any frame reset the host's silence count, review probe: 94 of 1800
+## down ticks after 1890 host ticks).
+func _check_trickle_client() -> void:
+	var r: Rig = _rig("cleric")
+	await await_frames(1)
+	var c: Client = _join(r, 101, "miner", spot(r))
+	var m: NetMember = hm(r, c)
+	_tick(r, 5)
+	m.player.take_hit(Config.PLAYER_HP_MAX)
+	var t: int = 0
+	while m.player.vitals.life == Vitals.Life.DOWN and t < Config.DOWN_TICKS + 300:
+		c.ticking = t % 20 == 0
+		_tick(r)
+		t += 1
+	c.ticking = true
+	check(m.player.vitals.life == Vitals.Life.DEAD and t <= Config.DOWN_TICKS + Config.NET_HOST_STEPS_AFTER_TICKS + 2,
+		"a client trickling a frame every 20 ticks died %d host ticks after going down (down time %d + the host's wait %d; host steps %d)" % [
+		t, Config.DOWN_TICKS, Config.NET_HOST_STEPS_AFTER_TICKS, m.host_steps])
+	_free_rig(r)
+
+
+## A modified client sends saved-up frames at once: after a hit, 30 frames walking east in one packet do not
+## move it before its stagger (Config.HURT_TICKS) has run on host time; two dash frames 41 frames apart sent
+## together start at least the dash's cooldown apart in host ticks (before: walking 5 host ticks after the
+## hit, dashes 12 ticks apart; review probes). The host holds the frames back (InputGate.put_back).
+func _check_burst_client() -> void:
+	var r: Rig = _rig("cleric")
+	await await_frames(1)
+	var c: Client = _join(r, 101, "miner", spot(r))
+	var m: NetMember = hm(r, c)
+	_tick(r, 40)
+	c.ticking = false
+	m.player.take_hit(10)
+	var hit_at: int = r.s.tick
+	var at: Vector2 = m.player.sim_position
+	var next: int = m.gate.last_seq + 1
+	var walk: Array[NetProtocol.InputFrame] = []
+	for i: int in 30:
+		walk.append(NetProtocol.InputFrame.new(next + i, Vector2i(1, 0)))
+	r.host.on_input(c.peer, NetProtocol.encode_inputs(walk))
+	var moved_at: int = -1
+	for i: int in 60:
+		_tick(r)
+		if moved_at < 0 and m.player.sim_position != at:
+			moved_at = r.s.tick
+	check(moved_at - hit_at >= Config.HURT_TICKS, "30 walking frames in one packet after a hit: it moved %d host ticks after the hit (stagger %d)" % [
+		moved_at - hit_at, Config.HURT_TICKS])
+	check(m.frames_held > 0, "the host held frames back (%d)" % m.frames_held)
+	_tick(r, 200)  # its timers run out, stamina full
+	next = m.gate.last_seq + 1
+	var burst: Array[NetProtocol.InputFrame] = []
+	for i: int in 64:
+		var fr: NetProtocol.InputFrame = NetProtocol.InputFrame.new(next + i, Vector2i(0, 1))
+		fr.dash = i == 0 or i == 41
+		burst.append(fr)
+	var dash_ticks: Array[int] = []
+	var dashes: int = m.combat_count("dashes")
+	r.host.on_input(c.peer, NetProtocol.encode_inputs(burst.slice(0, 32)))
+	r.host.on_input(c.peer, NetProtocol.encode_inputs(burst.slice(32, 64)))
+	for i: int in 120:
+		_tick(r)
+		if m.combat_count("dashes") > dashes:
+			dashes = m.combat_count("dashes")
+			dash_ticks.append(r.s.tick)
+	check(dash_ticks.size() == 2 and dash_ticks[1] - dash_ticks[0] >= Config.DASH_COOLDOWN_TICKS + Config.DASH_TICKS,
+		"two dash frames 41 frames apart sent at once: dashes at host ticks %s (cooldown %d + dash %d)" % [dash_ticks,
+		Config.DASH_COOLDOWN_TICKS, Config.DASH_TICKS])
+	_free_rig(r)
+
+
+## A dungeon heretic in its wind-up by the stairs when the last player there flees up; the map empties:
+## the attack stops without its knife, an arrow in the air is gone, no urgent enemy batch is made for the
+## empty map. Back down at the arrival point (at the heretic's side) the client is not hit before a whole
+## new telegraph after its map entry (before: the frozen wind-up struck about 8 ticks after the arrival).
+func _check_leave_mid_windup() -> void:
+	var r: Rig = _rig("cleric")
+	r.delay = 3
+	await await_frames(1)
+	var c: Client = _join(r, 101, "archer")
+	var m: NetMember = hm(r, c)
+	var da: Arena = r.host.arenas[Config.MAP_DUNGEON]
+	r.host.move_to_map(m, Config.MAP_DUNGEON)
+	_tick(r, 12)
+	check(c.s.local.map_id == Config.MAP_DUNGEON, "the client went down")
+	var arrival: Vector2 = DungeonGen.arrival_point(r.dungeon.data)
+	var h: HereticSim = da.spawn_heretic(arrival + Vector2(14, 0))
+	check(Movement.can_stand(r.dungeon.data, h.pos), "the heretic stands by the arrival point")
+	da.player_attack(m.player, &"bow", Combat.aim_code(Vector2.DOWN))
+	var t: int = 0
+	while not (h.state == HereticSim.State.ATTACK and h.state_ticks >= 8) and t < 120:
+		_tick(r)
+		t += 1
+	check(h.state == HereticSim.State.ATTACK and h.state_ticks < Config.HERETIC_TELEGRAPH_TICKS, "mid wind-up (%d ticks in)" % h.state_ticks)
+	r.host.move_to_map(m, Config.MAP_SURFACE)
+	_tick(r)
+	check(h.state != HereticSim.State.ATTACK and da.shots.is_empty() and da.stat("knife_swings") == 0,
+		"the dungeon emptied: the attack stopped without its knife, the arrow is gone")
+	var urgent: int = r.host.enemy_urgent_sends
+	_tick(r, 60)
+	check(da.attacks_started == 0 and r.host.enemy_urgent_sends == urgent, "nothing urgent is sent for the empty map")
+	var hp: int = m.player.vitals.hp
+	r.host.move_to_map(m, Config.MAP_DUNGEON)
+	t = 0
+	while c.s.local.map_id != Config.MAP_DUNGEON and t < 60:
+		_tick(r)
+		t += 1
+	var entered: int = r.s.tick
+	while r.s.tick - entered < Config.HERETIC_TELEGRAPH_TICKS:
+		_tick(r)
+	check(m.player.vitals.hp == hp and m.player.sim_position.distance_to(h.pos) < Config.HERETIC_HIT_REACH_PX,
+		"back down at its side: no knife within a telegraph of the map entry (hp %d, %.1f px)" % [m.player.vitals.hp,
+		m.player.sim_position.distance_to(h.pos)])
+	c.s.client.combat.sample(float(r.s.tick - r.delay), SessionClient.interp_delay_ticks())
+	check(c.s.client.combat.arena.shots.is_empty(), "the client draws no stale arrow")
+	_free_rig(r)
+
+
+## A client dies in the dungeon (gives up): its bag stays below, the host respawns it at its spawn slot on
+## the surface and streams it the surface; the client ends there, alive, where the host has it, with no
+## prediction error (the review's probe, now a test).
+func _check_dungeon_death() -> void:
+	var r: Rig = _rig("paladin")
+	await await_frames(1)
+	var a: Client = _join(r, 101, "herbalist")
+	var m: NetMember = hm(r, a)
+	r.host.move_to_map(m, Config.MAP_DUNGEON)
+	_tick(r, 8)
+	check(a.s.local.map_id == Config.MAP_DUNGEON, "the client went down")
+	m.player.inventory.add(&"stone_a", 20)
+	m.inventory_dirty = true
+	_tick(r, 3)
+	m.player.take_hit(Config.PLAYER_HP_MAX)
+	_tick(r, 3)
+	a.action = holding_f()
+	var t: int = 0
+	while m.player.vitals.life != Vitals.Life.DEAD and t < 200:
+		_tick(r)
+		t += 1
+	a.action = null
+	var died_at: int = r.s.tick
+	t = 0
+	while not (m.player.vitals.alive() and a.s.local.map_id == Config.MAP_SURFACE) and t < Config.RESPAWN_TICKS + 200:
+		_tick(r)
+		t += 1
+	_tick(r, 10)
+	check(m.map_id == Config.MAP_SURFACE and m.player.sim_position == r.surface.spawn_point(m.slot) and m.player.vitals.alive(),
+		"died in the dungeon: respawned %d ticks later at its spawn slot on the surface" % (r.s.tick - died_at - 10))
+	check(a.s.local.map_id == Config.MAP_SURFACE and a.s.local.player.sim_position == m.player.sim_position
+		and a.s.local.player.vitals.alive(), "the client is on the surface where the host has it, alive")
+	check(a.dungeon.data.content_hash() == r.dungeon.data.content_hash()
+		and r.dungeon.data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_BAG) == 1, "the bag stays in the dungeon (its copy = the host's)")
+	check(a.surface.data.content_hash() == r.surface.data.content_hash(), "its surface = the host's")
+	check_prediction("dungeon death", a)
+	_free_rig(r)
+
+
+## The respawn waits while the member's map is still streaming (SessionHost.respawn_pending): a dead
+## client is moved to the dungeon a few ticks before its respawn, with 1-byte snapshot chunks (the dungeon
+## takes about 40 ticks); the respawn comes only after that map entry, then it is sent the surface.
+func _check_respawn_waits_for_stream() -> void:
+	var r: Rig = _rig("paladin")
+	await await_frames(1)
+	var a: Client = _join(r, 101, "miner", spot(r))
+	var m: NetMember = hm(r, a)
+	m.player.take_hit(Config.PLAYER_HP_MAX)
+	_tick(r, 2)
+	a.action = holding_f()
+	var t: int = 0
+	while m.player.vitals.life != Vitals.Life.DEAD and t < 200:
+		_tick(r)
+		t += 1
+	a.action = null
+	while m.player.vitals.life_ticks < Config.RESPAWN_TICKS - 5:
+		_tick(r)
+	var saved: int = WorldSnapshot.chunk_bytes
+	WorldSnapshot.chunk_bytes = 1
+	r.host.move_to_map(m, Config.MAP_DUNGEON)
+	WorldSnapshot.chunk_bytes = saved
+	var pending_ticks: int = 0
+	var respawned_while_streaming: bool = false
+	t = 0
+	while not (m.player.vitals.alive() and a.s.local.map_id == Config.MAP_SURFACE) and t < 400:
+		_tick(r)
+		t += 1
+		if m.respawn_pending:
+			pending_ticks += 1
+		if m.player.vitals.alive() and r.host.streams.has(a.peer) and r.host.streams[a.peer].map == Config.MAP_DUNGEON:
+			respawned_while_streaming = true
+	_tick(r, 10)
+	check(pending_ticks > 10 and not respawned_while_streaming,
+		"the respawn waited %d ticks for the dungeon's stream to end" % pending_ticks)
+	check(m.map_id == Config.MAP_SURFACE and m.player.vitals.alive() and m.player.sim_position == r.surface.spawn_point(m.slot),
+		"then respawned at its spawn slot on the surface")
+	check(a.s.local.map_id == Config.MAP_SURFACE and a.s.local.player.sim_position == m.player.sim_position
+		and a.surface.data.content_hash() == r.surface.data.content_hash(), "the client followed (surface = host's)")
 	_free_rig(r)

@@ -57,7 +57,7 @@ extends RefCounted
 ##   --test-heretic=<x>,<y>[/<x>,<y>...]   heretics on those tiles of the start map at the start
 ##   --test-down                  the local player starts downed (0 HP)
 ##   --test-ally=<class>[:down]   a second player (no input) beside the local one, downed with :down
-##   --test-shrine-hp=<n>         the dungeon shrine starts with n hit points (with --start-map=dungeon)
+##   --test-shrine-hp=<n>         the dungeon shrine starts with n (1..Config.SHRINE_HP) hit points (with --start-map=dungeon)
 ## M4b (also in sessions: the host applies them to its arenas and members):
 ##   --test-heretic=...           a host puts them on the surface
 ##   --test-dungeon-heretic=<x>,<y>[/...]   heretics on those dungeon tiles at the start (offline, host)
@@ -284,7 +284,11 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.test_ally = ally[0]
 					o.test_ally_down = ally.size() == 2
 			"test-shrine-hp":
-				o.test_shrine_hp = _parse_positive(value, raw, o.errors, 0)
+				# M4-fix: at most Config.SHRINE_HP (a client refuses an enemy batch with more: decode_enemies).
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.SHRINE_HP:
+					o.errors.append("%s: expected --test-shrine-hp=<1..%d>" % [raw, Config.SHRINE_HP])
+				else:
+					o.test_shrine_hp = value.to_int()
 			"test-dungeon-heretic":
 				o.test_dungeon_heretics = _parse_tiles(value, raw, o.errors)
 			"test-no-spawns":

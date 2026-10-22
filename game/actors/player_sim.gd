@@ -19,7 +19,8 @@ extends RefCounted
 ## of the playing action (a 0..255 angle code, Combat.aim_code). A frame may also dash (Space) and hold
 ## F (`interact`: giving up while down; a revive of someone else is the combat rules', arena.gd). The
 ## order before the M2b steps: a downed player only counts its down time (DIED after Config.DOWN_TICKS
-## or GIVE_UP_HOLD_TICKS of F) and a dead one its respawn time (RESPAWN when due); an alive one counts
+## or GIVE_UP_HOLD_TICKS of F) and a dead one its respawn time (RESPAWN on every frame from when it is
+## due until the caller respawns it, M4-fix); an alive one counts
 ## down its invulnerability, dash cooldown and stamina wait / regen; a dash in progress moves it at
 ## Config.DASH_SPEED with Movement's collision and does nothing else; a stagger (hurt) keeps it from
 ## moving, starting an action or dashing; a frame's dash starts one (stamina, cooldown) when no action
@@ -119,9 +120,13 @@ func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, 
 			events |= DIED
 		return events
 	if vit.life == Vitals.Life.DEAD:
-		vit.life_ticks += 1
+		# M4-fix: due from RESPAWN_TICKS on, every frame until the caller respawns it (the count stops there),
+		# so a dead player handed over past that tick (a client that lost its host while waiting in the
+		# dungeon for the surface) still comes back.
+		if vit.life_ticks < Config.RESPAWN_TICKS:
+			vit.life_ticks += 1
 		walking = false
-		if vit.life_ticks == Config.RESPAWN_TICKS:
+		if vit.life_ticks >= Config.RESPAWN_TICKS:
 			events |= RESPAWN
 		return events
 	if vit.invuln_ticks > 0:

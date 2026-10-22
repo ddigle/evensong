@@ -23,6 +23,9 @@ func run() -> Array[String]:
 	_check_weapons_table()
 	_check_melee()
 	_check_shots()
+	_check_shot_aim()
+	_check_shot_corners()
+	_check_step_cost()
 	_check_friendly_fire()
 	_check_pickaxe_rule()
 	_check_bag_rules()
@@ -140,6 +143,17 @@ func _check_dash() -> void:
 	dodge.step(d, Vector2i(1, 0), -1, -1, Vector2i.ZERO, TICK, true)
 	check_eq(dodge.hurt(10), 0 if Config.DASH_INVULNERABLE else PlayerSim.HURT, "a hit during the dash (DASH_INVULNERABLE)")
 	check_eq(dodge.vit.hp, Config.PLAYER_HP_MAX if Config.DASH_INVULNERABLE else Config.PLAYER_HP_MAX - 10, "HP after it")
+	# M4-fix: going to another map (Player.set_world: TRAVEL, Main.travel) stops a dash under way; it does
+	# not carry on from the arrival point (its cooldown runs on).
+	var traveller: Player = player(d, "archer", feet(Vector2i(5, 12)))
+	tick(traveller, frame(Vector2i(1, 0), true))
+	check(traveller.vitals.dash_ticks > 0, "dashing")
+	var other: WorldData = open_world()
+	var arrive: Vector2 = feet(Vector2i(10, 4))
+	traveller.set_world(other, arrive)
+	tick(traveller, frame())
+	check(traveller.sim_position == arrive and traveller.vitals.dash_ticks == 0 and traveller.vitals.dash_dir == Vector2i.ZERO
+		and traveller.vitals.dash_cooldown > 0, "set_world stops the dash: it stays at the arrival point (cooldown %d)" % traveller.vitals.dash_cooldown)
 
 
 ## Dashes use walking's collision: straight into a wall stops flush; thousands of random dashes in the
@@ -243,8 +257,22 @@ func _check_down_and_death() -> void:
 			check_eq(p.character.frame, RigData.frame_count(RigData.Anim.DEATH) - 1, "then lying (the last death frame)")
 			check(not p.character.signature_sprite().visible, "no signature on the lying body")
 	check_eq(died, [Config.DOWN_TICKS - 1] as Array[int], "it dies after DOWN_TICKS down (30 s, §2.6)")
-	check_eq(respawned, [Config.DOWN_TICKS - 1 + Config.RESPAWN_TICKS] as Array[int], "respawn due RESPAWN_TICKS later, once")
+	# M4-fix: due RESPAWN_TICKS later and on every frame after until someone respawns it (nobody does here),
+	# the count stopping at RESPAWN_TICKS.
+	var due: int = Config.DOWN_TICKS - 1 + Config.RESPAWN_TICKS
+	var want_due: Array[int] = []
+	for t: int in range(due, Config.DOWN_TICKS + Config.RESPAWN_TICKS + 5):
+		want_due.append(t)
+	check_eq(respawned, want_due, "respawn due RESPAWN_TICKS later, then every frame until respawned")
+	check_eq(p.vitals.life_ticks, Config.RESPAWN_TICKS, "the dead count stops at RESPAWN_TICKS")
 	check(not p.character.visible, "a dead player is not drawn")
+	# M4-fix: a dead player handed over past its respawn tick (a client that lost its host while dead in the
+	# dungeon, waiting for the surface) is due on its next frame.
+	var late: PlayerSim = PlayerSim.new()
+	late.vit.life = Vitals.Life.DEAD
+	late.vit.life_ticks = Config.RESPAWN_TICKS + 40
+	check(late.step(d, Vector2i.ZERO, -1, -1, Vector2i.ZERO, TICK) & PlayerSim.RESPAWN != 0,
+		"dead past the respawn tick: due at once")
 	p.respawn_vitals()
 	check(p.vitals.alive() and p.vitals.hp == Config.RESPAWN_HP and p.character.visible, "respawned: up, full, drawn")
 	# Alone: holding F gives up.
@@ -283,6 +311,23 @@ func _check_revive() -> void:
 				break
 		check_eq(up_at, maxi(need, 1) - 1, "%s holding F revives in %d ticks (§2.6: cleric at once, others 5 s)" % [reviver_class, need])
 		check_eq(down.vitals.hp, Config.REVIVE_HP, "revived with REVIVE_HP")
+	# M4-fix: two holding F, a paladin and a cleric, in either order of the players: the cleric's instant
+	# revive counts (● §2.6 "성직자는 즉시"), not the first one's 5 s; the view's revive bar uses the same one.
+	for order: Array in [["paladin", "cleric"], ["cleric", "paladin"]]:
+		var class_a: String = order[0]
+		var class_b: String = order[1]
+		var down2: Player = player(d, "archer", feet(Vector2i(24, 15)))
+		var first: Player = player(d, class_a, down2.sim_position + Vector2(10, 0))
+		var second: Player = player(d, class_b, down2.sim_position + Vector2(-10, 0))
+		var three: Array[Player] = [down2, first, second]
+		down2.take_hit(Config.PLAYER_HP_MAX)
+		tick(first, frame(Vector2i.ZERO, false, true))
+		tick(second, frame(Vector2i.ZERO, false, true))
+		var fastest: Player = Arena.reviver_for(down2, three)
+		check(fastest != null and fastest.class_id() == "cleric", "%s then %s holding F: the cleric is the reviver" % order)
+		tick(down2, frame())
+		arena.step(three)
+		check(down2.vitals.alive(), "%s then %s holding F: up on the first tick (the cleric's instant revive)" % order)
 	# Out of reach, or letting go: no revive, the progress resets.
 	var far: Player = player(d, "miner", feet(Vector2i(10, 10)))
 	var near: Player = player(d, "herbalist", far.sim_position + Vector2(Config.REVIVE_REACH_PX + 2.0, 0))
@@ -469,6 +514,131 @@ func _check_shots() -> void:
 	check(s2.stopped_by == "wall" and across.hp == Config.HERETIC_HP, "the altar stops an arrow (%s)" % s2.stopped_by)
 
 
+## M4-fix: aiming a bow or the holy light at a heretic's figure hits wherever on the figure the mouse is:
+## the aim comes from Player.make_frame (the real mouse rule: from where the shot is drawn leaving the
+## shooter, Combat.aim_origin), so the drawn shot flies through the cursor, and the hit box is the drawn
+## figure (Combat.shot_hits_body). Distances 40 / 80 / 120 px, every 30°, the mouse 2..26 px above the
+## heretic's feet (its figure is opaque from 1 to 29 px up; an aim code is 1.4°, about 1.5 px at 120 px, so
+## the very edge can go either way). Before, only clicks within about 8 px of its feet hit on level shots
+## (review probe). Level shots at the mouse 6 px above its head miss (the figure, not more).
+func _check_shot_aim() -> void:
+	var tries: int = 0
+	var missed: Array[String] = []
+	var over_head_hits: Array[String] = []
+	for weapon: StringName in [&"bow", &"holy_light"]:
+		var a: Combat.Attack = Combat.attack_for(weapon)
+		var d: WorldData = open_world(Vector2i(40, 40))
+		var arena: Arena = Arena.new()
+		arena.setup(d, 1)
+		arena.spawning = false
+		var p: Player = player(d, "archer", feet(Vector2i(20, 20)))
+		var none: Array[Player] = []
+		for dist: float in [40.0, 80.0, 120.0]:
+			if dist > a.reach - 2.0 * Config.BODY_HIT_RADIUS_PX:
+				continue
+			for deg: int in range(0, 360, 30):
+				var at: Vector2 = p.sim_position + Vector2.from_angle(deg_to_rad(float(deg))) * dist
+				for lift: float in [2.0, 6.0, 10.0, 14.0, 20.0, 26.0, Config.BODY_HIT_HEIGHT_PX + 6.0]:
+					arena.heretics.clear()
+					var h: HereticSim = arena.spawn_heretic(at)
+					var f: NetProtocol.InputFrame = p.make_frame(Vector2i.ZERO, at - Vector2(0.0, lift), true, false, false)
+					arena.player_attack(p, weapon, f.aim)
+					for t: int in 120:
+						if arena.shots.is_empty():
+							break
+						arena.step(none)
+					arena.shots.clear()
+					var hit: bool = h.hp < Config.HERETIC_HP
+					var label: String = "%s %d px %d deg %.0f px up" % [weapon, roundi(dist), deg, lift]
+					if lift <= Config.BODY_HIT_HEIGHT_PX:
+						tries += 1
+						if not hit:
+							missed.append(label)
+					elif (deg == 0 or deg == 180) and hit:
+						over_head_hits.append(label)
+	check(missed.is_empty(), "%d shots at the heretic's figure (2..26 px above its feet): every one hits (missed %s)" % [tries, missed])
+	check(over_head_hits.is_empty(), "level shots 6 px above its head miss (%s)" % [over_head_hits])
+	# The drawn shot goes through the cursor: the aim from aim_origin, the shot drawn SHOT_DRAW_LIFT_PX above
+	# its ground point that starts at the body point.
+	var o: Vector2 = Combat.aim_origin(Vector2(100, 100))
+	check_eq(o, Combat.body_point(Vector2(100, 100)) - Vector2(0, Config.SHOT_DRAW_LIFT_PX), "aim origin = where the shot is drawn leaving")
+
+
+## M4-fix: a line of walls that touch only at their corners (x + y == 20) stops every shot crossing it:
+## the steps of a shot count every tile between them (an exact grid walk, as line of sight does), not only
+## the tile under each step. Before, about 3 % of such arrows ended up on the far side (review probe).
+func _check_shot_corners() -> void:
+	var d: WorldData = open_world(Vector2i(40, 40))
+	for x: int in 21:
+		wall(d, Vector2i(x, 20 - x))
+	var arena: Arena = Arena.new()
+	arena.setup(d, 1)
+	arena.spawning = false
+	var none: Array[Player] = []
+	var shots: int = 0
+	var crossed: int = 0
+	var sight_crossed: int = 0
+	for ox: int in 5:
+		for oy: int in 5:
+			var p: Player = player(d, "archer", Vector2(8 * Config.TILE + 3.3 * ox, 8 * Config.TILE + 2.9 * oy + 1.0))
+			for code: int in range(0, Combat.AIM_STEPS / 4 + 1):
+				arena.player_attack(p, &"bow", code)
+				var s: Arena.Shot = arena.shots.back()
+				for t: int in 120:
+					if s.done:
+						break
+					arena.step(none)
+				shots += 1
+				var c: Vector2i = Aim.cell_of(s.pos)
+				if c.x + c.y > 20:
+					crossed += 1
+					if Combat.line_clear(d, Combat.body_point(p.sim_position), s.pos):
+						sight_crossed += 1
+				arena.shots.clear()
+	check_eq(crossed, 0, "%d arrows at a line of corner-touching walls: none ends up beyond it" % shots)
+	check_eq(sight_crossed, 0, "(and line of sight agrees)")
+
+
+## M4-fix: the cost of one arena tick with shots in the air on the seed-1 surface (the shrine footprint is
+## cached now: it was a whole-map scan per shot step). Measured, not checked against a bound.
+func _check_step_cost() -> void:
+	var surf: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var arena: Arena = Arena.new()
+	arena.setup(surf, 1)
+	arena.spawning = false
+	var c: Vector2 = surf.altar_center_px() + Vector2(0, 200)
+	var ps: Array[Player] = []
+	for i: int in 9:
+		ps.append(player(surf, "archer", c + Vector2(i * 4, 0)))
+	var lines: PackedStringArray = []
+	for n: int in [0, 9, 27]:
+		arena.shots.clear()
+		for i: int in n:
+			var s: Arena.Shot = Arena.Shot.new()
+			s.id = 1000 + i
+			s.kind = Combat.Kind.ARROW
+			s.dir = Vector2.RIGHT
+			s.speed = 220.0
+			s.left = 1000000
+			s.damage = 1
+			arena.shots.append(s)
+		var t0: int = Time.get_ticks_usec()
+		for k: int in 60:
+			for s: Arena.Shot in arena.shots:
+				s.pos = c + Vector2(0, -(s.id - 1000))  # back in the open each tick
+			arena.step(ps)
+		lines.append("%d arrows %.0f us" % [n, (Time.get_ticks_usec() - t0) / 60.0])
+	var dungeon: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var da: Arena = Arena.new()
+	da.setup(dungeon, 1)
+	var t1: int = Time.get_ticks_usec()
+	for k: int in 1000:
+		da.shrine_rect()
+	check(da.shrine_rect().has_area(), "the dungeon's shrine footprint is found")
+	note("Arena.step, seed-1 surface, 9 players: %s per tick; Arena.shrine_rect (dungeon, cached) %.2f us per call" % [
+		", ".join(lines), (Time.get_ticks_usec() - t1) / 1000.0])
+
+
 ## Friendly fire off: a sword arc and an arrow pass players by.
 func _check_friendly_fire() -> void:
 	check(not Config.FRIENDLY_FIRE, "friendly fire is off (PROVISIONAL)")
@@ -608,6 +778,17 @@ func _check_bag_cell_and_recovery() -> void:
 	check_eq(puts, 2, "only MAX_DROPS fit: two stacks fall")
 	check_eq(many.count_of(&"stone_a"), 15, "the first stack fell")
 	check_eq(many.count_of(&"mushroom_a"), 7, "the last one stayed")
+	# M4-fix: MAX_DROPS already on the ground: not even one fits, so no (empty) bag and nothing lost.
+	for i: int in 2:
+		var dr2: WorldData.Drop = WorldData.Drop.new(crowded.new_drop_id(), &"stone_a", 1, 0, Vector2i(8 + i * 16, 600))
+		crowded.drops[dr2.id] = dr2
+	check_eq(crowded.drops.size(), Config.MAX_DROPS, "the map holds MAX_DROPS drops")
+	var none_fit: Inventory = Inventory.new()
+	kit(none_fit)
+	var o5: WorldItems.Outcome = WorldItems.death_drop(crowded, feet(Vector2i(20, 5)), none_fit, Config.DEATH_DROP_HALF)
+	check(not o5.ok() and o5.why == WorldItems.WHY_TOO_MANY and o5.edits.is_empty() and o5.count == 0,
+		"MAX_DROPS on the map: refused (%s), no bag edit" % o5.why)
+	check(none_fit.count_of(&"stone_a") == 30 and none_fit.count_of(&"mushroom_a") == 7, "and nothing left the inventory")
 	# No free tile near: no bag, nothing lost.
 	var walled: WorldData = open_world(Vector2i(12, 12))
 	for y: int in 12:
@@ -690,6 +871,11 @@ func _check_shared_sim() -> void:
 	var swings: int = 0
 	var hits: int = 0
 	var dir: Vector2i = Vector2i.ZERO
+	# M4-fix: the prediction's state at the end of tick REPLAY_FROM and its next frame number (no hit or
+	# revive comes after it: the hits fall on t % 97 == 50, the revives on t % 97 == 60).
+	const REPLAY_FROM: int = 1418
+	var replay_base: PlayerSim = null
+	var replay_seq: int = 0
 	for t: int in 1500:
 		if t % 25 == 0:
 			dir = Vector2i(rng.randi_range(-1, 1), rng.randi_range(-1, 1))
@@ -737,11 +923,28 @@ func _check_shared_sim() -> void:
 			mismatch += 1
 			if first_bad.is_empty():
 				first_bad = "tick %d: offline %s / host %s / pred %s" % [t, so.vit.describe(), m.player.vitals.describe(), pred.sim.vit.describe()]
+		if t == REPLAY_FROM:
+			replay_base = pred.sim.copy()
+			replay_seq = pred.next_seq
 	check_eq(mismatch, 0, "offline == host == prediction every tick, vitals included %s" % first_bad)
 	check(dashes > 10 and swings > 10 and hits > 5, "the run dashed, swung and took hits (%d, %d, %d)" % [dashes, swings, hits])
-	# A prediction replay from an older state lands on the same state.
-	var replayed: PlayerSim = pred.base.copy()
-	check(replayed != null, "prediction keeps a base")
+	# M4-fix (the check was only "a base exists"): a prediction replay (Prediction._replay, what reconcile
+	# runs on a host state) of the frames recorded after tick REPLAY_FROM, from the state then, lands on the
+	# prediction's state now, vitals included.
+	var again: Prediction = Prediction.new()
+	again.data = pred.data
+	again.map = pred.map
+	var replayed_frames: int = 0
+	for pd: Prediction.Pending in pred.pending:
+		if pd.frame.seq >= replay_seq:
+			var copy: Prediction.Pending = Prediction.Pending.new()
+			copy.frame = pd.frame
+			again.pending.append(copy)
+			replayed_frames += 1
+	if check(replay_base != null and replayed_frames > 20, "frames to replay after tick %d (%d)" % [REPLAY_FROM, replayed_frames]):
+		again._replay(replay_base)
+		check(again.sim.same_all(pred.sim), "the replay of %d frames lands on the predicted state (%s / %s)" % [replayed_frames,
+			again.sim.vit.describe(), pred.sim.vit.describe()])
 	note("shared sim: 1500 ticks, %d dashes, %d swings, %d hits, no mismatch" % [dashes, swings, hits])
 
 

@@ -8,12 +8,14 @@ extends RefCounted
 ## ● gameplay-design §2.1: real-time, aimed at the mouse (skill shots). A basic attack is a weapon
 ## item's use (left click, M2's rule: the held hotbar item plays its body action; Config.CLASS_WEAPONS
 ## names each class's). It lands on the weapon's hit frame (Config.WEAPON_ATTACKS) toward the aim the
-## action started with (PlayerSim.action_aim, an angle code 0..255 from the feet to the mouse):
+## action started with (PlayerSim.action_aim, an angle code 0..255; M4-fix: from aim_origin, where a shot
+## is drawn leaving the attacker, to the mouse, so the drawn shot flies through the cursor):
 ## - melee (sword, pickaxe, sickle): every enemy whose feet are within the reach of the attacker's feet,
 ##   inside the arc around the aim, with no wall or blocking placeable between (body points, line_clear);
 ## - arrow (bow) and bolt (holy light): a shot from the attacker's body point along the aim at the
 ##   weapon's speed; it stops at the first blocking tile (walls, wall faces, the altar, the entrance, the
-##   stairs, the shrine: what blocks walking, Movement.is_blocked) or enemy, or after its reach.
+##   stairs, the shrine: what blocks walking, Movement.is_blocked) or enemy (shot_hits_body: the drawn
+##   shot inside the drawn figure's box), or after its reach.
 ## Friendly fire is off (Config.FRIENDLY_FIRE): attacks never hurt players.
 ## The miner's pickaxe is also the mining tool: a swing whose target tile is a wall or a wall's face
 ## mines it (items/mining.gd) and hits nobody; any other swing is a melee attack and mines nothing.
@@ -91,6 +93,28 @@ static func aim_vector(code: int) -> Vector2:
 ## The point hit tests measure from: the middle of the feet box (Aim.feet_cell's point).
 static func body_point(feet: Vector2) -> Vector2:
 	return feet - Vector2(0.0, Config.FEET_HEIGHT / 2.0)
+
+
+## M4-fix: where a shot of a player standing at `feet` is drawn when it is let go (its ground point, the
+## body point, lifted Config.SHOT_DRAW_LIFT_PX): the aim (aim code) is measured from here to the mouse.
+static func aim_origin(feet: Vector2) -> Vector2:
+	return body_point(feet) - Vector2(0.0, Config.SHOT_DRAW_LIFT_PX)
+
+
+## M4-fix: the middle of the figure standing at `feet` (half Config.BODY_HIT_HEIGHT_PX up): where to put
+## the mouse to aim at it (bots, tests). From one figure's aim_origin to another's centre is the line
+## between their feet when the two heights match (14 px each with the PROVISIONAL values).
+static func body_centre(feet: Vector2) -> Vector2:
+	return feet - Vector2(0.0, Config.BODY_HIT_HEIGHT_PX / 2.0)
+
+
+## M4-fix: a shot whose ground point is `ground` (drawn Config.SHOT_DRAW_LIFT_PX higher) hits the figure
+## standing at `feet`: the drawn shot is inside its drawn box, Config.BODY_HIT_RADIUS_PX either side of the
+## feet and from the feet up Config.BODY_HIT_HEIGHT_PX (PROVISIONAL "M4-fix 화살 조준").
+static func shot_hits_body(ground: Vector2, feet: Vector2) -> bool:
+	var drawn: Vector2 = ground - Vector2(0.0, Config.SHOT_DRAW_LIFT_PX)
+	return absf(drawn.x - feet.x) <= Config.BODY_HIT_RADIUS_PX and drawn.y <= feet.y \
+		and drawn.y >= feet.y - Config.BODY_HIT_HEIGHT_PX
 
 
 ## Whether tile `c` stops a shot and a melee line: outside the map, or what blocks walking (walls and

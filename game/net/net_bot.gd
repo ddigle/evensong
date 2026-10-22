@@ -30,8 +30,9 @@ extends RefCounted
 ##                                while down, give up)
 ## M4b (the heretics as this machine draws them, `foes`, and the local player's life, `life`, set by the
 ## session or Main before each step):
-##   aimfoe                       from now on aim at the nearest live heretic (none: not aiming)
-##   fight:<ticks>[,<n>[,<px>]]   hold the use button aimed at the nearest live heretic while more than n
+##   aimfoe                       from now on aim at the nearest live heretic (none: not aiming; M4-fix: at
+##                                the middle of its figure, Combat.body_centre)
+##   fight:<ticks>[,<n>[,<px>]]   hold the use button aimed at the nearest live heretic (its middle) while more than n
 ##                                (default 0) are there, at most that many ticks; with px, walk toward it
 ##                                while it is farther than px (melee)
 ##   closein:<px>[,<ticks>]       walk toward the nearest live heretic until within px of it (default 600)
@@ -400,7 +401,7 @@ func _advance(a: Action, feet: Vector2) -> void:
 					_left -= 1
 					var at: Vector2 = target
 					a.aiming = true
-					a.mouse = at
+					a.mouse = Combat.body_centre(at)  # M4-fix: the middle of the figure, like a player clicking on it
 					if c.offset.x > 0.0 and feet.distance_to(at) > c.offset.x:
 						a.dir = Vector2i(_toward(at.x - feet.x), _toward(at.y - feet.y))
 					else:
@@ -480,7 +481,11 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 		Aiming.FOE:
 			var foe: Variant = nearest_foe(feet)
 			a.aiming = foe != null
-			a.mouse = foe if foe != null else feet
+			if foe != null:
+				var foe_feet: Vector2 = foe
+				a.mouse = Combat.body_centre(foe_feet)  # M4-fix: the middle of the figure
+			else:
+				a.mouse = feet
 		_:
 			a.mouse = feet
 

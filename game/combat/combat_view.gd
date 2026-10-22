@@ -17,6 +17,8 @@ const REVIVE: Color = Color8(0xf4, 0xc9, 0x5d)
 const ARROW_MAP: Array = ["s.wwwwwwhm", "sswwwwwwmh", "s.wwwwwwhm"]
 const BOLT_MAP: Array = [".gggg.", "gglsgg", "glsssg", "glsssg", "gglsgg", ".gggg."]
 const SHRINE_BAR_Y: int = -40
+## IMPL (named in M4-fix): the shrine's HP bar width (px).
+const SHRINE_BAR_WIDTH: int = 30
 
 var arena: Arena
 var entities: Node2D
@@ -25,6 +27,9 @@ var shots: Dictionary[int, Node2D] = {}
 var shrine_bar: Node2D
 var _bars: Dictionary[int, Node2D] = {}
 var _shrine_ratio: float = 1.0
+## M4-fix: the shrine's fixture node found once for its footprint (not a walk over every entity per sync).
+var _shrine_node_ref: Node2D = null
+var _shrine_node_rect: Rect2i = Rect2i()
 
 static var _arrow: ImageTexture
 static var _bolt: ImageTexture
@@ -151,16 +156,21 @@ func _sync_shrine() -> void:
 
 
 func _shrine_node(rect: Rect2i) -> Node2D:
+	if _shrine_node_rect == rect and is_instance_valid(_shrine_node_ref) and _shrine_node_ref.get_parent() == entities:
+		return _shrine_node_ref
+	_shrine_node_ref = null
+	_shrine_node_rect = rect
 	for child: Node in entities.get_children():
 		if child is Node2D and child.name == &"Shrine":
 			var n: Node2D = child as Node2D
 			if n.has_meta(&"shrine_rect") and n.get_meta(&"shrine_rect") == rect:
+				_shrine_node_ref = n
 				return n
 	return null
 
 
 func _draw_shrine_bar() -> void:
-	var w: int = 30
+	var w: int = SHRINE_BAR_WIDTH
 	var left: Vector2 = Vector2(-w / 2 - 1, SHRINE_BAR_Y - 1)
 	shrine_bar.draw_rect(Rect2(left, Vector2(w + 2, 4)), BAR_BACK)
 	shrine_bar.draw_rect(Rect2(left + Vector2.ONE, Vector2(ceili(_shrine_ratio * w), 2)), Heretic.BAR_FILL)

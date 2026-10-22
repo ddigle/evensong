@@ -17,6 +17,13 @@ extends RefCounted
 ## stopped and every hit on a heretic is recorded (shot_events, hits) for the host to send and log. A client
 ## draws a mirror arena (Arena.mirror: data only, never stepped) filled from the host's enemy batches and
 ## shot events (net/net_combat.gd).
+##
+## M4-fix: the caller calls idle_tick() on a tick it does not step an arena (nobody on its map). The first
+## such tick after the arena was stepped empties it (on_emptied, PROVISIONAL README "M4-fix 빈 지도"): an
+## attack under way stops without its knife (as if it had ended: the attack cooldown follows), a stagger
+## ends, every heretic forgets its target, the shots in the air are gone and the spawn timer starts over.
+## So nothing that waits on a map nobody is on lands on the next player to arrive (at the stairs, where a
+## fleeing player left), no shot flies on unseen, and the first spawn comes one interval after arriving.
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -77,6 +84,12 @@ var logging: bool = false
 var shot_events: Array[NetProtocol.ShotEvent] = []
 var hits: Array[Hit] = []
 var attacks_started: int = 0
+## M4-fix: stepped on the last tick (someone on the map); idle_tick() empties it once when that ends.
+var occupied: bool = false
+## M4-fix: the standing shrine's footprint, found once (WorldData.footprints scans the whole map) and kept
+## while its tiles are still the shrine (checked per call, six tiles); `_shrine_data` = the data it is for.
+var _shrine: Rect2i = Rect2i()
+var _shrine_data: WorldData = null
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -101,7 +114,9 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	shots.clear()
 	next_id = 1
 	spawn_timer = 0
+	occupied = false
 	stats.clear()
+	_shrine_data = null
 	shrine_hp = Config.SHRINE_HP if shrine_rect().has_area() else 0
 	shrine_flash = 0
 	spawn_cells = surface_spawn_cells(data, safe) if map_id == Config.MAP_SURFACE else dungeon_spawn_cells(data)
@@ -118,9 +133,24 @@ func count(key: String, n: int = 1) -> void:
 	stats[key] = v + n
 
 
-## The standing shrine's footprint (empty when there is none or it is broken).
+## The standing shrine's footprint (empty when there is none or it is broken). M4-fix: cached (it was a
+## whole-map scan on every call, twice per shot step); the cache holds while its tiles are still the
+## shrine, and once the shrine is gone it stays gone (no rule puts one back on the same data).
 func shrine_rect() -> Rect2i:
-	return DungeonGen.shrine_rect(data)
+	if _shrine_data != data:
+		_shrine_data = data
+		_shrine = DungeonGen.shrine_rect(data) if data != null else Rect2i()
+	elif _shrine.has_area() and not _shrine_intact():
+		_shrine = DungeonGen.shrine_rect(data)  # a partly broken one (edits arrive one tile at a time) or none
+	return _shrine
+
+
+func _shrine_intact() -> bool:
+	for y: int in range(_shrine.position.y, _shrine.end.y):
+		for x: int in range(_shrine.position.x, _shrine.end.x):
+			if data.get_value(WorldData.Layer.PLACEABLE, Vector2i(x, y)) != WorldData.PLACEABLE_SHRINE:
+				return false
+	return true
 
 
 ## Edge wait in ticks (Config.HERETIC_LIGHT_EDGE_WAIT_SEC).
@@ -148,6 +178,7 @@ func in_light(pos: Vector2) -> bool:
 func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
 	attacks_started = 0
+	occupied = not players.is_empty()
 	if shrine_flash > 0:
 		shrine_flash -= 1
 	_revive(players)
@@ -173,11 +204,53 @@ func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	return edits
 
 
+## M4-fix: a tick this arena is not stepped (nobody on its map). The first one after it was stepped
+## empties it (on_emptied); later ones do nothing (the map waits as before).
+func idle_tick() -> void:
+	if occupied:
+		occupied = false
+		on_emptied()
+
+
+## M4-fix (PROVISIONAL README "M4-fix 빈 지도"): the map's last player left. Attacks under way stop
+## without their knife (the attack cooldown follows, as after a swing), staggers end, every heretic forgets
+## its target and its watch at the light's edge, flashes end, the shots in the air are gone (no stop event:
+## nobody is there to see one), the spawn timer starts over (the first try one interval after someone
+## arrives, Config.HERETIC_SPAWN_INTERVAL_TICKS) and nothing counts as a fresh attack. Dead heretics lie on
+## (their corpse time runs when the map is stepped again).
+func on_emptied() -> void:
+	for h: HereticSim in heretics:
+		h.flash_ticks = 0
+		h.walking = false
+		if not h.alive():
+			continue
+		if h.state == HereticSim.State.ATTACK:
+			h.cooldown = Config.HERETIC_ATTACK_COOLDOWN_TICKS
+			count("attacks_cancelled")
+		h.has_target = false
+		h.target_id = 0
+		h.watch_ticks = 0
+		if h.state != HereticSim.State.RETURN:
+			h.state = HereticSim.State.IDLE
+			h.state_ticks = 0
+	for s: Shot in shots:
+		s.done = true
+		s.stopped_by = "emptied"
+	shots.clear()
+	shot_events.clear()
+	spawn_timer = 0
+	attacks_started = 0
+	shrine_flash = 0
+	count("emptied")
+
+
 # --- revive --------------------------------------------------------------------------------------
 
-## A downed player's revive (● gameplay-design §2.6 flow; Config REVIVE_*): the first player up within
-## Config.REVIVE_REACH_PX holding F (not acting, dashing or staggered) adds a tick; a cleric revives at
-## once, anyone else after Config.REVIVE_TICKS. Nobody holding: the progress resets.
+## A downed player's revive (● gameplay-design §2.6 flow; Config REVIVE_*): while anyone up within
+## Config.REVIVE_REACH_PX holds F (not acting, dashing or staggered) the progress adds a tick; it is done
+## after the fastest such reviver's time: a cleric at once, anyone else Config.REVIVE_TICKS (M4-fix: the
+## fastest, not the first in the players' order, so a cleric holding F is instant whoever else holds F
+## too). Nobody holding: the progress resets.
 func _revive(players: Array[Player]) -> void:
 	for p: Player in players:
 		if p.vitals.life != Vitals.Life.DOWN:
@@ -196,14 +269,18 @@ static func revive_needed(reviver: Player) -> int:
 	return Config.REVIVE_TICKS_CLERIC if reviver.class_id() == "cleric" else Config.REVIVE_TICKS
 
 
+## The fastest reviver of downed player `p` (least revive_needed; the first in `players` among equals), or
+## null when nobody revives it now. CombatView's revive bar uses the same choice.
 static func reviver_for(p: Player, players: Array[Player]) -> Player:
+	var best: Player = null
 	for r: Player in players:
 		if r == p or not r.vitals.alive() or not r.interact_held or r.action_anim >= 0 or r.vitals.dashing() \
 				or r.vitals.staggered():
 			continue
-		if r.sim_position.distance_to(p.sim_position) <= Config.REVIVE_REACH_PX:
-			return r
-	return null
+		if r.sim_position.distance_to(p.sim_position) <= Config.REVIVE_REACH_PX \
+				and (best == null or revive_needed(r) < revive_needed(best)):
+			best = r
+	return best
 
 
 # --- the heretics --------------------------------------------------------------------------------
@@ -232,6 +309,8 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		HereticSim.State.HURT:
 			h.walking = false
 			h.state_ticks += 1
+			if h.watch_ticks > 0:
+				h.watch_ticks += 1  # M4-fix: a hit while it watches the light's edge does not stop its wait
 			if h.state_ticks >= HereticSim.hurt_ticks():
 				h.state = HereticSim.State.CHASE if h.has_target else HereticSim.State.IDLE
 				h.state_ticks = 0
@@ -255,6 +334,7 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 	if h.pos.distance_to(h.home) > Config.HERETIC_LEASH_PX:
 		_set_state(h, HereticSim.State.RETURN)
 		h.has_target = false
+		h.watch_ticks = 0
 		_go_home(h)
 		return
 	var t: Player = pick_target(h, players)
@@ -263,21 +343,28 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		if watched != null and edge_wait_ticks() > 0:
 			if h.state != HereticSim.State.EDGE:
 				_set_state(h, HereticSim.State.EDGE)
-				count("edge_waits")
+				if h.watch_ticks == 0:
+					count("edge_waits")
 			h.state_ticks += 1
+			# M4-fix: the wait counts from when it started watching, through hits (HURT counts on too), so a
+			# player shooting it from inside the light cannot keep it at the edge for good.
+			h.watch_ticks += 1
 			h.facing = RigData.facing_toward(h.pos, watched.sim_position)
-			if h.state_ticks >= edge_wait_ticks():
+			if h.watch_ticks >= edge_wait_ticks():
 				_set_state(h, HereticSim.State.RETURN)
 				h.has_target = false
+				h.watch_ticks = 0
 			return
 		h.has_target = false
-		if h.pos.distance_to(h.home) > 2.0:
+		h.watch_ticks = 0
+		if h.pos.distance_to(h.home) > Config.HERETIC_HOME_IDLE_PX:
 			_set_state(h, HereticSim.State.RETURN)
 			_go_home(h)
 		else:
 			_set_state(h, HereticSim.State.IDLE)
 		return
 	h.has_target = true
+	h.watch_ticks = 0
 	h.target_id = t.get_instance_id()
 	_set_state(h, HereticSim.State.CHASE)
 	var d: Vector2 = t.sim_position - h.pos
@@ -359,7 +446,8 @@ func _knife(h: HereticSim, players: Array[Player]) -> void:
 ## (unless Config.HERETIC_ENTERS_LIGHT): the step is cut to one axis, or not taken. Returns whether it moved.
 func _move_toward(h: HereticSim, to: Vector2) -> bool:
 	var d: Vector2 = to - h.pos
-	var dir: Vector2i = Vector2i(0 if absf(d.x) < 0.5 else (1 if d.x > 0.0 else -1), 0 if absf(d.y) < 0.5 else (1 if d.y > 0.0 else -1))
+	var dz: float = Config.HERETIC_AXIS_DEAD_ZONE_PX
+	var dir: Vector2i = Vector2i(0 if absf(d.x) < dz else (1 if d.x > 0.0 else -1), 0 if absf(d.y) < dz else (1 if d.y > 0.0 else -1))
 	if dir == Vector2i.ZERO:
 		return false
 	var tries: Array[Vector2i] = [dir]
@@ -382,11 +470,11 @@ func _move_toward(h: HereticSim, to: Vector2) -> bool:
 ## Back toward home; there (or stuck a second) it idles and that spot is home.
 func _go_home(h: HereticSim) -> void:
 	var before: float = h.pos.distance_to(h.home)
-	if before <= 1.5 or not _move_toward(h, h.home) or h.pos.distance_to(h.home) >= before - 0.01:
+	if before <= Config.HERETIC_HOME_ARRIVE_PX or not _move_toward(h, h.home) or h.pos.distance_to(h.home) >= before - 0.01:
 		h.stuck += 1
 	else:
 		h.stuck = 0
-	if h.pos.distance_to(h.home) <= 1.5 or h.stuck >= 60:
+	if h.pos.distance_to(h.home) <= Config.HERETIC_HOME_ARRIVE_PX or h.stuck >= Config.HERETIC_HOME_STUCK_TICKS:
 		h.home = h.pos
 		_set_state(h, HereticSim.State.IDLE)
 		h.walking = false
@@ -420,10 +508,11 @@ func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 	h.state_ticks = 0
 
 
-## The heretic whose body a point is within Config.BODY_HIT_RADIUS_PX of (lowest id), or null.
+## The heretic a shot at ground point `point` hits (Combat.shot_hits_body: the drawn shot inside its
+## drawn figure; M4-fix, was a radius around the feet box), the first in the list, or null.
 func heretic_at(point: Vector2) -> HereticSim:
 	for h: HereticSim in heretics:
-		if h.alive() and Combat.body_point(h.pos).distance_to(point) <= Config.BODY_HIT_RADIUS_PX:
+		if h.alive() and Combat.shot_hits_body(point, h.pos):
 			return h
 	return null
 
@@ -488,15 +577,31 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		return edits
 	var dist: float = s.speed / Config.NET_TICK_RATE
 	var steps: int = maxi(ceili(dist / Config.SHOT_STEP_PX), 1)
+	var rect: Rect2i = shrine_rect()
 	for i: int in steps:
+		var from: Vector2 = s.pos
 		s.pos += s.dir * (dist / steps)
 		var c: Vector2i = Aim.cell_of(s.pos)
-		var rect: Rect2i = shrine_rect()
-		if rect.has_area() and rect.has_point(c):
+		# M4-fix: every tile the step passes through counts (an exact grid walk, like line of sight), not
+		# just the tile under the new point: a shot no longer slips between two walls touching at a corner.
+		var cells: Array[Vector2i] = [c]
+		if c != Aim.cell_of(from):
+			cells = Combat.cells_on_line(from, s.pos)
+		var why: String = ""
+		for cc: Vector2i in cells:
+			if rect.has_area() and rect.has_point(cc):
+				why = "shrine"
+			elif Combat.blocks_line(data, cc):
+				why = "wall"
+			if not why.is_empty():
+				if cc != c:
+					s.pos = from  # a tile the step crossed between its two points: it stops before it
+				break
+		if why == "shrine":
 			edits.append_array(damage_shrine(s.damage))
 			_stop(s, "shrine")
 			return edits
-		if Combat.blocks_line(data, c):
+		if why == "wall":
 			_stop(s, "wall")
 			return edits
 		var h: HereticSim = heretic_at(s.pos)
@@ -506,8 +611,7 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 			return edits
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
-				if o.get_instance_id() != s.owner_id and o.vitals.alive() \
-						and Combat.body_point(o.sim_position).distance_to(s.pos) <= Config.BODY_HIT_RADIUS_PX:
+				if o.get_instance_id() != s.owner_id and o.vitals.alive() and Combat.shot_hits_body(s.pos, o.sim_position):
 					o.take_hit(s.damage)
 					_stop(s, "player")
 					return edits
@@ -597,7 +701,7 @@ func cap() -> int:
 func try_spawn(players: Array[Player]) -> HereticSim:
 	if not spawns_now() or alive_heretics() >= cap():
 		return null
-	for attempt: int in 24:
+	for attempt: int in Config.HERETIC_SPAWN_TRIES:
 		var c: Vector2i = spawn_cells[rng.randi_range(0, spawn_cells.size() - 1)]
 		var feet: Vector2 = spawn_feet(c)
 		if spawn_ok(feet, players):

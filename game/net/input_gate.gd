@@ -26,6 +26,9 @@ extends RefCounted
 ##   behind, more, but at most Config.NET_INPUT_CATCH_UP_FRAMES per tick, so the other players see a
 ##   client walk at an even 60 Hz on the host and catch up at a few times walking speed, not jump.
 ## - Bounded: at most 2 * NET_MAX_FRAMES_PER_PACKET frames wait; packets beyond that are dropped.
+## - M4-fix: while a member's timers run the host may hand frames back (put_back): its clock rule
+##   (SessionHost.run_client_frames) keeps them from running ahead of host time, which the catch-up above
+##   would otherwise allow with saved-up tokens.
 
 ## Most host ticks one take() refills: the queue holds at most this many frames anyway.
 const MAX_REFILL_TICKS: int = 2 * Config.NET_MAX_FRAMES_PER_PACKET
@@ -54,6 +57,8 @@ var takes: int = 0
 var refilled: float = 0.0
 ## Hitch credit turned into tokens, in all.
 var credit_used: float = 0.0
+## M4-fix: frames handed back by put_back (the host's clock rule), in all.
+var held: int = 0
 
 var _credit_left: float = 0.0
 
@@ -110,6 +115,21 @@ func take(elapsed_ticks: float = 1.0) -> Array[NetProtocol.InputFrame]:
 	return out
 
 
+## M4-fix: frames take() just handed out that the host did not run this tick (SessionHost.run_client_frames:
+## they would have run a timed member ahead of host time) go back to the front of the queue, in order, their
+## tokens refunded and the acknowledgement back to before them, so the next take() hands them out again.
+func put_back(frames: Array[NetProtocol.InputFrame]) -> void:
+	if frames.is_empty():
+		return
+	var back: Array[NetProtocol.InputFrame] = frames.duplicate()
+	back.append_array(waiting)
+	waiting = back
+	last_seq = frames[0].seq - 1
+	tokens += frames.size()
+	applied -= frames.size()
+	held += frames.size()
+
+
 ## Adds `refill` ticks of real time to the tokens, up to the saving cap (burst + frames waiting). Of a
 ## refill longer than one tick (missed host ticks), what the cap cut off becomes hitch credit; credit
 ## lifts the cap for frames that wait above it until HITCH_CREDIT_TICKS of real time have passed.
@@ -140,5 +160,5 @@ func to_dict() -> Dictionary:
 		"packets": packets, "bad_packets": bad_packets, "bad_frames": bad_frames, "duplicates": duplicates,
 		"applied": applied, "gaps": gaps, "rate_limited_ticks": rate_limited_ticks, "overflow": overflow,
 		"last_seq": last_seq, "waiting_peak": waiting_peak, "takes": takes, "refilled": snappedf(refilled, 0.01),
-		"credit_used": snappedf(credit_used, 0.01),
+		"credit_used": snappedf(credit_used, 0.01), "held": held,
 	}

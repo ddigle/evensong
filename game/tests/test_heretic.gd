@@ -26,6 +26,7 @@ func run() -> Array[String]:
 	_check_spawn_never_in_light()
 	_check_spawner()
 	_check_shrine()
+	_check_emptied()
 	await _check_main()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
@@ -332,6 +333,99 @@ func _check_light_edge() -> void:
 			crossed += 1
 	check_eq(crossed, 0, "chasing across the light's rim, never a foot in")
 	check(h3.pos.x > center.x - 50.0, "it did move toward the player (to %.1f, %.1f)" % [h3.pos.x - center.x, h3.pos.y - center.y])
+	_check_edge_sniping(data)
+
+
+## M4-fix: a player inside the light shooting the heretic that waits at the edge (a hit every 1 or 2 s)
+## cannot keep it there: the wait counts from when it started watching, the hits' staggers included, so it
+## walks home about Config.HERETIC_LIGHT_EDGE_WAIT_SEC after it stopped at the edge (before, every hit
+## started the wait over and it stood at the edge until it died; review probe: 61 hits, still at the edge).
+func _check_edge_sniping(data: WorldData) -> void:
+	var center: Vector2 = data.altar_center_px()
+	var r: float = Config.safe_radius_px()
+	for every: int in [60, 120]:
+		var a: Arena = _arena(data)
+		var h: HereticSim = a.spawn_heretic(center + Vector2(0, r + 50.0))
+		h.hp = 1000  # alive for the whole run
+		var p: Player = player(data, "archer", center + Vector2(0, r + 20.0))
+		var players: Array[Player] = [p]
+		for t: int in 40:
+			stand(p)
+			a.step(players)
+		p.teleport(center + Vector2(0, r - 6.0))
+		var watch_start: int = -1
+		var left_at: int = -1
+		var hits: int = 0
+		for t: int in Arena.edge_wait_ticks() + 400:
+			stand(p)
+			a.step(players)
+			if watch_start < 0 and h.state == HereticSim.State.EDGE:
+				watch_start = t
+			if watch_start >= 0 and left_at < 0 and h.state == HereticSim.State.RETURN:
+				left_at = t
+			if watch_start >= 0 and left_at < 0 and (t - watch_start) % every == every / 2:
+				a.hit_heretic(h, 1, p.get_instance_id())
+				hits += 1
+		check(left_at >= 0 and left_at - watch_start <= Arena.edge_wait_ticks() + 1,
+			"hit every %d ticks from inside the light while it waits (%d hits): it still walks home %d ticks after it began watching (wait %d)" % [
+			every, hits, left_at - watch_start, Arena.edge_wait_ticks()])
+		check_eq(p.vitals.hp, Config.PLAYER_HP_MAX, "the player inside was never hurt")
+
+
+## M4-fix (README "M4-fix 빈 지도"): an arena its last player left (idle_tick after a step) empties once: an
+## attack under way stops without its knife and the attack cooldown follows, a stagger ends, targets and
+## the edge watch are forgotten, the shots in the air are gone, the spawn timer starts over, nothing counts
+## as a fresh attack; a second idle tick changes nothing. Then a returning player at the heretic's side is
+## not hit before a whole new telegraph.
+func _check_emptied() -> void:
+	var d: WorldData = C.open_world(Vector2i(30, 20))
+	var a: Arena = _arena(d)
+	a.spawning = true
+	var p: Player = player(d, "paladin", C.feet(Vector2i(10, 10)))
+	var h: HereticSim = a.spawn_heretic(p.sim_position + Vector2(14, 0))
+	var hurt: HereticSim = a.spawn_heretic(C.feet(Vector2i(20, 15)))
+	var players: Array[Player] = [p]
+	for t: int in 12:
+		stand(p)
+		a.step(players)
+	check(h.state == HereticSim.State.ATTACK and h.state_ticks > 0 and h.state_ticks < Config.HERETIC_TELEGRAPH_TICKS,
+		"mid wind-up (%s, %d ticks)" % [HereticSim.STATE_NAMES[h.state], h.state_ticks])
+	a.hit_heretic(hurt, 1)
+	a.player_attack(p, &"bow", Combat.aim_code(Vector2.LEFT))
+	check(not a.shots.is_empty() and a.spawn_timer > 0 and a.occupied, "a shot in the air, the spawn timer running")
+	a.idle_tick()
+	check(h.state == HereticSim.State.IDLE and not h.has_target and h.cooldown == Config.HERETIC_ATTACK_COOLDOWN_TICKS,
+		"emptied: the attack stopped without its knife (%s, cooldown %d)" % [HereticSim.STATE_NAMES[h.state], h.cooldown])
+	check(hurt.state == HereticSim.State.IDLE and hurt.flash_ticks == 0, "the stagger ended")
+	check(a.shots.is_empty() and a.spawn_timer == 0 and a.attacks_started == 0 and not a.occupied,
+		"the shot is gone, the spawn timer starts over, no fresh attack")
+	check_eq(stat(a, "knife_swings"), 0, "no knife swung")
+	check_eq(stat(a, "attacks_cancelled"), 1, "one attack cancelled")
+	a.idle_tick()
+	check_eq(stat(a, "emptied"), 1, "a second idle tick changes nothing")
+	# Back: the player at its side is not hit before a whole telegraph (and the cooldown) has passed.
+	var hp: int = p.vitals.hp
+	var first_hit: int = -1
+	for t: int in Config.HERETIC_ATTACK_COOLDOWN_TICKS + Config.HERETIC_TELEGRAPH_TICKS + 30:
+		stand(p)
+		a.step(players)
+		p.vitals.invuln_ticks = 0
+		if first_hit < 0 and p.vitals.hp < hp:
+			first_hit = t
+	check(first_hit >= Config.HERETIC_TELEGRAPH_TICKS, "back at its side: the first hit only after a whole new telegraph (tick %d)" % first_hit)
+	# The first spawn try comes one interval after the return, not at once.
+	var spawn_a: Arena = Arena.new()
+	spawn_a.setup(SurfaceGen.generate(Config.DEFAULT_SEED), 1)
+	var sp: Player = player(spawn_a.data, "miner", spawn_a.data.altar_center_px() + Vector2(Config.SPAWN_SLOTS[0]))
+	var sps: Array[Player] = [sp]
+	for t: int in Config.HERETIC_SPAWN_INTERVAL_TICKS - 1:
+		spawn_a.step(sps)
+	spawn_a.idle_tick()
+	spawn_a.step(sps)
+	check_eq(stat(spawn_a, "spawned"), 0, "a tick after coming back: no spawn yet (the timer started over)")
+	for t: int in Config.HERETIC_SPAWN_INTERVAL_TICKS - 1:
+		spawn_a.step(sps)
+	check_eq(stat(spawn_a, "spawned"), 1, "one interval after coming back: the first spawn")
 
 
 ## A long run around the altar with the spawner on: a player goes out to a heretic (to lure it) and back
@@ -542,6 +636,18 @@ func _check_shrine() -> void:
 	check(not w.fixtures.light_nodes.has(rect.position) and w.fixtures.nodes[rect.position].get_node_or_null(^"Flame") == null,
 		"its fire stays off (? fire colour)")
 	view.clear()
+	# M4-fix: the footprint is cached (Arena.shrine_rect). A client's mirror arena whose world gets the break
+	# as edits one tile at a time never shows the whole footprint once a tile of it is broken, and ends empty.
+	var copy: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var mirror: Arena = Arena.mirror(copy)
+	check_eq(mirror.shrine_rect(), rect, "the mirror finds the standing shrine")
+	var stale: int = 0
+	for e: EditLog.WorldEdit in edits:
+		EditLog.apply_to_data(copy, e)
+		if mirror.shrine_rect() == rect:
+			stale += 1
+	check(stale == 0 and not mirror.shrine_rect().has_area() and mirror.shrine_hp_now() == 0,
+		"edit by edit the cached footprint follows the data and ends empty (stale %d)" % stale)
 
 
 # --- main.tscn -------------------------------------------------------------------------------------------
@@ -566,6 +672,38 @@ func _check_main() -> void:
 	check(stat(main.arenas[Config.MAP_SURFACE], "spawned") >= 1, "the surface does")
 	for h: HereticSim in main.arenas[Config.MAP_SURFACE].heretics:
 		check(main.world.data.in_bounds(Aim.feet_cell(h.pos)), "surface heretics on the surface map")
+	# M4-fix: a heretic in its wind-up beside the entrance when the player goes down; the player comes back up
+	# at the arrival point, at its side: the knife does not land before a whole new telegraph (before, the
+	# frozen wind-up went on and struck about 20 ticks after the return).
+	var surf: Arena = main.arenas[Config.MAP_SURFACE]
+	surf.spawning = false
+	surf.heretics.clear()
+	var arrive: Vector2 = main.world.arrival_point()
+	p.teleport(arrive)
+	var foe0: HereticSim = surf.spawn_heretic(arrive + Vector2(14, 0))
+	check(not surf.in_light(arrive) and not surf.in_light(foe0.pos), "the entrance's arrival point is outside the light")
+	var wind: int = 0
+	while not (foe0.state == HereticSim.State.ATTACK and foe0.state_ticks >= 10) and wind < 120:
+		p.begin_tick()
+		p.tick_controls(Vector2i.ZERO, p.sim_position, false, false, false, TICK)
+		main.step_combat(TICK)
+		wind += 1
+	check(foe0.state == HereticSim.State.ATTACK and foe0.state_ticks < Config.HERETIC_TELEGRAPH_TICKS, "the heretic is mid wind-up")
+	check(main.travel(Config.MAP_DUNGEON), "the player goes down mid wind-up")
+	for t: int in 60:
+		p.begin_tick()
+		p.tick_controls(Vector2i.ZERO, p.sim_position, false, false, false, TICK)
+		main.step_combat(TICK)
+	check(foe0.state != HereticSim.State.ATTACK and stat(surf, "knife_swings") == 0, "the surface emptied: its attack stopped, no knife")
+	check(main.travel(Config.MAP_SURFACE), "and comes back up at its side")
+	var hp0: int = p.vitals.hp
+	for t: int in Config.HERETIC_TELEGRAPH_TICKS + 2:
+		p.begin_tick()
+		p.tick_controls(Vector2i.ZERO, p.sim_position, false, false, false, TICK)
+		main.step_combat(TICK)
+	check(p.vitals.hp == hp0 and p.sim_position.distance_to(foe0.pos) < Config.HERETIC_HIT_REACH_PX,
+		"no knife within a telegraph of coming back (hp %d, %.1f px from it)" % [p.vitals.hp, p.sim_position.distance_to(foe0.pos)])
+	surf.heretics.clear()
 	check(main.travel(Config.MAP_DUNGEON), "down")
 	main.arenas[Config.MAP_DUNGEON].spawning = false
 	# The miner (re-spawn as miner, in the dungeon).

@@ -51,9 +51,12 @@ extends RefCounted
 ## wall mines instead, M4a's rule). Hits on players, revives (F held, Arena), deaths (the bag:
 ## WorldItems.death_drop, world edits) and respawns (PlayerSim.respawn at the member's spawn slot on the
 ## surface; from the dungeon the member is moved there and its client is sent the surface) all happen
-## here, on host time, with no rewind (README "M4b 판정"). A member whose vitals run a timer but whose
-## client went quiet for Config.NET_HOST_STEPS_AFTER_TICKS is stepped by the host itself, so a client
-## cannot hold its down time, its invulnerability or its respawn by not sending.
+## here, on host time, with no rewind (README "M4b 판정"). M4-fix: while a member's timers run its frames
+## are held to host time (run_client_frames: never ahead of it; more than Config.NET_HOST_STEPS_AFTER_TICKS
+## behind, the host steps it itself), so a client can neither hold its down time, its invulnerability or its
+## respawn by not sending (or by sending a frame now and then), nor cut its stagger or its dash cooldown
+## short with saved-up frames. A map whose last player leaves is emptied (Arena.on_emptied: attacks stop
+## without their knife, shots in the air are gone).
 ## What clients get: the vitals in every state batch (NetProtocol's vitals block), each map's enemies as
 ## an enemy batch to the members on that map (peers_on) every Config.NET_STATE_HZ tick while they change,
 ## at once on a tick an attack starts (Config.NET_ENEMY_SEND_ON_ATTACK), a reliable keyframe when they stop,
@@ -696,20 +699,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 		var m: NetMember = s.members[slot]
 		if m.gate == null:
 			continue
-		var frames: Array[NetProtocol.InputFrame] = m.gate.take(elapsed_ticks)
-		for frame: NetProtocol.InputFrame in frames:
-			run_frame(m, frame)
-		# M4b: a running timer goes on on host time when the client stops sending (Config).
-		m.no_frame_ticks = 0 if not frames.is_empty() else m.no_frame_ticks + 1
-		if not frames.is_empty():
-			m.host_stepping = false
-		elif not m.player.vitals.idle() and m.no_frame_ticks > Config.NET_HOST_STEPS_AFTER_TICKS:
-			if not m.host_stepping:
-				m.host_stepping = true
-				s.log_event("host_steps", "slot=%d: no frame for %d ticks while %s" % [m.slot, m.no_frame_ticks - 1,
-					m.player.vitals.describe()])
-			m.host_steps += 1
-			run_frame(m, NetProtocol.InputFrame.new())
+		run_client_frames(m, m.gate.take(elapsed_ticks))
 	for slot: int in s.slots():
 		var m: NetMember = s.members[slot]
 		if m.respawn_pending and not streams.has(m.peer_id):
@@ -741,6 +731,58 @@ func tick(action: NetBot.Action, now: int) -> void:
 	_send_shot_events()
 	_send_inventories()
 	s.bots.host_after_tick(now)
+
+
+## Runs the frames the input gate gave client member `m` this host tick, against host time (M4-fix,
+## Config.NET_HOST_STEPS_AFTER_TICKS): while the member is timed (vitals running a timer, or a body action
+## playing) its clock debt grows by one a host tick and shrinks by one a frame it runs; a frame that would
+## run with no debt left waits for a later tick (put back in the gate), so its timers (stagger, dash and its
+## cooldown, invulnerability, down and respawn time, the action) never run faster than the host's clock.
+## When its vitals run and the debt passes the threshold (a client that went quiet, or sends a frame now and
+## then), the host steps it itself with an empty frame each tick. Idle, the debt is 0.
+func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> void:
+	if timed(m):
+		m.clock_debt += 1
+	else:
+		m.clock_debt = 0
+	var ran: int = 0
+	for frame: NetProtocol.InputFrame in frames:
+		var was_timed: bool = timed(m)
+		if was_timed and m.clock_debt <= 0:
+			break
+		run_frame(m, frame)
+		ran += 1
+		if was_timed:
+			m.clock_debt -= 1
+	if ran < frames.size():
+		var held: Array[NetProtocol.InputFrame] = []
+		held.assign(frames.slice(ran))
+		m.gate.put_back(held)
+		m.frames_held += held.size()
+	if not timed(m):
+		m.clock_debt = 0
+		m.host_stepping = false
+		return
+	if m.clock_debt <= Config.NET_HOST_STEPS_AFTER_TICKS:
+		if m.clock_debt < Config.NET_HOST_STEPS_AFTER_TICKS:
+			m.host_stepping = false
+		return
+	if m.player.vitals.idle():
+		m.clock_debt = Config.NET_HOST_STEPS_AFTER_TICKS  # only an action plays: it waits for the client's frames
+		return
+	if not m.host_stepping:
+		m.host_stepping = true
+		s.log_event("host_steps", "slot=%d: %d ticks behind the host while %s" % [m.slot, m.clock_debt,
+			m.player.vitals.describe()])
+	m.host_steps += 1
+	run_frame(m, NetProtocol.InputFrame.new())
+	m.clock_debt -= 1
+
+
+## M4-fix: member `m` is timed: its vitals run a timer (Vitals.idle false) or a body action plays. Its
+## frames are then its clock (a client records one every tick, Prediction.step_frame).
+static func timed(m: NetMember) -> bool:
+	return not m.player.vitals.idle() or m.player.action_anim >= 0
 
 
 ## One state batch for everybody while something changed, a reliable keyframe once it stops.
@@ -895,8 +937,17 @@ func _step_arenas() -> void:
 				_changed = true
 			if not edits.is_empty():
 				s.log_event("shrine_broken", "map=%d at=%d,%d (a shot)" % [map, edits[0].cell.x, edits[0].cell.y])
+		var emptied: bool = players.is_empty() and a.occupied
+		if emptied:
+			# M4-fix: its last player left: attacks stop without the knife, the shots in the air are gone
+			# (README "M4-fix 빈 지도"); the map then waits as before.
+			var cancelled: int = a.stat("attacks_cancelled")
+			a.idle_tick()
+			s.log_event("map_emptied", "map=%d heretics=%d attacks_cancelled=%d" % [map, a.heretics.size(),
+				a.stat("attacks_cancelled") - cancelled])
 		_flush_hits(map)
-		if views.has(map) and is_instance_valid(views[map]):
+		# M4-fix: a map nobody is on is drawn once more when it empties, then left alone (it does not change).
+		if (emptied or not players.is_empty()) and views.has(map) and is_instance_valid(views[map]):
 			views[map].sync(players)
 
 

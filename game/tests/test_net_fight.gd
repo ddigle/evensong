@@ -1,7 +1,8 @@
 extends "res://tests/test_net_session.gd"
 ## M4b: the real combat sessions (separate processes over localhost ENet, like tests/test_net_session.gd,
 ## whose helpers and checks this file uses): "fight" (two players and a late third against three heretics:
-## an arrow kill, a down and a revive, a late joiner mid-fight) and "fight4" (four players in one fight).
+## an arrow kill, a down and a revive, a late joiner mid-fight), "fight4" (four players in one fight) and
+## (M4-fix) "fightlag" (a lagging, lossy client struck while it stands still).
 ## Kept in a file of its own so each file stays inside the runner's time limit per file. The runner flags
 ## of test_net_session.gd apply (--net-exe, --net-keep; --net-sessions=fight or fight4 runs one of them).
 
@@ -27,6 +28,8 @@ func run() -> Array[String]:
 		await _session_fight()
 	if only.is_empty() or only.has("fight4"):
 		await _session_fight4()
+	if only.is_empty() or only.has("fightlag"):
+		await _session_fightlag()
 	_check_logs()
 	note("fight sessions took %.1f s; run folder %s" % [(Time.get_ticks_msec() - t0) / 1000.0,
 		_run_dir if (_keep or not failures.is_empty()) else "(removed)"])

@@ -47,6 +47,9 @@ var attack_dir: Vector2 = Vector2.DOWN
 var walking: bool = false
 ## Ticks it has been on the way home without getting closer (gives up and makes this its home).
 var stuck: int = 0
+## M4-fix: ticks since it started watching its target in the light (EDGE, and HURT while watching); at
+## Arena.edge_wait_ticks() it walks home. The host's AI only (not sent: a client draws EDGE from its state).
+var watch_ticks: int = 0
 ## Display: ticks since spawning (walk / idle frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0

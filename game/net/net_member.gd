@@ -8,9 +8,10 @@ extends RefCounted
 ## M3b: every member is on one map (`map_id`). On the host that is the truth (its Player lives in that
 ## map's world and steps on its data); a client knows its own map (the one it has loaded) and the
 ## others' from their states, and draws only the players on its own map.
-## M4b: the host owns every member's vitals (its Player's PlayerSim), and the state carries them. It counts
-## the ticks a member with a running timer sent no frame (and steps it itself after
-## Config.NET_HOST_STEPS_AFTER_TICKS: host_steps), and what the member's player went through (combat).
+## M4b: the host owns every member's vitals (its Player's PlayerSim), and the state carries them. It keeps
+## the member's clock against host time while it is timed (M4-fix, SessionHost.run_client_frames: the clock
+## debt; frames held back so they never run ahead; the host steps it itself more than
+## Config.NET_HOST_STEPS_AFTER_TICKS behind: host_steps), and what the member's player went through (combat).
 
 var slot: int = -1
 ## Peer id on the host (1 = the host itself); 0 on clients, which only know slots.
@@ -35,9 +36,12 @@ var swings_missed: Dictionary[String, int] = {}
 ## Actions this member's player started (host: simulated; client: seen), by action name.
 var actions_seen: Dictionary[String, int] = {}
 const OP_BUDGET_MAX: int = Config.NET_OP_BURST * Config.NET_OP_INTERVAL_TICKS
-## Host (M4b): ticks since this member's last frame, ticks the host stepped it itself, a respawn waiting
-## for a map stream to end, and combat counts (hurt, downed, died, revived, hits and kills on heretics).
-var no_frame_ticks: int = 0
+## Host (M4b; M4-fix): host ticks minus frames run while this member is timed (its clock debt), frames
+## held back for a later tick (they would have run ahead of host time), ticks the host stepped it itself,
+## a respawn waiting for a map stream to end, and combat counts (hurt, downed, died, revived, hits and
+## kills on heretics).
+var clock_debt: int = 0
+var frames_held: int = 0
 var host_steps: int = 0
 var host_stepping: bool = false
 var respawn_pending: bool = false

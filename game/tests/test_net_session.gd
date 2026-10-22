@@ -153,6 +153,13 @@ const FIGHT4_HOST: String = "select:8;wait:60;fight:1500,0,20;wait:240"
 const FIGHT4_C1: String = "select:8;walkto:63,52;wait:30;fight:1500,0;wait:240"
 const FIGHT4_C2: String = "select:8;wait:60;fight:1500,0,18;wait:240"
 const FIGHT4_C3: String = "select:8;walkto:62,52;wait:30;fight:1500,0;wait:240"
+## fightlag (M4-fix): one heretic just south of the light; c1 (miner, a lagging and lossy link) walks next to
+## it and stands still for 9 s while it is struck again and again (every hit lands on a client that stood
+## still: its timers had run out), then walks back into the light. The host stands by.
+const FIGHTLAG_HERETIC: String = "--test-heretic=63,61"
+const FIGHTLAG_HOST: String = "wait:60"
+const FIGHTLAG_C1: String = "walkto:63,60;wait:540;walkto:63,52;wait:120"
+const FIGHTLAG_LINK: Array = ["--net-lag=120", "--net-loss=5"]
 ## stall: the host blocks this long in a process step (bot "stall") while c1 walks, then edits the
 ## world every STALL_EDIT_EVERY ticks, STALL_EDITS times, while the late joiner c2 streams its world
 ## in 1-byte chunks (about 567 chunks, 71 ticks; 341 and 43 in M1).
@@ -692,6 +699,43 @@ func _session_fight4() -> void:
 		var p: Dictionary = c.result.get("prediction", {})
 		check_eq(_num(p, "vitals_corrections"), 0.0, "fight4/%s: the prediction's own vitals never off the host's" % c.name)
 	_fight_traffic_notes("fight4", host, cs[0])
+
+
+## M4-fix (run by tests/test_net_fight.gd): a client with a lagging, lossy link (round trip 120 ms, 5 % loss)
+## that stands still between the heretic's strikes. Every hit lands on a client whose timers had run out (it
+## sent no frames): the host never steps it itself and its prediction takes each hit as the host's event
+## only (no vitals correction). Before (M4b's quiet-client rule) such a hit started host steps at once.
+func _session_fightlag() -> void:
+	var dir: String = _session_dir("fightlag")
+	var port: int = _port()
+	if not check(port > 0, "fightlag: free port"):
+		return
+	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=1", "--class=cleric",
+		"--bot=" + FIGHTLAG_HOST, FIGHTLAG_HERETIC])
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "fightlag: host listens"):
+		await _reap()
+		return
+	var c1_flags: Array = ["--join=127.0.0.1:%d" % port, "--class=miner", "--bot=" + FIGHTLAG_C1]
+	c1_flags.append_array(FIGHTLAG_LINK)
+	var c1: Instance = _launch(dir, "c1", c1_flags)
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json")], 80.0), "fightlag: every instance wrote its result")
+	await _reap()
+	if not _load_results(dir, [host, c1]):
+		return
+	_expect_codes("fightlag", {host: 0, c1: 0})
+	_check_agreement("fightlag", host, [c1], 2)
+	var s1: int = roundi(_num(c1.result, "slot"))
+	var hurt: int = _count_lines(_log_lines(host), "host hurt slot=%d map=0 amount=%d" % [s1, Config.HERETIC_DAMAGE])
+	check(hurt >= 3, "fightlag: the heretic struck the standing c1 %d times" % hurt)
+	var ops: Dictionary = host.result.get("ops", {})
+	var o1: Dictionary = ops.get(str(s1), {})
+	check_eq(_num(o1, "host_steps"), 0.0, "fightlag: the host never stepped the lagging client itself")
+	var p: Dictionary = c1.result.get("prediction", {})
+	check(_num(p, "vitals_corrections") == 0.0 and _num(p, "event_corrections") >= float(hurt),
+		"fightlag/c1: each hit was the host's event only (events %s, vitals corrections %s)" % [p.get("event_corrections"),
+		p.get("vitals_corrections")])
+	var link: Dictionary = c1.result.get("link", {})
+	note("fightlag: c1 hurt %d times standing still; link %s" % [hurt, link])
 
 
 ## Host log "hit slot=<s> map=<m> heretic=<id> amount=<n> hp=<hp>" lines: heretic id -> [[slot, hp], ...] in order.

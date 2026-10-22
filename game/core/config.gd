@@ -340,7 +340,9 @@ const HERETIC_HURT_INTERRUPTS_ATTACK: bool = false
 ## the altar light, never targets or hurts a player inside it.
 const HERETIC_ENTERS_LIGHT: bool = false
 ## PROVISIONAL (not in docs): what a heretic does when its target steps into the light: stands at the
-## edge facing it this many seconds, then walks home (0 = turns back at once).
+## edge facing it this many seconds, then walks home (0 = turns back at once). M4-fix: the seconds count
+## from when it started watching, hits included (a hit staggers it but does not start the wait over), so
+## shooting it from inside the light cannot keep it at the edge (README "M4a 빛 가장자리").
 const HERETIC_LIGHT_EDGE_WAIT_SEC: float = 4.0
 ## PROVISIONAL (not in docs; the M3a row keeps torches light only): true would make a torch's light count
 ## as the altar's for heretics (no entering, no targeting, no spawning). Off.
@@ -362,6 +364,16 @@ const HERETIC_SPAWN_ARRIVAL_MIN_TILES: int = 14
 ## corruption source, game-concept §12; what breaking it does is not written).
 const SHRINE_HP: int = 150
 const SHRINE_STOPS_SPAWNS: bool = true
+## PROVISIONAL (not in docs; M4-fix moved the first two here from the IMPL rows, values unchanged, because
+## they decide whether a shot hits): a shot (arrow, bolt) is drawn SHOT_DRAW_LIFT_PX above its ground point
+## and hits a body (a heretic; a player only with FRIENDLY_FIRE) when the drawn shot is inside the body's
+## drawn box: BODY_HIT_RADIUS_PX either side of the feet, from the feet up BODY_HIT_HEIGHT_PX (the heretic
+## sheets' figure: opaque rows 3..31 of the 32 px walk cell, measured). The aim is measured from where the
+## shot is drawn leaving the shooter (Combat.aim_origin) to the mouse, so the drawn shot flies through the
+## cursor and a click anywhere on the figure hits (README "M4-fix 화살 조준").
+const BODY_HIT_RADIUS_PX: float = 8.0
+const SHOT_DRAW_LIFT_PX: int = 12
+const BODY_HIT_HEIGHT_PX: float = 28.0
 
 # --- PROVISIONAL, M4b (combat in sessions: the host decides, README "임시값" M4b) ----------------
 
@@ -506,22 +518,34 @@ const FACE_HEIGHT_PX: int = 24
 ## this bright (0-255 luma). Keeps the 81 flame pixels (9 lamps x 9), drops the warm glow on the
 ## stone (spike light module value).
 const FLAME_MIN_LUMA: float = 148.0
-## IMPL (M4a): ticks a hit flash shows on a character, a heretic or the shrine; the body point (feet box
-## centre) hit tests measure from; a heretic's / the shrine's hit radius around it for shots; how far
-## above the ground a shot is drawn; a shot moves in steps of at most SHOT_STEP_PX inside a tick.
+## IMPL (M4a): ticks a hit flash shows on a character, a heretic or the shrine; a shot moves in steps of
+## at most SHOT_STEP_PX inside a tick (M4-fix: and every tile between two steps counts, Combat.cells_on_line,
+## so it never slips between two walls that touch at a corner). The hit box and the draw lift are
+## PROVISIONAL rows above (M4-fix).
 const HIT_FLASH_TICKS: int = 6
-const BODY_HIT_RADIUS_PX: float = 8.0
-const SHOT_DRAW_LIFT_PX: int = 12
 const SHOT_STEP_PX: float = 2.0
+## IMPL (M4a, named in M4-fix, values unchanged): a spawn try picks this many random spawn tiles before it
+## gives up until the next interval; a heretic is home within HERETIC_HOME_ARRIVE_PX, walks home rather
+## than idles when farther than HERETIC_HOME_IDLE_PX, makes the spot it is stuck at its home after
+## HERETIC_HOME_STUCK_TICKS without getting closer; an axis closer than HERETIC_AXIS_DEAD_ZONE_PX is not
+## walked along (no jitter on a straight line).
+const HERETIC_SPAWN_TRIES: int = 24
+const HERETIC_HOME_ARRIVE_PX: float = 1.5
+const HERETIC_HOME_IDLE_PX: float = 2.0
+const HERETIC_HOME_STUCK_TICKS: int = 60
+const HERETIC_AXIS_DEAD_ZONE_PX: float = 0.5
 ## IMPL (M4b): a map's enemy batch goes out at once on a tick a heretic starts an attack (not on the next
 ## 20 Hz batch tick: up to 2 ticks earlier on the telegraph's clock).
 const NET_ENEMY_SEND_ON_ATTACK: bool = true
-## IMPL (M4b): a member whose vitals run a timer (Vitals.idle false: stagger, invulnerability, dash, down,
-## dead, stamina coming back) and whose client sent no frame for this many ticks is stepped by the host
-## itself with an empty frame each tick until its frames come again: its down time, its respawn and the
-## end of its invulnerability run on the host's clock even when a client stops sending. 30 ticks: well
-## past the input jitter of a working link (frames go every 2 ticks), so a normal client is never stepped
-## twice (that would cost it a correction).
+## IMPL (M4b; M4-fix: counted against host time): while a member is "timed" (its vitals run a timer,
+## Vitals.idle false: stagger, invulnerability, dash, down, dead, stamina coming back; or a body action
+## plays) the host keeps its clock debt: +1 per host tick, -1 per frame of it the host runs. Its frames may never
+## run ahead of host time (no frame while the debt is 0: a client cannot fast-forward a stagger or a dash
+## cooldown with saved-up frames), and when they fall more than this many ticks behind with its vitals
+## running, the host steps it itself with an empty frame each tick (a client that stops sending, or sends
+## a frame now and then, cannot hold its down time, its respawn or its invulnerability). The debt starts at
+## 0 whenever the member is idle, so a client that stood still and is hit only owes the ticks until it
+## hears of the hit (about a round trip): 30 ticks covers a one-way delay of about 200 ms with no host step.
 const NET_HOST_STEPS_AFTER_TICKS: int = 30
 
 

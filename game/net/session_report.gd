@@ -85,7 +85,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 			entry["inventory"] = m.player.inventory.describe()
 		if s.host != null:
 			ops[str(slot)] = {"done": m.ops_done, "refused": m.ops_refused, "swings_missed": m.swings_missed,
-				"combat": m.combat, "host_steps": m.host_steps}
+				"combat": m.combat, "host_steps": m.host_steps, "frames_held": m.frames_held}
 		players.append(entry)
 		if m.gate != null:
 			gates[str(slot)] = m.gate.to_dict()

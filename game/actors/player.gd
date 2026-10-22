@@ -184,7 +184,7 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
 	f.dash = dash
 	f.interact = interact
-	f.aim = Combat.aim_code(mouse - sim_position)
+	f.aim = Combat.aim_code(mouse - Combat.aim_origin(sim_position))  # M4-fix: the drawn shot flies through the mouse
 	if data != null:
 		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
@@ -406,13 +406,17 @@ func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false
 
 
 ## M3a: moves the player onto another map's data at feet position `feet`, facing south, any action
-## stopped (Main.travel).
+## stopped (Main.travel). M4-fix: a dash under way stops too (its cooldown runs on), so a dash pressed just
+## before F on the stairs does not carry on from the arrival point (host, offline and, through the host's
+## state, the prediction alike).
 func set_world(p_data: WorldData, feet: Vector2) -> void:
 	data = p_data
 	action_anim = -1
 	action_tick = 0
 	walking = false
 	facing = RigData.Dir.SOUTH
+	vitals.dash_ticks = 0
+	vitals.dash_dir = Vector2i.ZERO
 	teleport(feet)
 
 

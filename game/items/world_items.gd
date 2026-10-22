@@ -226,12 +226,15 @@ static func bag_cell(data: WorldData, feet: Vector2) -> Vector2i:
 ## by `rule` (Config.DEATH_DROP_RULE: half of every stack rounded up, or every stack of
 ## Config.DEATH_DROP_RANDOM_KINDS item kinds picked with `seed`) and returns the edits that put them in
 ## a bag on the death tile (bag_cell): the bag tile first, then one drop per stack at the tile's centre.
-## At most Config.MAX_DROPS drops lie on a map; what does not fit stays in the inventory.
+## At most Config.MAX_DROPS drops lie on a map; what does not fit stays in the inventory, and when not one
+## fits there is no bag at all (M4-fix: refused, nothing lost).
 static func death_drop(data: WorldData, feet: Vector2, inv: Inventory, rule: int = Config.DEATH_DROP_RULE,
 		seed_value: int = 0) -> Outcome:
 	var want: Dictionary[int, int] = death_drop_counts(inv, rule, seed_value)
 	if want.is_empty():
 		return Outcome.refused(WHY_NOTHING_TO_DROP)
+	if data.drops.size() >= Config.MAX_DROPS:
+		return Outcome.refused(WHY_TOO_MANY)  # M4-fix: not even one drop fits: no empty bag, nothing lost
 	var c: Vector2i = bag_cell(data, feet)
 	if c == Walls.NO_CELL:
 		return Outcome.refused(WHY_NO_ROOM)

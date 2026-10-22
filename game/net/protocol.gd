@@ -122,6 +122,8 @@ const WELCOME_FIXED: int = 2 + 1 + 1 + 4 + 1 + 4 + 4 + 4 + 4 + 16 + 16 + 16
 const INVENTORY_HEADER: int = 6
 ## The map entry with an at-rest state (+ VITALS_SIZE with a vitals block, M4b).
 const MAP_ENTRY_SIZE: int = 1 + 4 + 4 + 4 + 4 + 16 + 16 + STATE_SIZE
+## Where the map entry's state starts (its fixed head; named in M4-fix).
+const MAP_ENTRY_STATE_AT: int = MAP_ENTRY_SIZE - STATE_SIZE
 const INVENTORY_SLOT_BYTES: int = 3
 ## Directions (9) x looks (none + 4 facings) x dash (M4b) x F held (M4b).
 const CODE_COUNT: int = 180
@@ -755,14 +757,14 @@ static func encode_map_entry(e: MapEntry) -> PackedByteArray:
 	out.encode_u32(13, e.chunk_count)
 	_put_md5(out, 17, e.packed_md5)
 	_put_md5(out, 33, e.world_md5)
-	_put_state(out, 49, e.state)
+	_put_state(out, MAP_ENTRY_STATE_AT, e.state)
 	return out
 
 
 ## The map entry, or ok = false (size, map id, chunk count against the packed size, the state).
 static func decode_map_entry(bytes: PackedByteArray) -> MapEntry:
 	var e: MapEntry = MapEntry.new()
-	if bytes.size() < MAP_ENTRY_SIZE or bytes.size() != 49 + state_size_at(bytes, 49):
+	if bytes.size() < MAP_ENTRY_SIZE or bytes.size() != MAP_ENTRY_STATE_AT + state_size_at(bytes, MAP_ENTRY_STATE_AT):
 		return e
 	e.map = bytes.decode_u8(0)
 	e.edit_position = bytes.decode_u32(1)
@@ -770,8 +772,8 @@ static func decode_map_entry(bytes: PackedByteArray) -> MapEntry:
 	e.packed_size = bytes.decode_u32(9)
 	e.chunk_count = bytes.decode_u32(13)
 	e.packed_md5 = bytes.slice(17, 33)
-	e.world_md5 = bytes.slice(33, 49)
-	var st: PlayerState = _get_state(bytes, 49)
+	e.world_md5 = bytes.slice(33, MAP_ENTRY_STATE_AT)
+	var st: PlayerState = _get_state(bytes, MAP_ENTRY_STATE_AT)
 	if st == null or not valid_map(e.map) or st.map != e.map:
 		return e
 	e.state = st
