@@ -320,3 +320,84 @@ brief §5.6 ? 동작 중 다른 표식(R25)을 정하기 위해, 5~7차 표식 �
 
 - e판을 10차와 같은 방법으로 64칸에 맞춰 `base_body_v02_sword.png` 동 줄을 바꿨다. 전후 비교 `base_body_v02_reroll12_compare.png`(3배), `base_body_v02_actions.gif` 다시 만듦
 - 요령: v3에서 몸이 정면으로 도는 것은 설명("never turning toward the viewer")만으로는 막히지 않았고, `end_frame_base64`에 시작 그림을 넣어 시작·끝을 같은 옆모습으로 묶자 막혔다. 값은 같다(방향당 1회). 대신 끝이 시작 자세로 돌아오므로 동작이 제자리로 돌아오는 동작에만 쓴다
+
+## PixelLab 13차 (2026-10-22, 이단 적 스프라이트, 18회 사용)
+
+슬라이스 적 1종(game-concept §12 M4 "이단 적 1종(근접)": 쫓아와 근접 공격, 제단 빛 밖·오염 지대·던전에 나옴)을 기본 몸과 같은 배치의 시트로 만들었다. 사람이 이 일 전체에 25회를 승인. 잔액 1,727 → 1,709 (18회), 7회는 쓰지 않았다. 같은 시각에 돈 다른 작업은 PixelLab를 쓰지 않아 잔액 차이가 모두 이 일의 값이다. 생성 호출마다 앞뒤로 `get_balance`를 불러 값을 확인했다(아래 표의 잔액). 힉스필드는 쓰지 않았고, 생성 도구에 넣은 그림은 이 캐릭터의 걷기 첫 프레임(우리 그림)뿐이다.
+공통: 2차의 이단(character d47d48fa-80c0-412e-9792-3c7d4490d4dd, 이름 chibi_heretic_v3_v01, v3 size 32, 8방향, 애니메이션 없음)을 그대로 썼다(만들기 0회). 회전 남·동·북을 8배로 보고 방향(정면·오른쪽 옆·뒤)과 실루엣이 맞아 새 캐릭터는 만들지 않았다. 회전을 다시 받아 보니 `chibi_heretic_v01_rotations.png`와 픽셀까지 같아(다른 픽셀 0) 새 raw 파일은 두지 않았다. `animate_character`, 남·동·북만 (서 = 동 반전, R19).
+
+1. 템플릿 (방향당 1회, 12회). 원본은 `heretic_v01_<동작>.png` (줄 남·동·북, 32칸)
+
+| 동작 | 템플릿 (기본 몸과 같음) | 값 (잔액) | group | animation id 남 · 동 · 북 | job 남 · 동 · 북 |
+|---|---|---|---|---|---|
+| 걷기 | `walking-6-frames` 6장 | 3 (1,727 → 1,724) | df8d3edf-81bd-498c-8341-fe847a78e283 | 6f510734-dbb5-4d0d-98ec-77cf8b2acfc6 · 10a4ed1e-7ba3-4b97-b037-187e32011a16 · b72dcd3a-cebd-4f55-8602-4a330923d309 | c5b6187c-0090-4058-820c-e0a383c0c502 · 1c4d1c2d-b680-4bf8-8b09-20a222c1b774 · 7c9871c8-9cf1-4ee5-bafa-bc5eed9e8fef |
+| idle | `breathing-idle` 4장 | 3 (→ 1,721) | c69e3dd0-f195-4199-9ce3-81b5f05bfbc4 | 4093619d-2ff2-43d2-9467-de8595ea76b8 · a9cce6d1-3a6e-4b2b-9be5-eb4331e366cc · fc912379-d93d-40a7-8bea-231ebaf4138c | 7e73a575-cb02-48d8-9af5-c287285a0aab · 2e549362-83c4-4b1e-aa00-7b4126ed5b7f · fab7b1f7-8089-4a34-8ddd-c14707f1c3fa |
+| 피격 | `taking-punch` 6장 | 3 (→ 1,718) | 6f8cf781-451b-4811-8795-b9d5125b2d74 | 694bb9a0-6979-419b-8cfa-4e355efa5c3e · ad6a3dc2-18e9-4066-97fe-0606a0d83ce4 · 5c058738-0852-48aa-b35a-b29e0032e908 | e11e8f14-6026-43e2-96b6-05e493fa7b58 · a3907b4e-1f1f-48b8-b68c-9bd393e5aa08 · 620d546c-9135-4b04-87f8-b4ffbaa4f7b9 |
+| 사망 | `falling-back-death` 7장 | 3 (→ 1,715) | 9cae5339-eaac-467f-8a00-b0165f01c5ea | ab9f1c94-a1fe-4743-b5bf-8a13e4d92b5d · 92c42158-a746-4c01-ab9f-169a1a93c3ef · e39d63f7-f442-4daf-9072-262ca1c24d30 | 76379a21-d8d7-46fe-bea9-4f6e1d196f52 · e0f86cc2-811b-4f50-bc93-3c661ecfcd9b · 815b36e2-8aa7-4611-a39b-3a44e8d35eda |
+
+   - `animation_name`은 heretic_walk, heretic_idle, heretic_hurt, heretic_death. `ai_freedom` 기본값 0
+   - 넷 다 키 27~28px(원본, 발 맞춤 전)로 기본 몸 템플릿 동작과 같다. 회전 그림(32px, 칸을 꽉 채움)보다 작다
+   - 걷기: 동작이 읽힌다. 남쪽은 칼이 6장 중 2번(오른손, 아래로 늘어짐)과 4번(왼손, 옆으로 뻗음)에만 나와 깜빡인다(2·4차 방패와 같은 템플릿 흠). 동쪽 손의 칼은 주황 덩어리로 나옴. 끈이 빨강
+   - idle: 동·북은 굽은 칼이 잘 보인다. 남쪽은 칼이 없다. 북쪽 두건 뒤에 분홍 점(눈빛)이 찍힘
+   - 피격: 남은 칼을 내밀고 뒤로 젖힘(칼이 짧은 검처럼 길게 그려짐), 동은 뒤로 꺾임, 북은 칼이 2번에만 보인다
+   - 사망: 세 방향 모두 뒤로 넘어져 6번에서 눕는다. 북쪽 두건 뒤에 보라 점(눈빛)이 프레임마다 찍힘
+   - 모든 템플릿 프레임에서 머리 꼭대기가 원본 캔버스 y=0에 닿아, 두건 윗줄 외곽선과 회전 그림의 뾰족한 두건 끝이 잘려 있다
+
+2. 공격 v3 (방향당 1회, 6회). `mode: "v3"`, `frame_count: 8`, `custom_start_frame_base64` = `heretic_v01_walk.png`의 그 방향 첫 프레임 (9차 방식, 키를 걷기에 맞춤), `keep_first_frame` 기본값(첫 장 = 시작 그림, 9장 저장). 동·북은 `end_frame_base64`도 시작 그림 (12차, 옆·뒷모습을 지킴). 남은 정면이라 끝 그림을 넣지 않았다. 원본은 `heretic_v01_attack_<판>_<방향>.png` (9장 가로 줄, 캔버스는 방향마다 다름). 여섯 판 모두 첫 장이 시작 그림과 픽셀까지 같다
+
+| 판 | 방향 | 값 (잔액) | job | animation | 캔버스 | 판정 |
+|---|---|---|---|---|---|---|
+| a | 남 | 1 (1,715 → 1,714) | 0f9ee315-4e53-467e-bff9-8d385940434f | e756a4c1-6d10-4c35-a82b-c891e95fa97d | 40×48 | 머리 옆으로 들었다 몸 앞으로 내려 벤다. 칼이 연어색이고 가늘며 4~5번에서 거의 안 보임. 7~8번 발밑에 핏방울 점. 버림 |
+| a | 동 | 1 (→ 1,713) | c414b77d-7a8e-4f5e-9fe0-91d890d94c0f | fc2c5d23-e80d-4744-a722-569aa473bc85 | 40×44 | 옆모습은 지킴(끝 그림). 칼은 1~2·6~7번에만 보이고 3~5번은 빈손에 몸통이 정면 쪽으로 조금 돎. 베기가 약함. 버림 |
+| a | 북 | 1 (→ 1,712) | c99d8433-f2fc-44a1-a8b5-45a044fb4826 | 718b590b-1fae-4583-a167-1249f0021323 | 32×52 | 뒷모습은 지킴. 칼이 작은 녹빛 조각이고 어깨 위로 올라온 것은 4번 한 장. 버림 |
+| b | 동 | 1 (→ 1,711) | 9ba1729e-5c7e-4729-9455-cb655fc46ff1 | 9c352b6f-72f7-4690-bd62-84dd2e6e6ab4 | 40×44 | 채택. 회색 굽은 칼날이 1~7번 모두 보임. 앞으로 베고(2) 허리 뒤로 당겼다(4~5) 다시 앞으로(6) 들어 올린 뒤(7) 돌아옴. 옆모습 유지 |
+| b | 북 | 1 (→ 1,710) | 20e894ec-0772-4e5a-851b-4a8a947747e4 | 1f885a5d-3276-4819-822d-9cf0a6e28e2b | 40×48 | 채택. 흰 초승달 칼날을 왼어깨 위로 들었다(2~4) 오른쪽 아래로 내려 벰(5~7). 뒷모습 유지 |
+| b | 남 | 1 (→ 1,709) | c3442ff5-6a45-4e94-87b8-7a0d82088033 | ebffe988-4b13-4ce3-8b32-8c50545498d5 | 40×48 | 채택. 큰 굽은 칼날을 머리 옆으로 들었다(1~2) 얼굴 앞을 가로질러(3~4) 오른쪽 아래로 벰(5~8). 6~7번 눈이 외곽선 색으로 꺼짐(손질) |
+
+   - group: a판 b43d1665-2289-43d7-85a2-a7ecb39a79a2 (`animation_name: "heretic_attack"`), b판 6e3771c5-2b55-4c52-b9db-ae5df04f7179 (`"heretic_attack_b"`, 동 먼저 새 group, 북·남은 `animation_group_id`로 이어 붙임). 버린 a판도 계정과 raw 파일에 남아 있다
+   - 응답의 canvas(생성 크기)는 남 32×48, 동 36×44, 북 32×48이었고 받은 프레임은 위 표 크기다(움직임에 맞춰 다시 잰다). 값은 모두 방향당 1회
+   - action_description
+     - a 남: "facing the viewer, hunched, holding a short rusty curved knife in the right hand, raising it up beside the head and then slashing it fast down and across in front of the body toward the viewer, then pulling back into a hunched ready stance; same clothes and colours throughout"
+     - a 동: "seen from the side facing right the whole time, hunched, holding a short rusty curved knife in the right hand, drawing it back then lunging forward and slashing it down and forward to the right at chest height, then returning to a hunched ready stance; the body and face stay in side view, never turning toward the viewer; same clothes and colours throughout"
+     - a 북: "seen from behind the whole time, hunched, holding a short rusty curved knife in the right hand off to the right side of the body, raising it beside the right shoulder until the blade shows above the shoulder, then slashing it down and forward, then returning to a hunched ready stance; the back stays toward the viewer, never turning around; same clothes and colours throughout"
+     - b 동: "seen from the side facing right the whole time, hunched, holding a short curved knife with a grey iron blade in the right hand, pulling it back behind the hip, then lunging forward and slashing it in a big fast arc down and forward to the right at chest height, the blade clearly visible in every frame, then returning to a hunched ready stance; the body and face stay in side view, never turning toward the viewer; same clothes and colours throughout"
+     - b 북: "seen from behind the whole time, hunched, holding a short curved knife with a grey iron blade in the right hand out to the right side of the body, raising it high beside the right shoulder so the curved blade sticks out above and to the right of the hood, then slashing it down hard to the lower right, the blade clearly visible outside the body in every frame, then returning to a hunched ready stance; the back stays toward the viewer, never turning around; same clothes and colours throughout"
+     - b 남: "facing the viewer, hunched, holding a short curved knife with a grey iron blade in the right hand on the left side of the image, raising it high beside the head, then slashing it fast down and across the front of the body toward the viewer in a wide arc, the curved blade clearly visible outside the body in every frame, then pulling back into a hunched ready stance; same clothes and colours throughout"
+   - 요령: "rusty curved knife"는 연어색·녹빛의 작은 칼로 나와 잘 안 보였고, "a grey iron blade ... clearly visible (outside the body) in every frame"으로 바꾸자 세 방향 모두 칼날이 크고 또렷해졌다(10차 "도구 모양을 구체적으로"와 같은 방향). 녹은 손질에서 끈·칼 녹 색으로 남겼다. "same clothes and colours throughout"을 붙인 여섯 판 모두 옷 색이 바뀌지 않았다
+
+3. 손질 (무료, `uv run -q --script tools/art/heretic.py`, 고정 버전은 `tools/art/heretic.py.lock`. 다시 돌리면 같은 파일). `reduce_colors`는 1번 0.1회라 쓰지 않고 팔레트를 스크립트로 맞췄다
+   - 색: 원본 157색(외곽선 #000000, 푸른 회색 두건 #676e76 계열, 자줏빛 회색 옷, 연보라 피부, 보라 눈, 빨강·주황·연어색 끈과 칼)을 묶음별로 나눠, 위협 쪽 팔레트 23색의 같은 묶음 사다리에서 밝기(L*)가 가장 가까운 색으로 옮겼다
+     - 외곽선 #1a1714
+     - 잿빛 #2f2b29 #46413e #5d5854 #77716c #928c86 #b0aaa3 (두건. 파란 기운 없앰)
+     - 멍든 자줏빛 회색 #2a2027 #3a2c37 #4d3d49 #61515d (옷. R ≥ B)
+     - 창백한 피부 #7f7580 #a69da6 #ccc5c9
+     - 보라 #3b1f4d #5e2d7a #8a5fb0 #b493cf (맥·눈. brief §4 타락 줄 + 흐린 눈빛)
+     - 녹 #4a1c16 #7a2f20 #a3492c (끈·칼 녹)
+     - 뼈 #a39c8c #d8d2c0 (부적·칼날)
+     - 시트마다 16~20색. 어두운 색(R+G+B < 200) 중 B > R+5는 맥의 보라 #3b1f4d 하나뿐이고 회색에는 없다. 기본 몸의 갈색·베이지는 쓰지 않는다
+   - 외곽선: 템플릿 프레임은 두건 윗줄 외곽선이 잘려 실루엣 가장자리의 22~23%가 어두운 색이 아니었다(기본 몸 3~7%). 발 맞춤 뒤 칸 좌표에서 가장자리 픽셀이 어두우면(L* < 30) 그 자리를, 밝으면 바깥에 1px #1a1714를 더했다. 칸 경계와 발 줄 아래로는 더하지 않고 그 자리를 외곽선으로 바꿔 발 줄을 지킨다. 결과는 모든 시트에서 가장자리 100%가 외곽선 색이고, 두건 위에 1px가 붙어 키가 1px 늘었다
+   - 떨어진 점: 3px 이하 덩어리를 지움 (a판 공격 남 7~8번 핏방울. 채택한 판에는 없음)
+   - 북쪽 두건 뒤 눈빛: 템플릿(걷기·idle·사망)의 뒷모습에서 두건(위쪽 60%) 안 4px 이하 보라·피부색 점을 이웃의 가장 흔한 색으로 (14장, 1~4px씩). 공격 북쪽은 손을 머리 위로 들어 하지 않았다
+   - 걷기 남쪽 칼 깜빡임: 2번(28px)과 4번(11px)에서 칼을 지우고 손 끝을 외곽선으로 닫았다(1px, 5px). idle 남쪽처럼 남쪽 걷기에는 칼이 없다
+   - 공격 남쪽(b) 6·7번: 얼굴이 5번과 같고 한 줄 아래라, 5번의 보라 눈 7px를 한 줄 내려 덮었다
+   - 발 맞춤: 32칸 동작은 방향마다 가장 낮은 픽셀을 y=31로 (`layers.py pivot`과 같음). 이동 남·동·북: 걷기 +4 +3 +4, idle +5 +3 +4, 피격 +4 +4 +4, 사망 +4 +4 +4, 회전 0. 공격은 걷기 값으로, v3 캔버스 속 시작 그림 위치(남 (4, 8), 동 (4, 6), 북 (4, 8))를 찾아 64칸 (16, 16 + 걷기 이동)에 맞췄다 (10차 방식). 첫 열은 손질한 걷기 첫 프레임이다(북쪽만 두건 점 3px가 달라 걷기 쪽으로 맞춤)
+
+4. 결과 파일 (모두 `base_body_v02`와 같은 배치. 서쪽은 동쪽 줄을 좌우 반전해 쓴다)
+   - `heretic_v02_walk.png` 192×96 (6열), `heretic_v02_idle.png` 128×96 (4열), `heretic_v02_hurt.png` 192×96 (6열), `heretic_v02_death.png` 224×96 (7열): 32칸, 줄 남·동·북, 발 y=31
+   - `heretic_v02_attack.png` 576×192: 64칸 9열(첫 열 = 시작 그림, 재생은 1열부터), 줄 남·동·북, 32 프레임을 (16, 16)에 둔 좌표, 발 줄 y=47. 기본 몸 검(`base_body_v02_sword.png`)과 같은 크기·프레임 수다. 칼끝은 발 줄 아래로 최대 4px(북 6번 y=51) 나간다
+   - `heretic_v02_rotations.png` 128×32: 남·동·북·서(서 = 동 반전). 키 32px로 칸을 채워 게임에는 걷기·idle을 쓴다(기본 몸 회전과 같음)
+   - `heretic_v02_anims.gif`: 줄 남·동·북·서(반전), 칸 idle·걷기·공격·피격·사망, 64칸 기준 발 줄 맞춤, 3배, 프레임당 130ms, 56프레임 반복 (idle·공격·사망은 반복 지점이 맞고 걷기·피격은 끊긴다)
+   - `heretic_v02_scale_check.png`: 위 1배, 아래 4배. 남·동·북마다 기본 몸 idle 첫 프레임(왼쪽)과 이단 idle 첫 프레임(오른쪽). 4배 쪽 빨간 선 = 발 줄, 파란 점 = 기본 몸 머리 꼭대기, 보라 점 = 이단 머리 꼭대기. 글자 없음
+   - 키 (idle 첫 프레임, 발 y=31): 기본 몸 남 27 · 동 29 · 북 29px, 이단 남 28 · 동 29 · 북 29px. 폭은 이단이 두건과 칼 때문에 넓다(남 19px 대 17px, 북은 칼까지 24px 대 19px). 걷기 키는 이단 28~29px(기본 몸 28~29px). 같은 체형 틀이라 1배에서 크기 차이는 거의 없고, 색(잿빛·보라 대 갈색·베이지)과 두건 실루엣으로 구분된다
+
+5. 판정과 남은 흠
+   - 다섯 동작 모두 남·동·북에서 동작이 읽힌다. 공격은 세 방향 모두 굽은 칼날이 크게 보이고 동·북은 옆·뒷모습을 지킨다. 색은 생활 쪽(기본 몸)과 확실히 다르다(scale_check)
+   - 남은 흠
+     - 템플릿이 두건 끝을 잘라, 걷기·idle·피격·사망·공격의 두건 윗부분이 회전 그림(뾰족한 끝)보다 평평하다. 외곽선은 닫았지만 모양은 되살리지 않았다
+     - 남쪽 걷기·idle에는 칼이 없다(걷기는 깜빡여서 지움). 동·북 걷기·idle에만 칼이 보이고, 동쪽 걷기 손의 칼은 녹빛 덩어리로 작다
+     - 피격 남쪽 칼이 짧은 검처럼 길고, 피격 북쪽은 칼이 2번에만 나온다
+     - 공격 남(b) 칼날이 몸에 비해 크고(초승달 낫 크기) 3~4번에서 얼굴을 가린다(9차 검 남과 같은 흠). 6·7번 눈은 손으로 고친 것이다
+     - 공격 북(b)은 왼어깨 위로 들었다가 오른쪽 아래로 베어, 대각선 한 번 베기지만 칼이 손을 바꾼 것처럼 보일 수 있다
+     - 공격 동(b)은 앞으로 벤 뒤 허리 뒤로 당겼다 다시 앞으로 내밀어 두 번 휘두르는 것처럼 보인다
+     - 몇 픽셀 손질(걷기 남 칼, 공격 남 눈)은 좌표를 적은 표라, 원본(raw)을 바꾸면 표를 다시 봐야 한다
+   - 게임 쪽(game/)은 아직 적을 읽지 않는다. 시트 배치는 `RigData`의 32칸 걷기·idle(6·4장, 첫 열부터)과 64칸 동작(9열, `FIRST_COLUMN` 1, 몸 (16, 16))과 같다. 피격·사망은 기본 몸 시트처럼 32칸이다
