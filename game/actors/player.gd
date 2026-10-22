@@ -40,7 +40,8 @@ extends Node2D
 ## bag), respawn_due (Main puts it back at the altar), action_impact on the weapon's hit frame
 ## (Combat.impact_tick; the pickaxe's is the M3a mining frame).
 ##
-## M6a (offline: `potions_on`; a session's players keep it off until M6b): a click with a potion selected
+## M6a (`potions_on`: offline, and M6b the local player of a session too, whose frames the session sends; the
+## host resolves them itself): a click with a potion selected
 ## drinks it (Config.DRINK_ANIM), the skill key 1 throws it (the herbalist's, the throw action) toward the
 ## mouse; action_impact comes on the potion's effect / release frame (Potions.impact_tick) with the slot,
 ## grade and landing point kept in action_slot / action_grade / action_target; Main applies it. The Vitals
@@ -97,8 +98,9 @@ var action_cell: Vector2i = Vector2i.ZERO
 var action_aim: int = 0
 var vitals: Vitals = Vitals.new()
 var interact_held: bool = false
-## M6a: drinking and throwing potions (offline only until M6b: Main turns it on for the offline player; a
-## session's players keep it off). `ui_locked`: a panel (crafting) takes the keys, the player stands. The
+## M6a: drinking and throwing potions (Main turns it on for the offline player; M6b: the session for its local
+## player). `ui_locked`: a panel (crafting) takes the keys, the player stands (offline here, in a session
+## SessionBots.local_action). The
 ## playing action's hotbar slot, the grade of the item it plays and a throw's landing point.
 var potions_on: bool = false
 var ui_locked: bool = false
@@ -211,8 +213,9 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 ##
 ## M6a (with `potions_on`): a click (not held) with a potion selected drinks it (Config.DRINK_ANIM, when
 ## Potions.drink_refusal allows), and `skill` throws the selected potion toward the mouse (the throw action;
-## Potions.throw_refusal: the herbalist's, Config.THROW_HERBALIST_ONLY). Both are USE frames with the action
-## set; the potion works on its effect / release frame (Potions.impact_tick, action_impact).
+## Potions.throw_refusal: the herbalist's, Config.THROW_HERBALIST_ONLY). The drink is a USE frame, the throw (M6b)
+## a THROW frame, with the action set; the potion works on its effect / release frame (Potions.impact_tick,
+## action_impact).
 func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, dash: bool = false,
 		interact: bool = false, skill: bool = false) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
@@ -230,7 +233,7 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	if free and potions_on and skill:
 		var why_throw: String = Potions.throw_refusal(class_id(), selected)
 		if why_throw.is_empty():
-			f.op = NetProtocol.Op.USE
+			f.op = NetProtocol.Op.THROW  # M6b: its own request (the point it is thrown at rides on the wire)
 			f.slot = inventory.selected
 			f.cell = aim_cell
 			f.anim = RigData.Anim.THROW

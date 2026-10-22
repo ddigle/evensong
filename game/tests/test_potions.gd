@@ -446,7 +446,8 @@ func _check_throw_controls() -> void:
 	herb.inventory.add(&"potion_poison", 2, ItemDB.Grade.FINE)
 	var far_mouse: Vector2 = herb.sim_position + Vector2(200, -40)
 	var f: NetProtocol.InputFrame = herb.make_frame(Vector2i.ZERO, far_mouse, true, false, false, false, false, true)
-	check(f.op == NetProtocol.Op.USE and f.anim == RigData.Anim.THROW and f.item == &"potion_poison", "key 1: the throw action")
+	check(f.op == NetProtocol.Op.THROW and f.anim == RigData.Anim.THROW and f.item == &"potion_poison",
+		"key 1: the throw action (M6b: a THROW request, M6a's was a USE)")
 	var origin: Vector2 = Combat.body_point(herb.sim_position)
 	check(absf(f.throw_to.distance_to(origin) - Config.THROW_RANGE_PX) < 0.01, "toward the mouse, at most THROW_RANGE_PX")
 	tick(herb, f)
@@ -458,7 +459,7 @@ func _check_throw_controls() -> void:
 	pal.potion_refused.connect(func(what: String, why: String) -> void: refused.append("%s:%s" % [what, why]))
 	pal.inventory.add(&"potion_poison", 1)
 	var g: NetProtocol.InputFrame = pal.make_frame(Vector2i.ZERO, far_mouse, true, false, false, false, false, true)
-	check_eq(g.op, NetProtocol.Op.NONE if Config.THROW_HERBALIST_ONLY else NetProtocol.Op.USE,
+	check_eq(g.op, NetProtocol.Op.NONE if Config.THROW_HERBALIST_ONLY else NetProtocol.Op.THROW,
 		"a paladin's key 1 (Config.THROW_HERBALIST_ONLY)")
 	if Config.THROW_HERBALIST_ONLY:
 		check_eq(refused, ["throw:%s" % Potions.WHY_HERBALIST] as Array[String], "refused: herbalist only")

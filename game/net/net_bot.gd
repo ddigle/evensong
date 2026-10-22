@@ -40,7 +40,8 @@ extends RefCounted
 ##   waitlife:<alive|down|dead>[,<ticks>]   stand until the local player is that (default 1800)
 ##   waitdown:<n>[,<ticks>]       stand until at least n players on this map are down (default 1800)
 ##   walkdown[:<ticks>]           walk next to the nearest downed player (within 12 px; default 600 ticks)
-## M6a (offline: Main handles them; a session ignores them until M6b):
+## M6a (offline: Main handles them; M6b: in sessions too, Main through NetSession.bot_ui, a craft becomes a
+## CRAFT request and a throw a THROW frame):
 ##   tab                          press Tab this tick (the crafting panel at a station, else the inventory)
 ##   craft:<row>                  craft row <row> (1 = the top) of the open crafting panel
 ##   throw                        press the skill key 1 this tick (the herbalist throws the selected potion

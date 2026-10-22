@@ -38,6 +38,14 @@ extends RefCounted
 ## (reliable) into a NetCombat (net/net_combat.gd), drawn every frame by a CombatView in the map's world:
 ## positions a buffer behind like the players, the wind-up at once. Enemy messages for another map than
 ## the loaded one (an unreliable batch overtaking a map entry) are skipped, never applied.
+##
+## M6b (potions and crafting): the own player drinks (a USE of a potion) and throws (THROW, the skill key 1) with
+## the offline controls; the prediction plays the drink / throw action at once, never its effect: a potion used,
+## a heal, a buff or a poison come with the host's inventory and state (the vitals block's effects; a hit or a
+## heal by a splash is a host event for the prediction). Thrown bottles come as the host's thrown / broke events
+## and fly here like the shots (net/net_combat.gd); a heretic's poison rides on the enemy batches. A crafting
+## panel row is a CRAFT request (Main.craft_row, not predicted). The inventory the host sends marks what it holds
+## as seen (Inventory.seen), so the recipes unlock here as they do on the host.
 
 var s: NetSession
 var prediction: Prediction
@@ -71,6 +79,8 @@ var left_maps: Array[Dictionary] = []
 ## (malformed).
 var others_on_welcome: int = 0
 var wrong_map_edits: int = 0
+## M6b: the players whose welcome state had a buff or a poison running (slot: Vitals.describe), for the results.
+var effects_on_welcome: Dictionary = {}
 ## M4b: the combat of the loaded map and its view; enemy and shot messages received by map (a client
 ## only ever gets its own map's: tests check the other count stays 0); malformed ones.
 var combat: NetCombat
@@ -167,6 +177,7 @@ func on_welcome(payload: PackedByteArray) -> void:
 		s.end_session("failed: welcome without my player on the surface", NetSession.EXIT_FAILED)
 		return
 	_show_others()
+	s.local.player.potions_on = true  # M6b: drinking and throwing in a session (the host decides the effect)
 	prediction = Prediction.new()
 	var me: NetProtocol.PlayerState = s.local.state()
 	prediction.setup(s.world.data, me.pos, me.facing, 0)
@@ -186,6 +197,11 @@ func on_welcome(payload: PackedByteArray) -> void:
 		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
 		others_on_welcome, "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12),
 		host_generator_hash.left(12)]])
+	for info2: NetProtocol.PlayerInfo in w.players:
+		if info2.state.vitals != null and info2.state.vitals.has_effects():
+			effects_on_welcome[str(info2.state.slot)] = info2.state.vitals.describe()
+	if not effects_on_welcome.is_empty():
+		s.log_event("welcome_effects", JSON.stringify(effects_on_welcome))
 	s.local_player_ready.emit(s.local.player)
 	s.bots.mark("welcome")
 	if w.bots_started:
@@ -349,6 +365,15 @@ func on_inventory(payload: PackedByteArray) -> void:
 	for q: NetProtocol.InputFrame in s.local_ops:
 		if q.op == NetProtocol.Op.SELECT:
 			selected = q.slot
+	take_inventory(mine, inv, selected)
+
+
+## The host's inventory `inv` into `mine` with hotbar slot `selected`. M6b: what it holds counts as had here (the
+## recipes' unlock, Inventory.seen) before the load tells the crafting panel to read it again.
+static func take_inventory(mine: Inventory, inv: NetProtocol.InventoryState, selected: int) -> void:
+	for st: ItemStack in inv.stacks:
+		if st != null:
+			mine.seen[st.id] = true
 	mine.load_state(inv.stacks, selected)
 
 
@@ -404,7 +429,7 @@ func _show_predicted(tick: bool) -> void:
 func tick(action: NetBot.Action) -> void:
 	var me: Player = s.local.player
 	var f: NetProtocol.InputFrame = me.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
-		action.use_held, action.dash, action.interact)
+		action.use_held, action.dash, action.interact, action.skill)
 	SessionHost.attach_local_op(s, me, f, action)
 	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
 	_show_predicted(true)

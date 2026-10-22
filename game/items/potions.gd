@@ -3,8 +3,8 @@ extends RefCounted
 ## M6a: the three potions (● game-concept §12 R28: one per crop, healing / buff / status; the status is poison,
 ## the first of the herbalist's four in gameplay-design §2.4 ○) and how they work. Pure functions on
 ## PlayerSim / Vitals / Inventory; the offline game (core/main.gd) calls them on a drink's effect frame and a
-## throw's release frame, the arena (combat/arena.gd) on a splash. In a session they stay off until M6b
-## (Player.potions_on false, the host refuses a potion's USE as "not a tool").
+## throw's release frame, the arena (combat/arena.gd) on a splash. M6b: in a session the host does (release()
+## on its member's frame, the same rule), a client predicts only the drink / throw action.
 ##
 ## Drinking: "use" (left click, one drink per click) with a potion selected plays Config.DRINK_ANIM and the
 ## potion works on Config.DRINK_EFFECT_FRAME: healing restores Config.POTION_HEAL_HP (not past the maximum;
@@ -116,6 +116,50 @@ static func throw_target(origin: Vector2, mouse: Vector2) -> Vector2:
 	if d.length() > Config.THROW_RANGE_PX:
 		d = d.normalized() * Config.THROW_RANGE_PX
 	return origin + d
+
+
+## M6b: what a potion's effect / release frame did (release()).
+class Released:
+	extends RefCounted
+	## "" = it worked; else why not (nothing was used).
+	var why: String = ""
+	var thrown: bool = false
+	var grade: int = 0
+	## The throw's bottle; the drink's PlayerSim event bits (HEALED, BUFFED, POISONED; 0 = no effect).
+	var flask: Arena.Flask
+	var events: int = 0
+
+	func ok() -> bool:
+		return why.is_empty()
+
+
+const WHY_NO_ARENA: String = "no arena"
+
+
+## M6b: player `p`'s potion `item` reaches its effect frame (a drink) or release frame (a throw, `anim` THROW):
+## the one rule for the offline game (core/main.gd) and the host (net/session_host.gd). The drink is checked
+## again (Potions.drink_refusal: refused at full HP then, nothing used), takes one potion of the action's slot
+## and grade (take_one) and works on `p` (apply); the throw takes one and lets the bottle go into `arena`
+## (Arena.throw_potion toward Player.action_target, `owner_slot` = the thrower's session slot).
+static func release(p: Player, item: StringName, anim: int, arena: Arena, owner_slot: int = 255) -> Released:
+	var r: Released = Released.new()
+	r.thrown = anim == RigData.Anim.THROW
+	r.grade = p.action_grade
+	if r.thrown and arena == null:
+		r.why = WHY_NO_ARENA
+		return r
+	if not r.thrown:
+		r.why = drink_refusal(item, r.grade, p.vitals)
+		if not r.ok():
+			return r
+	if not take_one(p.inventory, p.action_slot, item, r.grade):
+		r.why = WHY_GONE
+		return r
+	if r.thrown:
+		r.flask = arena.throw_potion(p, item, r.grade, p.action_target, owner_slot)
+	else:
+		r.events = p.apply_potion(item, r.grade)
+	return r
 
 
 ## Takes one potion `id` at `grade` out of `inv`: from `slot` when it still holds that, else from the first

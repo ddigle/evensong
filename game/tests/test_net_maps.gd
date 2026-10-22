@@ -172,7 +172,7 @@ func _check_map_entry_codec() -> void:
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "more chunks than packed bytes: refused")
 	e.chunk_count = 0
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "no chunks: refused")
-	check_eq(NetProtocol.VERSION, 5, "protocol version 5 (M3b: 4; M4b: 5)")
+	check_eq(NetProtocol.VERSION, 6, "protocol version 6 (M3b: 4; M4b: 5; M6b: 6)")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 1
 	info.state.map = Config.MAP_DUNGEON

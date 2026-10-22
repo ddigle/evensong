@@ -453,6 +453,14 @@ const THROW_SPEED: float = 192.0
 const THROW_SPLASH_RADIUS_PX: float = 24.0
 const THROW_RELEASE_FRAME: int = 3
 
+# --- PROVISIONAL, M6b (potions and crafting in sessions: the host decides, README "임시값" M6b) -----------
+
+## PROVISIONAL (not in docs; ● gameplay-design §2.6 names the revive: F held next to a downed ally, the cleric at
+## once): a thrown healing potion that splashes a downed player gets it up (true) or not (false: it heals only
+## the players who are up, a downed one still needs F). Default false: §2.6 gives the revive one way, and a
+## potion that revives from 6 tiles away would make the cleric's instant revive (● §2.6) one of two.
+const THROW_HEAL_REVIVES: bool = false
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

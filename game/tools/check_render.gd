@@ -59,6 +59,13 @@ extends SceneTree
 ##            arc) and two splashes (frames 0 and 1): the screen equals the background plus their CPU
 ##            composites, pixel for pixel; then a player's buff and poison marks over its head and the HUD's
 ##            effect icons and time-left bars on their exact pixels.
+##   potions_net (M6b) what a session client draws of the host's potions: a real host arena (logging on) where a
+##            herbalist threw two bottles (one broke a few ticks ago: its splash; one in the air) at a poisoned
+##            heretic, and a player with a buff and a poison; drawn by the host's CombatView and Player, then by a
+##            client from the wire (the enemy batch with the poison flag, the thrown / broke events, the player's
+##            state with its effects block) sampled at the host's tick: the same pixels, with the bottle, the splash
+##            and the marks there. Then the crafting panel a client opens at a table that came in a world snapshot,
+##            for the inventory that came in an inventory message: the same pixels as the panel opened offline.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -115,6 +122,7 @@ func _run() -> void:
 		await _check_combat_net()
 		await _check_crafting()
 		await _check_potions()
+		await _check_potions_net()
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
@@ -793,6 +801,149 @@ func _check_potions() -> void:
 		print("EVENSONG_RENDER potions ok %s" % line)
 	else:
 		_fail("potions", line)
+
+
+func _check_potions_net() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var tick: int = 2000
+	var a: Arena = Arena.new()
+	a.setup(world.data, Config.DEFAULT_SEED)
+	a.spawning = false
+	a.logging = true
+	a.now = tick
+	var h: HereticSim = a.spawn_heretic(Vector2(origin + Vector2i(300, 130)) + Vector2(0.25, 0.25))
+	a.poison_heretic(h, Config.POISON_DAMAGE[ItemDB.Grade.FINE], Config.POISON_TICKS[ItemDB.Grade.FINE])
+	var thrower: Player = Player.new()
+	thrower.local_input = false
+	thrower.setup(world.data, "herbalist", Vector2(origin + Vector2i(90, 200)) + Vector2(0.4, 0.3))
+	var events: Array[NetProtocol.ShotEvent] = []
+	var no_players: Array[Player] = []
+	var first: Arena.Flask = a.throw_potion(thrower, &"potion_healing", ItemDB.Grade.FINE, thrower.sim_position + Vector2(60, -40), 1)
+	var second: Arena.Flask = null
+	for t: int in 40:
+		a.now = tick + t
+		if first.done and second == null and a.splashes.size() == 1 and a.splashes[0].age == 3:
+			second = a.throw_potion(thrower, &"potion_poison", ItemDB.Grade.FINE, Combat.body_centre(h.pos), 1)
+		a.step(no_players)
+		events.append_array(a.shot_events)
+		a.shot_events.clear()
+		if second != null and not second.done and second.progress() > 0.4:
+			break
+	var now: int = a.now
+	var p: Player = Player.new()
+	p.local_input = false
+	p.setup(world.data, "cleric", Vector2(origin + Vector2i(200, 90)))
+	p.apply_potion(&"potion_buff", ItemDB.Grade.FINE)
+	p.apply_potion(&"potion_poison", ItemDB.Grade.COMMON)
+	world.entities.add_child(p)
+	var host_v: CombatView = CombatView.new()
+	host_v.name = &"HostPotions"
+	world.add_child(host_v)
+	host_v.setup(a, world.entities)
+	host_v.sync([p] as Array[Player])
+	var host_img: Image = await _capture()
+	var host_flasks: int = a.flasks.size()
+	var host_splashes: int = a.splashes.size()
+	host_v.clear()
+	world.remove_child(host_v)
+	host_v.free()
+	world.entities.remove_child(p)
+	# The client: the wire, decoded.
+	var payload: PackedByteArray = NetProtocol.encode_enemies(now, Config.MAP_SURFACE, 0, a.enemy_states(now))
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, world.data)
+	nc.local_slot = 2
+	nc.on_batch(NetProtocol.decode_enemies(payload), payload, true)
+	nc.on_shots(NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_SURFACE, events)))
+	nc.sample(float(now), 0.0)
+	for hh: HereticSim in nc.arena.heretics:
+		hh.clock = h.clock  # the idle cycle is the client's own clock; the same frame here
+	var st: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	st.pos = p.sim_position
+	st.facing = p.facing
+	st.vitals = p.vitals.copy()
+	var wire: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(now, [st] as Array[NetProtocol.PlayerState]))
+	var client_p: Player = Player.new()
+	client_p.local_input = false
+	client_p.setup(world.data, "cleric", p.sim_position)
+	client_p.show_state(wire.states[0].pos, wire.states[0].facing, false, false, -1, 0, wire.states[0].vitals)
+	world.entities.add_child(client_p)
+	var client_v: CombatView = CombatView.new()
+	client_v.name = &"ClientPotions"
+	world.add_child(client_v)
+	client_v.setup(nc.arena, world.entities)
+	client_v.sync([client_p] as Array[Player])
+	var client_img: Image = await _capture()
+	var marks: Array[int] = client_p.effect_marks.shown.duplicate()
+	var foe_marked: bool = false
+	for hn2: Heretic in client_v.heretics.values():
+		foe_marked = hn2.marks.shown == ([EffectMarks.Kind.POISON] as Array[int])
+	client_v.clear()
+	world.remove_child(client_v)
+	client_v.free()
+	world.entities.remove_child(client_p)
+	client_p.free()
+	p.free()
+	thrower.free()
+	var n: int = count_diff(client_img, host_img)
+	var drawn: int = count_diff(host_img, bg)
+	var ok_scene: bool = n == 0 and drawn > 1000 and host_flasks == 1 and host_splashes == 1 and nc.arena.flasks.size() == 1 \
+		and nc.arena.splashes.size() == 1 and foe_marked and marks == ([EffectMarks.Kind.BUFF, EffectMarks.Kind.POISON] as Array[int])
+	if n > 0 or save_all:
+		_save(host_img, "potions_net_host.png")
+		_save(client_img, "potions_net_client.png")
+	# The client's crafting panel: a table that came in a world snapshot, the inventory in an inventory message.
+	var table_at: Vector2i = Vector2i(origin.x / Config.TILE + 5, origin.y / Config.TILE + 6)
+	var edits: Array[EditLog.WorldEdit] = []
+	for x: int in range(table_at.x - 1, table_at.x + 2):
+		edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(x, table_at.y), WorldData.PLACEABLE_ALCHEMY))
+	for e: EditLog.WorldEdit in edits:
+		world.apply_edit(e)
+	var feet: Vector2 = Vector2((table_at.x + 0.5) * Config.TILE, (table_at.y + 2) * Config.TILE - 2)
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(world.data)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got_data: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size,
+		packed.world_md5, Config.MAP_SURFACE)
+	for e2: EditLog.WorldEdit in edits:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, e2.cell, WorldData.PLACEABLE_NONE))
+	var inv: Inventory = Inventory.new()
+	inv.add(&"wild_healing", 4, ItemDB.Grade.FINE)
+	inv.add(&"wild_poison", 2, ItemDB.Grade.COMMON)
+	inv.add(&"potion_buff", 3, ItemDB.Grade.COMMON)
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var at_off: Crafting.StationAt = Crafting.StationAt.new()
+	at_off.kind = Crafting.ALCHEMY
+	at_off.rect = Rect2i(table_at - Vector2i(1, 0), Config.ALCHEMY_FOOTPRINT)
+	hud.crafting.open_for(at_off, inv, "herbalist")
+	var panel_off: Image = await _capture()
+	var rows_off: int = hud.crafting.recipes.size()
+	var inv_c: Inventory = Inventory.new()
+	SessionClient.take_inventory(inv_c, NetProtocol.decode_inventory(NetProtocol.encode_inventory(inv, 7)), inv.selected)
+	var at_c: Crafting.StationAt = Crafting.station_near(got_data, feet) if got_data != null else null
+	var panel_ok: bool = at_c != null and at_c.rect == at_off.rect
+	if panel_ok:
+		hud.crafting.open_for(at_c, inv_c, "herbalist")
+	var panel_c: Image = await _capture()
+	var rows_c: int = hud.crafting.recipes.size()
+	root.remove_child(hud)
+	hud.free()
+	var pn: int = count_diff(panel_c, panel_off)
+	var panel_drawn: int = count_diff(panel_off, bg)
+	if pn > 0 or save_all:
+		_save(panel_off, "potions_net_panel_offline.png")
+		_save(panel_c, "potions_net_panel_client.png")
+	panel_ok = panel_ok and pn == 0 and rows_c == rows_off and rows_off == 4 and panel_drawn > 1000
+	var line: String = "client_vs_host=%d pixels_drawn=%d flasks=%d splashes=%d marks=%s foe_marked=%s panel_rows=%d/%d panel_vs_offline=%d panel_drawn=%d" % [
+		n, drawn, nc.arena.flasks.size(), nc.arena.splashes.size(), marks, foe_marked, rows_c, rows_off, pn, panel_drawn]
+	if ok_scene and panel_ok:
+		print("EVENSONG_RENDER potions_net ok %s" % line)
+	else:
+		_fail("potions_net", line)
 
 
 ## Pastes the opaque pixels of `img` with its top-left at screen point `at`.

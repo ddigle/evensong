@@ -24,8 +24,13 @@ extends RefCounted
 ##                 DROP    u8 map, u8 slot, u8 count (0 = all), s16 x, s16 y   debug: drop onto the tile
 ##                 GIVE    u8 item index (255 = debug kit), u8 count, u8 grade debug, test builds only
 ##                 TRAVEL  u8 map, s16 x, s16 y (the entrance / stairs tile)   M3b: F on a way to another map
+##                 THROW   u8 map, u8 hotbar slot, s16 x, s16 y (target tile: the facing), u8 aim, s16 x,
+##                         s16 y (M6b: the point the bottle is thrown at, world px; the host clamps it to
+##                         Config.THROW_RANGE_PX from where it has the thrower)   the skill key 1
+##                 CRAFT   u8 map, u8 recipe (index in Crafting.recipes())     M6b: the crafting panel
 ##               M3b: a request aimed at a tile names the map it was aimed on (the map the sender
 ##               was on when it made the frame); the host refuses it on any other map ("wrong map").
+##               M6b: a USE of a potion is a drink (the host resolves it from the slot, like a tool).
 ##               frame code = (dx + 1) + 3 * (dy + 1) + 9 * (look + 1) + 45 * dash + 90 * F held, 0..179:
 ##               8 ways + none, the look = the facing toward the mouse while aiming (0..3) or -1 (the
 ##               facing follows the movement; the host derives it with the client's rule,
@@ -44,6 +49,10 @@ extends RefCounted
 ##               hold, u16 life ticks, u16 revive ticks. Without it the player is at rest (full HP and
 ##               stamina, no timer running, up: Vitals.at_rest), so a session without a fight sends M3b's
 ##               17 B states. A state is 17 or 33 B.
+##               M6b: the life byte's bit 7 = an effects block follows the vitals block (7 B, EFFECTS_SIZE):
+##               u8 buff percent, u16 buff ticks, u8 poison damage, u16 poison ticks, u8 poison timer. Only
+##               while a buff or a poison runs (a player with one is never at rest), so a state is 17, 33 or
+##               40 B.
 ##               Positions are the host's float32 simulation values, sent exactly, so a client that
 ##               replays its unacknowledged frames from them lands where the host will (M4b: the vitals
 ##               too: they are part of what the replay starts from).
@@ -70,11 +79,17 @@ extends RefCounted
 ##               f32 y, u8 flags (bits 0-1 facing, bit 2 walking, bits 3-5 HereticSim.State), u16 state
 ##               start (host tick - state ticks, low 16 bits; 0 for the untimed states idle / chase /
 ##               return), u8 hp, u8 hit flash ticks left. An enemy missing from a batch is gone.
+##               M6b: flags bit 6 = poisoned (the mark over its head; the HP is the host's).
 ## Shot events   host -> the clients on one map (M4b), reliable: u8 map, u8 count, then per event
 ##               u8 kind: 0 = let go (u32 id, u8 weapon item index, u8 shooter slot (255 = none), u32 host
 ##               tick, f32 x, f32 y (the body point it starts from), u8 aim code: 20 B), 1 = stopped
 ##               (u32 id, u32 host tick, f32 x, f32 y, u8 why (SHOT_STOPS): 18 B). The client flies the
 ##               shot itself between the two (Combat's speed for the weapon, the same aim vector).
+##               M6b, a thrown potion: 2 = thrown (u32 id, u8 potion item index, u8 thrower slot, u32 host
+##               tick, f32 x, f32 y (where it left the hand), f32 x, f32 y (where it lands at most): 27 B),
+##               3 = broke (u32 id, u8 potion item index, u32 host tick, f32 x, f32 y (the splash), u8 why
+##               (FLASK_STOPS): 19 B). The client flies the bottle itself (Arena.flask_advance, the host's
+##               own steps) and shows the splash from the tick it broke.
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
 ## 3 (M2b): frames carry the look and requests, states the body action and held item, inventories,
@@ -83,7 +98,9 @@ extends RefCounted
 ## the map they change, the snapshot header its map, the map entry message.
 ## 5 (M4b): combat in sessions: frame codes carry the dash and F held, a USE its aim, states the vitals
 ## block, the enemy batches and the shot events per map.
-const VERSION: int = 5
+## 6 (M6b): potions and crafting in sessions: THROW and CRAFT requests, the effects block after the vitals,
+## the heretic's poison flag, the thrown and broke events of a thrown potion.
+const VERSION: int = 6
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -94,11 +111,11 @@ const CH_ENEMY: int = 3
 enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO }
 const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "class_taken", "bad_hello"]
 
-## Requests riding on input frames (M2b).
-enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL }
-const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel"]
+## Requests riding on input frames (M2b). M6b: THROW (the skill key 1), CRAFT (the crafting panel).
+enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT }
+const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5]
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2]
 
 const INPUT_HEADER: int = 5
 const STATE_HEADER: int = 5
@@ -107,6 +124,11 @@ const STATE_SIZE: int = 17
 const INFO_SIZE: int = 18
 const VITALS_SIZE: int = 16
 const VITALS_FLAG: int = 0x80
+## M6b: the effects block after the vitals block (its flag: bit 7 of the vitals block's life byte).
+const EFFECTS_SIZE: int = 7
+const EFFECTS_FLAG: int = 0x80
+## M6b: the enemy flag of a poisoned heretic.
+const ENEMY_POISONED: int = 0x40
 ## M4b: enemy batches and shot events.
 const ENEMY_HEADER: int = 4 + 1 + 2 + 1
 const ENEMY_SIZE: int = 17
@@ -114,9 +136,14 @@ const ENEMY_SIZE: int = 17
 const ENEMY_BATCH_MAX: int = 64
 const SHOT_SPAWN_SIZE: int = 20
 const SHOT_END_SIZE: int = 18
+## M6b: a thrown potion's events.
+const FLASK_THROW_SIZE: int = 27
+const FLASK_SPLASH_SIZE: int = 19
 const SHOT_EVENTS_MAX: int = 255
 ## Why a shot stopped (Arena.Shot.stopped_by), by wire index.
 const SHOT_STOPS: PackedStringArray = ["spent", "wall", "heretic", "shrine", "player"]
+## M6b: why a thrown potion broke (Arena.Flask.stopped_by), by wire index.
+const FLASK_STOPS: PackedStringArray = ["landed", "wall"]
 const HELLO_SIZE: int = 3
 const WELCOME_FIXED: int = 2 + 1 + 1 + 4 + 1 + 4 + 4 + 4 + 4 + 16 + 16 + 16
 const INVENTORY_HEADER: int = 6
@@ -153,9 +180,11 @@ class InputFrame:
 	## Resolved, not sent: the body action a USE starts (-1 = none) and the item playing it.
 	var anim: int = -1
 	var item: StringName = &""
-	## M6a, resolved, not sent (offline only until M6b): a potion throw's landing point (world px, clamped to
-	## Config.THROW_RANGE_PX, Potions.throw_target).
+	## M6a: a potion throw's landing point (world px, clamped to Config.THROW_RANGE_PX, Potions.throw_target).
+	## M6b: sent with a THROW in whole px (the host clamps it again from where it has the thrower).
 	var throw_to: Vector2 = Vector2.ZERO
+	## M6b: a CRAFT's recipe (its index in Crafting.recipes()).
+	var recipe: int = 0
 	## M4a, on the wire since M4b: Space this frame (a dash), F held (revive someone / give up while down),
 	## and a USE's aim (Combat.aim_code, -1 = toward the tile; on the wire a USE always carries one: -1 is
 	## sent as 0, and the game always sets it, Player.make_frame).
@@ -170,7 +199,8 @@ class InputFrame:
 	## The request part equals `o`'s (op and its fields).
 	func same_request(o: InputFrame) -> bool:
 		return o != null and op == o.op and slot == o.slot and cell == o.cell and count == o.count \
-			and item_index == o.item_index and grade == o.grade and (map == o.map or not NetProtocol.op_has_map(op))
+			and item_index == o.item_index and grade == o.grade and (map == o.map or not NetProtocol.op_has_map(op)) \
+			and (op != Op.THROW or throw_to == o.throw_to) and (op != Op.CRAFT or recipe == o.recipe)
 
 	func describe_op() -> String:
 		match op:
@@ -186,6 +216,11 @@ class InputFrame:
 				return "give item=%d count=%d grade=%d" % [item_index, count, grade]
 			Op.TRAVEL:
 				return "travel map=%d at=%d,%d" % [map, cell.x, cell.y]
+			Op.THROW:
+				return "throw map=%d slot=%d at=%d,%d to=%d,%d" % [map, slot, cell.x, cell.y, roundi(throw_to.x),
+					roundi(throw_to.y)]
+			Op.CRAFT:
+				return "craft map=%d recipe=%d" % [map, recipe]
 		return "none"
 
 
@@ -303,10 +338,12 @@ class EnemyState:
 	var since: int = 0
 	var hp: int = Config.HERETIC_HP
 	var flash: int = 0
+	## M6b: poisoned (flags bit 6).
+	var poisoned: bool = false
 
 	func same_as(o: EnemyState) -> bool:
 		return o != null and id == o.id and pos == o.pos and facing == o.facing and walking == o.walking \
-			and state == o.state and since == o.since and hp == o.hp and flash == o.flash
+			and state == o.state and since == o.since and hp == o.hp and flash == o.flash and poisoned == o.poisoned
 
 
 ## M4b: one map's enemies and its shrine at a host tick.
@@ -319,24 +356,27 @@ class EnemyBatch:
 	var enemies: Array[EnemyState] = []
 
 
-## M4b: a shot let go (SPAWN) or stopped (END).
+## M4b: a shot let go (SPAWN) or stopped (END). M6b: a potion thrown (THROW) or broken (SPLASH).
 class ShotEvent:
 	extends RefCounted
-	enum Kind { SPAWN, END }
+	enum Kind { SPAWN, END, THROW, SPLASH }
 	var kind: int = Kind.SPAWN
 	var id: int = 0
-	## SPAWN: the weapon item, the shooter's slot (255 = none), the aim code.
+	## SPAWN: the weapon item, the shooter's slot (255 = none), the aim code. THROW / SPLASH: the potion item;
+	## THROW: the thrower's slot.
 	var item: StringName = &""
 	var owner: int = 255
 	var aim: int = 0
-	## The host tick it was let go / stopped, where (the body point it flies at), why it stopped (END).
+	## The host tick it was let go / stopped, where (the body point it flies at), why it stopped (END: SHOT_STOPS,
+	## SPLASH: FLASK_STOPS). THROW: `pos` = where it left the hand, `target` = where it lands at most.
 	var tick: int = 0
 	var pos: Vector2 = Vector2.ZERO
 	var why: int = 0
+	var target: Vector2 = Vector2.ZERO
 
 	func same_as(o: ShotEvent) -> bool:
 		return o != null and kind == o.kind and id == o.id and item == o.item and owner == o.owner and aim == o.aim \
-			and tick == o.tick and pos == o.pos and why == o.why
+			and tick == o.tick and pos == o.pos and why == o.why and target == o.target
 
 
 class ShotEvents:
@@ -374,9 +414,9 @@ static func dir_from_code(code: int) -> Vector2i:
 	return Vector2i(code % 3 - 1, code / 3 - 1)
 
 
-## Whether requests of kind `op` carry a map (they aim at a tile of it).
+## Whether requests of kind `op` carry a map (they aim at a tile of it; M6b: a throw, a craft at a station of it).
 static func op_has_map(op: int) -> bool:
-	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL
+	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT
 
 
 static func valid_map(map: int) -> bool:
@@ -446,6 +486,15 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_u8(at, f.item_index)
 			out.encode_u8(at + 1, f.count)
 			out.encode_u8(at + 2, f.grade)
+		Op.THROW:
+			out.encode_u8(at, f.slot)
+			out.encode_s16(at + 1, f.cell.x)
+			out.encode_s16(at + 3, f.cell.y)
+			out.encode_u8(at + 5, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
+			out.encode_s16(at + 6, clampi(roundi(f.throw_to.x), -32768, 32767))
+			out.encode_s16(at + 8, clampi(roundi(f.throw_to.y), -32768, 32767))
+		Op.CRAFT:
+			out.encode_u8(at, clampi(f.recipe, 0, 255))
 
 
 ## The op's fields at `at` into `f`; false when a field is out of range (map, slots, item, grade).
@@ -478,6 +527,15 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.count = bytes.decode_u8(at + 1)
 			f.grade = bytes.decode_u8(at + 2)
 			return (f.item_index < ItemDB.count() or f.item_index == WorldItems.GIVE_KIT) and f.grade < ItemDB.GRADE_NAMES.size()
+		Op.THROW:
+			f.slot = bytes.decode_u8(at)
+			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
+			f.aim = bytes.decode_u8(at + 5)
+			f.throw_to = Vector2(bytes.decode_s16(at + 6), bytes.decode_s16(at + 8))
+			return f.slot < Config.HOTBAR_SLOTS
+		Op.CRAFT:
+			f.recipe = bytes.decode_u8(at)
+			return f.recipe < Crafting.recipe_count()
 	return false
 
 
@@ -559,16 +617,31 @@ static func decode_states(bytes: PackedByteArray) -> StateBatch:
 	return b
 
 
-## M4b: a state's size on the wire (17 B, or 33 B with its vitals block).
+## M4b: a state's size on the wire (17 B, or 33 B with its vitals block; M6b: 40 B with its effects block).
 static func state_size(s: PlayerState) -> int:
-	return STATE_SIZE + (VITALS_SIZE if s.vitals != null and not s.vitals.at_rest() else 0)
+	return STATE_SIZE + vitals_size(s.vitals)
 
 
-## The size of the state at `at` from its flags byte, or -1 when it does not fit in `bytes`.
+## M6b: the bytes vitals `v` take after a state: none at rest, the vitals block, plus the effects block while a
+## buff or a poison runs.
+static func vitals_size(v: Vitals) -> int:
+	if v == null or v.at_rest():
+		return 0
+	return VITALS_SIZE + (EFFECTS_SIZE if v.has_effects() else 0)
+
+
+## The size of the state at `at` from its flags byte (M6b: and its vitals block's life byte), or -1 when it
+## does not fit in `bytes`.
 static func state_size_at(bytes: PackedByteArray, at: int) -> int:
 	if at < 0 or bytes.size() < at + STATE_SIZE:
 		return -1
-	var n: int = STATE_SIZE + (VITALS_SIZE if (bytes.decode_u8(at + 9) & VITALS_FLAG) != 0 else 0)
+	var n: int = STATE_SIZE
+	if (bytes.decode_u8(at + 9) & VITALS_FLAG) != 0:
+		n += VITALS_SIZE
+		if bytes.size() < at + n:
+			return -1
+		if (bytes.decode_u8(at + STATE_SIZE + 2) & EFFECTS_FLAG) != 0:
+			n += EFFECTS_SIZE
 	return n if bytes.size() >= at + n else -1
 
 
@@ -603,7 +676,7 @@ static func _get_state(bytes: PackedByteArray, at: int) -> PlayerState:
 	if s.slot >= Config.MAX_PLAYERS or not (is_finite(s.pos.x) and is_finite(s.pos.y)) or not valid_map(s.map):
 		return null
 	if (flags & VITALS_FLAG) != 0:
-		if bytes.size() < at + STATE_SIZE + VITALS_SIZE:
+		if state_size_at(bytes, at) < 0:
 			return null
 		s.vitals = get_vitals(bytes, at + STATE_SIZE)
 		if s.vitals == null or s.vitals.at_rest():
@@ -844,11 +917,13 @@ static func same_vitals(a: Vitals, b: Vitals) -> bool:
 	return x.same_wire(y)
 
 
-## The vitals block (VITALS_SIZE) at `at`.
+## The vitals block (VITALS_SIZE) at `at`; M6b: then the effects block (EFFECTS_SIZE) while a buff or a poison
+## runs, flagged in the life byte's bit 7 (`out` holds vitals_size(v) bytes from `at`).
 static func put_vitals(out: PackedByteArray, at: int, v: Vitals) -> void:
+	var effects: bool = v.has_effects()
 	out.encode_u8(at, clampi(v.hp, 0, 255))
 	out.encode_u8(at + 1, clampi(v.stamina, 0, 255))
-	out.encode_u8(at + 2, v.life)
+	out.encode_u8(at + 2, v.life | (EFFECTS_FLAG if effects else 0))
 	out.encode_u8(at + 3, clampi(v.stamina_wait, 0, 255))
 	out.encode_u8(at + 4, clampi(v.regen_tick, 0, 255))
 	out.encode_u8(at + 5, clampi(v.dash_ticks, 0, 255))
@@ -860,16 +935,25 @@ static func put_vitals(out: PackedByteArray, at: int, v: Vitals) -> void:
 	out.encode_u8(at + 11, clampi(v.give_up_ticks, 0, 255))
 	out.encode_u16(at + 12, clampi(v.life_ticks, 0, 65535))
 	out.encode_u16(at + 14, clampi(v.revive_ticks, 0, 65535))
+	if effects:
+		var e: int = at + VITALS_SIZE
+		out.encode_u8(e, clampi(v.buff_pct, 0, 255))
+		out.encode_u16(e + 1, clampi(v.buff_ticks, 0, 65535))
+		out.encode_u8(e + 3, clampi(v.poison_damage, 0, 255))
+		out.encode_u16(e + 4, clampi(v.poison_ticks, 0, 65535))
+		out.encode_u8(e + 6, clampi(v.poison_timer, 0, 255))
 
 
-## The vitals block at `at`, or null when a field is out of its range (the Config limits it can reach).
+## The vitals block at `at` (M6b: with its effects block when flagged), or null when a field is out of its
+## range (the Config limits it can reach) or the block does not fit.
 static func get_vitals(bytes: PackedByteArray, at: int) -> Vitals:
 	if at < 0 or bytes.size() < at + VITALS_SIZE:
 		return null
 	var v: Vitals = Vitals.new()
 	v.hp = bytes.decode_u8(at)
 	v.stamina = bytes.decode_u8(at + 1)
-	v.life = bytes.decode_u8(at + 2)
+	var life: int = bytes.decode_u8(at + 2)
+	v.life = life & ~EFFECTS_FLAG
 	v.stamina_wait = bytes.decode_u8(at + 3)
 	v.regen_tick = bytes.decode_u8(at + 4)
 	v.dash_ticks = bytes.decode_u8(at + 5)
@@ -889,7 +973,37 @@ static func get_vitals(bytes: PackedByteArray, at: int) -> Vitals:
 			or v.give_up_ticks > Config.GIVE_UP_HOLD_TICKS:
 		return null
 	v.dash_dir = dir_from_code(dir)
+	if (life & EFFECTS_FLAG) != 0:
+		if bytes.size() < at + VITALS_SIZE + EFFECTS_SIZE:
+			return null
+		var e: int = at + VITALS_SIZE
+		v.buff_pct = bytes.decode_u8(e)
+		v.buff_ticks = bytes.decode_u16(e + 1)
+		v.poison_damage = bytes.decode_u8(e + 3)
+		v.poison_ticks = bytes.decode_u16(e + 4)
+		v.poison_timer = bytes.decode_u8(e + 6)
+		if not effects_valid(v) or not v.has_effects():
+			return null  # a flagged block with no effect is never sent
 	return v
+
+
+## M6b: the effects within the values the rules can give them (Config "M6a"): a buff's percent and time, a
+## poison's damage, time and timer.
+static func effects_valid(v: Vitals) -> bool:
+	var max_pct: int = 100
+	for p: int in Config.BUFF_SPEED_PCT:
+		max_pct = maxi(max_pct, p)
+	var max_buff: int = 0
+	for t: int in Config.BUFF_TICKS:
+		max_buff = maxi(max_buff, t)
+	var max_damage: int = 0
+	for d: int in Config.POISON_DAMAGE:
+		max_damage = maxi(max_damage, d)
+	var max_poison: int = 0
+	for t2: int in Config.POISON_TICKS:
+		max_poison = maxi(max_poison, t2)
+	return v.buff_ticks <= max_buff and v.buff_pct <= max_pct and v.buff_pct >= 100 and v.poison_ticks <= max_poison \
+		and v.poison_damage <= max_damage and v.poison_timer <= Config.POISON_INTERVAL_TICKS
 
 
 # --- enemies and shots (M4b) ---------------------------------------------------------------------
@@ -911,6 +1025,7 @@ static func enemy_of(h: HereticSim, tick: int) -> EnemyState:
 	e.since = (tick - h.state_ticks) & 0xFFFF if timed_state(h.state) else 0
 	e.hp = h.hp
 	e.flash = h.flash_ticks
+	e.poisoned = h.alive() and h.poisoned()
 	return e
 
 
@@ -928,7 +1043,7 @@ static func encode_enemies(tick: int, map: int, shrine_hp: int, enemies: Array[E
 		out.encode_u32(at, e.id)
 		out.encode_float(at + 4, e.pos.x)
 		out.encode_float(at + 8, e.pos.y)
-		out.encode_u8(at + 12, (e.facing & 3) | (4 if e.walking else 0) | ((e.state & 7) << 3))
+		out.encode_u8(at + 12, (e.facing & 3) | (4 if e.walking else 0) | ((e.state & 7) << 3) | (ENEMY_POISONED if e.poisoned else 0))
 		out.encode_u16(at + 13, e.since & 0xFFFF)
 		out.encode_u8(at + 15, clampi(e.hp, 0, 255))
 		out.encode_u8(at + 16, clampi(e.flash, 0, 255))
@@ -958,10 +1073,11 @@ static func decode_enemies(bytes: PackedByteArray) -> EnemyBatch:
 		e.facing = flags & 3
 		e.walking = (flags & 4) != 0
 		e.state = (flags >> 3) & 7
+		e.poisoned = (flags & ENEMY_POISONED) != 0
 		e.since = bytes.decode_u16(at + 13)
 		e.hp = bytes.decode_u8(at + 15)
 		e.flash = bytes.decode_u8(at + 16)
-		if (flags & 0xC0) != 0 or e.state >= HereticSim.STATE_NAMES.size() or not (is_finite(e.pos.x) and is_finite(e.pos.y)) \
+		if (flags & 0x80) != 0 or (e.poisoned and e.state == HereticSim.State.DEAD) or e.state >= HereticSim.STATE_NAMES.size() or not (is_finite(e.pos.x) and is_finite(e.pos.y)) \
 				or e.hp > Config.HERETIC_HP or e.flash > Config.HIT_FLASH_TICKS or ids.has(e.id) \
 				or (e.since != 0 and not timed_state(e.state)):
 			return b
@@ -987,6 +1103,26 @@ static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
 			out.encode_float(at + 11, e.pos.x)
 			out.encode_float(at + 15, e.pos.y)
 			out.encode_u8(at + 19, clampi(e.aim, 0, Combat.AIM_STEPS - 1))
+		elif e.kind == ShotEvent.Kind.THROW:
+			out.resize(at + FLASK_THROW_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.THROW)
+			out.encode_u32(at + 1, e.id)
+			out.encode_u8(at + 5, ItemDB.index_of(e.item))
+			out.encode_u8(at + 6, clampi(e.owner, 0, 255))
+			out.encode_u32(at + 7, e.tick)
+			out.encode_float(at + 11, e.pos.x)
+			out.encode_float(at + 15, e.pos.y)
+			out.encode_float(at + 19, e.target.x)
+			out.encode_float(at + 23, e.target.y)
+		elif e.kind == ShotEvent.Kind.SPLASH:
+			out.resize(at + FLASK_SPLASH_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.SPLASH)
+			out.encode_u32(at + 1, e.id)
+			out.encode_u8(at + 5, ItemDB.index_of(e.item))
+			out.encode_u32(at + 6, e.tick)
+			out.encode_float(at + 10, e.pos.x)
+			out.encode_float(at + 14, e.pos.y)
+			out.encode_u8(at + 18, e.why)
 		else:
 			out.resize(at + SHOT_END_SIZE)
 			out.encode_u8(at, ShotEvent.Kind.END)
@@ -1037,8 +1173,37 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 			if e.why >= SHOT_STOPS.size() or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
 				return s
 			at += SHOT_END_SIZE
+		elif e.kind == ShotEvent.Kind.THROW:
+			if at + FLASK_THROW_SIZE > bytes.size():
+				return s
+			e.id = bytes.decode_u32(at + 1)
+			e.item = _potion_at(bytes.decode_u8(at + 5))
+			e.owner = bytes.decode_u8(at + 6)
+			e.tick = bytes.decode_u32(at + 7)
+			e.pos = Vector2(bytes.decode_float(at + 11), bytes.decode_float(at + 15))
+			e.target = Vector2(bytes.decode_float(at + 19), bytes.decode_float(at + 23))
+			if e.item.is_empty() or not (is_finite(e.pos.x) and is_finite(e.pos.y) and is_finite(e.target.x) 					and is_finite(e.target.y)) or e.pos.distance_to(e.target) > Config.THROW_RANGE_PX + 1.0:
+				return s
+			at += FLASK_THROW_SIZE
+		elif e.kind == ShotEvent.Kind.SPLASH:
+			if at + FLASK_SPLASH_SIZE > bytes.size():
+				return s
+			e.id = bytes.decode_u32(at + 1)
+			e.item = _potion_at(bytes.decode_u8(at + 5))
+			e.tick = bytes.decode_u32(at + 6)
+			e.pos = Vector2(bytes.decode_float(at + 10), bytes.decode_float(at + 14))
+			e.why = bytes.decode_u8(at + 18)
+			if e.item.is_empty() or e.why >= FLASK_STOPS.size() or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
+				return s
+			at += FLASK_SPLASH_SIZE
 		else:
 			return s
 		s.events.append(e)
 	s.ok = at == bytes.size()
 	return s
+
+
+## M6b: the potion at item index `index` (&"" when it is no potion).
+static func _potion_at(index: int) -> StringName:
+	var id: StringName = ItemDB.id_at(index) if index < ItemDB.count() else &""
+	return id if not id.is_empty() and Potions.is_potion(id) else &""

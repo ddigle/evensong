@@ -37,7 +37,8 @@ var give_up_ticks: int = 0
 var flash_ticks: int = 0
 ## M6a, the effects (items/potions.gd; PlayerSim.step counts them down): the buff (walking speed percent,
 ## 100 = none, and ticks left) and the poison (damage per poison tick, ticks left, ticks to the next poison
-## tick). Not on the wire yet (sessions have no effects until M6b), so not in idle() / at_rest().
+## tick). M6b: on the wire after the vitals block (NetProtocol's effects block, only while one runs), and a
+## running effect is a running timer (idle() false: the client's frames are the host's clock for it).
 var buff_pct: int = 100
 var buff_ticks: int = 0
 var poison_damage: int = 0
@@ -77,17 +78,24 @@ func same_as(o: Vitals) -> bool:
 		and give_up_ticks == o.give_up_ticks and same_effects(o)
 
 
-## M4b: every field the wire carries (NetProtocol.put_vitals), the hit flash included.
+## M4b: every field the wire carries (NetProtocol.put_vitals), the hit flash included (M6b: the effects too).
 func same_wire(o: Vitals) -> bool:
 	return same_as(o) and flash_ticks == o.flash_ticks
 
 
 ## M4b: no timer runs (stamina full, no dash, cooldown, stagger, invulnerability or flash) and the player
 ## is up. A client records a frame every tick while this is false, so the host steps it tick by tick.
+## M6b: nor a buff or a poison (they count down on the player's frames like the other timers).
 func idle() -> bool:
 	return life == Life.ALIVE and stamina == Config.STAMINA_MAX and stamina_wait == 0 and regen_tick == 0 \
 		and dash_ticks == 0 and dash_dir == Vector2i.ZERO and dash_cooldown == 0 and hurt_ticks == 0 \
-		and invuln_ticks == 0 and flash_ticks == 0 and life_ticks == 0 and revive_ticks == 0 and give_up_ticks == 0
+		and invuln_ticks == 0 and flash_ticks == 0 and life_ticks == 0 and revive_ticks == 0 and give_up_ticks == 0 \
+		and not has_effects()
+
+
+## M6b: any effect field set (a buff or a poison running; NetProtocol sends the effects block then).
+func has_effects() -> bool:
+	return buff_pct != 100 or buff_ticks != 0 or poison_damage != 0 or poison_ticks != 0 or poison_timer != 0
 
 
 ## M4b: idle and at full HP: what a fresh player has. A state batch sends no vitals block for it.

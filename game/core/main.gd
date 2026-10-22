@@ -56,6 +56,11 @@ extends Node2D
 ## placed like a torch (--give=alchemy_table, WorldItems.place with the bodies around). A potion's effect frame
 ## (Player.action_impact with a potion) drinks it (Potions.apply), a throw's release frame lets the bottle go
 ## into the arena (Arena.throw_potion); the skill key 1 throws (the herbalist's).
+## M6b (sessions): the same keys. Tab next to a station on the local player's map opens the same panel (the
+## station came with the world snapshot or an edit), a row crafted is a CRAFT request to the host (not
+## predicted: the host's inventory comes back), drinking and throwing are frames the session sends (the
+## client predicts the action, the host decides the effect); the alchemy table is placed like a torch, by the
+## host. A bot's tab / craft in a session come here through NetSession.bot_ui.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -104,6 +109,7 @@ func _ready() -> void:
 		net.local_player_ready.connect(_on_local_player_ready)
 		net.local_map_changed.connect(_on_local_map_changed)
 		net.ended.connect(_on_net_ended)
+		net.bot_ui.connect(_on_bot_ui)  # M6b: a bot's tab / craft in a session
 		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
 			net.worlds[id] = worlds[id]
@@ -184,9 +190,11 @@ func travel(to: int) -> bool:
 
 
 func _physics_process(delta: float) -> void:
-	if player == null or _in_session():
+	if player == null or not is_instance_valid(player):
 		return
-	_check_crafting()
+	_check_crafting()  # M6b: in a session too
+	if _in_session():
+		return
 	if bot != null:
 		_bot_tick(delta)
 	step_combat(delta)
@@ -301,8 +309,9 @@ func _bind(p: Player) -> void:
 ## (M3-fix: before, only spawn() connected them, so a client that lost its host could not mine).
 func _on_local_player_ready(p: Player) -> void:
 	player = p
+	p.potions_on = true  # M6b: drinking and throwing in sessions (the host decides the effect)
 	for pair: Array in [[p.action_started, _on_action_started], [p.action_impact, _on_action_impact],
-			[p.place_requested, _on_place_requested]]:
+			[p.place_requested, _on_place_requested], [p.potion_refused, _on_potion_refused]]:
 		var sig: Signal = pair[0]
 		var handler: Callable = pair[1]
 		if not sig.is_connected(handler):
@@ -693,13 +702,13 @@ func crafting_open() -> bool:
 	return hud != null and hud.crafting.is_open()
 
 
-## Tab: closes the crafting panel when it is open; offline next to a station (Crafting.station_near) opens it,
-## else (and always in a session) shows / hides the inventory as before (M2a).
+## Tab: closes the crafting panel when it is open; next to a station (Crafting.station_near; M6b: in a session
+## too, on the map the local player has) opens it, else shows / hides the inventory as before (M2a).
 func toggle_tab() -> void:
 	if crafting_open():
 		close_crafting()
 		return
-	if not _in_session() and player.vitals.alive():
+	if player.vitals.alive():
 		var at: Crafting.StationAt = Crafting.station_near(current_world().data, player.sim_position)
 		if at != null:
 			open_crafting(at)
@@ -733,18 +742,40 @@ func _check_crafting() -> void:
 		print("EVENSONG_CRAFT closed: not at the station")
 
 
-## Crafts row `i` of the open panel (Crafting.craft: all or nothing).
+## Crafts row `i` of the open panel (Crafting.craft: all or nothing). M6b: in a session a CRAFT request to the
+## host (it checks the station, the recipe, the inputs and the room; the inventory it sends back shows it).
 func craft_row(i: int) -> void:
 	if not crafting_open() or i < 0 or i >= hud.crafting.recipes.size():
 		return
 	var r: Crafting.Recipe = hud.crafting.recipes[i]
 	hud.crafting.selected = i
+	if _in_session():
+		net.queue_op(craft_request(Crafting.index_of(r.id)))
+		print("EVENSONG_CRAFT request recipe=%s" % r.id)
+		return
 	var o: Crafting.Outcome = Crafting.craft(r, player.class_id(), player.inventory)
 	if o.ok():
 		print("EVENSONG_CRAFT made recipe=%s item=%s count=%d grade=%s" % [r.id, o.item, o.count, ItemDB.GRADE_NAMES[o.grade]])
 	else:
 		print("EVENSONG_CRAFT refused recipe=%s: %s" % [r.id, o.why])
 	hud.crafting.refresh()
+
+
+## M6b: a CRAFT request (the map is set when it is put on a frame, SessionHost.attach_local_op).
+static func craft_request(recipe_index: int) -> NetProtocol.InputFrame:
+	var f: NetProtocol.InputFrame = request(NetProtocol.Op.CRAFT)
+	f.recipe = recipe_index
+	return f
+
+
+## M6b: a bot's Tab / craft row in a session (NetSession.bot_ui, before the frame is built).
+func _on_bot_ui(tab: bool, row: int) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	if tab:
+		toggle_tab()
+	if row >= 0:
+		craft_row(row)
 
 
 func _crafting_input(event: InputEvent) -> void:
@@ -773,26 +804,18 @@ static func _is_enter(event: InputEvent) -> bool:
 ## / action_target): the drink takes one potion and works on `p` (Potions.apply; refused again here at full HP
 ## and then nothing is used); the throw takes one and lets the bottle go into the map's arena.
 func potion_impact(p: Player, item: StringName, anim: int) -> void:
-	var grade: int = p.action_grade
-	if anim != RigData.Anim.THROW:
-		var why: String = Potions.drink_refusal(item, grade, p.vitals)
-		if not why.is_empty():
-			print("EVENSONG_POTION drink refused item=%s: %s" % [item, why])
-			return
-	if not Potions.take_one(p.inventory, p.action_slot, item, grade):
-		print("EVENSONG_POTION %s refused item=%s: %s" % ["throw" if anim == RigData.Anim.THROW else "drink", item,
-			Potions.WHY_GONE])
+	var arena: Arena = arenas[current_map] if ensure_combat(current_map) else null
+	var r: Potions.Released = Potions.release(p, item, anim, arena)  # M6b: the host's rule too
+	var what: String = "throw" if r.thrown else "drink"
+	if not r.ok():
+		print("EVENSONG_POTION %s refused item=%s: %s" % [what, item, r.why])
 		return
-	if anim == RigData.Anim.THROW:
-		if not ensure_combat(current_map):
-			return
-		var f: Arena.Flask = arenas[current_map].throw_potion(p, item, grade, p.action_target)
-		print("EVENSONG_POTION throw item=%s grade=%s from=%d,%d to=%d,%d" % [item, ItemDB.GRADE_NAMES[grade],
-			roundi(f.origin.x), roundi(f.origin.y), roundi(f.target.x), roundi(f.target.y)])
+	if r.thrown:
+		print("EVENSONG_POTION throw item=%s grade=%s from=%d,%d to=%d,%d" % [item, ItemDB.GRADE_NAMES[r.grade],
+			roundi(r.flask.origin.x), roundi(r.flask.origin.y), roundi(r.flask.target.x), roundi(r.flask.target.y)])
 		return
-	var events: int = p.apply_potion(item, grade)
-	print("EVENSONG_POTION drink item=%s grade=%s hp=%d buff=%d poison=%d%s" % [item, ItemDB.GRADE_NAMES[grade], p.vitals.hp,
-		p.vitals.buff_ticks, p.vitals.poison_ticks, "" if events != 0 else " (no effect)"])
+	print("EVENSONG_POTION drink item=%s grade=%s hp=%d buff=%d poison=%d%s" % [item, ItemDB.GRADE_NAMES[r.grade],
+		p.vitals.hp, p.vitals.buff_ticks, p.vitals.poison_ticks, "" if r.events != 0 else " (no effect)"])
 
 
 func _on_potion_refused(what: String, why: String) -> void:

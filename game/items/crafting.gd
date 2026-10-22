@@ -2,7 +2,9 @@ class_name Crafting
 extends RefCounted
 ## M6a: crafting (○ gameplay-design §3.5 "작업대 근처에서 Tab"): stations, recipes and the craft rule, pure
 ## functions on WorldData + Inventory like items/world_items.gd, so M6b's host and M7's workbench, anvil and
-## relic bench use the same frame (a station kind per placeable fixture, recipes per station).
+## relic bench use the same frame (a station kind per placeable fixture, recipes per station). M6b: a session's
+## craft is a CRAFT request (the recipe's index, recipe_at) that the host checks with station_near on its own
+## data and position of the player and craft() on the player's inventory (net/session_host.gd).
 ##
 ## Station: a placeable fixture whose WorldData value is in STATION_OF; a player is at it while its feet tile
 ## is within Config.STATION_REACH_TILES (Chebyshev) of the footprint (station_near). M6a has one, the alchemy
@@ -126,6 +128,29 @@ static func recipe(id: StringName) -> Recipe:
 		if r.id == id:
 			return r
 	return null
+
+
+## M6b: how many recipes there are (a CRAFT request's index is below it) and recipe `id`'s index (-1 = none).
+static func recipe_count() -> int:
+	if _recipes.is_empty():
+		recipes()
+	return _recipes.size()
+
+
+static func index_of(id: StringName) -> int:
+	if _recipes.is_empty():
+		recipes()
+	for i: int in _recipes.size():
+		if _recipes[i].id == id:
+			return i
+	return -1
+
+
+## M6b: recipe number `index` (a CRAFT request's), or null.
+static func recipe_at(index: int) -> Recipe:
+	if _recipes.is_empty():
+		recipes()
+	return _recipes[index] if index >= 0 and index < _recipes.size() else null
 
 
 ## The recipes of station `kind`, in order.

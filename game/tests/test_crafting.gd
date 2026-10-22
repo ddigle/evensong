@@ -4,7 +4,8 @@ extends "res://tests/base_test.gd"
 ## Config.RECIPES_UNLOCK_ON_FIRST_GET), station reach for Tab (Config.STATION_REACH_TILES), the alchemy table
 ## (placement like a torch: footprint, open floor, bodies, never touching another; it blocks walking and shots;
 ## drawn on its footprint), and main.tscn (Tab at the table opens the panel and stands the player, keys and a
-## click craft, walking away or Tab closes it, Tab elsewhere is the inventory; the table refused in a session).
+## click craft, walking away or Tab closes it, Tab elsewhere is the inventory; M6b: the table placed by the host in a
+## session, a potion's USE a drink there; tests/test_net_potions.gd has the rest of the session's crafting).
 
 const SessionHostScript := preload("res://net/session_host.gd")
 const TICK: float = 1.0 / 60.0
@@ -22,7 +23,7 @@ func run() -> Array[String]:
 	_check_table_blocks()
 	await _check_table_drawn()
 	await _check_main_tab()
-	await _check_session_refuses_table()
+	await _check_session_table()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -413,8 +414,9 @@ static func _action_event(action: StringName) -> InputEventAction:
 	return e
 
 
-## A session (M6a): the host refuses a client's alchemy table (offline only until M6b); Tab is the inventory.
-func _check_session_refuses_table() -> void:
+## A session: M6a's host refused a client's alchemy table and took a potion's USE for "not a tool"; M6b places the
+## table (an edit on the member's map) and takes the USE as a drink (refused at full HP, the drink action below it).
+func _check_session_table() -> void:
 	var world: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
 	world.auto_generate = false
 	world.free_camera = false
@@ -433,7 +435,6 @@ func _check_session_refuses_table() -> void:
 	m.gate = InputGate.new()
 	m.player.inventory.add(&"alchemy_table", 1)
 	m.player.inventory.add(&"potion_healing", 2)
-	check(not m.player.potions_on, "a session's player has potions off (M6b)")
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
 	f.op = NetProtocol.Op.USE
 	f.slot = 0
@@ -441,8 +442,10 @@ func _check_session_refuses_table() -> void:
 	f.map = Config.MAP_SURFACE
 	m.player.begin_tick()
 	host.run_frame(m, f)
-	check_eq(m.refused(WorldItems.WHY_OFFLINE_ONLY), 1, "the host refuses the table in a session")
-	check_eq(world.data.footprints(WorldData.PLACEABLE_ALCHEMY).size(), 0, "no table")
+	check_eq(m.ops_refused.size(), 0, "M6b: the host places the table in a session (%s)" % m.ops_refused)
+	check_eq(world.data.footprints(WorldData.PLACEABLE_ALCHEMY).size(), 1, "M6b: the table stands on the host's map")
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), Config.ALCHEMY_FOOTPRINT.x * Config.ALCHEMY_FOOTPRINT.y,
+		"one edit per footprint tile in the map's log")
 	var drink: NetProtocol.InputFrame = NetProtocol.InputFrame.new(2, Vector2i.ZERO)
 	drink.op = NetProtocol.Op.USE
 	drink.slot = 1
@@ -450,5 +453,10 @@ func _check_session_refuses_table() -> void:
 	drink.map = Config.MAP_SURFACE
 	m.player.begin_tick()
 	host.run_frame(m, drink)
-	check_eq(m.refused(WorldItems.WHY_NOT_TOOL), 1, "a potion's USE in a session: not a tool (drinking is M6b)")
+	check_eq(m.refused(Potions.WHY_FULL_HP), 1, "M6b: a potion's USE is a drink: at full HP refused")
 	check_eq(m.player.action_anim, -1, "no action")
+	m.player.vitals.hp = 40
+	drink.seq = 3
+	m.player.begin_tick()
+	host.run_frame(m, drink)
+	check_eq(m.player.action_anim, Config.DRINK_ANIM, "M6b: below full HP the host starts the drink")

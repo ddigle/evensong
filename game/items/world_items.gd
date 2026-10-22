@@ -63,11 +63,10 @@ const WHY_LOADING: String = "still loading"
 ## M4a: a death left nothing to drop / no free tile for the bag near the death spot.
 const WHY_NOTHING_TO_DROP: String = "nothing to drop"
 const WHY_NO_ROOM: String = "no room for a bag"
-## M6a: a blocking placeable (the alchemy table) would cover someone's feet / touch another of its kind;
-## a session refuses the table until M6b (crafting is offline only in M6a).
+## M6a: a blocking placeable (the alchemy table) would cover someone's feet / touch another of its kind
+## (M6b: in a session too; M6a's session refused the table, "alchemy table offline only").
 const WHY_BODY: String = "someone stands there"
 const WHY_TOO_CLOSE: String = "too close to another"
-const WHY_OFFLINE_ONLY: String = "alchemy table offline only"
 ## M4a: how far (tiles, rings around the death tile) the bag looks for a free tile.
 const BAG_SEARCH_TILES: int = 3
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
