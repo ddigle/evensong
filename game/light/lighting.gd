@@ -5,9 +5,15 @@ extends Node2D
 ## open question (? gameplay-design §3.1), so the colour is provisional (Config.EVENING_COLOR).
 ##   Evening    CanvasModulate (multiplies the whole canvas; unshaded items such as flames skip it)
 ##   AltarLight light/altar_light.gd
+##   Torches    M3a: the lights of placed torches and wall torches (world/fixture_view.gd adds them),
+##              on and off with the darkness
+## M3a: each map has its own GameWorld and so its own Lighting; only the shown map's darkness applies
+## (a hidden CanvasModulate is not applied), and F4 goes to the shown one. The dungeon uses
+## Config.DUNGEON_DARK_COLOR (set_dark_color) and has no altar light.
 
 var evening: CanvasModulate
 var altar_light: AltarLight
+var torches: Node2D
 var evening_on: bool = true
 
 
@@ -19,6 +25,9 @@ func _init() -> void:
 	altar_light = AltarLight.new()
 	altar_light.name = &"AltarLight"
 	add_child(altar_light)
+	torches = Node2D.new()
+	torches.name = &"Torches"
+	add_child(torches)
 
 
 func setup(zone: SafeZone, on: bool = true) -> void:
@@ -31,9 +40,17 @@ func set_evening(on: bool) -> void:
 	evening_on = on
 	evening.visible = on
 	altar_light.set_lit(on)
+	torches.visible = on
+
+
+## The darkness's colour (the surface's evening, or the dungeon's dark).
+func set_dark_color(color: Color) -> void:
+	evening.color = color
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_visible_in_tree():
+		return  # another map is shown (M3a)
 	if event.is_action_pressed("toggle_evening"):
 		set_evening(not evening_on)
 		get_viewport().set_input_as_handled()

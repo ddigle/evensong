@@ -5,6 +5,8 @@ extends RefCounted
 ## world drawn with the ground view (corners, fallbacks, soil/ash, its hash = SurfaceGen.GOLDEN_HASH,
 ## the x86_64 result), the character art and rig tables, the body action sheets, item icons and M2a
 ## input actions, the safe-zone light texture against the rule, the flame mask, and the run scene.
+## M3a: the surface world's dungeon entrance, the committed dungeon TileSet, the seed-1 dungeon (its
+## hash = DungeonGen.GOLDEN_HASH, exit stairs, arrival point, shrine) drawn with the cave view.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -54,6 +56,7 @@ static func run(tree: SceneTree) -> Report:
 	var table: WangTable = _check_tileset(r)
 	if table != null:
 		_check_world(r, table)
+	_check_dungeon(r)
 	_check_actors(r)
 	_check_items(r)
 	_check_light(r)
@@ -151,6 +154,34 @@ static func _check_world(r: Report, table: WangTable) -> void:
 	r.expect_eq(v["fallbacks"], 0, "display cells drawn with a fallback tile")
 	r.fields.append("seed=%d world=%dx%d hash=%s cells=%d chunks=%d gatherables=%d" % [data.world_seed, data.size.x,
 		data.size.y, data.content_hash().left(12), cells, view.chunk_count(), gatherables])
+	view.free()
+
+
+## M3a: the dungeon TileSet (2 sources, 30 tiles, 21 corner keys), the seed-1 dungeon (hash, exit
+## stairs, arrival point open, shrine) drawn with the cave view (every display cell by the rule), and
+## the surface's entrance.
+static func _check_dungeon(r: Report) -> void:
+	var ts: TileSet = load(TilesetBuilder.DUNGEON_PATH) as TileSet
+	if not r.expect(ts != null, "dungeon tileset missing"):
+		return
+	r.expect_eq(ts.get_source_count(), 2, "dungeon tileset sources")
+	r.expect_eq(TilesetBuilder.count_tiles(ts), 30, "dungeon tileset tiles")
+	var table: CaveTable = CaveTable.from_tile_set(ts)
+	r.expect_eq(table.exact_keys, 21, "dungeon corner keys with art")
+	var data: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	r.expect_eq(data.size, Config.DUNGEON_SIZE, "dungeon size")
+	r.expect_eq(data.content_hash(), DungeonGen.GOLDEN_HASH, "seed %d dungeon hash (DungeonGen.GOLDEN_HASH)" % Config.DEFAULT_SEED)
+	r.expect_eq(DungeonGen.exit_rect(data).size, Config.EXIT_FOOTPRINT, "dungeon exit stairs")
+	r.expect_eq(DungeonGen.shrine_rect(data).size, Config.SHRINE_FOOTPRINT, "dungeon shrine spot")
+	r.expect(Movement.can_stand(data, DungeonGen.arrival_point(data)), "dungeon arrival point open")
+	var view: CaveView = CaveView.new()
+	view.setup(data, table)
+	var v: Dictionary[String, int] = view.verify()
+	r.expect_eq(v["missing"] + v["mismatches"] + v["overlay_mismatches"], 0, "dungeon display cells / overlays against the data")
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	r.expect_eq(SurfaceGen.entrance_rect(surface).size, Config.ENTRANCE_FOOTPRINT, "surface dungeon entrance")
+	r.fields.append("dungeon=%dx%d hash=%s ores=%d" % [data.size.x, data.size.y, data.content_hash().left(12),
+		Walls.ore_cells(data).size()])
 	view.free()
 
 

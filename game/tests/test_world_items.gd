@@ -160,6 +160,7 @@ func _check_rules() -> void:
 	# Give.
 	var g: Inventory = Inventory.new()
 	check(WorldItems.give(g, WorldItems.GIVE_KIT, 0, 0).ok() and g.count_of(&"pickaxe") == 1, "give the debug kit")
+	g = Inventory.new()  # M3a: the debug kit (with the torches) fills every slot
 	check(WorldItems.give(g, ItemDB.index_of(&"wild_buff"), 3, ItemDB.Grade.FINE).ok()
 		and g.count_of(&"wild_buff", ItemDB.Grade.FINE) == 3, "give 3 fine wild buffs")
 	check_eq(WorldItems.give(g, 200, 1, 0).why, WorldItems.WHY_BAD_ITEM, "give an unknown item")

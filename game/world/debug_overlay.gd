@@ -25,6 +25,9 @@ func setup(p_data: WorldData) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	var world: Node2D = get_parent() as Node2D
+	if world != null and not world.is_visible_in_tree():
+		return  # another map is shown (M3a)
 	if event.is_action_pressed("debug_overlay"):
 		visible = not visible
 		get_viewport().set_input_as_handled()

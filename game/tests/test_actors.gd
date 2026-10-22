@@ -60,6 +60,26 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/items/item_stone_veined_v02.png": "assets/concept/04-env/item_stone_veined_v02.png",
 	"res://art/items/item_stone_mould_v02.png": "assets/concept/04-env/item_stone_mould_v02.png",
 	"res://art/items/item_stone_block_v02.png": "assets/concept/04-env/item_stone_block_v02.png",
+	# M3a: the dungeon (04-env cliff tileset, ore tiles, cracks, props, ore items)
+	"res://art/tiles/tiles_dungeon_v02.png": "assets/concept/04-env/tiles_dungeon_v02.png",
+	"res://art/tiles/tiles_dungeon_v02_var.png": "assets/concept/04-env/tiles_dungeon_v02_var.png",
+	"res://art/tiles/tiles_dungeon_v01.json": "assets/concept/04-env/tiles_dungeon_v01.json",
+	"res://art/tiles/tiles_ore_copper_a_v02.png": "assets/concept/04-env/tiles_ore_copper_a_v02.png",
+	"res://art/tiles/tiles_ore_copper_b_v02.png": "assets/concept/04-env/tiles_ore_copper_b_v02.png",
+	"res://art/tiles/tiles_ore_iron_a_v02.png": "assets/concept/04-env/tiles_ore_iron_a_v02.png",
+	"res://art/tiles/tiles_ore_iron_b_v02.png": "assets/concept/04-env/tiles_ore_iron_b_v02.png",
+	"res://art/tiles/wall_crack_top_v01.png": "assets/concept/04-env/wall_crack_top_v01.png",
+	"res://art/tiles/wall_crack_face_v01.png": "assets/concept/04-env/wall_crack_face_v01.png",
+	"res://art/env/heretic_shrine_v02.png": "assets/concept/04-env/heretic_shrine_v02.png",
+	"res://art/env/dungeon_entrance_v02.png": "assets/concept/04-env/dungeon_entrance_v02.png",
+	"res://art/env/dungeon_entrance_stairs_v01.png": "assets/concept/04-env/dungeon_entrance_stairs_v01.png",
+	"res://art/env/dungeon_entrance_debris_v01.png": "assets/concept/04-env/dungeon_entrance_debris_v01.png",
+	"res://art/env/prop_wall_torch_a_v02.png": "assets/concept/04-env/prop_wall_torch_a_v02.png",
+	"res://art/env/flame_large_v01.png": "assets/concept/04-env/flame_large_v01.png",
+	"res://art/env/prop_lantern_ground_v03_lit.png": "assets/concept/04-env/prop_lantern_ground_v03_lit.png",
+	"res://art/env/prop_lantern_ground_v03_emissive.png": "assets/concept/04-env/prop_lantern_ground_v03_emissive.png",
+	"res://art/items/item_ore_copper_a_v02.png": "assets/concept/04-env/item_ore_copper_a_v02.png",
+	"res://art/items/item_ore_iron_a_v02.png": "assets/concept/04-env/item_ore_iron_a_v02.png",
 }
 const SIZES: Dictionary[String, Vector2i] = {
 	"res://art/chars/base_body_v02_walk.png": Vector2i(192, 96),
@@ -795,5 +815,5 @@ func _check_main_scene() -> void:
 		dummy_classes.append(d.class_id)
 	check_eq(dummy_classes, PackedStringArray(["paladin", "miner", "archer", "herbalist"]), "dummies are the other classes")
 	var items: int = world.items.plants.size() + world.items.drops.size()
-	check_eq(world.entities.get_child_count() - items, 1 + 1 + 4,
-		"entities: altar + player + 4 dummies (old ones freed) besides the %d gatherables and drops (M2b)" % items)
+	check_eq(world.entities.get_child_count() - items, 1 + 1 + 4 + 1,
+		"entities: altar + player + 4 dummies (old ones freed) + the dungeon entrance (M3a) besides the %d gatherables and drops (M2b)" % items)

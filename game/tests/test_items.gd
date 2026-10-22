@@ -27,7 +27,12 @@ const ART: Dictionary[StringName, Array] = {
 	&"stone_mossy": ["item_stone_mossy_v02.png", "item_stone_mossy_v02.png"],
 	&"stone_veined": ["item_stone_veined_v02.png", "item_stone_veined_v02.png"],
 	&"stone_mould": ["item_stone_mould_v02.png", "item_stone_mould_v02.png"],
+	&"ore_copper": ["item_ore_copper_a_v02.png", "item_ore_copper_a_v02.png"],
+	&"ore_iron": ["item_ore_iron_a_v02.png", "item_ore_iron_a_v02.png"],
 }
+## M3a: materials (the rest of ART are gatherables) and placeables (code icon, the placeable they put).
+const MATERIALS: Array[StringName] = [&"stone_block", &"ore_copper", &"ore_iron"]
+const PLACEABLES: Dictionary[StringName, int] = {&"torch": WorldData.PLACEABLE_TORCH}
 const HERBS: Array[StringName] = [&"wild_healing", &"wild_buff", &"wild_poison", &"herb_clump"]
 
 
@@ -47,7 +52,8 @@ func run() -> Array[String]:
 
 func _check_table() -> void:
 	var ids: Array[StringName] = ItemDB.ids()
-	check_eq(ids.size(), TOOLS.size() + ART.size(), "item count = 6 tools + material + 15 gatherables")
+	check_eq(ids.size(), TOOLS.size() + ART.size() + PLACEABLES.size(),
+		"item count = 6 tools + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch)")
 	var kinds: Dictionary[int, int] = {}
 	for id: StringName in ids:
 		var def: ItemDB.ItemDef = ItemDB.get_def(id)
@@ -61,19 +67,25 @@ func _check_table() -> void:
 			check_eq(def.stack_max, Config.STACK_TOOL, "%s stacks to STACK_TOOL" % id)
 			check(not def.graded, "%s has no grade" % id)
 			check_eq(String(def.icon_code), String(id), "%s icon is drawn in code" % id)
+		elif PLACEABLES.has(id):
+			check_eq(def.kind, ItemDB.Kind.PLACEABLE, "%s is a placeable" % id)
+			check_eq(def.place, PLACEABLES[id], "%s puts its placeable down" % id)
+			check_eq(def.action, -1, "%s plays no action" % id)
+			check_eq(def.stack_max, Config.STACK_MATERIAL, "%s stack size" % id)
+			check_eq(String(def.icon_code), String(id), "%s icon is drawn in code" % id)
 		else:
 			check_eq(def.action, -1, "%s plays no action" % id)
 			check(def.icon_code.is_empty(), "%s icon is art" % id)
 			var files: Array = ART.get(id, ["?", "?"])
 			check_eq(def.icon_path, ItemDB.ART_DIR + str(files[0]), "%s icon file" % id)
 			check_eq(def.world_path, ItemDB.ART_DIR + str(files[1]), "%s world file" % id)
-			var want_kind: int = ItemDB.Kind.MATERIAL if id == &"stone_block" else ItemDB.Kind.GATHERABLE
+			var want_kind: int = ItemDB.Kind.MATERIAL if MATERIALS.has(id) else ItemDB.Kind.GATHERABLE
 			check_eq(def.kind, want_kind, "%s kind" % id)
 			check_eq(def.stack_max, Config.STACK_MATERIAL if want_kind == ItemDB.Kind.MATERIAL else Config.STACK_GATHERABLE,
 				"%s stack size" % id)
 			check_eq(def.graded, HERBS.has(id), "%s graded only if a herb" % id)
-	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0)],
-		[6, 1, 15], "items per kind (tool, material, gatherable)")
+	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0),
+		kinds.get(ItemDB.Kind.PLACEABLE, 0)], [6, 3, 15, 1], "items per kind (tool, material, gatherable, placeable)")
 	# Every action with a hand tool has exactly one tool; magic and throw have none (README).
 	var actions: Array[int] = []
 	for id: StringName in ids:

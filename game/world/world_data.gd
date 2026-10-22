@@ -17,6 +17,11 @@ extends RefCounted
 ## Drops (M2b): items lying on the ground are not tiles but a list (`drops`, by id): item, count,
 ## grade and a pixel position. They are part of the world like the layers: the content hash covers
 ## them, the late-join snapshot carries them and edits add, change and remove them (net/edit_log.gd).
+##
+## M3a: a game holds one WorldData per map (`map_id`: Config.MAP_SURFACE, MAP_DUNGEON). The dungeon
+## uses WALL (kind + hits taken) and ORE (world/walls.gd); its FLOOR layer is unused (0). PLACEABLE
+## gains the dungeon entrance (surface), a placed torch, the exit stairs, the heretic shrine and the
+## decorative wall torches. The map id is not part of the content hash (each map has its own data).
 
 enum Layer { FLOOR, WALL, ORE, VEGETATION, CORRUPTION, PLACEABLE }
 
@@ -25,9 +30,20 @@ const LAYER_NAMES: PackedStringArray = ["floor", "wall", "ore", "vegetation", "c
 const OUTSIDE_TERRAIN: int = Terrain.GRASS
 const PLACEABLE_NONE: int = 0
 const PLACEABLE_ALTAR: int = 1
+## M3a: the surface's way down (footprint Config.ENTRANCE_FOOTPRINT), a torch a player placed, the
+## dungeon's way up (Config.EXIT_FOOTPRINT, on wall face tiles), the heretic shrine (Config.
+## SHRINE_FOOTPRINT, fire off), a decorative wall torch (on a wall tile with a face).
+const PLACEABLE_ENTRANCE: int = 2
+const PLACEABLE_TORCH: int = 3
+const PLACEABLE_EXIT: int = 4
+const PLACEABLE_SHRINE: int = 5
+const PLACEABLE_WALL_TORCH: int = 6
+const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch"]
 
 var size: Vector2i = Vector2i.ZERO
 var world_seed: int = 0
+## Which map this is (M3a). Not in the content hash or the snapshot.
+var map_id: int = Config.MAP_SURFACE
 ## Altar footprint in cells (PLACEABLE_ALTAR cells). Empty rect = no altar.
 var altar_rect: Rect2i = Rect2i()
 var layers: Array[PackedByteArray] = []
@@ -159,6 +175,52 @@ func soil_ash_contacts() -> int:
 			if not Terrain.key_has_art(key_at_display(Vector2i(dx, dy))):
 				n += 1
 	return n
+
+
+## Whether placeable value `p` blocks walking (M3a: everything but a torch; a wall torch sits on a
+## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block").
+static func placeable_blocks(p: int) -> bool:
+	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH
+
+
+## The footprint (cells) of the placeable covering tile `c`: the rectangle of equal values that
+## contains it (an empty rect when `c` has none). Placeables of one kind never touch each other.
+func footprint_at(c: Vector2i) -> Rect2i:
+	var p: int = get_value(Layer.PLACEABLE, c)
+	if p == PLACEABLE_NONE:
+		return Rect2i()
+	var lo: Vector2i = c
+	while get_value(Layer.PLACEABLE, lo + Vector2i(-1, 0)) == p:
+		lo.x -= 1
+	while get_value(Layer.PLACEABLE, lo + Vector2i(0, -1)) == p:
+		lo.y -= 1
+	var hi: Vector2i = lo
+	while get_value(Layer.PLACEABLE, hi + Vector2i(1, 0)) == p:
+		hi.x += 1
+	while get_value(Layer.PLACEABLE, hi + Vector2i(0, 1)) == p:
+		hi.y += 1
+	return Rect2i(lo, hi - lo + Vector2i.ONE)
+
+
+## Every footprint of placeable value `p`, by its top-left cell, row by row.
+func footprints(p: int) -> Array[Rect2i]:
+	var out: Array[Rect2i] = []
+	var grid: PackedByteArray = layers[Layer.PLACEABLE]
+	for i: int in grid.size():
+		if grid[i] != p:
+			continue
+		var c: Vector2i = Vector2i(i % size.x, i / size.x)
+		if get_value(Layer.PLACEABLE, c + Vector2i(-1, 0)) == p or get_value(Layer.PLACEABLE, c + Vector2i(0, -1)) == p:
+			continue
+		out.append(footprint_at(c))
+	return out
+
+
+## Fills footprint `rect` with placeable `p`.
+func put_placeable(rect: Rect2i, p: int) -> void:
+	for y: int in range(rect.position.y, rect.end.y):
+		for x: int in range(rect.position.x, rect.end.x):
+			set_value(Layer.PLACEABLE, Vector2i(x, y), p)
 
 
 func altar_center_px() -> Vector2:

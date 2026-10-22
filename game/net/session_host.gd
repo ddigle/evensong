@@ -21,6 +21,11 @@ extends RefCounted
 ## member whose inventory changed gets it after the tick (ack = its last handled frame). Members are
 ## handled in slot order, frames in seq order, edits applied at once: two players picking up the same
 ## thing in one tick -> the lower slot gets it, the other finds nothing.
+##
+## M3a: a USE of a placeable (the torch) places it on the target tile (WorldItems.place, request rate
+## like pick up) instead of starting an action; a pickaxe swing that lands (Mining.impact_tick) mines
+## (items/mining.gd): on the surface there are no walls, so nothing changes there. The dungeon is not
+## part of a session yet (the entrance is refused: "dungeon offline only").
 
 ## A joiner whose world is still being sent.
 class Stream:
@@ -240,7 +245,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_frames += 1
 	if frame.op != NetProtocol.Op.NONE:
 		s.request_ticks = 3
-	if frame.op == NetProtocol.Op.USE:
+	if frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
+		_place(m, frame)
+	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)
 		if anim >= 0 and p.to_sim().busy_next():
@@ -259,6 +266,40 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		m.count_action(p.action_anim)
 		s.log_event("action", "slot=%d item=%s action=%s target=%d,%d" % [m.slot, p.action_item,
 			RigData.ANIM_NAMES[p.action_anim], p.action_cell.x, p.action_cell.y])
+	if p.action_anim == RigData.Anim.PICKAXE and p.action_item == Mining.PICKAXE and p.action_tick == Mining.impact_tick():
+		_mine(m)
+
+
+## M3a: the swing of member `m` lands on its action's target tile.
+func _mine(m: NetMember) -> void:
+	var p: Player = m.player
+	var r: Mining.Result = Mining.strike(s.world.data, p.sim_position, m.class_id, p.inventory, p.action_cell)
+	if not r.ok():
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		apply_world_edit(e)
+	if not r.gained.is_empty():
+		m.inventory_dirty = true
+	_changed = true
+	s.log_event("mine", "slot=%d at=%d,%d %s" % [m.slot, p.action_cell.x, p.action_cell.y, r.describe()])
+
+
+## M3a: a USE of a placeable item: rate, then WorldItems.place.
+func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var o: WorldItems.Outcome = WorldItems.place(s.world.data, p.sim_position, p.inventory, frame.slot, frame.cell)
+	if not o.ok():
+		_refuse_op(m, frame, o.why)
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		apply_world_edit(e)
+	m.count_done("place")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("place", "slot=%d item=%s at=%d,%d" % [m.slot, o.item, frame.cell.x, frame.cell.y])
 
 
 ## Select, then pick up, drop, give: rate, then the rules (items/world_items.gd).

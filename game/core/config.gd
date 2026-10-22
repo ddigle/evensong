@@ -126,6 +126,83 @@ const GATHER_EDGE_TILES: int = 2
 ## (Chebyshev) of the feet tile and not the feet tile itself. The host refuses anything further.
 const REACH_TILES: int = 1
 
+# --- PROVISIONAL, M3a (maps, the first dungeon, mining, torches) ----------------------------
+
+## PROVISIONAL (○ game-concept §12 "지상 시작 구역 + 첫 던전 1개" and gameplay-design §3.1 ○ "던전 =
+## 별도 맵": that it is a separate map is a proposal, its size is not in the docs): the first dungeon's
+## size in tiles. About 2 x 3 screens.
+const DUNGEON_SIZE: Vector2i = Vector2i(64, 48)
+## PROVISIONAL (not in docs): rooms the generator tries to place (the arrival room and the shrine room
+## included), their size range in tiles (walls not counted; the top row of a room is the face of its
+## north wall), the rock kept between two rooms and to the map edge, and the width of corridors.
+const DUNGEON_ROOM_COUNT: int = 7
+const DUNGEON_ROOM_MIN: Vector2i = Vector2i(7, 6)
+const DUNGEON_ROOM_MAX: Vector2i = Vector2i(12, 9)
+const DUNGEON_ROOM_GAP: int = 3
+const DUNGEON_CORRIDOR_WIDTH: int = 3
+## PROVISIONAL (not in docs): unbreakable bedrock ring around the dungeon, in tiles.
+const DUNGEON_BORDER_TILES: int = 2
+## PROVISIONAL (○ brief §5.7 slice range "광맥 1~2종"; which kinds, how many and how big are not in the
+## docs; the 04-env candidates are copper and iron): ore veins per kind and their size range in tiles.
+const DUNGEON_VEINS: Dictionary[StringName, int] = {&"copper": 9, &"iron": 5}
+const DUNGEON_VEIN_SIZE_MIN: int = 2
+const DUNGEON_VEIN_SIZE_MAX: int = 5
+## PROVISIONAL (not in docs; the 04-env dungeon mockup hangs wall torches on a room's north wall):
+## decorative wall torches the generator hangs on room north walls, one every this many tiles (at
+## least one per room), as decoration with a small light.
+const DUNGEON_WALL_TORCH_SPACING: int = 6
+## PROVISIONAL (○ game-concept §12: the first dungeon is the first corruption source; the heretic
+## shrine's size is not in the docs, the 04-env candidate heretic_shrine_v02 is 48 px wide): the
+## shrine's footprint in tiles, kept in the room farthest from the arrival. Its fire is off and it
+## cannot be destroyed in M3a (destroying it is M4).
+const SHRINE_FOOTPRINT: Vector2i = Vector2i(3, 2)
+## PROVISIONAL (not in docs; ○ gameplay-design §3.1 "지상의 입구로 진입"): the surface dungeon entrance's
+## footprint and where SurfaceGen tries to put it: this many tiles from the altar footprint's top-left
+## cell (east of the altar, outside its light); if that spot is not clear the generator searches
+## outward for the nearest clear one.
+const ENTRANCE_FOOTPRINT: Vector2i = Vector2i(2, 1)
+const ENTRANCE_OFFSET_TILES: Vector2i = Vector2i(10, 1)
+## PROVISIONAL (not in docs): the exit stairs in the dungeon (2 tiles of the arrival room's north wall
+## face, below unbreakable rock). The arrival point is just south of them.
+const EXIT_FOOTPRINT: Vector2i = Vector2i(2, 1)
+## PROVISIONAL (● gameplay-design §3.0 R11 miner row: everyone mines "느리고 1×1, 경도 상한", the miner
+## "3×3 고속, 상위 경도"; ○ §3.1 "벽 타일에 경도 등급"; the numbers are not in the docs): hardness grade of
+## each wall kind / ore, the highest grade a common player and the miner can break, hits a tile takes
+## before it breaks, and hits one pickaxe swing deals (the miner's swing counts double: "고속").
+const HARDNESS_ROCK: int = 1
+const HARDNESS_COPPER: int = 1
+const HARDNESS_IRON: int = 2
+const HARDNESS_CAP_COMMON: int = 1
+const HARDNESS_CAP_MINER: int = 2
+const WALL_HITS_ROCK: int = 6
+const WALL_HITS_COPPER: int = 8
+const WALL_HITS_IRON: int = 10
+const MINING_POWER_COMMON: int = 1
+const MINING_POWER_MINER: int = 2
+## PROVISIONAL (not in docs): the swing lands on this frame of the pickaxe action (0-based; the 4th of
+## 6 frames is where the pick hits the ground in 03-pixel base_body_v02_pickaxe).
+const MINING_IMPACT_FRAME: int = 3
+## PROVISIONAL (● the miner mines 3×3, R11; whether the 3×3 is centred on the hit tile or reaches away
+## from the player is not in the docs): true = the 3×3 starts at the hit tile and extends away from the
+## player (centred across the swing), false = centred on the hit tile.
+const MINER_AREA_AWAY: bool = true
+## PROVISIONAL (not in docs; ○ gameplay-design §3.2 "채굴 시 드롭은 인벤토리로 자동"): what breaking a
+## rock tile gives (the stone gatherable; an ore tile gives its ore item instead); what does not fit
+## the inventory lies on the broken tile as a drop.
+const MINED_ROCK_ITEM: StringName = &"stone_a"
+## PROVISIONAL (not in docs; the 04-env dungeon mockups are not darkened): the dungeon's darkness
+## (CanvasModulate). It has no altar and so no altar light.
+const DUNGEON_DARK_COLOR: Color = Color(0.13, 0.11, 0.10)
+## PROVISIONAL (gameplay-design §3.0 ● R11 lists the torch in the basic kit, "기본 키트 (횃불, 발판)";
+## how far it lights and whether it counts as safety are not in the docs: it is light only, the safe
+## zone stays the altar's): a placed torch's light radius (px), colour and energy, and a decorative
+## wall torch's radius and energy.
+const TORCH_LIGHT_RADIUS_PX: int = 80
+const TORCH_LIGHT_COLOR: Color = Color(1.0, 0.86, 0.62)
+const TORCH_LIGHT_ENERGY: float = 0.95
+const WALL_TORCH_LIGHT_RADIUS_PX: int = 48
+const WALL_TORCH_LIGHT_ENERGY: float = 0.8
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -240,6 +317,14 @@ const SPAWN_SLOTS: Array[Vector2i] = [
 ## ground and the altar get the dithered altar light, characters a hard-edged copy (spike RESULTS §4).
 const LIGHT_LAYER_WORLD: int = 1
 const LIGHT_LAYER_ACTORS: int = 2
+## IMPL (M3a): map ids. Each player is on exactly one map; the surface is 0, the first dungeon 1.
+const MAP_SURFACE: int = 0
+const MAP_DUNGEON: int = 1
+## IMPL (M3a): the dungeon's wall faces (measured from 04-env tiles_dungeon_v02): a wall tile's front
+## face starts this many px below the wall tile's centre row and is FACE_HEIGHT_PX tall, so it covers
+## the tile below the wall (blocked: collision = what is drawn) and 3 px of the next one.
+const FACE_TOP_PX: int = 3
+const FACE_HEIGHT_PX: int = 24
 ## IMPL: flame mask = pixels that differ between altar_v04 and altar_v04_unlit and are at least
 ## this bright (0-255 luma). Keeps the 81 flame pixels (9 lamps x 9), drops the warm glow on the
 ## stone (spike light module value).

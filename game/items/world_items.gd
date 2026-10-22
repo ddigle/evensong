@@ -39,6 +39,12 @@ const WHY_TOO_MANY: String = "too many drops"
 const WHY_BAD_ITEM: String = "unknown item"
 const WHY_BAD_SLOT: String = "no such slot"
 const WHY_BAD_COUNT: String = "bad count"
+## M3a: a torch needs open floor (no wall or wall face, no placeable, no gatherable).
+const WHY_NOT_OPEN: String = "not open floor"
+const WHY_NOT_PLACEABLE: String = "not placeable"
+## M3a: going down into the dungeon (F on the entrance) is offline only; in a session the host
+## refuses it (maps in sessions are the next step, README).
+const WHY_OFFLINE_ONLY: String = "dungeon offline only"
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
 ## debug give from a client goes out as several requests (Main.give_requests).
 const GIVE_COUNT_MAX: int = 255
@@ -109,6 +115,8 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
+	if is_portal(data, c):
+		return Outcome.refused(WHY_OFFLINE_ONLY)
 	var o: Outcome = Outcome.new()
 	var plant: StringName = gatherable_at(data, c)
 	if not plant.is_empty():
@@ -187,6 +195,46 @@ static func use_action(feet: Vector2, inv: Inventory, slot: int, c: Vector2i, ou
 	if not why.is_empty():
 		out_why.append(why)
 	return anim
+
+
+## M3a: whether tile `c` is a way between maps (the surface entrance or the dungeon's exit stairs).
+static func is_portal(data: WorldData, c: Vector2i) -> bool:
+	var p: int = data.get_value(WorldData.Layer.PLACEABLE, c)
+	return p == WorldData.PLACEABLE_ENTRANCE or p == WorldData.PLACEABLE_EXIT
+
+
+## M3a: the placeable the stack in `slot` puts down (WorldData.PLACEABLE_NONE: not a placeable item).
+static func placeable_in(inv: Inventory, slot: int) -> int:
+	if slot < 0 or slot >= inv.size() or inv.stack_at(slot) == null:
+		return WorldData.PLACEABLE_NONE
+	var def: ItemDB.ItemDef = inv.stack_at(slot).def()
+	return def.place if def != null else WorldData.PLACEABLE_NONE
+
+
+## M3a: "use" with a placeable (the torch) in hotbar slot `slot` on tile `c`: one of it from the
+## stack onto the tile (PROVISIONAL rule: in reach, open floor: no wall, no wall face, no placeable,
+## no gatherable; drops may lie there).
+static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i) -> Outcome:
+	if slot < 0 or slot >= inv.hotbar_size:
+		return Outcome.refused(WHY_BAD_SLOT)
+	var stack: ItemStack = inv.stack_at(slot)
+	if stack == null:
+		return Outcome.refused(WHY_EMPTY)
+	var value: int = placeable_in(inv, slot)
+	if value == WorldData.PLACEABLE_NONE:
+		return Outcome.refused(WHY_NOT_PLACEABLE)
+	if not data.in_bounds(c):
+		return Outcome.refused(WHY_OUTSIDE)
+	if not in_reach(feet, c):
+		return Outcome.refused(WHY_REACH)
+	if Walls.blocks(data, c) or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE 			or data.get_value(WorldData.Layer.VEGETATION, c) != 0:
+		return Outcome.refused(WHY_NOT_OPEN)
+	var o: Outcome = Outcome.new()
+	o.item = stack.id
+	o.count = 1
+	inv.remove(slot, 1)
+	o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, value))
+	return o
 
 
 ## Debug give: `count` of item `index` (GIVE_KIT = the debug kit) at `grade` (-1 = default).

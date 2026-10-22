@@ -6,12 +6,13 @@ extends RefCounted
 ## - Input is a Vector2i with -1/0/1 per axis (8 ways). Speed is Config.WALK_SPEED in every
 ##   direction (diagonals normalised).
 ## - Collision: the feet box (feet_box) must stay inside move_bounds (the map, with head room at the
-##   top) and off obstacles: blocked cells (is_blocked: any placeable, i.e. the altar footprint in
-##   M1) and the altar's two side bands (side_bands: Config.ALTAR_SIDE_CLEARANCE px beside its west
-##   and east faces while the feet are level with it, so a character beside the altar is not drawn
-##   half behind it; its north and south faces stop the feet box flush as before). The step moves x
-##   first, then y, and stops flush against what it hits, so a diagonal slides along a wall.
-##   Obstacles the box already overlaps before a move are ignored, so nothing gets stuck inside.
+##   top) and off obstacles: blocked cells (is_blocked: the altar footprint in M1; M3a: the other
+##   blocking placeables, walls and wall faces) and the altar's two side bands (side_bands:
+##   Config.ALTAR_SIDE_CLEARANCE px beside its west and east faces while the feet are level with it,
+##   so a character beside the altar is not drawn half behind it; its north and south faces stop the
+##   feet box flush as before). The step moves x first, then y, and stops flush against what it
+##   hits, so a diagonal slides along a wall. Obstacles the box already overlaps before a move are
+##   ignored, so nothing gets stuck inside.
 ## - Facing is 4-way (facing_for).
 
 
@@ -35,9 +36,13 @@ static func move_bounds(data: WorldData) -> Rect2:
 	return Rect2(0.0, top, map.x, map.y - top)
 
 
-## Blocked for walking: any placeable (the altar footprint in M1; walls join in later stages).
+## Blocked for walking: a placeable that blocks (the altar footprint in M1; M3a: the dungeon entrance,
+## the exit stairs and the shrine, not a torch, WorldData.placeable_blocks) and a wall or the face
+## tile below it (M3a, world/walls.gd: collision = what is drawn).
 static func is_blocked(data: WorldData, cell: Vector2i) -> bool:
-	return data.get_value(WorldData.Layer.PLACEABLE, cell) != WorldData.PLACEABLE_NONE
+	if WorldData.placeable_blocks(data.get_value(WorldData.Layer.PLACEABLE, cell)):
+		return true
+	return Walls.blocks(data, cell)
 
 
 ## Blocked cells the box overlaps (half-open: touching an edge is not overlapping).
