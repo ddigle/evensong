@@ -93,7 +93,7 @@ func step(dir: Vector2i) -> NetProtocol.InputFrame:
 func step_frame(frame: NetProtocol.InputFrame) -> NetProtocol.InputFrame:
 	var was_acting: bool = sim.action >= 0
 	var facing_before: int = sim.facing
-	sim.step(data, frame.dir, frame.look, frame.anim, frame.cell, Config.NET_TICK)
+	sim.step(data, frame.dir, frame.look, frame.anim, frame.cell, Config.NET_TICK, frame.dash, frame.interact, frame.aim)
 	var recorded: bool = frame.dir != Vector2i.ZERO or _last_dir != Vector2i.ZERO or frame.op != NetProtocol.Op.NONE \
 		or was_acting or sim.action >= 0 or sim.facing != facing_before
 	_last_dir = frame.dir
@@ -195,7 +195,8 @@ func switch_map(p_data: WorldData, p_map: int, state: NetProtocol.PlayerState) -
 func _replay(from: PlayerSim) -> void:
 	sim = from.copy()
 	for p: Pending in pending:
-		sim.step(data, p.frame.dir, p.frame.look, anim_on_map(p.frame), p.frame.cell, Config.NET_TICK)
+		sim.step(data, p.frame.dir, p.frame.look, anim_on_map(p.frame), p.frame.cell, Config.NET_TICK, p.frame.dash,
+			p.frame.interact, p.frame.aim)
 		p.after = sim.copy()
 
 

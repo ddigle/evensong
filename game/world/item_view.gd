@@ -7,6 +7,8 @@ extends RefCounted
 ## behind the item and one standing south of it in front. Sprites use the actors' light layer (the
 ## hard-edged altar light, like characters: small objects, no dither checkerboard).
 ## GameWorld rebuilds it on load_data and updates the one tile or drop an edit touches.
+## M4a: drops on a death bag tile (WorldData.PLACEABLE_BAG) are not drawn: the bag (FixtureView) stands
+## for them. A bag tile edit refreshes the drops on that tile (update_bag_cell).
 
 var parent: Node2D
 var data: WorldData
@@ -61,9 +63,22 @@ func update_drop(id: int) -> void:
 	if not data.drops.has(id):
 		return
 	var d: WorldData.Drop = data.drops[id]
+	if in_bag(d):
+		return
 	var s: Sprite2D = _sprite(ItemIcons.texture_for(d.item), StringName("Drop_%d" % id))
 	s.position = Vector2(d.pos.x, d.pos.y + Config.TILE / 2)
 	drops[id] = s
+
+
+## M4a: drop `d` lies in a death bag (its tile is a bag tile).
+func in_bag(d: WorldData.Drop) -> bool:
+	return data.get_value(WorldData.Layer.PLACEABLE, d.cell()) == WorldData.PLACEABLE_BAG
+
+
+## M4a: a bag appeared on / left tile `c`: redraw the drops there.
+func update_bag_cell(c: Vector2i) -> void:
+	for d: WorldData.Drop in data.drops_at(c):
+		update_drop(d.id)
 
 
 ## How a gatherable looks in the world (ItemDef.world_path).
@@ -102,11 +117,17 @@ func verify() -> Dictionary[String, int]:
 				or s.position != Vector2(c.x * Config.TILE + Config.TILE / 2, (c.y + 1) * Config.TILE):
 			bad += 1
 	bad += maxi(plants.size() - cells.size(), 0)
+	var bagged: int = 0
 	for id: int in data.drops:
 		var d: WorldData.Drop = data.drops[id]
 		var s: Sprite2D = drops.get(id, null)
+		if in_bag(d):
+			bagged += 1
+			if s != null:
+				bad += 1
+			continue
 		if s == null or not is_instance_valid(s) or s.texture != ItemIcons.texture_for(d.item) \
 				or s.position != Vector2(d.pos.x, d.pos.y + Config.TILE / 2):
 			bad += 1
-	bad += maxi(drops.size() - data.drops.size(), 0)
+	bad += maxi(drops.size() - (data.drops.size() - bagged), 0)
 	return {"gatherables": plants.size(), "drops": drops.size(), "mismatches": bad}

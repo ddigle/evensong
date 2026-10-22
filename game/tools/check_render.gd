@@ -36,6 +36,13 @@ extends SceneTree
 ##            from a map snapshot taken half way (WorldSnapshot, Receiver.finish for the dungeon) gets the
 ##            rest as live edits. Both screens (darkness off, entities hidden) must be the same pixels,
 ##            and equal the CPU composite of the client's data (tiles + ore and crack overlays).
+##   heretic  (M4a) the heretic's five sheets, every frame, facing south / east / north / west, evening off:
+##            the screen equals the background plus the CPU composite (the sheet cell for the row, the
+##            feet on the node: a 32 cell's (16, 32), a 64 cell's (32, 48), west = east mirrored), pixel
+##            for pixel; then a hurt heretic's HP bar (unshaded) on its exact pixels.
+##   bars     (M4a) the HUD's HP and stamina bars and the respawn countdown digits for set vitals: their
+##            exact pixels (frame, filled part, the rest). The rig part above covers the players' hurt
+##            and death poses (shown like actions, the signature hidden on the death frames).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -87,6 +94,8 @@ func _run() -> void:
 		await _check_ground_and_flames()
 		await _check_actor_light()
 		await _check_rig()
+		await _check_heretic()
+		await _check_bars()
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
@@ -340,7 +349,7 @@ func _check_rig() -> void:
 			var expected: Image = bg.duplicate() as Image
 			for i: int in chars.size():
 				var c: Character = chars[i]
-				if RigData.is_action(anim):
+				if RigData.is_action(anim) or RigData.is_pose(anim):
 					c.show_action(anim, f)
 				else:
 					c.end_action()
@@ -366,6 +375,168 @@ func _check_rig() -> void:
 		print("EVENSONG_RENDER rig ok %s" % line)
 	else:
 		_fail("rig", line)
+
+
+## M4a: CPU composite of heretic animation `a` frame `f` facing `dir` (feet at COMPOSE_FEET). Written
+## out from the 13차 hand-off, not from Heretic's own functions: rows south 0, east 1, north 2 (west =
+## east, mirrored), the feet at a 32 cell's (16, 32) and a 64 cell's (32, 48).
+const HERETIC_ROWS: Array[int] = [0, 1, 2, 1]
+
+static func compose_heretic(dir: int, a: int, f: int) -> Image:
+	var canvas: Image = Image.create_empty(COMPOSE_SIZE.x, COMPOSE_SIZE.y, false, Image.FORMAT_RGBA8)
+	var sheet: Image = LightGen.to_rgba8(Heretic.SHEETS[a].get_image())
+	var c: int = HereticSim.CELLS[a]
+	var r: Rect2i = Rect2i((HereticSim.FIRST_COLUMN[a] + f) * c, HERETIC_ROWS[dir] * c, c, c)
+	var feet_in_cell: Vector2i = Vector2i(16, 32) if c == 32 else Vector2i(32, 48)
+	canvas.blit_rect_mask(sheet, sheet, r, COMPOSE_FEET - feet_in_cell)
+	if RigData.is_mirrored(dir):
+		canvas.flip_x()
+	return canvas
+
+
+## M4a: every heretic frame in 4 directions against the CPU composite, then the HP bar.
+func _check_heretic() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var nodes: Array[Heretic] = []
+	var feet_list: Array[Vector2i] = []
+	var sims: Array[HereticSim] = []
+	for dir: int in 4:
+		for col: int in 8:
+			var h: HereticSim = HereticSim.new()
+			h.facing = dir
+			var feet: Vector2i = Vector2i(28 + col * 56, 50 + dir * 64)
+			h.pos = Vector2(origin + feet)
+			var n: Heretic = Heretic.new()
+			world.entities.add_child(n)
+			nodes.append(n)
+			sims.append(h)
+			feet_list.append(feet)
+	var screens: int = 0
+	var total: int = 0
+	for a: int in HereticSim.ANIM_NAMES.size():
+		var expected: Image = bg.duplicate() as Image
+		for i: int in nodes.size():
+			var h: HereticSim = sims[i]
+			var col: int = i % 8
+			var f: int = col % HereticSim.FRAME_COUNTS[a]
+			_pose_heretic(h, a, f)
+			nodes[i].show_sim(h)
+			paste(expected, compose_heretic(h.facing, a, nodes[i].frame), feet_list[i])
+		var got: Image = await _capture()
+		var n: int = count_diff(got, expected)
+		screens += 1
+		total += n
+		if n > 0 or save_all:
+			_save(got, "heretic_%s_got.png" % HereticSim.ANIM_NAMES[a])
+			_save(expected, "heretic_%s_expected.png" % HereticSim.ANIM_NAMES[a])
+	# The HP bar of a hurt heretic (one node, the rest hidden).
+	for i: int in nodes.size():
+		nodes[i].visible = i == 0
+	var hurt: HereticSim = sims[0]
+	_pose_heretic(hurt, HereticSim.Anim.IDLE, 0)
+	hurt.hp = Config.HERETIC_HP / 2
+	nodes[0].show_sim(hurt)
+	var bar_expected: Image = bg.duplicate() as Image
+	paste(bar_expected, compose_heretic(hurt.facing, HereticSim.Anim.IDLE, nodes[0].frame), feet_list[0])
+	var left: Vector2i = feet_list[0] + Vector2i(-Heretic.BAR_SIZE.x / 2 - 1, Heretic.BAR_Y - 1)
+	bar_expected.fill_rect(Rect2i(left, Heretic.BAR_SIZE + Vector2i(2, 2)), Heretic.BAR_BACK)
+	bar_expected.fill_rect(Rect2i(left + Vector2i.ONE, Vector2i(Heretic.bar_fill(0.5), Heretic.BAR_SIZE.y)), Heretic.BAR_FILL)
+	var bar_got: Image = await _capture()
+	var bar_n: int = count_diff(bar_got, bar_expected)
+	if bar_n > 0 or save_all:
+		_save(bar_got, "heretic_bar_got.png")
+		_save(bar_expected, "heretic_bar_expected.png")
+	for n2: Heretic in nodes:
+		world.entities.remove_child(n2)
+		n2.free()
+	var line: String = "heretics=%d screens=%d mismatches=%d bar_mismatches=%d" % [nodes.size(), screens, total, bar_n]
+	if total == 0 and bar_n == 0:
+		print("EVENSONG_RENDER heretic ok %s" % line)
+	else:
+		_fail("heretic", line)
+
+
+## Sets `h` to show animation `a` at frame `f` (HereticSim.frame() picks the frame from its state).
+static func _pose_heretic(h: HereticSim, a: int, f: int) -> void:
+	h.hp = Config.HERETIC_HP
+	h.walking = a == HereticSim.Anim.WALK
+	h.clock = f * (HereticSim.WALK_FRAME_TICKS if a == HereticSim.Anim.WALK else HereticSim.IDLE_FRAME_TICKS)
+	h.state_ticks = 0
+	match a:
+		HereticSim.Anim.ATTACK:
+			h.state = HereticSim.State.ATTACK
+			var pre: int = HereticSim.hit_frame(h.row())
+			h.state_ticks = f * Config.HERETIC_ATTACK_FRAME_TICKS if f < pre else Config.HERETIC_TELEGRAPH_TICKS + (f - pre) * Config.HERETIC_ATTACK_FRAME_TICKS
+		HereticSim.Anim.HURT:
+			h.state = HereticSim.State.HURT
+			h.state_ticks = f * Config.HERETIC_HURT_FRAME_TICKS
+		HereticSim.Anim.DEATH:
+			h.state = HereticSim.State.DEAD
+			h.state_ticks = f * Config.HERETIC_DEATH_FRAME_TICKS
+		_:
+			h.state = HereticSim.State.CHASE if a == HereticSim.Anim.WALK else HereticSim.State.IDLE
+
+
+## M4a: the HUD bars for set vitals: HP 60 / 100 and stamina 20 (below the dash cost), then dead with
+## the countdown; their pixels exactly.
+func _check_bars() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var p: Player = Player.new()
+	p.vitals.hp = 60
+	p.vitals.stamina = 20
+	hud.bind_player(p)
+	var got: Image = await _capture()
+	var want: Dictionary[Vector2i, Color] = {}
+	var hp_rect: Rect2i = Rect2i(Hud.BAR_AT, Hud.HP_BAR)
+	var hp_fill: int = ceili(0.6 * Hud.HP_BAR.x)
+	for y: int in range(hp_rect.position.y - 1, hp_rect.end.y + 1):
+		for x: int in range(hp_rect.position.x - 1, hp_rect.end.x + 1):
+			var inside: bool = hp_rect.has_point(Vector2i(x, y))
+			want[Vector2i(x, y)] = Hud.FRAME_DARK if not inside else (Hud.HP_FILL if x < hp_rect.position.x + hp_fill else Hud.HP_LOST)
+	var st_at: Vector2i = Hud.BAR_AT + Vector2i(0, Hud.HP_BAR.y + 3)
+	var st_fill: int = ceili(0.2 * Hud.STAMINA_BAR.x)
+	for x: int in range(st_at.x, st_at.x + Hud.STAMINA_BAR.x):
+		for y: int in range(st_at.y, st_at.y + Hud.STAMINA_BAR.y):
+			if x < st_at.x + st_fill:
+				want[Vector2i(x, y)] = Hud.STAMINA_LOW
+	var bad: int = 0
+	for at: Vector2i in want:
+		var c: Color = got.get_pixelv(at)
+		if c.to_rgba32() != want[at].to_rgba32():
+			bad += 1
+	# Dead: the countdown's digits (3x) at the centre, ivory, with their shadow.
+	p.vitals.life = Vitals.Life.DEAD
+	p.vitals.life_ticks = 61
+	hud.canvas.queue_redraw()
+	var dead: Image = await _capture()
+	var secs: int = Hud.respawn_seconds(p.vitals)
+	var digit_px: int = 0
+	var w: int = (str(secs).length() * 4 - 1) * Hud.COUNT_SCALE
+	var top: Vector2i = Vector2i((Config.VIEW_SIZE.x - w) / 2, Hud.COUNT_TOP)
+	var rows: Array = Hud.DIGITS[str(secs)[0].to_int()]
+	for dy: int in 5:
+		for dx: int in 3:
+			if str(rows[dy])[dx] == "1":
+				for sy: int in Hud.COUNT_SCALE:
+					for sx: int in Hud.COUNT_SCALE:
+						digit_px += 1
+						if dead.get_pixel(top.x + dx * Hud.COUNT_SCALE + sx, top.y + dy * Hud.COUNT_SCALE + sy).to_rgba32() != Hud.DIGIT.to_rgba32():
+							bad += 1
+	root.remove_child(hud)
+	hud.free()
+	p.free()
+	var line: String = "bar_pixels=%d digit_pixels=%d (%d s) mismatches=%d" % [want.size(), digit_px, secs, bad]
+	if bad == 0:
+		print("EVENSONG_RENDER bars ok %s" % line)
+	else:
+		_fail("bars", line)
+		_save(got, "bars_got.png")
+		_save(dead, "bars_dead_got.png")
 
 
 ## M2b: gatherables (ItemView, world pictures) and a drop (its icon) drawn exactly on their tiles.

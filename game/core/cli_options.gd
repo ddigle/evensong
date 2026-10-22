@@ -52,6 +52,12 @@ extends RefCounted
 ## M3a (offline):
 ##   --start-map=<surface|dungeon>  start on that map (dungeon: at its arrival point)
 ##   --bot=<script>               offline too: the bot drives the local player instead of the keys
+## M4a (offline screenshot / test flags):
+##   --test-at=<x>,<y>            put the local player on tile x,y of the start map (feet low in the tile)
+##   --test-heretic=<x>,<y>[/<x>,<y>...]   heretics on those tiles of the start map at the start
+##   --test-down                  the local player starts downed (0 HP)
+##   --test-ally=<class>[:down]   a second player (no input) beside the local one, downed with :down
+##   --test-shrine-hp=<n>         the dungeon shrine starts with n hit points (with --start-map=dungeon)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -96,6 +102,14 @@ var test_action: Array[int] = []
 var test_action_lineup: int = -2
 ## --start-map (M3a): Config.MAP_SURFACE or MAP_DUNGEON.
 var start_map: int = Config.MAP_SURFACE
+## M4a test flags: tile (Vector2i or null), heretic tiles, start downed, an ally class (and downed),
+## the shrine's starting HP (0 = Config.SHRINE_HP).
+var test_at: Variant = null
+var test_heretics: Array[Vector2i] = []
+var test_down: bool = false
+var test_ally: String = ""
+var test_ally_down: bool = false
+var test_shrine_hp: int = 0
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -241,11 +255,42 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.test_action = [anim, action_frame]
 			"test-action-lineup":
 				o.test_action_lineup = _parse_frame(value, RigData.Anim.PICKAXE, raw, o.errors) if has_value else -1
+			"test-at":
+				var at: Array[Vector2i] = _parse_tiles(value, raw, o.errors)
+				if at.size() == 1:
+					o.test_at = at[0]
+				elif not at.is_empty():
+					o.errors.append("%s: expected --test-at=<x>,<y>" % raw)
+			"test-heretic":
+				o.test_heretics = _parse_tiles(value, raw, o.errors)
+			"test-down":
+				o.test_down = true
+			"test-ally":
+				var ally: PackedStringArray = value.split(":")
+				if not Config.CLASSES.has(ally[0]) or ally.size() > 2 or (ally.size() == 2 and ally[1] != "down"):
+					o.errors.append("%s: expected --test-ally=<%s>[:down]" % [raw, "|".join(Config.CLASSES)])
+				else:
+					o.test_ally = ally[0]
+					o.test_ally_down = ally.size() == 2
+			"test-shrine-hp":
+				o.test_shrine_hp = _parse_positive(value, raw, o.errors, 0)
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:
 		o.errors.append("--host and --join cannot be used together")
 	return o
+
+
+## "<x>,<y>[/<x>,<y>...]" -> tiles (whole numbers >= 0); an error and none if bad.
+static func _parse_tiles(value: String, raw: String, errors: PackedStringArray) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for part: String in value.split("/"):
+		var xy: PackedStringArray = part.split(",")
+		if xy.size() != 2 or not xy[0].is_valid_int() or not xy[1].is_valid_int() or xy[0].to_int() < 0 or xy[1].to_int() < 0:
+			errors.append("%s: expected tiles <x>,<y>[/<x>,<y>...]" % raw)
+			return [] as Array[Vector2i]
+		out.append(Vector2i(xy[0].to_int(), xy[1].to_int()))
+	return out
 
 
 ## Whole number >= 0.

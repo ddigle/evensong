@@ -167,6 +167,7 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 					cave.redraw_wall(edit.cell)
 			elif edit.layer == WorldData.Layer.PLACEABLE:
 				fixtures.update_cell(edit.cell)
+				items.update_bag_cell(edit.cell)
 	return true
 
 

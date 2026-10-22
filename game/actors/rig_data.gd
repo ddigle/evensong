@@ -10,6 +10,12 @@ extends RefCounted
 ##   64x64 cells holding the 32 frame at (16, 16), feet on cell row y=47 (● R26 "동작 칸"); their
 ##   first column is the generation's start picture (= walk frame 0), so playback starts at column 1.
 ##   Throw has no tool: 32x32 cells, 7 frames, no start column (template, re-pivot S+4 E+4 N+3).
+## - M4a: base_body_v02_hurt.png (6 frames) and base_body_v02_death.png (7 frames, the last one lying):
+##   32x32 cells like walk, re-pivot hurt S+4 E+5 N+4, death S+3 E+4 N+5 (03-pixel/prompts.md 8차). They
+##   are poses, not body actions (no item plays them): Character.show_action shows them like an action
+##   (actors/player.gd times them from the Vitals). The lying body hides the signature layer
+##   (PROVISIONAL: a standing shield or halo above a lying body cannot be placed by a move, 03-pixel
+##   prompts.md "동작 중 표식 붙이기 시험").
 ## - sig_*.png: one signature layer per class (● R21), drawn on walk v01 frame 0. v02 moved the
 ##   body down to put the feet on y=31 (walk S+4 E+3 N+4, idle S+5 E+2 N+3, 03-pixel/prompts.md
 ##   "발 맞춤"), so a layer moves down by the same shift, plus the per-frame torso or head anchor
@@ -20,14 +26,16 @@ extends RefCounted
 
 enum Dir { SOUTH, EAST, NORTH, WEST }
 ## Walk and idle loop; the others are body actions (played once, actors/player.gd times them).
-enum Anim { WALK, IDLE, PICKAXE, HOE, SICKLE, WATERING, SWORD, BOW, MAGIC, THROW }
+enum Anim { WALK, IDLE, PICKAXE, HOE, SICKLE, WATERING, SWORD, BOW, MAGIC, THROW, HURT, DEATH }
 
 const DIR_NAMES: PackedStringArray = ["south", "east", "north", "west"]
 const ANIM_NAMES: PackedStringArray = ["walk", "idle", "pickaxe", "hoe", "sickle", "watering", "sword", "bow", "magic",
-	"throw"]
+	"throw", "hurt", "death"]
 const BASE_ANIMS: Array[int] = [Anim.WALK, Anim.IDLE]
 const ACTION_ANIMS: Array[int] = [Anim.PICKAXE, Anim.HOE, Anim.SICKLE, Anim.WATERING, Anim.SWORD, Anim.BOW, Anim.MAGIC,
 	Anim.THROW]
+## M4a: poses shown once like an action but played by no item (hurt, death).
+const POSE_ANIMS: Array[int] = [Anim.HURT, Anim.DEATH]
 ## Sheet rows (south, east, north); west uses the east row mirrored.
 const ROWS: int = 3
 
@@ -39,6 +47,7 @@ const SHEETS: Array[Texture2D] = [
 	preload("res://art/chars/base_body_v02_sickle.png"), preload("res://art/chars/base_body_v02_watering.png"),
 	preload("res://art/chars/base_body_v02_sword.png"), preload("res://art/chars/base_body_v02_bow.png"),
 	preload("res://art/chars/base_body_v02_magic.png"), preload("res://art/chars/base_body_v02_throw.png"),
+	preload("res://art/chars/base_body_v02_hurt.png"), preload("res://art/chars/base_body_v02_death.png"),
 ]
 const SHEET_PATHS: PackedStringArray = [
 	"res://art/chars/base_body_v02_walk.png", "res://art/chars/base_body_v02_idle.png",
@@ -46,14 +55,15 @@ const SHEET_PATHS: PackedStringArray = [
 	"res://art/chars/base_body_v02_sickle.png", "res://art/chars/base_body_v02_watering.png",
 	"res://art/chars/base_body_v02_sword.png", "res://art/chars/base_body_v02_bow.png",
 	"res://art/chars/base_body_v02_magic.png", "res://art/chars/base_body_v02_throw.png",
+	"res://art/chars/base_body_v02_hurt.png", "res://art/chars/base_body_v02_death.png",
 ]
 ## Frames per direction (brief §5.6: idle 4, walk 6, pickaxe / hoe / sickle / magic 6, watering /
-## bow / sword 8, throw 7).
-const FRAME_COUNTS: PackedInt32Array = [6, 4, 6, 6, 6, 8, 8, 8, 6, 7]
+## bow / sword 8, throw 7; M4a hurt 6, death 7).
+const FRAME_COUNTS: PackedInt32Array = [6, 4, 6, 6, 6, 8, 8, 8, 6, 7, 6, 7]
 ## Cell size per sheet (● R26 "동작 칸": tool and weapon actions 64, the rest 32).
-const CELLS: PackedInt32Array = [32, 32, 64, 64, 64, 64, 64, 64, 64, 32]
+const CELLS: PackedInt32Array = [32, 32, 64, 64, 64, 64, 64, 64, 64, 32, 32, 32]
 ## First played column: the 64 cell sheets start with the reference picture (walk frame 0).
-const FIRST_COLUMN: PackedInt32Array = [0, 0, 1, 1, 1, 1, 1, 1, 1, 0]
+const FIRST_COLUMN: PackedInt32Array = [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]
 ## Character origin (between the feet) inside a frame: bottom edge, horizontally centred. Sprites
 ## sit at -FRAME_ORIGIN, so the node position is the feet and y-sort sorts by the feet.
 const FRAME_ORIGIN: Vector2i = Vector2i(16, 32)
@@ -62,7 +72,7 @@ const FRAME_ORIGIN: Vector2i = Vector2i(16, 32)
 ## cell actions start from walk frame 0 and were aligned on it (10차), so they share the walk values;
 ## throw was re-pivoted on its own (8차: +4, +4, +3).
 const SHIFT: Array[Array] = [[4, 3, 4], [5, 2, 3], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4],
-	[4, 3, 4], [4, 4, 3]]
+	[4, 3, 4], [4, 4, 3], [4, 5, 4], [3, 4, 5]]
 ## The class signature an action holds in hand (● R27: the miner's pickaxe action and the archer's
 ## bow action hide the back signature; every other signature stays a layer during actions).
 const HELD_SIGNATURE: Dictionary[int, StringName] = {Anim.PICKAXE: &"pickaxe", Anim.BOW: &"bow"}
@@ -181,7 +191,12 @@ static func frame_time(anim: int) -> float:
 
 
 static func is_action(anim: int) -> bool:
-	return anim >= Anim.PICKAXE and anim < ANIM_NAMES.size()
+	return anim >= Anim.PICKAXE and anim <= Anim.THROW
+
+
+## M4a: hurt and death (shown once like an action, played by no item).
+static func is_pose(anim: int) -> bool:
+	return anim == Anim.HURT or anim == Anim.DEATH
 
 
 ## Cell size (px, square) of an animation's sheet.
@@ -195,9 +210,10 @@ static func body_offset(anim: int) -> Vector2i:
 	return Vector2i(pad, pad)
 
 
-## True if `sig` is held in hand during `anim`, so it is not drawn as a layer (● R27).
+## True if `sig` is held in hand during `anim`, so it is not drawn as a layer (● R27). M4a: no
+## signature on the falling / lying body (death, PROVISIONAL, see the class comment).
 static func hides_signature(sig: Signature, anim: int) -> bool:
-	return sig != null and HELD_SIGNATURE.get(anim, &"") == sig.id
+	return sig != null and (HELD_SIGNATURE.get(anim, &"") == sig.id or anim == Anim.DEATH)
 
 
 ## Sheet row for a direction (west reuses east).

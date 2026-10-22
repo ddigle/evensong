@@ -36,6 +36,14 @@ extends Node2D
 ## adds an empty dungeon world that the session fills when the host sends it the map. F on the
 ## entrance or stairs is a TRAVEL request; the session moves the player and says so
 ## (NetSession.local_map_changed), and Main shows that map (the camera, the marker, the darkness).
+## M4a (offline; a session has no enemy, damage or dash yet, M4b): each map has an Arena
+## (combat/arena.gd: heretics, shots, the shrine, the spawner) and a CombatView drawing it; the arena of
+## the map the local player is on steps every physics tick after the players. The local player starts
+## with its class weapon in hotbar slot Config.START_WEAPON_SLOT + 1; Space dashes; a weapon's hit frame
+## (Player.action_impact) attacks (Arena.player_attack), except a pickaxe aimed at a wall, which mines
+## (Combat.is_mining_swing); dying drops the death bag (WorldItems.death_drop); the respawn puts the
+## player back at the altar (spawn slot 0, the surface). Test flags (--test-at, --test-heretic,
+## --test-down, --test-ally, --test-shrine-hp) set scenes up for screenshots and tests.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -51,6 +59,12 @@ var current_map: int = Config.MAP_SURFACE
 var bot: NetBot
 var hud: Hud
 var marker: TargetMarker
+## M4a (offline): an arena and its view per map; players that are not the local one (--test-ally).
+var arenas: Dictionary[int, Arena] = {}
+var combat_views: Dictionary[int, CombatView] = {}
+var allies: Array[Player] = []
+var deaths: int = 0
+var combat_on: bool = false
 var _gave: bool = false
 var _debug_action: int = 0
 
@@ -85,6 +99,7 @@ func _ready() -> void:
 		return
 	add_dungeon()
 	spawn(options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS)
+	setup_combat()
 	_apply_test_options(options)
 	if not options.bot.is_empty():
 		bot = NetBot.new()
@@ -157,10 +172,16 @@ func travel(to: int) -> bool:
 
 
 func _physics_process(delta: float) -> void:
-	if bot == null or player == null or _in_session():
+	if player == null or _in_session():
 		return
+	if bot != null:
+		_bot_tick(delta)
+	step_combat(delta)
+
+
+func _bot_tick(delta: float) -> void:
 	var a: NetBot.Action = bot.step(player.sim_position)
-	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta)
+	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact)
 	if a.op == null:
 		return
 	match a.op.op:
@@ -191,9 +212,13 @@ func spawn(local_class: String) -> void:
 	player.name = &"LocalPlayer"
 	player.controls = true
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
+	give_start_weapon(player)
 	player.action_started.connect(_on_action_started)
 	player.action_impact.connect(_on_action_impact)
 	player.place_requested.connect(_on_place_requested)
+	player.died.connect(_on_died.bind(player))
+	player.respawn_due.connect(_on_respawn_due.bind(player))
+	player.hurt.connect(_on_hurt.bind(player))
 	world.entities.add_child(player)
 	var slot: int = 1
 	for class_id: String in Config.CLASSES:
@@ -225,6 +250,7 @@ func _bind(p: Player) -> void:
 		return
 	p.controls = true
 	hud.bind(p.inventory)
+	hud.bind_player(p)
 	marker.player = p
 	marker.map_cells = current_world().data.size
 	marker.refresh()
@@ -327,8 +353,11 @@ func select_hotbar(step: int) -> void:
 		player.inventory.select(slot)
 
 
-## F: pick up what lies on the target tile (offline: at once; in a session: a request).
+## F: pick up what lies on the target tile (offline: at once; in a session: a request). M4a: not while
+## down or dead (F held then gives up, Vitals).
 func pick_up() -> void:
+	if not player.vitals.alive():
+		return
 	if _in_session():
 		net.queue_op(request(NetProtocol.Op.PICKUP))
 		return
@@ -342,8 +371,10 @@ func pick_up() -> void:
 		"pickup", cell)
 
 
-## F7 (debug): drop the selected stack on the target tile.
+## F7 (debug): drop the selected stack on the target tile (M4a: not while down or dead).
 func drop_selected() -> void:
+	if not player.vitals.alive():
+		return
 	if _in_session():
 		net.queue_op(request(NetProtocol.Op.DROP, -1, 0))
 		return
@@ -386,10 +417,17 @@ func debug_next_action() -> void:
 
 
 ## M3a, offline: a pickaxe swing lands (Config.MINING_IMPACT_FRAME): mine the target (items/mining.gd).
+## M4a: a weapon's hit frame attacks (Arena.player_attack); the pickaxe mines only when it is aimed at a
+## wall or a wall's face (Combat.is_mining_swing), and attacks otherwise.
 func _on_action_impact(item: StringName, _anim: int, target: Vector2i) -> void:
-	if item != Mining.PICKAXE or _in_session() or player == null:
+	if _in_session() or player == null:
 		return
 	var w: GameWorld = current_world()
+	if Combat.attack_for(item) != null and not Combat.is_mining_swing(w.data, item, target):
+		_attack(player, item)
+		return
+	if item != Mining.PICKAXE:
+		return
 	var r: Mining.Result = Mining.strike(w.data, player.sim_position, player.class_id(), player.inventory, target)
 	if r.why == Mining.WHY_NO_WALL:
 		return  # a swing at open ground (the surface): nothing to report, as in M2
@@ -397,6 +435,175 @@ func _on_action_impact(item: StringName, _anim: int, target: Vector2i) -> void:
 		w.apply_edit(e)
 	print("EVENSONG_MINE at=%d,%d class=%s %s" % [target.x, target.y, player.class_id(),
 		r.describe() if r.ok() else "refused: " + r.why])
+
+
+# --- M4a: combat (offline) ----------------------------------------------------------------------
+
+## The class weapon (Config.CLASS_WEAPONS) into hotbar slot Config.START_WEAPON_SLOT (offline only).
+static func give_start_weapon(p: Player) -> void:
+	var weapon: StringName = Combat.class_weapon(p.class_id())
+	if weapon.is_empty() or not p.inventory.is_empty_slot(Config.START_WEAPON_SLOT):
+		return
+	if p.inventory.add(weapon, 1) == 0:
+		for slot: int in p.inventory.size():
+			var s: ItemStack = p.inventory.stack_at(slot)
+			if s != null and s.id == weapon and slot != Config.START_WEAPON_SLOT:
+				p.inventory.move(slot, Config.START_WEAPON_SLOT)
+				break
+
+
+## An arena and a view for every map (offline only: a session, and a client that lost its host and
+## plays on alone, have none yet, M4b). Spawns are repeatable from the world seed.
+func setup_combat() -> void:
+	combat_on = true
+	for id: int in worlds:
+		ensure_combat(id)
+
+
+## Map `id`'s arena and view, (re)made when missing or when its world got other data (tests swap worlds).
+func ensure_combat(id: int) -> bool:
+	var w: GameWorld = _live_world(id)
+	if not combat_on or w == null or w.data == null:
+		return false
+	var raw: Variant = combat_views.get(id, null)
+	var v: CombatView = null
+	if raw != null and is_instance_valid(raw):
+		v = raw
+	if arenas.has(id) and arenas[id].data == w.data and v != null and v.get_parent() == w:
+		return true
+	if v != null:
+		v.clear()
+		v.get_parent().remove_child(v)
+		v.free()
+	var a: Arena = Arena.new()
+	a.setup(w.data, CliOptions.current().world_seed)
+	arenas[id] = a
+	v = CombatView.new()
+	v.name = &"Combat"
+	w.add_child(v)
+	v.setup(a, w.entities)
+	combat_views[id] = v
+	return true
+
+
+## World `id` unless it is missing or freed (tests swap worlds).
+func _live_world(id: int) -> GameWorld:
+	var raw: Variant = worlds.get(id, null)
+	if raw == null or not is_instance_valid(raw):
+		return null
+	var w: GameWorld = raw
+	return w
+
+
+## The players on map `map_id` in a fixed order (the local one first, then the allies).
+func players_on(map_id: int) -> Array[Player]:
+	var out: Array[Player] = []
+	var w: GameWorld = _live_world(map_id)
+	if w == null:
+		return out
+	if player != null and is_instance_valid(player) and player.data == w.data:
+		out.append(player)
+	for a: Player in allies:
+		if is_instance_valid(a) and a.data == w.data:
+			out.append(a)
+	return out
+
+
+## One combat tick on the local player's map (after the local player stepped): the allies' own tick (no
+## input: their down / respawn timers), then the arena; its edits go into the world, the view follows.
+func step_combat(delta: float) -> void:
+	if not ensure_combat(current_map):
+		return
+	for a: Player in allies:
+		if is_instance_valid(a) and a.data == current_world().data:
+			a.begin_tick()
+			a.step_frame(NetProtocol.InputFrame.new(), delta)
+	var players: Array[Player] = players_on(current_map)
+	var w: GameWorld = current_world()
+	for e: EditLog.WorldEdit in arenas[current_map].step(players):
+		w.apply_edit(e)
+		_log_edit(e)
+	combat_views[current_map].sync(players)
+
+
+func _attack(p: Player, item: StringName) -> void:
+	if not ensure_combat(current_map):
+		return
+	var a: Arena = arenas[current_map]
+	var before: int = a.stats.get("heretic_hits", 0) + a.stats.get("shrine_hits", 0)
+	var edits: Array[EditLog.WorldEdit] = a.player_attack(p, item, p.action_aim, players_on(current_map))
+	for e: EditLog.WorldEdit in edits:
+		current_world().apply_edit(e)
+		_log_edit(e)
+	var after: int = a.stats.get("heretic_hits", 0) + a.stats.get("shrine_hits", 0)
+	if after > before:
+		print("EVENSONG_COMBAT hit item=%s class=%s hits=%d shrine_hp=%d" % [item, p.class_id(), after - before, a.shrine_hp])
+
+
+func _log_edit(e: EditLog.WorldEdit) -> void:
+	if e.kind == EditLog.Kind.CELL and e.layer == WorldData.Layer.PLACEABLE and e.value == WorldData.PLACEABLE_SHRINE_BROKEN:
+		print("EVENSONG_COMBAT shrine broken at=%d,%d" % [e.cell.x, e.cell.y])
+
+
+func _on_hurt(amount: int, downed: bool, p: Player) -> void:
+	print("EVENSONG_COMBAT hurt who=%s amount=%d hp=%d%s" % [p.name, amount, p.vitals.hp, " DOWN" if downed else ""])
+
+
+## M4a: player `p` died (down time over, or gave up): part of its materials and consumables fall in a
+## bag on its tile (● gameplay-design §2.6, WorldItems.death_drop).
+func _on_died(p: Player) -> void:
+	var w: GameWorld = _world_of(p)
+	if w == null:
+		return
+	deaths += 1
+	var o: WorldItems.Outcome = WorldItems.death_drop(w.data, p.sim_position, p.inventory, Config.DEATH_DROP_RULE,
+		hash([CliOptions.current().world_seed, deaths]))
+	for e: EditLog.WorldEdit in o.edits:
+		w.apply_edit(e)
+	print("EVENSONG_DEATH died who=%s map=%s bag=%s items=%d" % [p.name, Config.MAP_NAMES[w.map_id],
+		"none (%s)" % o.why if not o.ok() else "%d,%d" % [o.edits[0].cell.x, o.edits[0].cell.y], o.count])
+
+
+## M4a: player `p`'s respawn time is up: back at its altar spawn slot on the surface (● §2.6 "부활 지점:
+## 제단"), facing Config.SPAWN_FACING, full (Config.RESPAWN_HP).
+func _on_respawn_due(p: Player) -> void:
+	var slot: int = 0 if p == player else 1 + allies.find(p)
+	if p == player and current_map != Config.MAP_SURFACE:
+		_show_map(Config.MAP_SURFACE)
+	if p.get_parent() != world.entities:
+		p.get_parent().remove_child(p)
+		world.entities.add_child(p)
+	p.set_world(world.data, world.spawn_point(slot))
+	p.facing = Config.SPAWN_FACING
+	p.respawn_vitals()
+	if p == player:
+		_follow(p)
+		marker.refresh()
+	print("EVENSONG_DEATH respawn who=%s feet=%d,%d" % [p.name, roundi(p.sim_position.x), roundi(p.sim_position.y)])
+
+
+func _world_of(p: Player) -> GameWorld:
+	for id: int in worlds:
+		if worlds[id].data == p.data:
+			return worlds[id]
+	return null
+
+
+## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
+func add_ally(class_id: String, down: bool) -> Player:
+	var a: Player = Player.new()
+	a.name = StringName("Ally_%s" % class_id)
+	a.local_input = false
+	var w: GameWorld = current_world()
+	a.setup(w.data, class_id, player.sim_position + Vector2(18, 0), RigData.Dir.WEST)
+	a.died.connect(_on_died.bind(a))
+	a.respawn_due.connect(_on_respawn_due.bind(a))
+	a.hurt.connect(_on_hurt.bind(a))
+	w.entities.add_child(a)
+	allies.append(a)
+	if down:
+		a.take_hit(Config.PLAYER_HP_MAX)
+	return a
 
 
 ## M3a, offline: a click with a torch selected puts it on the target tile.
@@ -428,6 +635,20 @@ func _apply_test_options(options: CliOptions) -> void:
 		player.freeze_action(options.test_action[0], options.test_action[1])
 	if options.test_action_lineup > -2:
 		spawn_action_lineup(options.test_action_lineup)
+	if options.test_at != null:
+		var at: Vector2i = options.test_at
+		player.teleport(Arena.spawn_feet(at))
+		camera.follow()
+	if not options.test_ally.is_empty():
+		add_ally(options.test_ally, options.test_ally_down)
+	if options.test_down:
+		player.take_hit(Config.PLAYER_HP_MAX)
+	if options.test_shrine_hp > 0 and arenas.has(current_map) and arenas[current_map].shrine_rect().has_area():
+		arenas[current_map].shrine_hp = options.test_shrine_hp
+	if arenas.has(current_map):
+		for c: Vector2i in options.test_heretics:
+			arenas[current_map].spawn_heretic(Arena.spawn_feet(c))
+		combat_views[current_map].sync(players_on(current_map))
 	marker.refresh()
 
 

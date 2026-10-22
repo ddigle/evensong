@@ -60,6 +60,16 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/items/item_stone_veined_v02.png": "assets/concept/04-env/item_stone_veined_v02.png",
 	"res://art/items/item_stone_mould_v02.png": "assets/concept/04-env/item_stone_mould_v02.png",
 	"res://art/items/item_stone_block_v02.png": "assets/concept/04-env/item_stone_block_v02.png",
+	# M4a: the base body's hurt and death, the heretic's five sheets, the death bag and the broken shrine's bones
+	"res://art/chars/base_body_v02_hurt.png": "assets/concept/03-pixel/base_body_v02_hurt.png",
+	"res://art/chars/base_body_v02_death.png": "assets/concept/03-pixel/base_body_v02_death.png",
+	"res://art/enemies/heretic_v02_walk.png": "assets/concept/03-pixel/heretic_v02_walk.png",
+	"res://art/enemies/heretic_v02_idle.png": "assets/concept/03-pixel/heretic_v02_idle.png",
+	"res://art/enemies/heretic_v02_attack.png": "assets/concept/03-pixel/heretic_v02_attack.png",
+	"res://art/enemies/heretic_v02_hurt.png": "assets/concept/03-pixel/heretic_v02_hurt.png",
+	"res://art/enemies/heretic_v02_death.png": "assets/concept/03-pixel/heretic_v02_death.png",
+	"res://art/env/prop_sack_small_v03.png": "assets/concept/04-env/prop_sack_small_v03.png",
+	"res://art/env/prop_bone_pile_a_v02.png": "assets/concept/04-env/prop_bone_pile_a_v02.png",
 	# M3a: the dungeon (04-env cliff tileset, ore tiles, cracks, props, ore items)
 	"res://art/tiles/tiles_dungeon_v02.png": "assets/concept/04-env/tiles_dungeon_v02.png",
 	"res://art/tiles/tiles_dungeon_v02_var.png": "assets/concept/04-env/tiles_dungeon_v02_var.png",
@@ -104,9 +114,10 @@ const ORDER: Dictionary[String, Array] = {
 	"herbalist": [[&"body", &"waist"], [&"body", &"waist"], [&"body", &"waist"], [&"body", &"waist"]],
 }
 ## v01 -> v02 re-pivot from 03-pixel/prompts.md "발 맞춤" (walk, idle) and the body actions ("8차" throw
-## +4 +4 +3; the 64 cell actions sit on walk frame 0, "10차") x (south, east, north).
+## +4 +4 +3; the 64 cell actions sit on walk frame 0, "10차"; M4a: "8차" hurt +4 +5 +4, death +3 +4 +5) x
+## (south, east, north).
 const PIVOT: Array[Array] = [[4, 3, 4], [5, 2, 3], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4],
-	[4, 3, 4], [4, 4, 3]]
+	[4, 3, 4], [4, 4, 3], [4, 5, 4], [3, 4, 5]]
 const TICK: float = 1.0 / 60.0
 
 

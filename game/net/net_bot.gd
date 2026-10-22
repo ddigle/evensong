@@ -24,10 +24,14 @@ extends RefCounted
 ##   waitmap:<players>,<map>[,<ticks>]  stand still until at least <players> players are on <map>
 ##                                (surface / dungeon / 0 / 1) as this machine knows it (the session
 ##                                sets map_counts each tick); gives up after <ticks> (default 1800)
+## M4a (offline; a session ignores them until M4b):
+##   dash:<dx>,<dy>               press Space this tick, holding that direction (0,0 = the facing)
+##   hold:<ticks>                 hold F that many ticks, standing (revive a downed player next to you;
+##                                while down, give up)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
-	"select", "drop", "give", "waitmap"]
+	"select", "drop", "give", "waitmap", "dash", "hold"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -71,6 +75,9 @@ class Action:
 	var use_held: bool = false
 	## M2b: a request this tick (op and fields; PICKUP / DROP get the target tile when the frame is built).
 	var op: NetProtocol.InputFrame
+	## M4a: Space this tick, F held.
+	var dash: bool = false
+	var interact: bool = false
 
 
 var commands: Array[Command] = []
@@ -186,6 +193,14 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				c.grade = ItemDB.grade_from_name(parts[2])
 				if not ItemDB.valid_grade(c.item, c.grade):
 					return "%s takes no grade %s" % [parts[0], parts[2]]
+		"dash":
+			if args.size() != 2 or not _axis(args[0]) or not _axis(args[1]):
+				return "expected dash:<dx>,<dy> with dx, dy in -1..1"
+			c.dir = Vector2i(args[0].to_int(), args[1].to_int())
+		"hold":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected hold:<ticks>"
+			c.ticks = args[0].to_int()
 		"waitmap":
 			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitmap:<players>,<map>[,<ticks>]"
@@ -295,6 +310,21 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.op.slot = -1  # the selected slot, filled in when the frame is built
 				_next()
 				return
+			"dash":
+				a.dir = c.dir
+				a.dash = true
+				_next()
+				return
+			"hold":
+				if _left < 0:
+					_left = c.ticks
+				if _left > 0:
+					_left -= 1
+					a.interact = true
+					if _left == 0:
+						_next()
+					return
+				_next()
 			"waitmap":
 				if _left < 0:
 					_left = c.ticks

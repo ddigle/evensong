@@ -109,6 +109,11 @@ class InputFrame:
 	## Resolved, not sent: the body action a USE starts (-1 = none) and the item playing it.
 	var anim: int = -1
 	var item: StringName = &""
+	## M4a, not sent yet (offline only; M4b puts them on the wire): Space this frame (a dash), F held
+	## (revive someone / give up while down), and a USE's aim (Combat.aim_code, -1 = toward the tile).
+	var dash: bool = false
+	var interact: bool = false
+	var aim: int = -1
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq

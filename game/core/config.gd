@@ -215,6 +215,154 @@ const TORCH_LIGHT_ENERGY: float = 0.95
 const WALL_TORCH_LIGHT_RADIUS_PX: int = 48
 const WALL_TORCH_LIGHT_ENERGY: float = 0.8
 
+# --- PROVISIONAL, M4a (health, stamina, dash, basic attacks, death, the heretic, spawning) -----
+# Offline first: in a session there is no damage, no enemy and no dash yet (M4b). README "임시값" M4a.
+
+## PROVISIONAL (○ gameplay-design §2.4 "HP + 방어력 … 스태미나(대시·방패)"; no numbers in the docs): a
+## player's hit points and stamina. No armour or defence stat (equipment is M7): damage is taken whole
+## (PLAYER_DEFENCE = 0).
+const PLAYER_HP_MAX: int = 100
+const PLAYER_DEFENCE: int = 0
+const STAMINA_MAX: int = 100
+## PROVISIONAL (not in docs): stamina comes back one point every STAMINA_REGEN_TICKS ticks (30 / s),
+## starting STAMINA_REGEN_DELAY_TICKS after it was spent.
+const STAMINA_REGEN_TICKS: int = 2
+const STAMINA_REGEN_DELAY_TICKS: int = 30
+## PROVISIONAL (○ gameplay-design §2.5 "모두 대시 1회 (스태미나)"; cost, cooldown, distance, speed and
+## invulnerability are not in the docs): Space dashes once: costs DASH_STAMINA, lasts DASH_TICKS at
+## DASH_SPEED px/s (= 40 px) in the held direction (the facing without one) with the same wall /
+## fixture / altar collision as walking (Movement.step), cannot start again for DASH_COOLDOWN_TICKS,
+## and while it lasts the player takes no damage when DASH_INVULNERABLE. It does not start during a
+## body action, a stagger or while down.
+const DASH_STAMINA: int = 35
+const DASH_TICKS: int = 10
+const DASH_SPEED: float = 240.0
+const DASH_COOLDOWN_TICKS: int = 30
+const DASH_INVULNERABLE: bool = true
+## PROVISIONAL (not in docs): a hit staggers a player for HURT_TICKS (no moving, no new action or dash;
+## the playing action is cut off) while base_body_v02_hurt plays at HURT_FRAME_TICKS a frame, and no
+## further damage lands for HURT_INVULN_TICKS. The heretic uses the same stagger rule
+## (HERETIC_HURT_FRAME_TICKS).
+const HURT_FRAME_TICKS: int = 3
+const HURT_TICKS: int = 18
+const HURT_INVULN_TICKS: int = 30
+## PROVISIONAL (not in docs): friendly fire. Off: players' attacks never hurt players.
+const FRIENDLY_FIRE: bool = false
+## PROVISIONAL (gameplay-design §2.6 ● R12 writes the flow: "다운 상태 → 아군이 F 홀드로 소생 (성직자는 즉시,
+## 다른 클래스는 5초) → 30초 넘기면 사망"; recorded here as values): at 0 HP a player goes DOWN
+## (base_body_v02_death, DEATH_FRAME_TICKS a frame, then lying); another player within REVIVE_REACH_PX
+## holding F revives it, a cleric at once (REVIVE_TICKS_CLERIC 0), anyone else after REVIVE_TICKS; after
+## DOWN_TICKS down it dies. The down timer keeps running during a revive; letting go resets the revive.
+const DEATH_FRAME_TICKS: int = 6
+const DOWN_TICKS: int = 30 * 60
+const REVIVE_TICKS: int = 5 * 60
+const REVIVE_TICKS_CLERIC: int = 0
+## PROVISIONAL (not in docs): how near (feet to feet, px) a reviver stands, and the HP a revived player
+## gets back.
+const REVIVE_REACH_PX: float = 24.0
+const REVIVE_HP: int = 30
+## PROVISIONAL (not in docs; alone nobody can revive you): holding F this long while down gives up (dies
+## at once) instead of waiting out DOWN_TICKS.
+const GIVE_UP_HOLD_TICKS: int = 60
+## PROVISIONAL (gameplay-design §2.6 ● "부활 지점: 제단", §5 ○; the delay and the HP are not in the docs):
+## a dead player comes back after RESPAWN_TICKS at its altar spawn slot on the surface with RESPAWN_HP.
+const RESPAWN_TICKS: int = 5 * 60
+const RESPAWN_HP: int = PLAYER_HP_MAX
+## PROVISIONAL (gameplay-design §2.6 ○ "스택마다 절반 또는 무작위 3종. 슬라이스에서 정한다"): what part of
+## the inventory's materials and consumables (every kind but tools; tools and equipment stay) falls in
+## the death bag. DEATH_DROP_HALF: half of every such stack (rounded up). DEATH_DROP_KINDS: every stack
+## of DEATH_DROP_RANDOM_KINDS item kinds picked at random.
+const DEATH_DROP_HALF: int = 0
+const DEATH_DROP_KINDS: int = 1
+const DEATH_DROP_RULE: int = DEATH_DROP_HALF
+const DEATH_DROP_RANDOM_KINDS: int = 3
+## PROVISIONAL (not in docs; gameplay-design §2.1 ● real-time, aimed; §1 ○ "좌클릭: 기본 공격 / 들고 있는
+## 도구 사용", "광부는 곡괭이가 무기이자 도구"; the skill kit is ? §2.2): each class's basic attack is the
+## weapon item of its class held in the hotbar, used with left click like any tool (anyone may use any
+## weapon). Paladin sword (melee arc), archer bow (arrow), cleric holy light (bolt, the magic action),
+## miner pickaxe (melee; it mines a wall instead when the target tile is a wall), herbalist sickle
+## (melee; not in the docs).
+const CLASS_WEAPONS: Dictionary[String, StringName] = {
+	"paladin": &"sword", "archer": &"bow", "cleric": &"holy_light", "miner": &"pickaxe", "herbalist": &"sickle",
+}
+## PROVISIONAL (not in docs; supersedes M2a's empty start offline): the offline local player starts with
+## its class weapon in this hotbar slot (0-based; the last, so the debug kit and --give keep their M2 /
+## M3 slots). In a session nobody gets it yet (M4b).
+const START_WEAPON_SLOT: int = 7
+## PROVISIONAL (not in docs): attacks by weapon item: [kind (Combat.Kind: 0 melee, 1 arrow, 2 bolt),
+## damage, reach px (melee: feet to feet; shots: travel), arc degrees (melee), hit frame (0-based frame
+## of the body action that hits / lets go; the pickaxe's is MINING_IMPACT_FRAME, one impact for mining
+## and fighting), shot speed px/s]. The attack rate is the action's length (Config.ACTION_FRAME_TICKS a
+## frame, repeated while held).
+const WEAPON_ATTACKS: Dictionary[StringName, Array] = {
+	&"sword": [0, 14, 26.0, 120.0, 4, 0.0],
+	&"pickaxe": [0, 10, 22.0, 90.0, 3, 0.0],
+	&"sickle": [0, 8, 22.0, 120.0, 3, 0.0],
+	&"bow": [1, 12, 160.0, 0.0, 6, 220.0],
+	&"holy_light": [2, 10, 128.0, 0.0, 3, 150.0],
+}
+## PROVISIONAL (not in docs; ● game-concept §12 slice "이단 적 1종(근접)" in the 03-pixel hand-off): one
+## heretic's hit points and the damage of its knife.
+const HERETIC_HP: int = 40
+const HERETIC_DAMAGE: int = 12
+## PROVISIONAL (not in docs): chase speed (px/s, slower than walking so a player can get away).
+const HERETIC_SPEED: float = 46.0
+## PROVISIONAL (○ gameplay-design §2.3 aggro "위협" until M9; here the nearest player only): a heretic
+## targets the nearest player on its map that is up, within HERETIC_SIGHT_PX with no wall between, and
+## gives up beyond HERETIC_LEASH_PX from where it spawned (walks back home).
+const HERETIC_SIGHT_PX: float = 112.0
+const HERETIC_LEASH_PX: float = 256.0
+## PROVISIONAL (not in docs): starts its attack when the target is this near (feet to feet), the knife
+## lands on everyone up within HERETIC_HIT_REACH_PX in a HERETIC_HIT_ARC_DEG arc, and it waits
+## HERETIC_ATTACK_COOLDOWN_TICKS after an attack.
+const HERETIC_ATTACK_RANGE_PX: float = 22.0
+const HERETIC_HIT_REACH_PX: float = 28.0
+const HERETIC_HIT_ARC_DEG: float = 120.0
+const HERETIC_ATTACK_COOLDOWN_TICKS: int = 45
+## PROVISIONAL (? hit column, 03-pixel/prompts.md 13차 "M4에 넘길 것": candidates south 3-4, east 4-5,
+## north 5-6): the attack sheet column (1 = the first played column) the knife lands on, south / east /
+## north (west = east). The first of each pair.
+const HERETIC_HIT_COLUMN: PackedInt32Array = [3, 4, 5]
+## PROVISIONAL (not in docs; 13차 asks for the attack / hurt / death frame times): the telegraph (the
+## knife raised, the columns before the hit column, the last of them held) lasts HERETIC_TELEGRAPH_TICKS
+## in every direction; the rest of the attack plays at HERETIC_ATTACK_FRAME_TICKS a frame; hurt and death
+## at their own frame times; a dead heretic lies HERETIC_CORPSE_TICKS more, then is gone.
+const HERETIC_TELEGRAPH_TICKS: int = 30
+const HERETIC_ATTACK_FRAME_TICKS: int = 6
+const HERETIC_HURT_FRAME_TICKS: int = 3
+const HERETIC_DEATH_FRAME_TICKS: int = 6
+const HERETIC_CORPSE_TICKS: int = 120
+## PROVISIONAL (not in docs): a hit staggers a heretic (hurt frames, its chase stops) but does not cut off
+## an attack it has started (false), so a fast weapon cannot keep it from ever striking; true = it does.
+const HERETIC_HURT_INTERRUPTS_ATTACK: bool = false
+## PROVISIONAL (game-concept §9.3: the altar's safe radius = light, spawn suppression, corruption
+## resistance; whether an enemy walks into the light is not written): false = a heretic never steps into
+## the altar light, never targets or hurts a player inside it.
+const HERETIC_ENTERS_LIGHT: bool = false
+## PROVISIONAL (not in docs): what a heretic does when its target steps into the light: stands at the
+## edge facing it this many seconds, then walks home (0 = turns back at once).
+const HERETIC_LIGHT_EDGE_WAIT_SEC: float = 4.0
+## PROVISIONAL (not in docs; the M3a row keeps torches light only): true would make a torch's light count
+## as the altar's for heretics (no entering, no targeting, no spawning). Off.
+const TORCH_LIGHT_IS_SAFE: bool = false
+## PROVISIONAL (game-concept §9.3 spawn suppression ●/○ as written there; numbers not in docs): heretics
+## alive at once per map (surface, dungeon), ticks between spawn tries on a map with a player on it (the
+## first one interval after the map is entered), the least distance (px) from every player, how far
+## around the corruption zones the surface spawns reach (tiles), and how far (walking tiles from the
+## arrival point) the dungeon spawns stay from the arrival room.
+const HERETIC_CAP_SURFACE: int = 4
+const HERETIC_CAP_DUNGEON: int = 6
+const HERETIC_SPAWN_INTERVAL_TICKS: int = 480
+const HERETIC_SPAWN_MIN_PLAYER_PX: float = 160.0
+const HERETIC_SPAWN_ASH_REACH_TILES: int = 2
+const HERETIC_SPAWN_ARRIVAL_MIN_TILES: int = 14
+## PROVISIONAL (● gameplay-design §3.0 paladin row "오염 원천은 누구나 전투로 파괴 가능"; its HP is not in
+## the docs): the heretic shrine's hit points. When broken it stays a broken (blocking) placeable and
+## the dungeon spawns no more heretics (SHRINE_STOPS_SPAWNS; the docs make the first dungeon the first
+## corruption source, game-concept §12; what breaking it does is not written).
+const SHRINE_HP: int = 150
+const SHRINE_STOPS_SPAWNS: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -349,6 +497,13 @@ const FACE_HEIGHT_PX: int = 24
 ## this bright (0-255 luma). Keeps the 81 flame pixels (9 lamps x 9), drops the warm glow on the
 ## stone (spike light module value).
 const FLAME_MIN_LUMA: float = 148.0
+## IMPL (M4a): ticks a hit flash shows on a character, a heretic or the shrine; the body point (feet box
+## centre) hit tests measure from; a heretic's / the shrine's hit radius around it for shots; how far
+## above the ground a shot is drawn; a shot moves in steps of at most SHOT_STEP_PX inside a tick.
+const HIT_FLASH_TICKS: int = 6
+const BODY_HIT_RADIUS_PX: float = 8.0
+const SHOT_DRAW_LIFT_PX: int = 12
+const SHOT_STEP_PX: float = 2.0
 
 
 static func safe_radius_px() -> float:

@@ -1,7 +1,8 @@
 class_name ItemIcons
 extends RefCounted
 ## Inventory icons. Items with art load their PNG (art/items/, 04-env candidates). Tools (and, M3a, the
-## torch, drawn as a small lit lantern like the ground lantern it is placed as) have no icon art
+## torch, drawn as a small lit lantern like the ground lantern it is placed as; M4a, the cleric's holy
+## light, a gold sunburst) have no icon art
 ## anywhere in assets/ yet, so their icons are PROVISIONAL placeholders drawn here from 16x16
 ## character maps (README "임시값"): the brief §4 palette's ash black outline and faith golds, the
 ## warm iron greys and copper of the 04-env items, no cool greys. Replace them when tool icons exist.
@@ -150,6 +151,25 @@ const MAPS: Dictionary[StringName, Array] = {
 		".....kdwkk......",
 		".....kkk........",
 		"................",
+	],
+	# M4a: the cleric's holy light (the magic action's bolt): a small gold sunburst, ivory core.
+	&"holy_light": [
+		"................",
+		".......kk.......",
+		".......kgk......",
+		"..kk...kgk...kk.",
+		"..kgkk.kgk.kkgk.",
+		"...kgkkkgkkkgk..",
+		"....kkgllgkkk...",
+		".kkkkglssslgkkk.",
+		"kggggllsssllgggk",
+		".kkkkglssslgkkk.",
+		"....kkglllgkk...",
+		"...kgkkkgkkkgk..",
+		"..kgkk.kgk.kkgk.",
+		"..kk...kgk...kk.",
+		".......kgk......",
+		".......kk.......",
 	],
 }
 

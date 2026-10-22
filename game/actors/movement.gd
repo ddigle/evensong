@@ -16,11 +16,11 @@ extends RefCounted
 ## - Facing is 4-way (facing_for).
 
 
-static func velocity(input: Vector2i) -> Vector2:
+static func velocity(input: Vector2i, speed: float = Config.WALK_SPEED) -> Vector2:
 	var v: Vector2 = Vector2(clampi(input.x, -1, 1), clampi(input.y, -1, 1))
 	if v == Vector2.ZERO:
 		return v
-	return v.normalized() * Config.WALK_SPEED
+	return v.normalized() * speed
 
 
 ## Feet collision box for a feet position.
@@ -98,9 +98,10 @@ static func can_stand(data: WorldData, pos: Vector2) -> bool:
 	return move_bounds(data).encloses(box) and obstacles(data, box).is_empty()
 
 
-## One movement step: new feet position after `delta` seconds of `input`.
-static func step(data: WorldData, pos: Vector2, input: Vector2i, delta: float) -> Vector2:
-	var d: Vector2 = velocity(input) * delta
+## One movement step: new feet position after `delta` seconds of `input` at `speed` px/s (walking;
+## M4a: a dash and a heretic use the same collision at their own speed).
+static func step(data: WorldData, pos: Vector2, input: Vector2i, delta: float, speed: float = Config.WALK_SPEED) -> Vector2:
+	var d: Vector2 = velocity(input, speed) * delta
 	var p: Vector2 = pos
 	if d.x != 0.0:
 		p.x = _move_axis(data, p, d.x, 0)
