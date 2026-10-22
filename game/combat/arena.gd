@@ -50,8 +50,50 @@ class Shot:
 	var owner_slot: int = 255
 
 
+## M6a: a thrown potion in flight (the herbalist's skill, items/potions.gd): lobbed over bodies along the
+## ground from `origin` to `target`, stopped sooner by what stops a shot (Combat.blocks_line).
+class Flask:
+	extends RefCounted
+	var id: int = 0
+	var item: StringName = &""
+	var grade: int = 0
+	## Ground point now, where it left the hand and where it lands at most.
+	var pos: Vector2 = Vector2.ZERO
+	var origin: Vector2 = Vector2.ZERO
+	var target: Vector2 = Vector2.ZERO
+	var owner_id: int = 0
+	var done: bool = false
+	## What ended it: "", "landed", "wall", "emptied".
+	var stopped_by: String = ""
+	## M6b: the thrower's session slot (255 = none / offline) and the tick it left the hand (a late client gets
+	## it as a thrown event).
+	var owner_slot: int = 255
+	var born: int = 0
+
+	## 0..1 of the way (for the arc it is drawn on).
+	func progress() -> float:
+		var total: float = origin.distance_to(target)
+		return clampf(origin.distance_to(pos) / total, 0.0, 1.0) if total > 0.0 else 1.0
+
+
+## M6a: where a thrown potion broke (shown Config.SPLASH_SHOW_TICKS; its effect is applied when it lands).
+class Splash:
+	extends RefCounted
+	var id: int = 0
+	var item: StringName = &""
+	var pos: Vector2 = Vector2.ZERO
+	var age: int = 0
+	## Who it reached (counts for logs and tests).
+	var players: int = 0
+	var heretics: int = 0
+	## M6b: why its potion broke ("landed", "wall"; NetProtocol.FLASK_STOPS) and the host tick it did.
+	var why: String = "landed"
+	var born: int = 0
+
+
 ## M4b: a hit on a heretic (logging on): which, how much, its HP after, who (the attacker's node instance
-## id, 0 = unknown) and whether it died.
+## id, 0 = unknown) and whether it died. M6-fix: `poison` = a poison tick (the thrower's), not a weapon hit (the
+## host counts it apart, "poison_hits", and tags its log line).
 class Hit:
 	extends RefCounted
 	var heretic_id: int = 0
@@ -59,6 +101,7 @@ class Hit:
 	var hp_after: int = 0
 	var by_id: int = 0
 	var killed: bool = false
+	var poison: bool = false
 
 var data: WorldData
 var safe: SafeZone
@@ -66,6 +109,9 @@ var map_id: int = Config.MAP_SURFACE
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var heretics: Array[HereticSim] = []
 var shots: Array[Shot] = []
+## M6a: thrown potions in flight and splashes being shown.
+var flasks: Array[Flask] = []
+var splashes: Array[Splash] = []
 var next_id: int = 1
 var spawn_timer: int = 0
 ## The shrine (dungeon): its footprint while it stands, hit points, display flash.
@@ -112,6 +158,8 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	rng.seed = hash([world_seed, map_id, 0xC0BA7])
 	heretics.clear()
 	shots.clear()
+	flasks.clear()
+	splashes.clear()
 	next_id = 1
 	spawn_timer = 0
 	occupied = false
@@ -191,6 +239,20 @@ func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if not s.done:
 			flying.append(s)
 	shots = flying
+	# M6a: splashes age (display), thrown potions fly and splash.
+	var showing: Array[Splash] = []
+	for sp: Splash in splashes:
+		sp.age += 1
+		if sp.age < Config.SPLASH_SHOW_TICKS:
+			showing.append(sp)
+	splashes = showing
+	for f: Flask in flasks:
+		_step_flask(f, players)
+	var in_air: Array[Flask] = []
+	for f: Flask in flasks:
+		if not f.done:
+			in_air.append(f)
+	flasks = in_air
 	var staying: Array[HereticSim] = []
 	for h: HereticSim in heretics:
 		if not h.finished():
@@ -238,6 +300,11 @@ func on_emptied() -> void:
 		s.stopped_by = "emptied"
 	shots.clear()
 	shot_events.clear()
+	for f: Flask in flasks:
+		f.done = true
+		f.stopped_by = "emptied"
+	flasks.clear()
+	splashes.clear()
 	spawn_timer = 0
 	attacks_started = 0
 	shrine_flash = 0
@@ -302,6 +369,8 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 	h.clock += 1
 	if h.flash_ticks > 0:
 		h.flash_ticks -= 1
+	if h.alive() and h.poison_ticks > 0:
+		_tick_poison(h)  # M6a
 	match h.state:
 		HereticSim.State.DEAD:
 			h.state_ticks += 1
@@ -500,12 +569,221 @@ func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 		h.state = HereticSim.State.DEAD
 		h.state_ticks = 0
 		h.walking = false
+		_end_poison(h)  # M6-fix: a heretic killed while poisoned is no longer poisoned
 		count("killed")
 		return
 	if h.state == HereticSim.State.ATTACK and not Config.HERETIC_HURT_INTERRUPTS_ATTACK:
 		return
 	h.state = HereticSim.State.HURT
 	h.state_ticks = 0
+
+
+## M6a: poison on heretic `h` (a splash of the poison potion): `damage` every Config.POISON_INTERVAL_TICKS for
+## `ticks` (the first one an interval later). One already poisoned keeps the longer time and the larger damage
+## (Config.EFFECT_REFRESH_KEEPS_STRONGER) and takes the new thrower as the one a death counts for. `by`: the
+## thrower's node instance id. False when it is dead.
+func poison_heretic(h: HereticSim, damage: int, ticks: int, by: int = 0) -> bool:
+	if not h.alive() or damage <= 0 or ticks <= 0:
+		return false
+	if h.poison_ticks > 0 and Config.EFFECT_REFRESH_KEEPS_STRONGER:
+		h.poison_damage = maxi(h.poison_damage, damage)
+		h.poison_ticks = maxi(h.poison_ticks, ticks)
+	else:
+		h.poison_damage = damage
+		h.poison_ticks = ticks
+		h.poison_timer = Config.POISON_INTERVAL_TICKS
+	h.poison_by = by
+	count("poisoned")
+	return true
+
+
+## M6a: one tick of a heretic's poison (step(), alive heretics): a poison tick takes HP without a stagger and
+## does not stop an attack (Config "M6a"); at 0 it dies like any other kill (counted "killed", a Hit record
+## for the thrower with logging on: the host counts it as that player's kill, M6b). A dead heretic's poison
+## ends (M6-fix: whatever killed it, hit_heretic too).
+func _tick_poison(h: HereticSim) -> void:
+	h.poison_ticks -= 1
+	h.poison_timer -= 1
+	if h.poison_timer <= 0:
+		h.poison_timer = Config.POISON_INTERVAL_TICKS
+		_poison_damage(h, h.poison_damage)
+	if h.poison_ticks <= 0 or not h.alive():
+		_end_poison(h)
+
+
+static func _end_poison(h: HereticSim) -> void:
+	h.poison_ticks = 0
+	h.poison_damage = 0
+	h.poison_timer = 0
+
+
+func _poison_damage(h: HereticSim, amount: int) -> void:
+	h.hp = maxi(h.hp - amount, 0)
+	h.flash_ticks = Config.HIT_FLASH_TICKS
+	count("poison_hits")
+	if logging:
+		var r: Hit = Hit.new()
+		r.heretic_id = h.id
+		r.amount = amount
+		r.hp_after = h.hp
+		r.by_id = h.poison_by
+		r.killed = h.hp == 0
+		r.poison = true
+		hits.append(r)
+	if h.hp == 0:
+		h.state = HereticSim.State.DEAD
+		h.state_ticks = 0
+		h.walking = false
+		count("killed")
+		count("poison_kills")
+
+
+## IMPL (M6a): a thrown potion this close (px) past a whole tick's flight lands this tick.
+const FLASK_ARRIVE_PX: float = 0.001
+
+
+## M6a: player `p` throws potion `item` at `grade` (its release frame) toward ground point `target` (already
+## clamped to Config.THROW_RANGE_PX, Potions.throw_target). The bottle leaves from its body point. Returns it.
+## M6b: `owner_slot` = the thrower's session slot; with logging on, a thrown event goes to the map's clients.
+func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owner_slot: int = 255) -> Flask:
+	var f: Flask = Flask.new()
+	f.id = next_id
+	next_id += 1
+	f.item = item
+	f.grade = grade
+	f.origin = Combat.body_point(p.sim_position)
+	f.pos = f.origin
+	f.target = Potions.throw_target(f.origin, target)
+	f.owner_id = p.get_instance_id()
+	f.owner_slot = owner_slot
+	f.born = now
+	flasks.append(f)
+	count("throws")
+	if logging:
+		shot_events.append(flask_event(f))
+	return f
+
+
+## M6b: the thrown event of flask `f` (also what a late client gets for one in the air).
+static func flask_event(f: Flask) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.THROW
+	e.id = f.id
+	e.item = f.item
+	e.owner = f.owner_slot
+	e.tick = f.born
+	e.pos = f.origin
+	e.target = f.target
+	return e
+
+
+## M6b: the broke event of splash `s` (also what a late client gets for one still shown).
+static func splash_event(s: Splash) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.SPLASH
+	e.id = s.id
+	e.item = s.item
+	e.tick = s.born
+	e.pos = s.pos
+	e.why = maxi(NetProtocol.FLASK_STOPS.find(s.why), 0)
+	return e
+
+
+## One tick of a thrown potion: Config.THROW_SPEED along the ground toward its target in steps of at most
+## Config.SHOT_STEP_PX (flask_points); a tile that stops a shot (walls, faces, blocking placeables, the map's
+## edge; every tile between two steps counts, like a shot) stops it at the step before; bodies do not (it is
+## lobbed). Landed or stopped, it splashes (_splash).
+func _step_flask(f: Flask, players: Array[Player]) -> void:
+	if f.done:
+		return
+	var arrive: bool = flask_arrives(f.pos, f.target)  # this tick it lands (float slack: no extra tick)
+	for to: Vector2 in flask_points(f.pos, f.target):
+		var from: Vector2 = f.pos
+		var blocked: bool = false
+		for c: Vector2i in Combat.cells_on_line(from, to):
+			if Combat.blocks_line(data, c):
+				blocked = true
+				break
+		if blocked:
+			f.stopped_by = "wall"
+			_splash(f, from, players)
+			return
+		f.pos = to
+	if arrive:
+		f.stopped_by = "landed"
+		_splash(f, f.target, players)
+
+
+## M6b: whether a thrown potion at ground point `pos` lands on `target` this tick (within a tick's flight).
+static func flask_arrives(pos: Vector2, target: Vector2) -> bool:
+	return pos.distance_to(target) <= Config.THROW_SPEED / Config.NET_TICK_RATE + FLASK_ARRIVE_PX
+
+
+## M6b: the points one tick of a thrown potion's flight from `pos` toward `target` passes (the last = where the
+## tick leaves it; `target` itself on the tick it lands). The host's flight (_step_flask, which stops it at a
+## wall) and a client's drawing (net/net_combat.gd) both step with this, so a client draws the host's points.
+static func flask_points(pos: Vector2, target: Vector2) -> PackedVector2Array:
+	var out: PackedVector2Array = PackedVector2Array()
+	var left: float = pos.distance_to(target)
+	var arrive: bool = flask_arrives(pos, target)
+	var dist: float = left if arrive else Config.THROW_SPEED / Config.NET_TICK_RATE
+	var dir: Vector2 = (target - pos).normalized() if left > 0.0 else Vector2.ZERO
+	var steps: int = maxi(ceili(dist / Config.SHOT_STEP_PX), 1)
+	var at: Vector2 = pos
+	for i: int in steps:
+		var to: Vector2 = target if arrive and i == steps - 1 else at + dir * (dist / steps)
+		out.append(to)
+		at = to
+	return out
+
+
+## M6a: the potion breaks at ground point `at`: everyone it reaches (Potions: within
+## Config.THROW_SPLASH_RADIUS_PX of `at`, measured to their body point, no wall between) gets it. Healing and
+## the buff work on the players up (the thrower too); poison on the heretics alive (and on players only with
+## Config.FRIENDLY_FIRE).
+func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
+	f.done = true
+	f.pos = at
+	var s: Splash = Splash.new()
+	s.id = f.id
+	s.item = f.item
+	s.pos = at
+	s.why = f.stopped_by
+	s.born = now
+	splashes.append(s)
+	count("splashes")
+	if logging:
+		shot_events.append(splash_event(s))
+	var effect: int = Potions.effect_of(f.item)
+	if effect == Potions.Effect.POISON:
+		for h: HereticSim in heretics:
+			if h.alive() and in_splash(at, h.pos) \
+					and poison_heretic(h, Potions.poison_damage(f.grade), Potions.poison_ticks(f.grade), f.owner_id):
+				s.heretics += 1
+	if effect != Potions.Effect.POISON or Config.FRIENDLY_FIRE:
+		for p: Player in players:
+			if not in_splash(at, p.sim_position):
+				continue
+			if splash_revives(effect) and p.vitals.life == Vitals.Life.DOWN:
+				p.revive_now()  # M6b, PROVISIONAL Config.THROW_HEAL_REVIVES (off: F revives, a splash does not)
+				count("splash_revives")
+			if p.vitals.alive() and p.apply_potion(f.item, f.grade) != 0:
+				s.players += 1
+	count("splash_players", s.players)
+	count("splash_heretics", s.heretics)
+
+
+## M6b: whether a splash of a potion with effect `effect` (Potions.Effect) gets a downed player up
+## (Config.THROW_HEAL_REVIVES, PROVISIONAL: off, a thrown healing potion heals only players who are up).
+static func splash_revives(effect: int) -> bool:
+	return Config.THROW_HEAL_REVIVES and effect == Potions.Effect.HEAL
+
+
+## M6a: a splash at ground point `at` reaches the body standing at `feet` (its body point within
+## Config.THROW_SPLASH_RADIUS_PX, no blocking tile between).
+func in_splash(at: Vector2, feet: Vector2) -> bool:
+	var body: Vector2 = Combat.body_point(feet)
+	return body.distance_to(at) <= Config.THROW_SPLASH_RADIUS_PX and Combat.line_clear(data, at, body)
 
 
 ## The heretic a shot at ground point `point` hits (Combat.shot_hits_body: the drawn shot inside its
@@ -652,7 +930,7 @@ func shrine_hp_now() -> int:
 ## M4b: anything fighting on this map (a heretic not idle at home, a shot in flight): the traffic counts
 ## it as a fight.
 func fighting() -> bool:
-	if not shots.is_empty():
+	if not shots.is_empty() or not flasks.is_empty() or not splashes.is_empty():
 		return true
 	for h: HereticSim in heretics:
 		if h.state != HereticSim.State.IDLE or h.walking:

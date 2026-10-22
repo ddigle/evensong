@@ -11,6 +11,12 @@ extends RefCounted
 ## another machine), wire v4 (a state with its map, a request aimed on a map, an edit naming its map,
 ## the map entry) and a mined dungeon (cracks, a break, a torch, a drop) through the map snapshot path
 ## into a cave view that draws it exactly.
+## M6a: the recipes (six: three potions x two grades, who may brew them), a craft, the alchemy table art and
+## its placement, a drink, a poison tick to down, a thrown poison potion that splashes a heretic. Printed as
+## potions=<recipes>/<splash heretics>.
+## M6b: wire v6: a THROW and a CRAFT on frames, a state with its effects block, a host arena's thrown potion as
+## its thrown / broke events flown by a client's NetCombat on the host's points, the heretic's poison flag drawn
+## on the client. Printed as potion_wire=<a state with effects>B/<a throw's two events>B.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -64,6 +70,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_actors(r)
 	_check_items(r)
 	_check_combat(r)
+	_check_potions(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -262,7 +269,7 @@ static func _check_items(r: Report) -> void:
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
 	r.expect_eq(tools, 7, "tools (M4a: + holy_light)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash"]:
+			"interact", "debug_drop", "dash", "skill_1"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -325,6 +332,55 @@ static func _check_combat(r: Report) -> void:
 		"the broken shrine stops the dungeon spawns")
 	p.free()
 	r.fields.append("combat=%d/%d spawn_tiles=%d" % [hit_at, swings, cells.size()])
+
+
+## M6a: recipes, a craft, the table art and placement, a drink, a poison down, a thrown poison potion.
+static func _check_potions(r: Report) -> void:
+	var all: Array[Crafting.Recipe] = Crafting.recipes()
+	r.expect_eq(all.size(), 6, "recipes (3 potions x 2 grades)")
+	var inv: Inventory = Inventory.new()
+	inv.add(&"wild_healing", 2)
+	var miner_fine: Crafting.Recipe = Crafting.recipe(&"potion_healing_fine")
+	var common: Crafting.Recipe = Crafting.recipe(&"potion_healing_common")
+	r.expect(miner_fine != null and not miner_fine.allows("miner") and miner_fine.allows("herbalist"), "FINE potions are the herbalist's")
+	var o: Crafting.Outcome = Crafting.craft(common, "miner", inv)
+	r.expect(o.ok() and inv.count_of(&"potion_healing", ItemDB.Grade.COMMON) == 1 and inv.count_of(&"wild_healing") == 0,
+		"a COMMON healing potion from two herbs (%s)" % o.why)
+	var tex: Texture2D = load("res://art/env/alchemy_table_v05.png") as Texture2D
+	r.expect(tex != null and Vector2i(tex.get_size()) == Vector2i(48, 32), "alchemy table art 48x32")
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var feet: Vector2 = Vector2(surface.altar_center_px()) + Vector2(0, 80)
+	var kit: Inventory = Inventory.new()
+	kit.add(&"alchemy_table", 1)
+	var put: WorldItems.Outcome = WorldItems.place(surface, feet, kit, 0, Aim.feet_cell(feet) + Vector2i(0, 1))
+	for e: EditLog.WorldEdit in put.edits:
+		EditLog.apply_to_data(surface, e)
+	r.expect(put.ok() and put.edits.size() == 3 and Crafting.station_near(surface, feet) != null,
+		"the alchemy table goes down south of the feet and is a station (%s)" % put.why)
+	var sim: PlayerSim = PlayerSim.new()
+	sim.vit.hp = 50
+	r.expect(Potions.apply(sim, &"potion_healing", ItemDB.Grade.COMMON) == PlayerSim.HEALED
+		and sim.vit.hp == 50 + Config.POTION_HEAL_HP[ItemDB.Grade.COMMON], "a healing potion heals")
+	sim.vit.hp = 1
+	Potions.apply(sim, &"potion_poison", ItemDB.Grade.COMMON)
+	var downed: bool = false
+	for t: int in Config.POISON_INTERVAL_TICKS:
+		downed = downed or sim.step(surface, Vector2i.ZERO, -1, -1, Vector2i.ZERO, Config.NET_TICK) & PlayerSim.DOWNED != 0
+	r.expect(downed and sim.vit.life == Vitals.Life.DOWN and not sim.vit.poisoned(), "a poison tick takes a player down")
+	var arena: Arena = Arena.new()
+	arena.setup(surface, Config.DEFAULT_SEED)
+	arena.spawning = false
+	var at: Vector2 = Arena.spawn_feet(Vector2i(40, 30))
+	var h: HereticSim = arena.spawn_heretic(at)
+	var thrower: Player = Player.new()
+	thrower.setup(surface, "herbalist", at + Vector2(-60, 0))
+	arena.throw_potion(thrower, &"potion_poison", ItemDB.Grade.FINE, Combat.body_centre(at))
+	var no_players: Array[Player] = []
+	for t2: int in 60:
+		arena.step(no_players)
+	r.expect(arena.stat("splash_heretics") == 1 and h.poisoned(), "a thrown poison potion splashes the heretic")
+	thrower.free()
+	r.fields.append("potions=%d/%d" % [all.size(), arena.stat("splash_heretics")])
 
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
@@ -427,6 +483,7 @@ static func _check_net(r: Report) -> void:
 				has_net = true
 	r.expect(has_net, "main.tscn has no Net node")
 	_check_net_combat(r, s)
+	_check_net_potions(r, s)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -481,3 +538,72 @@ static func _check_net_combat(r: Report, s: NetProtocol.PlayerState) -> void:
 	var se: NetProtocol.ShotEvents = NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_DUNGEON, [shot] as Array[NetProtocol.ShotEvent]))
 	r.expect(se.ok and se.events.size() == 1 and se.events[0].same_as(shot), "shot events round trip (M4b)")
 	r.fields.append("combat_wire=%dB" % payload.size())
+
+
+## M6b: potions on the wire: THROW and CRAFT frames, a state's effects block, a host's thrown potion (its events
+## flown by a client where the host has it), a poisoned heretic drawn with its flag.
+static func _check_net_potions(r: Report, s: NetProtocol.PlayerState) -> void:
+	var throw: NetProtocol.InputFrame = NetProtocol.InputFrame.new(21, Vector2i.ZERO)
+	throw.op = NetProtocol.Op.THROW
+	throw.slot = 1
+	throw.cell = Vector2i(40, 31)
+	throw.aim = 64
+	throw.throw_to = Vector2(648, 520)
+	var craft: NetProtocol.InputFrame = NetProtocol.InputFrame.new(22, Vector2i.ZERO)
+	craft.op = NetProtocol.Op.CRAFT
+	craft.recipe = Crafting.index_of(&"potion_poison_fine")
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([throw, craft] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 2 and up.frames[0].same_request(throw) and up.frames[1].same_request(craft),
+		"a THROW and a CRAFT round trip (M6b)")
+	var v: Vitals = Vitals.new()
+	v.buff_pct = Config.BUFF_SPEED_PCT[ItemDB.Grade.FINE]
+	v.buff_ticks = 100
+	v.poison_damage = Config.POISON_DAMAGE[ItemDB.Grade.COMMON]
+	v.poison_ticks = 50
+	v.poison_timer = 7
+	s.vitals = v
+	var state_bytes: int = NetProtocol.state_size(s)
+	var vb: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(80, [s] as Array[NetProtocol.PlayerState]))
+	r.expect(vb.ok and vb.states[0].same_as(s) and state_bytes == NetProtocol.STATE_SIZE + NetProtocol.VITALS_SIZE + NetProtocol.EFFECTS_SIZE,
+		"a state's effects block round trip (M6b)")
+	s.vitals = null
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var arena: Arena = Arena.new()
+	arena.setup(surface, Config.DEFAULT_SEED)
+	arena.spawning = false
+	arena.logging = true
+	var at: Vector2 = Arena.spawn_feet(Vector2i(40, 30))
+	var h: HereticSim = arena.spawn_heretic(at)
+	var thrower: Player = Player.new()
+	thrower.setup(surface, "herbalist", at + Vector2(-60, 0))
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, surface)
+	var no_players: Array[Player] = []
+	var off: int = 0
+	var flying: int = 0
+	var wire: int = 0
+	arena.now = 1000
+	var f: Arena.Flask = arena.throw_potion(thrower, &"potion_poison", ItemDB.Grade.FINE, Combat.body_centre(at), 3)
+	for t: int in 40:
+		arena.now = 1000 + t
+		arena.step(no_players)
+		if not arena.shot_events.is_empty():
+			var bytes: PackedByteArray = NetProtocol.encode_shots(Config.MAP_SURFACE, arena.shot_events)
+			wire += bytes.size() - 2
+			nc.on_shots(NetProtocol.decode_shots(bytes))
+			arena.shot_events.clear()
+		if not f.done:
+			flying += 1
+			var tr: NetCombat.FlaskTrack = nc.flasks.get(f.id, null)
+			if tr == null or tr.pos_at(float(arena.now)) != f.pos:
+				off += 1
+	r.expect(flying > 5 and off == 0 and h.poisoned() and nc.flask_events == 2,
+		"a thrown potion's events: the client flies it on the host's points (%d ticks, %d off), it breaks on the heretic (M6b)" % [
+		flying, off])
+	var payload: PackedByteArray = NetProtocol.encode_enemies(1040, Config.MAP_SURFACE, 0, arena.enemy_states(1040))
+	nc.on_batch(NetProtocol.decode_enemies(payload), payload, true)
+	nc.sample(1040.0, 6.0)
+	r.expect(nc.arena.heretics.size() == 1 and nc.arena.heretics[0].poisoned() and nc.poisoned_seen.has(h.id),
+		"a poisoned heretic is drawn poisoned by a client (M6b)")
+	thrower.free()
+	r.fields.append("potion_wire=%dB/%dB" % [state_bytes, wire])

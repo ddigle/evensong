@@ -39,6 +39,14 @@ extends Node2D
 ## while down (then lying), nothing while dead (the death bag marks the spot). Signals: died (drop the
 ## bag), respawn_due (Main puts it back at the altar), action_impact on the weapon's hit frame
 ## (Combat.impact_tick; the pickaxe's is the M3a mining frame).
+##
+## M6a (`potions_on`: offline, and M6b the local player of a session too, whose frames the session sends; the
+## host resolves them itself): a click with a potion selected
+## drinks it (Config.DRINK_ANIM), the skill key 1 throws it (the herbalist's, the throw action) toward the
+## mouse; action_impact comes on the potion's effect / release frame (Potions.impact_tick) with the slot,
+## grade and landing point kept in action_slot / action_grade / action_target; Main applies it. The Vitals
+## carry the effects (buff, poison: PlayerSim); EffectMarks shows them over the head. `ui_locked` (the
+## crafting panel open) turns every tick's input into an empty frame.
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -52,6 +60,8 @@ signal hurt(amount: int, downed: bool)
 signal died
 signal respawn_due
 signal revived
+## M6a: a drink or a throw the controls did not start (Potions.WHY_*), for the log.
+signal potion_refused(what: String, why: String)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -88,6 +98,16 @@ var action_cell: Vector2i = Vector2i.ZERO
 var action_aim: int = 0
 var vitals: Vitals = Vitals.new()
 var interact_held: bool = false
+## M6a: drinking and throwing potions (Main turns it on for the offline player; M6b: the session for its local
+## player). `ui_locked`: a panel (crafting) takes the keys, the player stands (offline here, in a session
+## SessionBots.local_action). The
+## playing action's hotbar slot, the grade of the item it plays and a throw's landing point.
+var potions_on: bool = false
+var ui_locked: bool = false
+var action_slot: int = 0
+var action_grade: int = ItemDB.Grade.NONE
+var action_target: Vector2 = Vector2.ZERO
+var effect_marks: EffectMarks
 var _mouse_moved_msec: int = -1000000
 ## make_frame(): the mouse aimed or the use button was held (step_frame() adds "an action plays").
 var _aim_input: bool = false
@@ -111,6 +131,8 @@ func _init() -> void:
 	character = Character.new()
 	character.name = &"Character"
 	add_child(character)
+	effect_marks = EffectMarks.new()
+	add_child(effect_marks)
 
 
 func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = RigData.Dir.SOUTH) -> void:
@@ -137,7 +159,7 @@ func _physics_process(delta: float) -> void:
 		if controls:
 			tick_controls(read_input(), mouse_world(), mouse_aiming(), Input.is_action_just_pressed(&"use_item"),
 				Input.is_action_pressed(&"use_item"), delta, Input.is_action_just_pressed(&"dash"),
-				Input.is_action_pressed(&"interact"))
+				Input.is_action_pressed(&"interact"), Input.is_action_just_pressed(&"skill_1"))
 		else:
 			apply_input(read_input(), delta)
 
@@ -166,10 +188,19 @@ func mouse_aiming() -> bool:
 ## mouse aims, use pressed this tick / held. make_frame() + step_frame(): the running action
 ## advances (and may end), the aim is updated, use may start an action (the selected hotbar item's),
 ## then the player moves (unless an action locks it) and faces the mouse while aiming or the
-## movement otherwise. M4a: `dash` (Space this tick) and `interact` (F held).
+## movement otherwise. M4a: `dash` (Space this tick) and `interact` (F held). M6a: `skill` (the skill key 1
+## this tick: the herbalist's potion throw). While `ui_locked` (a panel is open) the frame is empty.
 func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, delta: float,
-		dash: bool = false, interact: bool = false) -> void:
-	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held, dash, interact)
+		dash: bool = false, interact: bool = false, skill: bool = false) -> void:
+	if ui_locked:
+		input = Vector2i.ZERO
+		aiming = false
+		use_pressed = false
+		use_held = false
+		dash = false
+		interact = false
+		skill = false
+	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held, dash, interact, skill)
 	step_frame(f, delta)
 	if f.op == NetProtocol.Op.USE and f.anim < 0:
 		place_requested.emit(f.slot, f.cell)
@@ -179,8 +210,14 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 ## mouse; a use (pressed, or held with Config.ACTION_REPEAT_WHILE_HELD) of a tool in the selected
 ## hotbar slot becomes the frame's USE op when no action will still be playing in that frame. The
 ## look is the facing toward the mouse while aiming or using, -1 otherwise (facing by movement).
+##
+## M6a (with `potions_on`): a click (not held) with a potion selected drinks it (Config.DRINK_ANIM, when
+## Potions.drink_refusal allows), and `skill` throws the selected potion toward the mouse (the throw action;
+## Potions.throw_refusal: the herbalist's, Config.THROW_HERBALIST_ONLY). The drink is a USE frame, the throw (M6b)
+## a THROW frame, with the action set; the potion works on its effect / release frame (Potions.impact_tick,
+## action_impact).
 func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, dash: bool = false,
-		interact: bool = false) -> NetProtocol.InputFrame:
+		interact: bool = false, skill: bool = false) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
 	f.dash = dash
 	f.interact = interact
@@ -192,7 +229,31 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	aim_sector = Aim.sector(to_mouse, aim_sector)
 	aim_cell = Aim.target_cell(sim_position, aim_sector)
 	var free: bool = vitals.alive() and not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
-	if free and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
+	var selected: ItemStack = inventory.selected_stack()
+	if free and potions_on and skill:
+		var why_throw: String = Potions.throw_refusal(class_id(), selected)
+		if why_throw.is_empty():
+			f.op = NetProtocol.Op.THROW  # M6b: its own request (the point it is thrown at rides on the wire)
+			f.slot = inventory.selected
+			f.cell = aim_cell
+			f.anim = RigData.Anim.THROW
+			f.item = selected.id
+			# M6-fix: in whole px, as the wire carries it (NetProtocol THROW), so offline and the host throw at the same
+			# point; the arena clamps it to Config.THROW_RANGE_PX again when it leaves the hand (Arena.throw_potion).
+			f.throw_to = Potions.throw_target(Combat.body_point(sim_position), mouse).round()
+		else:
+			potion_refused.emit("throw", why_throw)
+	elif free and potions_on and use_pressed and selected != null and Potions.is_potion(selected.id):
+		var why_drink: String = Potions.drink_refusal(selected.id, selected.grade, vitals)
+		if why_drink.is_empty():
+			f.op = NetProtocol.Op.USE
+			f.slot = inventory.selected
+			f.cell = aim_cell
+			f.anim = Config.DRINK_ANIM
+			f.item = selected.id
+		else:
+			potion_refused.emit("drink", why_drink)
+	elif free and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
 		var anim: int = WorldItems.use_action(sim_position, inventory, inventory.selected, aim_cell)
 		if anim >= 0:
 			f.op = NetProtocol.Op.USE
@@ -220,24 +281,51 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 	last_input = frame.dir
 	interact_held = frame.interact
 	var before: int = action_anim
+	var poison_amount: int = vitals.poison_damage
 	var st: PlayerSim = to_sim()
 	var events: int = st.step(data, frame.dir, frame.look, frame.anim, frame.cell, delta, frame.dash, frame.interact,
 		frame.aim)
 	load_sim(st)
 	if events & PlayerSim.STARTED:
 		action_item = frame.item
+		# M6a: which stack it plays (a potion's grade) and where a throw lands.
+		action_slot = frame.slot
+		var played: ItemStack = inventory.stack_at(frame.slot)
+		action_grade = played.grade if played != null and played.id == frame.item else ItemDB.normalize_grade(frame.item)
+		action_target = frame.throw_to
 	aim_active = (_aim_input or action_anim >= 0) and vitals.alive()
 	_sync_view()
 	if events & PlayerSim.ENDED:
 		action_finished.emit(before)
 	if events & PlayerSim.STARTED:
 		action_started.emit(action_item, action_anim, action_cell)
-	if action_anim >= 0 and action_tick == Combat.impact_tick(action_item):
+	if action_anim >= 0 and action_tick == impact_tick_of(action_item, action_anim):
 		action_impact.emit(action_item, action_anim, action_cell)
+	if events & PlayerSim.POISON_TICK:
+		hurt.emit(poison_amount, events & PlayerSim.DOWNED != 0)
 	if events & PlayerSim.DIED:
 		died.emit()
 	if events & PlayerSim.RESPAWN:
 		respawn_due.emit()
+	return events
+
+
+## The tick of an action played with `item` on which it lands: a weapon's hit frame (Combat.impact_tick),
+## M6a: a potion's effect / release frame (Potions.impact_tick).
+static func impact_tick_of(item: StringName, anim: int) -> int:
+	if Potions.is_potion(item):
+		return Potions.impact_tick(anim)
+	return Combat.impact_tick(item)
+
+
+## M6a: potion `id` at `grade` works on this player (drunk or splashed, Potions.apply). Returns the PlayerSim
+## event bits (HEALED, BUFFED, POISONED; 0 = nothing happened).
+func apply_potion(id: StringName, grade: int) -> int:
+	var st: PlayerSim = to_sim()
+	var events: int = Potions.apply(st, id, grade)
+	if events != 0:
+		load_sim(st)
+		_sync_view()
 	return events
 
 
@@ -449,6 +537,7 @@ func _sync_view() -> void:
 	character.walking = walking
 	character.visible = vitals.life != Vitals.Life.DEAD
 	character.modulate = HIT_FLASH if vitals.flash_ticks > 0 else Color.WHITE
+	effect_marks.show_kinds(EffectMarks.kinds_of(vitals))  # M6a
 	if vitals.life == Vitals.Life.DOWN:
 		character.show_action(RigData.Anim.DEATH, mini(vitals.life_ticks / Config.DEATH_FRAME_TICKS,
 			RigData.frame_count(RigData.Anim.DEATH) - 1))

@@ -18,6 +18,80 @@ extends RefCounted
 ## player sees it as early as the wire allows and can still dodge) and this client's own shots (they appear
 ## as soon as the host's event is here, not a buffer later). An attack the delayed sample is still in when
 ## it is over at t_fresh shows the heretic chasing (the state after an attack).
+##
+## M6b: thrown potions come like the shots (the host's thrown / broke events, reliable) and fly here on the
+## host's own steps (Arena.flask_points from where it left the hand toward where it lands): drawn until the tick
+## it broke, then its splash at the broke event's point for Config.SPLASH_SHOW_TICKS; this client's own bottles
+## at t_fresh, the others' at t_draw (like the shots). A heretic's poison is a flag in the enemy batch (its mark).
+
+## M6b: one thrown potion as the host's events tell it. `path` = where it is after each host tick from the tick it
+## left the hand (Arena.flask_points, the host's own steps), up to the tick it lands on its target.
+class FlaskTrack:
+	extends RefCounted
+	## IMPL (named in M6-fix): ticks of path beyond the ticks a whole range takes (float slack), and how long a
+	## bottle without its broke event stays before the client forgets it (1 s).
+	const FLASK_PATH_SPARE_TICKS: int = 2
+	const FLASK_WAIT_BROKE_TICKS: int = Config.NET_TICK_RATE
+	var id: int = 0
+	var item: StringName = &""
+	var owner: int = 255
+	## Whether its thrown event came (a late client may get only the splash).
+	var thrown: bool = false
+	var tick: int = 0
+	var origin: Vector2 = Vector2.ZERO
+	var target: Vector2 = Vector2.ZERO
+	var path: PackedVector2Array = PackedVector2Array()
+	## The broke event: its host tick (-1 = not yet) and the splash point.
+	var end_tick: int = -1
+	var end_pos: Vector2 = Vector2.ZERO
+
+	## The flight's points tick by tick, the host's steps without its walls (the broke event cuts it): at most the
+	## ticks a whole range takes plus FLASK_PATH_SPARE_TICKS (it stops on the tick it lands).
+	func build_path() -> void:
+		path.clear()
+		var at: Vector2 = origin
+		for i: int in ceili(Config.THROW_RANGE_PX / (Config.THROW_SPEED / Config.NET_TICK_RATE)) + FLASK_PATH_SPARE_TICKS:
+			var arrive: bool = Arena.flask_arrives(at, target)
+			var points: PackedVector2Array = Arena.flask_points(at, target)
+			at = points[points.size() - 1]
+			path.append(at)
+			if arrive:
+				break
+
+	## The last path index it is still in the air (the next tick it lands or breaks).
+	func last_flying() -> int:
+		var n: int = path.size() - 2
+		if end_tick >= 0:
+			n = mini(n, end_tick - tick - 1)
+		return n
+
+	## Where the bottle is at host time `t` (after tick floor(t)'s step, between ticks on the way), or Vector2.INF
+	## when it is not in the air.
+	func pos_at(t: float) -> Vector2:
+		if not thrown or t < tick:
+			return Vector2.INF
+		var k: float = t - tick
+		var i: int = floori(k)
+		var last: int = last_flying()
+		if i > last or path.is_empty():
+			return Vector2.INF
+		if i < last:
+			return path[i].lerp(path[i + 1], k - i)
+		return path[i]
+
+	## The splash's age at host time `t` (-1 = no splash shown then).
+	func splash_age(t: float) -> int:
+		if end_tick < 0:
+			return -1
+		var age: int = floori(t) - end_tick
+		return age if age >= 0 and age < Config.SPLASH_SHOW_TICKS else -1
+
+	## Gone for good by host time `t`: its splash shown; without a broke event (it cannot be lost: reliable, but a
+	## map change may cut it off), FLASK_WAIT_BROKE_TICKS after its flight and splash would have ended.
+	func over(t: float) -> bool:
+		if end_tick >= 0:
+			return floori(t) - end_tick >= Config.SPLASH_SHOW_TICKS
+		return t - tick > path.size() + Config.SPLASH_SHOW_TICKS + FLASK_WAIT_BROKE_TICKS
 
 ## One received heretic state at a host tick (its timed state's start as a whole host tick).
 class FoeSnap:
@@ -78,6 +152,10 @@ var data: WorldData
 var arena: Arena
 var foes: Dictionary[int, FoeTrack] = {}
 var shots: Dictionary[int, ShotTrack] = {}
+## M6b: thrown potions by id; flask events taken, the heretics seen poisoned (ids), for the results.
+var flasks: Dictionary[int, FlaskTrack] = {}
+var flask_events: int = 0
+var poisoned_seen: Dictionary[int, bool] = {}
 ## The shrine's HP by host tick ([tick, hp] pairs, oldest first) and the tick of its last drop.
 var shrine: Array[Vector2i] = []
 var shrine_hit_tick: int = -1000000
@@ -104,6 +182,7 @@ func reset(p_map: int, p_data: WorldData) -> void:
 	arena = Arena.mirror(p_data)
 	foes.clear()
 	shots.clear()
+	flasks.clear()
 	shrine.clear()
 	shrine_hit_tick = -1000000
 	last_tick = -1
@@ -143,6 +222,8 @@ func on_batch(b: NetProtocol.EnemyBatch, payload: PackedByteArray, keyframe: boo
 		while tr.snaps.size() > 64:
 			tr.snaps.pop_front()
 		_note_hp(e.id, e.hp)
+		if e.poisoned:
+			poisoned_seen[e.id] = true
 	for id: int in foes:
 		if not seen.has(id) and foes[id].gone_at < 0:
 			foes[id].gone_at = b.tick
@@ -178,6 +259,9 @@ func on_shots(s: NetProtocol.ShotEvents) -> bool:
 		other_map += 1
 		return false
 	for e: NetProtocol.ShotEvent in s.events:
+		if e.kind == NetProtocol.ShotEvent.Kind.THROW or e.kind == NetProtocol.ShotEvent.Kind.SPLASH:
+			_on_flask(e)
+			continue
 		shot_events += 1
 		if e.kind == NetProtocol.ShotEvent.Kind.SPAWN:
 			var a: Combat.Attack = Combat.attack_for(e.item)
@@ -196,6 +280,30 @@ func on_shots(s: NetProtocol.ShotEvents) -> bool:
 			shots[e.id].end_tick = e.tick
 			shots[e.id].end_pos = e.pos
 	return true
+
+
+## M6b: a thrown potion's event: thrown (a track and its path), broke (its end; a track of its own when the
+## thrown event never came here, a late client's).
+func _on_flask(e: NetProtocol.ShotEvent) -> void:
+	flask_events += 1
+	var tr: FlaskTrack = flasks.get(e.id, null)
+	if tr == null:
+		tr = FlaskTrack.new()
+		tr.id = e.id
+		tr.item = e.item
+		flasks[e.id] = tr
+	if e.kind == NetProtocol.ShotEvent.Kind.THROW:
+		tr.thrown = true
+		tr.owner = e.owner
+		tr.tick = e.tick
+		tr.origin = e.pos
+		tr.target = e.target
+		tr.build_path()
+	else:
+		tr.end_tick = e.tick
+		tr.end_pos = e.pos
+		if not tr.thrown:
+			tr.tick = e.tick
 
 
 ## Fills the mirror arena for drawing at host time `t_fresh` (the newest this client knows) with positions
@@ -229,6 +337,33 @@ func sample(t_fresh: float, delay: float) -> void:
 		s.pos = p
 		s.item = tr.item
 		arena.shots.append(s)
+	# M6b: the thrown potions and their splashes (this client's own at t_fresh, the others' at t_draw).
+	arena.flasks.clear()
+	arena.splashes.clear()
+	for id: int in flasks.keys():
+		var ft: FlaskTrack = flasks[id]
+		var tf: float = t_fresh if ft.owner == local_slot else t_draw
+		if ft.over(tf):
+			flasks.erase(id)
+			continue
+		var fp: Vector2 = ft.pos_at(tf)
+		if fp != Vector2.INF:
+			var f: Arena.Flask = Arena.Flask.new()
+			f.id = ft.id
+			f.item = ft.item
+			f.origin = ft.origin
+			f.target = ft.target
+			f.pos = fp
+			f.owner_slot = ft.owner
+			arena.flasks.append(f)
+		var age: int = ft.splash_age(tf)
+		if age >= 0:
+			var sp: Arena.Splash = Arena.Splash.new()
+			sp.id = ft.id
+			sp.item = ft.item
+			sp.pos = ft.end_pos
+			sp.age = age
+			arena.splashes.append(sp)
 	arena.shrine_hp = shrine_hp_at(t_draw)
 	arena.shrine_flash = maxi(Config.HIT_FLASH_TICKS - floori(t_draw - shrine_hit_tick), 0) if t_draw >= shrine_hit_tick else 0
 
@@ -264,6 +399,7 @@ static func sample_foe(tr: FoeTrack, t_draw: float, t_fresh: float) -> HereticSi
 	h.flash_ticks = maxi(a.e.flash - maxi(floori(t_draw - a.tick), 0), 0)
 	h.state_ticks = maxi(floori(t_draw - a.since), 0) if NetProtocol.timed_state(a.e.state) else 0
 	h.clock = maxi(floori(t_draw), 0)
+	h.poison_ticks = 1 if a.e.poisoned else 0  # M6b: the mark (the poison's time and damage are the host's)
 	if Config.NET_ENEMY_WINDUP_FRESH:
 		var n: FoeSnap = tr.snaps.back()
 		var src: FoeSnap = null
@@ -287,7 +423,7 @@ static func sample_foe(tr: FoeTrack, t_draw: float, t_fresh: float) -> HereticSi
 
 ## Anything fighting in the newest batch (a heretic not idle at home) or a shot in the air.
 func fighting() -> bool:
-	if not shots.is_empty():
+	if not shots.is_empty() or not flasks.is_empty():
 		return true
 	if last_batch == null:
 		return false
@@ -322,7 +458,10 @@ func to_dict() -> Dictionary:
 	var hp: Dictionary = {}
 	for id: int in foe_hp:
 		hp[str(id)] = foe_hp[id]
+	var poisoned: Array = poisoned_seen.keys()
+	poisoned.sort()
 	return {"map": map, "batches": batches, "keyframes": keyframes, "stale": stale, "other_map": other_map,
-		"shot_events": shot_events, "hash": latest_hash(), "foe_hp": hp,
+		"shot_events": shot_events, "hash": latest_hash(), "foe_hp": hp, "flask_events": flask_events,
+		"poisoned_seen": poisoned,
 		"heretics": last_batch.enemies.size() if last_batch != null else 0,
 		"shrine_hp": last_batch.shrine_hp if last_batch != null else -1}

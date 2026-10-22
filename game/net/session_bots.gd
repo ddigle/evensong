@@ -37,30 +37,43 @@ func setup(script: String) -> void:
 		bot.parse(script)
 
 
-## This tick's local input: the bot's (once started), or the keys, the mouse and the use button.
+## This tick's local input: the bot's (once started), or the keys, the mouse and the use button. M6b: the skill
+## key 1 too; a bot's Tab and crafting row go to Main first (NetSession.bot_ui: the panel, a CRAFT request);
+## while a panel holds the keys (Player.ui_locked) the player stands: no move, use, dash, F or skill.
 func local_action() -> NetBot.Action:
 	var p: Player = s.local.player if s.local != null else null
 	var feet: Vector2 = p.sim_position if p != null else Vector2.ZERO
-	if bot != null:
-		if bots_started:
-			bot.map_counts = map_counts()
-			bot.foes = foe_positions()
-			bot.life = p.vitals.life if p != null else Vitals.Life.ALIVE
-			bot.downed = downed_here()
-			return bot.step(feet)
-		var idle: NetBot.Action = NetBot.Action.new()
-		idle.mouse = feet
-		return idle
 	var a: NetBot.Action = NetBot.Action.new()
-	a.dir = Player.read_input()
-	a.mouse = feet
-	if p != null and p.controls:
-		a.mouse = p.mouse_world()
-		a.aiming = p.mouse_aiming()
-		a.use_pressed = Input.is_action_just_pressed(&"use_item")
-		a.use_held = Input.is_action_pressed(&"use_item")
-		a.dash = Input.is_action_just_pressed(&"dash")  # M4b: Space and F held in sessions too
-		a.interact = Input.is_action_pressed(&"interact")
+	if bot != null:
+		if not bots_started:
+			a.mouse = feet
+			return a
+		bot.map_counts = map_counts()
+		bot.foes = foe_positions()
+		bot.life = p.vitals.life if p != null else Vitals.Life.ALIVE
+		bot.downed = downed_here()
+		a = bot.step(feet)
+		if a.tab or a.craft_row >= 0:
+			s.bot_ui.emit(a.tab, a.craft_row)
+	else:
+		a.dir = Player.read_input()
+		a.mouse = feet
+		if p != null and p.controls:
+			a.mouse = p.mouse_world()
+			a.aiming = p.mouse_aiming()
+			a.use_pressed = Input.is_action_just_pressed(&"use_item")
+			a.use_held = Input.is_action_pressed(&"use_item")
+			a.dash = Input.is_action_just_pressed(&"dash")  # M4b: Space and F held in sessions too
+			a.interact = Input.is_action_pressed(&"interact")
+			a.skill = Input.is_action_just_pressed(&"skill_1")  # M6b: the potion throw in sessions too
+	if p != null and p.ui_locked:
+		a.dir = Vector2i.ZERO
+		a.aiming = false
+		a.use_pressed = false
+		a.use_held = false
+		a.dash = false
+		a.interact = false
+		a.skill = false
 	return a
 
 

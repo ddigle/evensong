@@ -50,6 +50,12 @@ var stuck: int = 0
 ## M4-fix: ticks since it started watching its target in the light (EDGE, and HURT while watching); at
 ## Arena.edge_wait_ticks() it walks home. The host's AI only (not sent: a client draws EDGE from its state).
 var watch_ticks: int = 0
+## M6a: poison (Arena.poison_heretic): damage per poison tick, ticks left, ticks to the next poison tick, and
+## who threw it (the thrower's node instance id: a death by poison counts as that player's kill).
+var poison_damage: int = 0
+var poison_ticks: int = 0
+var poison_timer: int = 0
+var poison_by: int = 0
 ## Display: ticks since spawning (walk / idle frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0
@@ -129,3 +135,8 @@ func finished() -> bool:
 func describe() -> String:
 	return "heretic %d %s hp=%d at %.1f,%.1f facing=%s" % [id, STATE_NAMES[state], hp, pos.x, pos.y,
 		RigData.DIR_NAMES[facing]]
+
+
+## M6a: poisoned now (M6-fix: only while alive; a dead heretic's poison has ended).
+func poisoned() -> bool:
+	return alive() and poison_ticks > 0

@@ -40,11 +40,17 @@ extends RefCounted
 ##   waitlife:<alive|down|dead>[,<ticks>]   stand until the local player is that (default 1800)
 ##   waitdown:<n>[,<ticks>]       stand until at least n players on this map are down (default 1800)
 ##   walkdown[:<ticks>]           walk next to the nearest downed player (within 12 px; default 600 ticks)
+## M6a (offline: Main handles them; M6b: in sessions too, Main through NetSession.bot_ui, a craft becomes a
+## CRAFT request and a throw a THROW frame):
+##   tab                          press Tab this tick (the crafting panel at a station, else the inventory)
+##   craft:<row>                  craft row <row> (1 = the top) of the open crafting panel
+##   throw                        press the skill key 1 this tick (the herbalist throws the selected potion
+##                                toward the aim)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
-	"walkdown"]
+	"walkdown", "tab", "craft", "throw"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -91,6 +97,10 @@ class Action:
 	## M4a: Space this tick, F held.
 	var dash: bool = false
 	var interact: bool = false
+	## M6a: Tab this tick, a crafting panel row to craft (0-based, -1 = none), the skill key 1 this tick.
+	var tab: bool = false
+	var craft_row: int = -1
+	var skill: bool = false
 
 
 var commands: Array[Command] = []
@@ -224,6 +234,13 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimfoe":
 			if args.size() != 0:
 				return "aimfoe takes no arguments"
+		"tab", "throw":
+			if args.size() != 0:
+				return "%s takes no arguments" % c.op
+		"craft":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected craft:<row>"
+			c.count = args[0].to_int() - 1
 		"fight":
 			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() >= 2 and not _whole(args[1], 0)) \
 					or (args.size() == 3 and not args[2].is_valid_float()):
@@ -367,6 +384,18 @@ func _advance(a: Action, feet: Vector2) -> void:
 			"dash":
 				a.dir = c.dir
 				a.dash = true
+				_next()
+				return
+			"tab":
+				a.tab = true
+				_next()
+				return
+			"craft":
+				a.craft_row = c.count
+				_next()
+				return
+			"throw":
+				a.skill = true
 				_next()
 				return
 			"hold":

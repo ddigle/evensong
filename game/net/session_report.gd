@@ -153,6 +153,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["others_on_welcome"] = c.others_on_welcome
 		out["wrong_map_edits"] = c.wrong_map_edits
 		out["combat"] = c.combat_result()
+		out["effects_on_welcome"] = c.effects_on_welcome
 	return out
 
 

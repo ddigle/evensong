@@ -392,7 +392,7 @@ func _check_enemy_codec() -> void:
 	c[NetProtocol.ENEMY_HEADER + 12] = 7 << 3
 	cases["unknown state"] = c
 	c = bytes.duplicate()
-	c[NetProtocol.ENEMY_HEADER + 12] = 0x40
+	c[NetProtocol.ENEMY_HEADER + 12] = 0x80  # M6b: bit 6 is the poison flag now (tests/test_net_potions.gd)
 	cases["unknown flag bits"] = c
 	c = bytes.duplicate()
 	c[NetProtocol.ENEMY_HEADER + 15] = Config.HERETIC_HP + 1

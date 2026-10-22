@@ -65,6 +65,9 @@ signal local_map_changed(map_id: int)
 ## The session is over: finished, left, refused, failed, lost the host, timed out. `code` is the
 ## exit code a test instance quits with (EXIT_*).
 signal ended(reason: String, code: int)
+## M6b: a bot pressed Tab / asked for a crafting panel row this tick (session flow; Main opens the panel or sends
+## the CRAFT request, before the tick's frame is built).
+signal bot_ui(tab: bool, craft_row: int)
 
 enum Role { OFFLINE, HOST, CLIENT }
 const ROLE_NAMES: PackedStringArray = ["offline", "host", "client"]

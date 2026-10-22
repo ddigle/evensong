@@ -11,6 +11,9 @@ extends CanvasLayer
 ## dead, the respawn countdown in seconds (the 3x5 digits drawn 3x) at the top centre (the death spot and
 ## its bag stay in view in the middle). PLACEHOLDERS drawn in
 ## code (no HUD art exists), kept small for 480x270 at integer scale (● R31).
+## M6a: the local player's effects (buff, poison) as small icons under the stamina bar with a 1 px time-left bar
+## (EffectMarks, PLACEHOLDERS), and the crafting panel (`crafting`, ui/crafting_panel.gd) that Main opens with Tab
+## at a station.
 
 const SLOT: int = 18                 # slot square, px (16 px icon + 1 px frame)
 const GAP: int = 2                   # between slots
@@ -38,6 +41,10 @@ const STAMINA_LOW: Color = Color8(0x9c, 0x6a, 0x1f)      # §4 faith (below the 
 const BLEED_FILL: Color = Color8(0xa3, 0x49, 0x2c)
 const REVIVE_FILL: Color = Color8(0xf4, 0xc9, 0x5d)
 const GIVE_UP_FILL: Color = Color8(0xef, 0xe3, 0xc6)
+## IMPL (named in M6-fix): px between the HUD's effect icons, and from the stamina bar down to them.
+const EFFECT_ICON_GAP: int = 3
+## M6a: an effect's time-left bar (§4 faith ivory).
+const EFFECT_LEFT: Color = Color8(0xef, 0xe3, 0xc6)
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
@@ -52,6 +59,8 @@ var open: bool = false
 var canvas: Node2D
 ## M4a: the local player whose vitals the bars show (null: no bars).
 var player: Player
+## M6a: the crafting panel (ui/crafting_panel.gd), drawn over the rest.
+var crafting: CraftingPanel
 var _shown: String = ""
 
 
@@ -62,6 +71,8 @@ func _init() -> void:
 	canvas.name = &"Canvas"
 	add_child(canvas)
 	canvas.draw.connect(_draw_hud)
+	crafting = CraftingPanel.new()
+	add_child(crafting)
 
 
 func _ready() -> void:
@@ -72,10 +83,18 @@ func _ready() -> void:
 func bind(inv: Inventory) -> void:
 	if inventory != null and inventory.changed.is_connected(canvas.queue_redraw):
 		inventory.changed.disconnect(canvas.queue_redraw)
+		inventory.changed.disconnect(_refresh_crafting)
 	inventory = inv
 	if inventory != null:
 		inventory.changed.connect(canvas.queue_redraw)
+		inventory.changed.connect(_refresh_crafting)
 	canvas.queue_redraw()
+
+
+## M6a: the open crafting panel follows the inventory (unlocks, dimmed rows).
+func _refresh_crafting() -> void:
+	if crafting.is_open():
+		crafting.refresh()
 
 
 ## M4a: shows `p`'s HP, stamina, down and respawn state.
@@ -97,7 +116,25 @@ func vitals_key() -> String:
 	if player == null or not is_instance_valid(player):
 		return ""
 	var v: Vitals = player.vitals
-	return "%d/%d/%d/%d/%d/%d" % [v.life, v.hp, v.stamina, v.life_ticks, v.revive_ticks, v.give_up_ticks]
+	return "%d/%d/%d/%d/%d/%d/%d/%d" % [v.life, v.hp, v.stamina, v.life_ticks, v.revive_ticks, v.give_up_ticks,
+		effect_fill(v.buff_ticks, Config.BUFF_TICKS), effect_fill(v.poison_ticks, Config.POISON_TICKS)]
+
+
+## M6a: the time-left bar's width (px, 0..EffectMarks.SIZE) for `ticks` left of an effect whose longest
+## duration is the largest of `durations` (by grade); -1 when it is not on.
+static func effect_fill(ticks: int, durations: PackedInt32Array) -> int:
+	if ticks <= 0:
+		return -1
+	var longest: int = 1
+	for d: int in durations:
+		longest = maxi(longest, d)
+	return clampi(ceili(float(ticks) / longest * EffectMarks.SIZE), 1, EffectMarks.SIZE)
+
+
+## M6a: the top-left of the HUD's effect icon `i` (in EffectMarks.kinds_of order), EFFECT_ICON_GAP below the
+## stamina bar and apart.
+static func effect_icon_at(i: int) -> Vector2i:
+	return BAR_AT + Vector2i(i * (EffectMarks.SIZE + EFFECT_ICON_GAP), HP_BAR.y + 3 + STAMINA_BAR.y + EFFECT_ICON_GAP)
 
 
 ## The respawn countdown in whole seconds (rounded up) for a dead player's vitals.
@@ -168,6 +205,15 @@ func _draw_vitals() -> void:
 	_bar(BAR_AT, HP_BAR, float(v.hp) / Config.PLAYER_HP_MAX, HP_FILL, HP_LOST)
 	var st_color: Color = STAMINA_FILL if v.stamina >= Config.DASH_STAMINA else STAMINA_LOW
 	_bar(BAR_AT + Vector2i(0, HP_BAR.y + 3), STAMINA_BAR, float(v.stamina) / Config.STAMINA_MAX, st_color, FILL)
+	# M6a: an icon per effect (EffectMarks), its time left as a 1 px bar under it.
+	var kinds: Array[int] = EffectMarks.kinds_of(v)
+	for i: int in kinds.size():
+		var at: Vector2i = effect_icon_at(i)
+		canvas.draw_texture(EffectMarks.texture(kinds[i]), Vector2(at))
+		var fill: int = effect_fill(v.buff_ticks, Config.BUFF_TICKS) if kinds[i] == EffectMarks.Kind.BUFF \
+			else effect_fill(v.poison_ticks, Config.POISON_TICKS)
+		canvas.draw_rect(Rect2(Vector2(at + Vector2i(0, EffectMarks.SIZE + 1)), Vector2(EffectMarks.SIZE, 1)), FRAME_DARK)
+		canvas.draw_rect(Rect2(Vector2(at + Vector2i(0, EffectMarks.SIZE + 1)), Vector2(fill, 1)), EFFECT_LEFT)
 	if v.life == Vitals.Life.DOWN:
 		var at: Vector2i = Vector2i((view.x - DOWN_BAR.x) / 2, DOWN_TOP)
 		_bar(at, DOWN_BAR, 1.0 - float(v.life_ticks) / Config.DOWN_TICKS, BLEED_FILL, FILL)

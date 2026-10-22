@@ -62,6 +62,18 @@ extends RefCounted
 ## at once on a tick an attack starts (Config.NET_ENEMY_SEND_ON_ATTACK), a reliable keyframe when they stop,
 ## and a keyframe right after a welcome or a map entry (with the shots in flight); the shot events of each
 ## map (let go, stopped) at the end of the tick.
+##
+## M6b (potions and crafting): a USE of a potion is a drink (the host checks it like a tool's use: in reach,
+## not busy, and Potions.drink_refusal: not at full HP), THROW (the skill key 1) a throw (Potions.throw_refusal:
+## a potion, the herbalist's; in reach, not busy; the point it goes to rides along and is clamped to
+## Config.THROW_RANGE_PX from where the host has the thrower when it leaves the hand). On the effect / release
+## frame the host runs Potions.release (the offline rule): the potion is used, the drink works, the bottle goes
+## into the map's arena, whose thrown / broke events go out with the shot events. CRAFT (the crafting panel):
+## request rate, then a station of the recipe's kind within reach of where the host has the player on that map
+## (Crafting.station_of_kind_near, M6-fix) and Crafting.craft on its inventory (class, grades, inputs, room); the
+## owner gets its inventory. The alchemy table is placed like a torch (WorldItems.place with the bodies on that map). The
+## effects travel in the vitals block (players) and the enemy batches (a heretic's poison); a late client and a
+## map entry get the bottles in the air and the splashes being shown as events after the enemy keyframe.
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -135,6 +147,7 @@ func _init(p_session: NetSession) -> void:
 func on_opened() -> void:
 	var slot: int = roster.admit(1, s.local_class())
 	s.local = s.add_member(slot, 1, s.local_class(), s.world.spawn_point(slot), Config.SPAWN_FACING)
+	s.local.player.potions_on = true  # M6b: the host's own player drinks and throws (its frames go through run_frame)
 	_equip(s.local)
 	_setup_combat()
 	s.active = true
@@ -374,27 +387,39 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_travel(m, frame)
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
+	elif frame.op == NetProtocol.Op.USE and _potion_in(p, frame.slot):
+		_drink(m, frame)
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)
-		if anim >= 0 and (p.to_sim().busy_next() or p.vitals.dashing() or p.vitals.staggered()):
+		if anim >= 0 and busy(p):
 			anim = -1
-			why.append("busy")
+			why.append(WHY_BUSY)
 		if anim >= 0:
 			frame.anim = anim
 			frame.item = p.inventory.stack_at(frame.slot).id
-			m.count_done("use")
 		else:
 			_refuse_op(m, frame, why[0])
+	elif frame.op == NetProtocol.Op.THROW:
+		_throw(m, frame)
+	elif frame.op == NetProtocol.Op.CRAFT:
+		_craft(m, frame)
 	elif frame.op != NetProtocol.Op.NONE:
 		_run_op(m, frame)
 	var events: int = p.step_frame(frame, Config.NET_TICK)
+	if frame.anim >= 0 and events & PlayerSim.STARTED:
+		# M6-fix: a use, a drink or a throw counts as done when its action started (a dash pressed in the same frame
+		# wins over it: nothing starts, no potion is used).
+		m.count_done(_action_op_name(frame))
 	if p.action_anim >= 0 and p.action_tick == 0:
 		m.count_action(p.action_anim)
 		s.log_event("action", "slot=%d item=%s action=%s target=%d,%d aim=%d" % [m.slot, p.action_item,
 			RigData.ANIM_NAMES[p.action_anim], p.action_cell.x, p.action_cell.y, p.action_aim])
-	if p.action_anim >= 0 and p.action_tick == Combat.impact_tick(p.action_item):
-		_impact(m)
+	if p.action_anim >= 0 and p.action_tick == Player.impact_tick_of(p.action_item, p.action_anim):
+		if Potions.is_potion(p.action_item):
+			_potion(m)  # M6b: the drink's effect frame, the throw's release frame
+		else:
+			_impact(m)
 	if events & PlayerSim.DASHED:
 		m.count_combat("dashes")
 	if events & PlayerSim.DIED:
@@ -529,13 +554,22 @@ func move_to_map(m: NetMember, to: int) -> void:
 		streams[m.peer_id] = _stream(m.peer_id, m.slot, to, true)
 
 
-## M3a: a USE of a placeable item: rate, then WorldItems.place.
+## M3a: a USE of a placeable item: rate, then WorldItems.place. M6b: the alchemy table too (M6a refused it in a
+## session), its footprint clear of every body on that map (the other players, the heretics), like offline.
 func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
 		return
-	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell)
+	var bodies: Array[Vector2] = []
+	for other: Player in players_on(m.map_id):
+		if other != p:
+			bodies.append(other.sim_position)
+	var a: Arena = arenas.get(m.map_id, null)
+	if a != null:
+		for h: HereticSim in a.heretics:
+			bodies.append(h.pos)
+	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies)
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return
@@ -545,6 +579,121 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	m.inventory_dirty = true
 	_changed = true
 	s.log_event("place", "slot=%d map=%d item=%s at=%d,%d" % [m.slot, m.map_id, o.item, frame.cell.x, frame.cell.y])
+
+
+## M4b / M6b: why a use, a drink or a throw is refused while an action still plays, a dash or a stagger runs.
+const WHY_BUSY: String = "busy"
+
+
+## The player cannot start an action in its next frame (one plays on, it dashes or it is staggered).
+static func busy(p: Player) -> bool:
+	return p.to_sim().busy_next() or p.vitals.dashing() or p.vitals.staggered()
+
+
+## M6b: hotbar slot `slot` of `p` holds a potion.
+static func _potion_in(p: Player, slot: int) -> bool:
+	if slot < 0 or slot >= p.inventory.hotbar_size:
+		return false
+	var st: ItemStack = p.inventory.stack_at(slot)
+	return st != null and Potions.is_potion(st.id)
+
+
+## M6b: a USE of a potion = a drink (Config.DRINK_ANIM): in reach (the target tile only sets the facing, as for a
+## tool), not busy, and drinkable now (Potions.drink_refusal on the host's vitals: not at full HP ...).
+func _drink(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	var st: ItemStack = p.inventory.stack_at(frame.slot)
+	var why: String = Potions.drink_refusal(st.id, st.grade, p.vitals)
+	if why.is_empty() and not WorldItems.in_reach(p.sim_position, frame.cell):
+		why = WorldItems.WHY_REACH
+	if why.is_empty() and busy(p):
+		why = WHY_BUSY
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	frame.anim = Config.DRINK_ANIM
+	frame.item = st.id
+
+
+## M6b: THROW (the skill key 1): the selected potion, the thrower's class (Potions.throw_refusal), in reach (the
+## target tile sets the facing), not busy. The point thrown at rides on the frame (Player.action_target); the
+## arena clamps it to Config.THROW_RANGE_PX from where the host has the thrower when it leaves the hand.
+func _throw(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	var st: ItemStack = p.inventory.stack_at(frame.slot) if frame.slot < p.inventory.hotbar_size else null
+	var why: String = Potions.throw_refusal(m.class_id, st)
+	if why.is_empty() and not WorldItems.in_reach(p.sim_position, frame.cell):
+		why = WorldItems.WHY_REACH
+	if why.is_empty() and busy(p):
+		why = WHY_BUSY
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	frame.anim = RigData.Anim.THROW
+	frame.item = st.id
+
+
+## M6-fix: the request name an accepted action frame counts under once its action started (run_frame).
+static func _action_op_name(frame: NetProtocol.InputFrame) -> String:
+	if frame.op == NetProtocol.Op.THROW:
+		return "throw"
+	return "drink" if Potions.is_potion(frame.item) else "use"
+
+
+## M6b: member `m`'s potion reaches its effect / release frame: Potions.release (the offline rule) on the host's
+## state of it; the potion used shows in its inventory, a throw's bottle flies in its map's arena (its events go
+## to that map's clients).
+func _potion(m: NetMember) -> void:
+	var p: Player = m.player
+	var item: StringName = p.action_item
+	var a: Arena = arenas.get(m.map_id, null)
+	var r: Potions.Released = Potions.release(p, item, p.action_anim, a, m.slot)
+	if not r.ok():
+		var n: int = m.count_refused(r.why)
+		s.log_event("potion_refused", "slot=%d %s item=%s: %s n=%d" % [m.slot, "throw" if r.thrown else "drink", item,
+			r.why, n])
+		return
+	m.inventory_dirty = true
+	_changed = true
+	if r.thrown:
+		m.count_combat("throws")
+		s.log_event("throw", "slot=%d map=%d item=%s grade=%s id=%d from=%d,%d to=%d,%d" % [m.slot, m.map_id, item,
+			ItemDB.GRADE_NAMES[r.grade], r.flask.id, roundi(r.flask.origin.x), roundi(r.flask.origin.y),
+			roundi(r.flask.target.x), roundi(r.flask.target.y)])
+		return
+	m.count_combat("drinks")
+	s.log_event("drink", "slot=%d map=%d item=%s grade=%s hp=%d buff=%d poison=%d%s" % [m.slot, m.map_id, item,
+		ItemDB.GRADE_NAMES[r.grade], p.vitals.hp, p.vitals.buff_ticks, p.vitals.poison_ticks,
+		"" if r.events != 0 else " (no effect)"])
+
+
+## M6b: CRAFT: request rate (like a pick up), a recipe that exists, a station of its kind within
+## Config.STATION_REACH_TILES of where the host has the player on its map (M6-fix: Crafting.station_of_kind_near,
+## so another kind of station nearer does not hide it; M6b looked only at the nearest station), then
+## Crafting.craft on the player's inventory (unlocked, the class, the inputs of the recipe's grade, room: all or
+## nothing). The owner gets its inventory.
+func _craft(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var r: Crafting.Recipe = Crafting.recipe_at(frame.recipe)
+	if r == null:
+		_refuse_op(m, frame, Crafting.WHY_BAD_RECIPE)
+		return
+	var at: Crafting.StationAt = Crafting.station_of_kind_near(p.data, p.sim_position, r.station)
+	if at == null:
+		_refuse_op(m, frame, Crafting.WHY_NO_STATION)
+		return
+	var o: Crafting.Outcome = Crafting.craft(r, m.class_id, p.inventory)
+	if not o.ok():
+		_refuse_op(m, frame, o.why)
+		return
+	m.count_done("craft")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("craft", "slot=%d map=%d recipe=%s item=%s count=%d grade=%s station=%d,%d" % [m.slot, m.map_id, r.id,
+		o.item, o.count, ItemDB.GRADE_NAMES[o.grade], at.rect.position.x, at.rect.position.y])
 
 
 ## Select, then pick up, drop, give: rate, then the rules (items/world_items.gd).
@@ -615,7 +764,7 @@ func _refuse_op(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> voi
 func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 	var p: Player = s.local.player
 	var f: NetProtocol.InputFrame = p.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
-		action.use_held, action.dash, action.interact)
+		action.use_held, action.dash, action.interact, action.skill)
 	attach_local_op(s, p, f, action)
 	return f
 
@@ -648,6 +797,7 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 	f.item_index = q.item_index
 	f.grade = q.grade
 	f.cell = q.cell
+	f.recipe = q.recipe
 	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP:
 		f.cell = p.aim_cell
 	if q.op == NetProtocol.Op.PICKUP and p.data != null and WorldItems.is_portal(p.data, f.cell):
@@ -937,6 +1087,11 @@ func _step_arenas() -> void:
 				_changed = true
 			if not edits.is_empty():
 				s.log_event("shrine_broken", "map=%d at=%d,%d (a shot)" % [map, edits[0].cell.x, edits[0].cell.y])
+			for sp: Arena.Splash in a.splashes:
+				if sp.age == 0:  # M6b: broke this tick
+					_changed = true
+					s.log_event("splash", "map=%d id=%d item=%s at=%d,%d why=%s players=%d heretics=%d" % [map, sp.id,
+						sp.item, roundi(sp.pos.x), roundi(sp.pos.y), sp.why, sp.players, sp.heretics])
 		var emptied: bool = players.is_empty() and a.occupied
 		if emptied:
 			# M4-fix: its last player left: attacks stop without the knife, the shots in the air are gone
@@ -951,18 +1106,19 @@ func _step_arenas() -> void:
 			views[map].sync(players)
 
 
-## The hits on map `map`'s heretics since the last tick: logged, counted per member.
+## The hits on map `map`'s heretics since the last tick: logged, counted per member. M6-fix: a poison tick counts
+## as the thrower's "poison_hits" (not "hits", the weapon hits) and its line says POISON; its kill is a kill.
 func _flush_hits(map: int) -> void:
 	var a: Arena = arenas[map]
 	for h: Arena.Hit in a.hits:
 		var m: NetMember = member_of(h.by_id)
 		var slot: int = m.slot if m != null else -1
 		if m != null:
-			m.count_combat("hits")
+			m.count_combat("poison_hits" if h.poison else "hits")
 			if h.killed:
 				m.count_combat("kills")
-		s.log_event("hit", "slot=%d map=%d heretic=%d amount=%d hp=%d%s" % [slot, map, h.heretic_id, h.amount, h.hp_after,
-			" KILLED" if h.killed else ""])
+		s.log_event("hit", "slot=%d map=%d heretic=%d amount=%d hp=%d%s%s" % [slot, map, h.heretic_id, h.amount, h.hp_after,
+			" POISON" if h.poison else "", " KILLED" if h.killed else ""])
 	a.hits.clear()
 
 
@@ -1012,6 +1168,12 @@ func send_combat_snapshot(peer: int, map: int) -> void:
 		e.tick = shot.born
 		e.pos = shot.origin
 		flying.append(e)
+	# M6b: the thrown potions in the air and the splashes still shown.
+	for f: Arena.Flask in a.flasks:
+		if not f.done:
+			flying.append(Arena.flask_event(f))
+	for sp: Arena.Splash in a.splashes:
+		flying.append(Arena.splash_event(sp))
 	if not flying.is_empty():
 		s.send_shots(peer, NetProtocol.encode_shots(map, flying))
 		shot_messages_sent += 1
@@ -1042,7 +1204,8 @@ func fighting() -> bool:
 ## session may finish (its clients then hold the host's last enemy state).
 func combat_quiet() -> bool:
 	for map: int in arenas:
-		if enemy_casts[map].dirty or not arenas[map].shots.is_empty():
+		var a: Arena = arenas[map]
+		if enemy_casts[map].dirty or not a.shots.is_empty() or not a.flasks.is_empty() or not a.splashes.is_empty():
 			return false
 	return true
 

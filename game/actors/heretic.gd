@@ -4,7 +4,8 @@ extends Node2D
 ## frame (feet origin like the players: a 32 cell's (16, 32), a 64 cell's (32, 48)), west = east
 ## mirrored (Rig scale.x = -1, ● R19 as for the players), the hit flash, and a small HP bar above the
 ## head once it has been hurt (drawn in code, unshaded; PLACEHOLDER: no HP art exists). The node sits
-## on the feet so the y-sorted Entities sorts it with the characters. Light layer: the actors' (hard).
+## on the feet so the y-sorted Entities sorts it with the characters. Light layer: the actors' (hard). M6a: a
+## poison mark above the head while it is poisoned (EffectMarks, a code-drawn PLACEHOLDER).
 
 const SHEETS: Array[Texture2D] = [
 	preload("res://art/enemies/heretic_v02_walk.png"), preload("res://art/enemies/heretic_v02_idle.png"),
@@ -20,6 +21,8 @@ const BAR_FILL: Color = Color8(0xa3, 0x49, 0x2c)
 var rig: Node2D
 var body: Sprite2D
 var bar: Node2D
+## M6a: the poison mark above the head (EffectMarks).
+var marks: EffectMarks
 var sim_id: int = 0
 ## What is shown (tests read it).
 var anim: int = HereticSim.Anim.IDLE
@@ -44,6 +47,8 @@ func _init() -> void:
 	bar.draw.connect(_draw_bar)
 	add_child(bar)
 	light_mask = Config.LIGHT_LAYER_ACTORS
+	marks = EffectMarks.new()
+	add_child(marks)
 
 
 ## Source rect of frame `f` of heretic animation `a` in sheet row `row`.
@@ -72,6 +77,10 @@ func show_sim(h: HereticSim) -> void:
 	body.modulate = Player.HIT_FLASH if h.flash_ticks > 0 else Color.WHITE
 	var ratio: float = float(h.hp) / Config.HERETIC_HP
 	bar.visible = h.alive() and h.hp < Config.HERETIC_HP
+	var kinds: Array[int] = []
+	if h.alive() and h.poisoned():
+		kinds.append(EffectMarks.Kind.POISON)
+	marks.show_kinds(kinds)
 	if ratio != hp_ratio:
 		hp_ratio = ratio
 		bar.queue_redraw()

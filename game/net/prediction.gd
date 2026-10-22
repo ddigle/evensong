@@ -39,6 +39,11 @@ extends RefCounted
 ## prediction is a host event (`event_corrections`, its error in `max_event_error_px`), not a prediction
 ## error; the other counters stay for what the prediction itself got wrong (`vitals_corrections` for the
 ## timers, which the host and the prediction step alike).
+##
+## M6b, potions: the prediction plays a drink or a throw like any action (the frame's USE / THROW), never its
+## effect. The effects are part of the Vitals (the effects block): a buff or a poison running down is stepped
+## alike here and on the host (its walking speed, its poison ticks), but one put on (a drink's effect frame, a
+## splash; or one made longer or stronger) is the host's event (effect_event), like a hit, and so is a heal.
 
 class Pending:
 	extends RefCounted
@@ -69,8 +74,9 @@ var dropped_unsent: int = 0
 ## M3b: map switches, and host states skipped because they were on another map.
 var switches: int = 0
 var other_map: int = 0
-## M4b: where this player respawns (its spawn slot on the surface), host events taken (a hit, a revive,
-## the host's own steps) and their largest position error, timer mismatches without one, respawns.
+## M4b: where this player respawns (its spawn slot on the surface), host events taken (a hit, a revive;
+## M6b: a potion's effect) and their largest position error, timer mismatches without one (M6-fix: including the
+## states the host made stepping a quiet client itself), respawns.
 var spawn_feet: Vector2 = Vector2.ZERO
 var event_corrections: int = 0
 var max_event_error_px: float = 0.0
@@ -181,9 +187,11 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 				break
 	var error: float = predicted.pos.distance_to(state.pos)
 	reconciles += 1
-	# M4b: a hit, a revive (or its progress) or the host stepping this player itself is the host's event.
+	# M4b: a hit, a revive (or its progress) is the host's event. M6-fix: the host stepping this player itself (a
+	# quiet client, SessionHost "host_steps") is not told apart here: a state it made counts as a vitals correction
+	# when its timers ran ahead of the prediction's (README "M6b 예측", known issues).
 	var event: bool = predicted.vit.hp != host.vit.hp or predicted.vit.life != host.vit.life \
-		or predicted.vit.revive_ticks != host.vit.revive_ticks
+		or predicted.vit.revive_ticks != host.vit.revive_ticks or effect_event(predicted.vit, host.vit)
 	if event:
 		if error > 0.0 or predicted.facing != state.facing or predicted.action != state.action \
 				or predicted.action_tick != state.action_tick or not predicted.vit.same_wire(host.vit):
@@ -212,6 +220,14 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 	# to each frame.
 	_replay(host)
 	return error
+
+
+## M6b: the host put an effect on this player that the prediction does not have (a potion: a buff or a poison
+## that is new, longer or stronger). One running out is stepped alike on both sides, so a buff or a poison the
+## prediction holds longer than the host is the prediction's mistake (a vitals correction), not an event.
+static func effect_event(pred: Vitals, host: Vitals) -> bool:
+	return host.buff_ticks > pred.buff_ticks or host.buff_pct > pred.buff_pct or host.poison_ticks > pred.poison_ticks \
+		or host.poison_damage > pred.poison_damage
 
 
 ## M3b: the host moved this player to map `p_map` (data `p_data`) and says where it stands there after

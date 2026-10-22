@@ -48,6 +48,19 @@ extends Node2D
 ## host; net/net_combat.gd on a client) and the death, bag and respawn of every player; Main draws the
 ## HUD of the local player as before. A client that loses its host and plays on alone gets offline
 ## arenas from then on (the host's heretics are gone with the host).
+## M6a (offline; in a session crafting, drinking, throwing and effects stay off until M6b, M3a / M4a style):
+## Tab next to a station (the alchemy table, items/crafting.gd, Config.STATION_REACH_TILES) opens the crafting
+## panel (ui/crafting_panel.gd) with the inventory and makes the player stand (Player.ui_locked); W / S or the
+## arrows pick a row, F or Enter (or a click) crafts it, Tab or Esc closes it; walking away, going down or
+## another map closes it too. Away from a station Tab shows the inventory as before. The alchemy table is
+## placed like a torch (--give=alchemy_table, WorldItems.place with the bodies around). A potion's effect frame
+## (Player.action_impact with a potion) drinks it (Potions.apply), a throw's release frame lets the bottle go
+## into the arena (Arena.throw_potion); the skill key 1 throws (the herbalist's).
+## M6b (sessions): the same keys. Tab next to a station on the local player's map opens the same panel (the
+## station came with the world snapshot or an edit), a row crafted is a CRAFT request to the host (not
+## predicted: the host's inventory comes back), drinking and throwing are frames the session sends (the
+## client predicts the action, the host decides the effect); the alchemy table is placed like a torch, by the
+## host. A bot's tab / craft in a session come here through NetSession.bot_ui.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -96,6 +109,7 @@ func _ready() -> void:
 		net.local_player_ready.connect(_on_local_player_ready)
 		net.local_map_changed.connect(_on_local_map_changed)
 		net.ended.connect(_on_net_ended)
+		net.bot_ui.connect(_on_bot_ui)  # M6b: a bot's tab / craft in a session
 		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
 			net.worlds[id] = worlds[id]
@@ -176,7 +190,10 @@ func travel(to: int) -> bool:
 
 
 func _physics_process(delta: float) -> void:
-	if player == null or _in_session():
+	if player == null or not is_instance_valid(player):
+		return
+	_check_crafting()  # M6b: in a session too
+	if _in_session():
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -195,7 +212,11 @@ func _bot_tick(delta: float) -> void:
 		if p.vitals.life == Vitals.Life.DOWN:
 			bot.downed.append(p.sim_position)
 	var a: NetBot.Action = bot.step(player.sim_position)
-	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact)
+	if a.tab:
+		toggle_tab()  # M6a
+	if a.craft_row >= 0:
+		craft_row(a.craft_row)
+	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill)
 	if a.op == null:
 		return
 	match a.op.op:
@@ -225,11 +246,13 @@ func spawn(local_class: String) -> void:
 	player = Player.new()
 	player.name = &"LocalPlayer"
 	player.controls = true
+	player.potions_on = true  # M6a: offline only until M6b
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
 	player.action_started.connect(_on_action_started)
 	player.action_impact.connect(_on_action_impact)
 	player.place_requested.connect(_on_place_requested)
+	player.potion_refused.connect(_on_potion_refused)
 	player.died.connect(_on_died.bind(player))
 	player.respawn_due.connect(_on_respawn_due.bind(player))
 	player.hurt.connect(_on_hurt.bind(player))
@@ -286,8 +309,9 @@ func _bind(p: Player) -> void:
 ## (M3-fix: before, only spawn() connected them, so a client that lost its host could not mine).
 func _on_local_player_ready(p: Player) -> void:
 	player = p
+	p.potions_on = true  # M6b: drinking and throwing in sessions (the host decides the effect)
 	for pair: Array in [[p.action_started, _on_action_started], [p.action_impact, _on_action_impact],
-			[p.place_requested, _on_place_requested]]:
+			[p.place_requested, _on_place_requested], [p.potion_refused, _on_potion_refused]]:
 		var sig: Signal = pair[0]
 		var handler: Callable = pair[1]
 		if not sig.is_connected(handler):
@@ -310,12 +334,15 @@ func _on_local_map_changed(map_id: int) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or not is_instance_valid(player):
 		return
+	if crafting_open():
+		_crafting_input(event)
+		return
 	if event.is_action_pressed(&"hotbar_prev"):
 		select_hotbar(-1)
 	elif event.is_action_pressed(&"hotbar_next"):
 		select_hotbar(1)
 	elif event.is_action_pressed(&"toggle_inventory"):
-		hud.toggle_open()
+		toggle_tab()
 	elif event.is_action_pressed(&"interact"):
 		pick_up()
 	elif event.is_action_pressed(&"debug_drop"):
@@ -433,8 +460,11 @@ func debug_next_action() -> void:
 ## M3a, offline: a pickaxe swing lands (Config.MINING_IMPACT_FRAME): mine the target (items/mining.gd).
 ## M4a: a weapon's hit frame attacks (Arena.player_attack); the pickaxe mines only when it is aimed at a
 ## wall or a wall's face (Combat.is_mining_swing), and attacks otherwise.
-func _on_action_impact(item: StringName, _anim: int, target: Vector2i) -> void:
+func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 	if _in_session() or player == null:
+		return
+	if Potions.is_potion(item):
+		potion_impact(player, item, anim)  # M6a
 		return
 	var w: GameWorld = current_world()
 	if Combat.attack_for(item) != null and not Combat.is_mining_swing(w.data, item, target):
@@ -536,9 +566,14 @@ func step_combat(delta: float) -> void:
 			a.step_frame(NetProtocol.InputFrame.new(), delta)
 	var players: Array[Player] = players_on(current_map)
 	var w: GameWorld = current_world()
+	var splashed: int = arenas[current_map].stat("splashes")
 	for e: EditLog.WorldEdit in arenas[current_map].step(players):
 		w.apply_edit(e)
 		_log_edit(e)
+	if arenas[current_map].stat("splashes") > splashed and not arenas[current_map].splashes.is_empty():
+		var s: Arena.Splash = arenas[current_map].splashes.back()
+		print("EVENSONG_POTION splash item=%s at=%d,%d players=%d heretics=%d" % [s.item, roundi(s.pos.x), roundi(s.pos.y),
+			s.players, s.heretics])
 	combat_views[current_map].sync(players)
 	# M4-fix: the map just left is emptied once (Arena.on_emptied: an attack under way stops without its
 	# knife, shots in the air are gone, the spawn timer starts over), so a heretic frozen mid-swing does not
@@ -621,6 +656,10 @@ func _go_offline_combat() -> void:
 		var sig: Signal = pair[0]
 		var handler: Callable = pair[1]
 		sig.connect(handler)
+	# M6a: offline now, so potions work (and the throw's skill key).
+	player.potions_on = true
+	if not player.potion_refused.is_connected(_on_potion_refused):
+		player.potion_refused.connect(_on_potion_refused)
 	setup_combat()
 
 
@@ -641,11 +680,146 @@ func add_ally(class_id: String, down: bool) -> Player:
 	return a
 
 
-## M3a, offline: a click with a torch selected puts it on the target tile.
+## M3a, offline: a click with a torch selected puts it on the target tile. M6a: the same for the alchemy table
+## (its footprint may not cover anyone: the other players and the heretics on the map are passed along).
 func _on_place_requested(slot: int, cell: Vector2i) -> void:
 	if _in_session() or player == null:
 		return
-	_apply_offline(WorldItems.place(current_world().data, player.sim_position, player.inventory, slot, cell), "place", cell)
+	var bodies: Array[Vector2] = []
+	for p: Player in players_on(current_map):
+		if p != player:
+			bodies.append(p.sim_position)
+	if arenas.has(current_map):
+		for h: HereticSim in arenas[current_map].heretics:
+			bodies.append(h.pos)
+	_apply_offline(WorldItems.place(current_world().data, player.sim_position, player.inventory, slot, cell, bodies),
+		"place", cell)
+
+
+# --- M6a: crafting and potions (offline) ----------------------------------------------------------------
+
+func crafting_open() -> bool:
+	return hud != null and hud.crafting.is_open()
+
+
+## Tab: closes the crafting panel when it is open; next to a station (Crafting.station_near; M6b: in a session
+## too, on the map the local player has) opens it, else shows / hides the inventory as before (M2a).
+func toggle_tab() -> void:
+	if crafting_open():
+		close_crafting()
+		return
+	if player.vitals.alive():
+		var at: Crafting.StationAt = Crafting.station_near(current_world().data, player.sim_position)
+		if at != null:
+			open_crafting(at)
+			return
+	hud.toggle_open()
+
+
+func open_crafting(at: Crafting.StationAt) -> void:
+	hud.crafting.open_for(at, player.inventory, player.class_id())
+	if not hud.crafting.craft_requested.is_connected(craft_row):
+		hud.crafting.craft_requested.connect(craft_row)
+	hud.set_open(true)
+	player.ui_locked = true
+	print("EVENSONG_CRAFT open station=%s at=%d,%d recipes=%d" % [at.kind, at.rect.position.x, at.rect.position.y,
+		hud.crafting.recipes.size()])
+
+
+func close_crafting() -> void:
+	hud.crafting.close()
+	hud.set_open(false)
+	if player != null and is_instance_valid(player):
+		player.ui_locked = false
+
+
+## Closes the panel when the player is no longer at its station (down, another map, the table gone).
+func _check_crafting() -> void:
+	if not crafting_open():
+		return
+	if not player.vitals.alive() or not Crafting.still_at(current_world().data, player.sim_position, hud.crafting.station):
+		close_crafting()
+		print("EVENSONG_CRAFT closed: not at the station")
+
+
+## Crafts row `i` of the open panel (Crafting.craft: all or nothing). M6b: in a session a CRAFT request to the
+## host (it checks the station, the recipe, the inputs and the room; the inventory it sends back shows it).
+func craft_row(i: int) -> void:
+	if not crafting_open() or i < 0 or i >= hud.crafting.recipes.size():
+		return
+	var r: Crafting.Recipe = hud.crafting.recipes[i]
+	hud.crafting.selected = i
+	if _in_session():
+		net.queue_op(craft_request(Crafting.index_of(r.id)))
+		print("EVENSONG_CRAFT request recipe=%s" % r.id)
+		return
+	var o: Crafting.Outcome = Crafting.craft(r, player.class_id(), player.inventory)
+	if o.ok():
+		print("EVENSONG_CRAFT made recipe=%s item=%s count=%d grade=%s" % [r.id, o.item, o.count, ItemDB.GRADE_NAMES[o.grade]])
+	else:
+		print("EVENSONG_CRAFT refused recipe=%s: %s" % [r.id, o.why])
+	hud.crafting.refresh()
+
+
+## M6b: a CRAFT request (the map is set when it is put on a frame, SessionHost.attach_local_op).
+static func craft_request(recipe_index: int) -> NetProtocol.InputFrame:
+	var f: NetProtocol.InputFrame = request(NetProtocol.Op.CRAFT)
+	f.recipe = recipe_index
+	return f
+
+
+## M6b: a bot's Tab / craft row in a session (NetSession.bot_ui, before the frame is built).
+func _on_bot_ui(tab: bool, row: int) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	if tab:
+		toggle_tab()
+	if row >= 0:
+		craft_row(row)
+
+
+func _crafting_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"move_up"):
+		hud.crafting.move_selection(-1)
+	elif event.is_action_pressed(&"move_down"):
+		hud.crafting.move_selection(1)
+	elif event.is_action_pressed(&"interact") or _is_enter(event):
+		craft_row(hud.crafting.selected)
+	elif event.is_action_pressed(&"toggle_inventory") or event.is_action_pressed(&"ui_cancel"):
+		close_crafting()
+	elif event.is_action_pressed(&"hotbar_prev"):
+		select_hotbar(-1)
+	elif event.is_action_pressed(&"hotbar_next"):
+		select_hotbar(1)
+
+
+static func _is_enter(event: InputEvent) -> bool:
+	if not (event is InputEventKey):
+		return false
+	var k: InputEventKey = event as InputEventKey
+	return k.pressed and not k.echo and (k.physical_keycode == KEY_ENTER or k.physical_keycode == KEY_KP_ENTER)
+
+
+## A potion's effect frame (drink) or release frame (throw) for player `p` (Player.action_slot / action_grade
+## / action_target): the drink takes one potion and works on `p` (Potions.apply; refused again here at full HP
+## and then nothing is used); the throw takes one and lets the bottle go into the map's arena.
+func potion_impact(p: Player, item: StringName, anim: int) -> void:
+	var arena: Arena = arenas[current_map] if ensure_combat(current_map) else null
+	var r: Potions.Released = Potions.release(p, item, anim, arena)  # M6b: the host's rule too
+	var what: String = "throw" if r.thrown else "drink"
+	if not r.ok():
+		print("EVENSONG_POTION %s refused item=%s: %s" % [what, item, r.why])
+		return
+	if r.thrown:
+		print("EVENSONG_POTION throw item=%s grade=%s from=%d,%d to=%d,%d" % [item, ItemDB.GRADE_NAMES[r.grade],
+			roundi(r.flask.origin.x), roundi(r.flask.origin.y), roundi(r.flask.target.x), roundi(r.flask.target.y)])
+		return
+	print("EVENSONG_POTION drink item=%s grade=%s hp=%d buff=%d poison=%d%s" % [item, ItemDB.GRADE_NAMES[r.grade],
+		p.vitals.hp, p.vitals.buff_ticks, p.vitals.poison_ticks, "" if r.events != 0 else " (no effect)"])
+
+
+func _on_potion_refused(what: String, why: String) -> void:
+	print("EVENSONG_POTION %s refused: %s" % [what, why])
 
 
 func _on_action_started(item: StringName, anim: int, target: Vector2i) -> void:

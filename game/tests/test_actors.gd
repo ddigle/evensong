@@ -90,6 +90,9 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/env/prop_lantern_ground_v03_emissive.png": "assets/concept/04-env/prop_lantern_ground_v03_emissive.png",
 	"res://art/items/item_ore_copper_a_v02.png": "assets/concept/04-env/item_ore_copper_a_v02.png",
 	"res://art/items/item_ore_iron_a_v02.png": "assets/concept/04-env/item_ore_iron_a_v02.png",
+	# M6a: the alchemy table and the items strip (its potion icons).
+	"res://art/env/alchemy_table_v05.png": "assets/concept/04-env/alchemy_table_v05.png",
+	"res://art/items/items_v04_strip.png": "assets/concept/04-env/items_v04_strip.png",
 }
 const SIZES: Dictionary[String, Vector2i] = {
 	"res://art/chars/base_body_v02_walk.png": Vector2i(192, 96),
