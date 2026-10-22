@@ -159,7 +159,8 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 	return o
 
 
-## Debug drop: `count` (0 = all) of the stack in `slot` onto tile `c`, at its centre.
+## Debug drop: `count` (0 = all) of the stack in `slot` onto tile `c`, at its centre. Not onto a
+## placeable, nor (M3-fix) into a wall or onto a wall's face tile (Walls.blocks, like place()).
 static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, count: int, c: Vector2i) -> Outcome:
 	if slot < 0 or slot >= inv.size():
 		return Outcome.refused(WHY_BAD_SLOT)
@@ -170,7 +171,7 @@ static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, coun
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
-	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE:
+	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE or Walls.blocks(data, c):
 		return Outcome.refused(WHY_BLOCKED)
 	if data.drops.size() >= Config.MAX_DROPS:
 		return Outcome.refused(WHY_TOO_MANY)
@@ -264,7 +265,8 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
-	if Walls.blocks(data, c) or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE 			or data.get_value(WorldData.Layer.VEGETATION, c) != 0:
+	if Walls.blocks(data, c) or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE \
+			or data.get_value(WorldData.Layer.VEGETATION, c) != 0:
 		return Outcome.refused(WHY_NOT_OPEN)
 	var o: Outcome = Outcome.new()
 	o.item = stack.id

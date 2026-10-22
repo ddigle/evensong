@@ -33,7 +33,8 @@ const ORE_NAMES: PackedStringArray = ["none", "copper", "iron"]
 ## Item a broken ore tile gives (items/item_db.gd), by ore value.
 const ORE_ITEMS: Array[StringName] = [&"", &"ore_copper", &"ore_iron"]
 
-## Hardness of a tile nothing can break (bedrock, and anything under a placeable such as the exit).
+## Hardness of a tile nothing can break (bedrock, and a wall right above a blocking placeable on its
+## face, such as the rock above the exit stairs).
 const UNBREAKABLE: int = 99
 
 ## Vertex render values (= corner values of the cliff tileset: lower, upper, transition).
@@ -86,8 +87,9 @@ static func owner_of(data: WorldData, c: Vector2i) -> Vector2i:
 	return NO_CELL
 
 
-## Hardness grade of wall tile `c` (UNBREAKABLE for bedrock, for a wall carrying a placeable and for a
-## wall above a placeable on its face, e.g. the exit stairs; 0 = no wall).
+## Hardness grade of wall tile `c`: UNBREAKABLE for bedrock and for a wall above a blocking placeable
+## on its face (e.g. the exit stairs); 0 = no wall. A placeable on the wall tile itself (a wall torch)
+## does not protect it: the torch falls with its wall (Mining.strike).
 static func hardness(data: WorldData, c: Vector2i) -> int:
 	var kind: int = kind_at(data, c)
 	if kind == KIND_NONE:
@@ -126,13 +128,15 @@ static func crack_stage(hits: int, max: int) -> int:
 
 
 ## Render value of vertex `v` (= world tile v): WALL, FACE or FLOOR. Outside the map counts as wall.
+## FACE is exactly is_face() (M3-fix: a floor tile in row 0 was drawn as a face of the wall outside the
+## map but was open for walking; now it draws as floor, so what is drawn is what blocks. Generated
+## dungeons never have it: their bedrock ring cannot be broken).
 static func vertex(data: WorldData, v: Vector2i) -> int:
 	if not data.in_bounds(v):
 		return V_WALL
 	if is_wall(data, v):
 		return V_WALL
-	var above: Vector2i = v + Vector2i(0, -1)
-	if not data.in_bounds(above) or is_wall(data, above):
+	if is_face(data, v):
 		return V_FACE
 	return V_FLOOR
 

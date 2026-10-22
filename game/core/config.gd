@@ -148,8 +148,13 @@ const DUNGEON_VEINS: Dictionary[StringName, int] = {&"copper": 9, &"iron": 5}
 const DUNGEON_VEIN_SIZE_MIN: int = 2
 const DUNGEON_VEIN_SIZE_MAX: int = 5
 ## PROVISIONAL (not in docs; the 04-env dungeon mockup hangs wall torches on a room's north wall):
-## decorative wall torches the generator hangs on room north walls, one every this many tiles (at
-## least one per room), as decoration with a small light.
+## decorative wall torches the generator hangs on room north walls, one every this many tiles, two
+## beside the exit stairs in the arrival room, as decoration with a small light. A spot that is not
+## plain rock with a face below moves to the nearest good one on that wall; every room whose north
+## wall has a good spot gets at least one, and the arrival room always one (the exit is placed so
+## that it leaves a spot, and the arrival room's torches come before the ore veins;
+## DungeonGen._place_wall_torches, M3-fix). A wall torch falls with its wall when the wall is mined
+## (Mining.strike).
 const DUNGEON_WALL_TORCH_SPACING: int = 6
 ## PROVISIONAL (○ game-concept §12: the first dungeon is the first corruption source; the heretic
 ## shrine's size is not in the docs, the 04-env candidate heretic_shrine_v02 is 48 px wide): the
@@ -165,10 +170,17 @@ const ENTRANCE_OFFSET_TILES: Vector2i = Vector2i(10, 1)
 ## PROVISIONAL (not in docs): the exit stairs in the dungeon (2 tiles of the arrival room's north wall
 ## face, below unbreakable rock). The arrival point is just south of them.
 const EXIT_FOOTPRINT: Vector2i = Vector2i(2, 1)
+## PROVISIONAL (not in docs; part of the arrival point above): a player arriving on a map stands in the
+## middle of the tiles just south of the entrance / exit stairs, its feet this many px above that tile
+## row's bottom edge (DungeonGen.arrival_below; named in M3-fix, the value M3a used).
+const ARRIVAL_FEET_INSET_PX: int = 4
 ## PROVISIONAL (● gameplay-design §3.0 R11 miner row: everyone mines "느리고 1×1, 경도 상한", the miner
-## "3×3 고속, 상위 경도"; ○ §3.1 "벽 타일에 경도 등급"; the numbers are not in the docs): hardness grade of
-## each wall kind / ore, the highest grade a common player and the miner can break, hits a tile takes
-## before it breaks, and hits one pickaxe swing deals (the miner's swing counts double: "고속").
+## "3×3 고속, 상위 경도"; gameplay-design §3.1 (no ●/○ mark) "벽 타일에 경도 등급. 곡괭이 등급이 경도
+## 이상이어야 파괴 … 상위 광석은 상위 곡괭이"; the numbers are not in the docs): hardness grade of each wall
+## kind / ore, the highest grade a common player and the miner can break, hits a tile takes before it
+## breaks, and hits one pickaxe swing deals (the miner's swing counts double: "고속"). §3.1's pickaxe
+## tiers are NOT modelled: there is one pickaxe (no grade) and the class cap below stands in for the
+## pickaxe grade (README "임시값", for the human to confirm).
 const HARDNESS_ROCK: int = 1
 const HARDNESS_COPPER: int = 1
 const HARDNESS_IRON: int = 2
@@ -270,12 +282,17 @@ const NET_ENET_THROTTLE: Vector3i = Vector3i(5000, 2, 0)
 const NET_OP_INTERVAL_TICKS: int = 6
 const NET_OP_BURST: int = 4
 ## IMPL (M2b): local requests (keys, --give) waiting for a frame (NetSession.queue_op); one beyond
-## this is dropped and logged. A client's --give list of the debug kit's 23 items fits.
+## this is dropped and logged. A client's --give list of the debug kit's items fits.
 const NET_LOCAL_OPS_MAX: int = 64
 ## IMPL (M2b): the host logs a member's refused requests per reason: the first this many, then every
 ## NET_REFUSAL_LOG_EVERY-th (with the count). The counters (results) count every one.
 const NET_REFUSAL_LOG_FIRST: int = 8
 const NET_REFUSAL_LOG_EVERY: int = 60
+## IMPL (M3-fix): the host keeps at most this many finished streams (joins and map entries,
+## SessionHost.streams_done) and a client at most this many left maps (SessionClient.left_maps) for
+## the test results; older ones are dropped, so a client travelling up and down all session long does
+## not grow them without bound.
+const NET_STREAM_RECORDS_MAX: int = 64
 ## IMPL (M2b): most items lying on the ground at once (a debug drop beyond it is refused), so a
 ## spamming client cannot grow the world or the late-join snapshot without bound.
 const MAX_DROPS: int = 256

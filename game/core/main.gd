@@ -135,10 +135,15 @@ func _show_map(to: int) -> void:
 
 
 ## M3a: takes the local player to map `to` (offline): its arrival point there (the dungeon: south of
-## the exit stairs; the surface: south of the entrance), facing south, its action stopped.
-func travel(to: int) -> void:
+## the exit stairs; the surface: south of the entrance), facing south, its action stopped. Returns
+## whether it went. M3-fix: a map with no data is refused (a session client that lost its host before
+## the host ever sent it the dungeon plays on alone with an empty dungeon world).
+func travel(to: int) -> bool:
 	if player == null or to == current_map or not worlds.has(to) or _in_session():
-		return
+		return false
+	if worlds[to].data == null:
+		print("EVENSONG_MAP travel refused to=%s: that map was never received" % Config.MAP_NAMES[to])
+		return false
 	_show_map(to)
 	var w: GameWorld = worlds[to]
 	player.get_parent().remove_child(player)
@@ -148,6 +153,7 @@ func travel(to: int) -> void:
 	marker.refresh()
 	print("EVENSONG_MAP travel to=%s feet=%d,%d" % [Config.MAP_NAMES[to], roundi(player.sim_position.x),
 		roundi(player.sim_position.y)])
+	return true
 
 
 func _physics_process(delta: float) -> void:
@@ -235,8 +241,17 @@ func _bind(p: Player) -> void:
 				p.inventory.add(id, count, grade)
 
 
+## The session's local player. Its action / place signals go to the offline handlers, which do nothing
+## while in the session (the host decides) but make mining and torches work after continue_offline
+## (M3-fix: before, only spawn() connected them, so a client that lost its host could not mine).
 func _on_local_player_ready(p: Player) -> void:
 	player = p
+	for pair: Array in [[p.action_started, _on_action_started], [p.action_impact, _on_action_impact],
+			[p.place_requested, _on_place_requested]]:
+		var sig: Signal = pair[0]
+		var handler: Callable = pair[1]
+		if not sig.is_connected(handler):
+			sig.connect(handler)
 	_follow(p)
 	_bind(p)
 
@@ -244,8 +259,9 @@ func _on_local_player_ready(p: Player) -> void:
 ## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
 func _on_local_map_changed(map_id: int) -> void:
 	_show_map(map_id)
-	if player != null:
-		_follow(player)
+	if player == null:
+		return
+	_follow(player)
 	marker.refresh()
 	print("EVENSONG_MAP travel to=%s feet=%d,%d" % [Config.MAP_NAMES[map_id], roundi(player.sim_position.x),
 		roundi(player.sim_position.y)])
@@ -320,7 +336,7 @@ func pick_up() -> void:
 	var data: WorldData = current_world().data
 	var to: int = WorldItems.travel(data, player.sim_position, cell)
 	if to >= 0:
-		travel(to)
+		travel(to)  # refused (and logged) for a map never received; F on a way is never a pick up
 		return
 	_apply_offline(WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell),
 		"pickup", cell)
@@ -391,6 +407,8 @@ func _on_place_requested(slot: int, cell: Vector2i) -> void:
 
 
 func _on_action_started(item: StringName, anim: int, target: Vector2i) -> void:
+	if _in_session():
+		return  # the session logs actions itself
 	print("EVENSONG_ACTION start item=%s action=%s facing=%s target=%d,%d" % [item, RigData.ANIM_NAMES[anim],
 		RigData.DIR_NAMES[player.facing], target.x, target.y])
 

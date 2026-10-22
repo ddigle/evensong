@@ -194,6 +194,8 @@ func on_map_entry(payload: PackedByteArray) -> void:
 	var old_world: GameWorld = s.world_of(old)
 	if old_world != null and old_world.data != null:
 		left_maps.append({"map": old, "hash": old_world.data.content_hash(), "edits": s.log_for(old).size()})
+		if left_maps.size() > Config.NET_STREAM_RECORDS_MAX:
+			left_maps.pop_front()  # test results only (M3-fix: a client travelling all session long)
 		s.log_event("map_left", "map=%s edits=%d world=%s" % [Config.MAP_NAMES[old], s.log_for(old).size(),
 			old_world.data.content_hash().left(12)])
 	w.load_data(data)

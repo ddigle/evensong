@@ -60,6 +60,11 @@ func _check_walls() -> void:
 	check_eq(Walls.owner_of(d, Vector2i(4, 5)), Walls.NO_CELL, "open floor: nothing")
 	check_eq(Walls.vertex(d, Vector2i(4, 3)), Walls.V_FACE, "render value of a face")
 	check_eq(Walls.vertex(d, Vector2i(-1, 4)), Walls.V_WALL, "outside the map draws as wall")
+	# M3-fix: drawn = blocked on the top row too (a floor tile under the map's edge was drawn as a face
+	# but was open for walking).
+	var top: WorldData = _cave(Vector2i(4, 4), [Rect2i(0, 0, 4, 4)])
+	check(Walls.vertex(top, Vector2i(1, 0)) == Walls.V_FLOOR and not Walls.blocks(top, Vector2i(1, 0)),
+		"a floor tile in row 0 draws as floor and does not block")
 	d.set_value(WorldData.Layer.ORE, Vector2i(6, 2), Walls.ORE_IRON)
 	d.set_value(WorldData.Layer.ORE, Vector2i(2, 5), Walls.ORE_COPPER)
 	check_eq([Walls.hardness(d, Vector2i(2, 6)), Walls.hardness(d, Vector2i(2, 5)), Walls.hardness(d, Vector2i(6, 2)),
@@ -204,6 +209,33 @@ func _check_unbreakable_and_surface() -> void:
 		if c.y == exit.position.y - 1 and c.x >= exit.position.x and c.x < exit.end.x:
 			touched_exit_rock = true
 	check(not touched_exit_rock, "the rock over the exit stairs cannot be mined")
+	# M3-fix: a swing at the stairs does nothing at all, for the miner too: its 3x3 used to break the
+	# rock beside and behind the bedrock cap (13 tiles in three swings on seed 1).
+	var before: String = d.content_hash()
+	var stair_hits: int = 0
+	var why_ok: bool = true
+	for k: int in 6:
+		for class_id: String in [Mining.MINER_CLASS, "paladin"]:
+			var rs2: Mining.Result = Mining.strike(d, feet, class_id, inv, exit.position + Vector2i(k % 2, 0))
+			why_ok = why_ok and rs2.why == Mining.WHY_TOO_HARD and rs2.edits.is_empty()
+			stair_hits += rs2.hit.size()
+			_apply(d, rs2)
+	check(why_ok and stair_hits == 0, "a swing at the exit stairs is too hard for the miner and the others, no tile hit")
+	check_eq(d.content_hash(), before, "six miner and six common swings at the stairs leave the dungeon unchanged")
+	# M3-fix: the debug drop refuses a wall face and solid rock, as placing a torch does.
+	var held: Inventory = Inventory.new()
+	held.add(&"stone_a", 3)
+	var beside: Vector2 = _feet(exit.position + Vector2i(-1, 1))
+	var face: Vector2i = exit.position + Vector2i(-1, 0)
+	var on_face: WorldItems.Outcome = WorldItems.drop(d, beside, held, 0, 1, face)
+	check(Walls.is_face(d, face) and on_face.why == WorldItems.WHY_BLOCKED, "a debug drop on a wall face is refused (%s)" % on_face.why)
+	var open_cell: Vector2i = exit.position + Vector2i(-1, 2)
+	var on_floor: WorldItems.Outcome = WorldItems.drop(d, beside, held, 0, 1, open_cell)
+	check(not Walls.blocks(d, open_cell) and on_floor.ok(), "a debug drop on open floor still works (%s)" % on_floor.why)
+	var rock: WorldData = _cave(Vector2i(8, 8), [Rect2i(2, 2, 4, 4)])
+	var in_rock: WorldItems.Outcome = WorldItems.drop(rock, _feet(Vector2i(2, 4)), held, 0, 1, Vector2i(1, 4))
+	check(Walls.is_wall(rock, Vector2i(1, 4)) and in_rock.why == WorldItems.WHY_BLOCKED and rock.drops.is_empty(),
+		"a debug drop into solid rock is refused (%s)" % in_rock.why)
 	var b: WorldData = _cave(Vector2i(8, 8), [Rect2i(1, 1, 6, 6)])
 	var rb: Mining.Result = Mining.strike(b, _feet(Vector2i(1, 3)), Mining.MINER_CLASS, inv, Vector2i(0, 3))
 	check(rb.why == Mining.WHY_TOO_HARD and rb.edits.is_empty(), "the bedrock border: nothing but the swing")

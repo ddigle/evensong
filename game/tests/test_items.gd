@@ -348,6 +348,17 @@ func _check_give_flag() -> void:
 		check(ItemDB.has(id), "debug kit item %s exists" % id)
 		lost += kit.add(id, count, grade)
 	check_eq(lost, 0, "the debug kit fits an empty inventory")
+	check_eq(kit.free_slots(), ItemDB.DEBUG_KIT_FREE_SLOTS, "M3-fix: the debug kit leaves %d slots free" % ItemDB.DEBUG_KIT_FREE_SLOTS)
+	# A herbalist with the kit picks the two herbs the kit holds only as common: both FINE stacks find a
+	# slot (with the kit filling all 24 slots, M3a, both were refused as "inventory full").
+	var field: WorldData = WorldData.new(Vector2i(8, 8))
+	field.set_value(WorldData.Layer.VEGETATION, Vector2i(5, 4), WorldItems.value_of(&"wild_buff"))
+	field.set_value(WorldData.Layer.VEGETATION, Vector2i(3, 4), WorldItems.value_of(&"wild_poison"))
+	var feet: Vector2 = Vector2(4 * Config.TILE + 8, 4 * Config.TILE + 12)
+	var buff: WorldItems.Outcome = WorldItems.pickup(field, feet, WorldItems.HERB_CLASS, kit, Vector2i(5, 4))
+	var poison: WorldItems.Outcome = WorldItems.pickup(field, feet, WorldItems.HERB_CLASS, kit, Vector2i(3, 4))
+	check(buff.ok() and buff.grade == ItemDB.Grade.FINE and poison.ok() and poison.grade == ItemDB.Grade.FINE,
+		"a herbalist with the debug kit picks wild_buff and wild_poison as FINE (%s, %s)" % [buff.why, poison.why])
 	for i: int in TOOLS.size():
 		check_eq(kit.stack_at(i).def().kind, ItemDB.Kind.TOOL, "debug kit: hotbar slot %d holds a tool" % i)
 

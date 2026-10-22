@@ -63,7 +63,8 @@ func _ready() -> void:
 ## Config.DUNGEON_SIZE).
 func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> void:
 	var t0: int = Time.get_ticks_usec()
-	var generated_data: WorldData = DungeonGen.generate(world_seed) if map_id == Config.MAP_DUNGEON 		else SurfaceGen.generate(world_seed, size)
+	var generated_data: WorldData = DungeonGen.generate(world_seed) if map_id == Config.MAP_DUNGEON \
+		else SurfaceGen.generate(world_seed, size)
 	generation_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	load_data(generated_data)
 

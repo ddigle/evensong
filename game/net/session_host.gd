@@ -37,7 +37,7 @@ extends RefCounted
 ## then that map's edits made since the snapshot. Edits are numbered per map and go only to the
 ## members on that map whose entry is complete (peers_on). Mining is checked twice: the use (tool in
 ## the slot, the target next to the feet, not busy: one swing at a time, so the action's length is
-## its rate) and the swing that lands (a wall there, hardness within the class's cap, in reach). Two
+## its rate) and the swing that lands (a wall there whose hardness is within the class's cap). Two
 ## swings landing on one tile in one tick: members in slot order, edits at once, so the lower slot's
 ## breaks it and the other one finds no wall.
 
@@ -70,7 +70,8 @@ var snapshots_sent: int = 0
 var map_entries: int = 0
 var travels: int = 0
 var snapshot_bytes_sent: int = 0
-## Every finished stream, for the test results: slot, chunks, ticks, edit position, catch-up edits.
+## Every finished stream, for the test results: slot, chunks, ticks, edit position, catch-up edits
+## (the last Config.NET_STREAM_RECORDS_MAX).
 var streams_done: Array[Dictionary] = []
 ## Ticks whose traffic still counts as joining (NetStats bucket "joining", not "<moving>/<players>"):
 ## the tick that sent chunks or a welcome and the next two, since ENet sends at the end of the frame
@@ -228,6 +229,8 @@ func _record_stream(st: Stream, catch_up: int) -> void:
 		"ticks": st.ticks, "edit_position": st.edit_position, "catch_up_edits": catch_up,
 		"kind": "map" if st.entry else "join", "map": st.map, "raw": st.snapshot.raw_size,
 		"ms": Time.get_ticks_msec() - st.started_ms})
+	if streams_done.size() > Config.NET_STREAM_RECORDS_MAX:
+		streams_done.pop_front()  # test results only (M3-fix: TRAVEL has no cooldown, so no unbounded list)
 
 
 func _welcome(st: Stream) -> void:
@@ -352,7 +355,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 
 
 ## M3a: the swing of member `m` lands on its action's target tile (M3b: on its map; refused swings
-## are counted by reason: "no wall", "too hard", "out of reach").
+## are counted by reason: "no wall", "too hard"; Mining.strike's "out of reach" cannot happen while
+## Config.ACTION_LOCKS_MOVEMENT holds the feet still, see there).
 func _mine(m: NetMember) -> void:
 	var p: Player = m.player
 	var r: Mining.Result = Mining.strike(p.data, p.sim_position, m.class_id, p.inventory, p.action_cell)

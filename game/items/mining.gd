@@ -14,7 +14,14 @@ extends RefCounted
 ##
 ## The swing lands on Config.MINING_IMPACT_FRAME of the pickaxe action (Mining.impact_tick()).
 ## A target that is a wall's face tile hits that wall (Walls.owner_of). Nothing breakable there (no
-## wall, bedrock, too hard for the class): nothing happens but the swing.
+## wall, bedrock, the rock above the exit stairs, too hard for the class): nothing happens but the
+## swing. That holds for the miner's 3x3 too: it only reaches around a tile the swing can break
+## (M3-fix: a miner swinging at the exit stairs broke the rock beside and behind their bedrock cap).
+##
+## Hardness (PROVISIONAL): gameplay-design §3.1 (unmarked bullet) gates breaking by pickaxe grade
+## ("곡괭이 등급이 경도 이상이어야 파괴", higher ores need a higher pickaxe). M3 has one pickaxe without a
+## grade; the class cap (● R11 "경도 상한" / "상위 경도", hardness_cap) stands in for it. Pickaxe tiers
+## are not modelled (README "임시값", for the human to confirm).
 
 const PICKAXE: StringName = &"pickaxe"
 ## ● the class whose mining is 3x3, fast and reaches the higher hardness (gameplay-design §3.0 R11).
@@ -88,10 +95,16 @@ static func strike(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 	if owner == Walls.NO_CELL:
 		r.why = WHY_NO_WALL
 		return r
+	# Defensive: in play this cannot fail (the use was checked in reach when the action started and
+	# Config.ACTION_LOCKS_MOVEMENT keeps the feet still until the swing lands); it matters only if
+	# that provisional lock is turned off.
 	if not WorldItems.in_reach(feet, target):
 		r.why = WorldItems.WHY_REACH
 		return r
 	var cap: int = hardness_cap(class_id)
+	if Walls.hardness(data, owner) > cap:
+		r.why = WHY_TOO_HARD
+		return r
 	var hits: int = power(class_id)
 	var drops_left: int = Config.MAX_DROPS - data.drops.size()
 	for c: Vector2i in area(owner, Aim.feet_cell(feet), class_id):

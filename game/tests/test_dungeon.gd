@@ -2,7 +2,8 @@ extends "res://tests/base_test.gd"
 ## M3a maps and the first dungeon: the dungeon TileSet (fresh build = committed, every cliff tile with
 ## its corners and context), DungeonGen rules over many seeds (bedrock border, exit stairs on wall
 ## faces under bedrock, arrival point open next to them, the shrine spot reachable, every ore vein
-## minable from where players walk, all floor connected, wall torches on faced rock), determinism and
+## minable from where players walk, all floor connected, wall torches on faced rock, every room with a
+## torch spot lit and the arrival room always (M3-fix)), determinism and
 ## the golden hash, the surface entrance (step 5: clear spot outside the light, gatherables as in
 ## M2b), the cave view (every display cell = the rule, incremental redraws = a fresh view), wall
 ## collision (walls and faces block, a torch does not; prediction replays the host exactly in the
@@ -23,6 +24,7 @@ func run() -> Array[String]:
 	_check_prediction_in_dungeon()
 	await _check_world_scene()
 	await _check_travel_in_main()
+	await _check_offline_after_host_loss()
 	_check_session_travel()
 	return failures
 
@@ -78,6 +80,7 @@ func _check_tileset() -> void:
 func _check_generator_rules() -> void:
 	var bad: Dictionary[String, int] = {}
 	var fallbacks: int = 0
+	var arrival_two: int = 0
 	var notes_kept: PackedStringArray = []
 	var view: CaveView = add_node(CaveView.new()) as CaveView
 	for seed: int in range(1, SEEDS + 1):
@@ -148,6 +151,35 @@ func _check_generator_rules() -> void:
 				torch_ok = torch_ok and Walls.kind_at(d, c) == Walls.KIND_ROCK and Walls.is_face(d, c + Vector2i(0, 1)) \
 					and Walls.ore_at(d, c) == Walls.ORE_NONE
 		_count(bad, "wall torches on faced rock (at least 2)", not torch_ok or torches < 2)
+		# M3-fix: every room whose north wall still has a torch spot has a wall torch; the arrival room
+		# always has one, and each side of the stairs that has a spot has its torch on that side.
+		var rooms_lit: bool = true
+		var arrival_lit: bool = true
+		for r: int in lay.rooms.size():
+			var room: Rect2i = lay.rooms[r]
+			var is_arrival: bool = r == lay.arrival_room
+			var lit: Array[int] = []
+			var spots: Array[int] = []
+			for x: int in range(room.position.x, room.end.x):
+				var c: Vector2i = Vector2i(x, room.position.y - 1)
+				if d.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_WALL_TORCH:
+					lit.append(x)
+				elif DungeonGen.wall_torch_spot_ok(d, c) and not (is_arrival and x >= exit.position.x - 1 and x <= exit.end.x):
+					spots.append(x)
+			rooms_lit = rooms_lit and not (lit.is_empty() and not spots.is_empty())
+			if is_arrival:
+				arrival_lit = arrival_lit and not lit.is_empty()
+				arrival_two += 1 if lit.size() >= 2 else 0
+				for west: bool in [true, false]:
+					var side_lit: bool = false
+					var side_spot: bool = false
+					for x: int in lit:
+						side_lit = side_lit or (x < exit.position.x) == west
+					for x: int in spots:
+						side_spot = side_spot or (x < exit.position.x) == west
+					arrival_lit = arrival_lit and not (side_spot and not side_lit)
+		_count(bad, "every room with a wall torch spot has a wall torch", not rooms_lit)
+		_count(bad, "arrival room lit (a wall torch, one per side of the stairs that has a spot)", not arrival_lit)
 		_count(bad, "floor layer unused", d.count_value(WorldData.Layer.FLOOR, 0) != d.size.x * d.size.y)
 		view.setup(d)
 		var v: Dictionary[String, int] = view.verify()
@@ -159,10 +191,12 @@ func _check_generator_rules() -> void:
 	for rule: String in ["size / map id", "rooms", "bedrock border", "exit on faces under unbreakable rock", "arrival open",
 			"arrival next to the exit", "shrine spot on open floor", "shrine reachable from the arrival", "all open floor connected",
 			"ore veins in rock, each minable from reachable floor", "both ore kinds", "wall torches on faced rock (at least 2)",
-			"floor layer unused", "cave view = rule (no mismatch, nothing missing, overlays)"]:
+			"every room with a wall torch spot has a wall torch",
+			"arrival room lit (a wall torch, one per side of the stairs that has a spot)", "floor layer unused", "cave view = rule (no mismatch, nothing missing, overlays)"]:
 		check_eq(bad.get(rule, 0), 0, "%d seeds: %s" % [SEEDS, rule])
 	check(fallbacks <= SEEDS, "generated dungeons rarely need a fallback tile (%d display cells in %d seeds)" % [fallbacks, SEEDS])
-	note("dungeon rules over %d seeds; fallback display cells in all: %d" % [SEEDS, fallbacks])
+	note("dungeon rules over %d seeds; fallback display cells in all: %d; arrival rooms with two wall torches: %d" % [
+		SEEDS, fallbacks, arrival_two])
 	for line: String in notes_kept:
 		note(line)
 
@@ -342,7 +376,9 @@ func _check_collision() -> void:
 
 
 ## The client's prediction against the host's PlayerSim in the dungeon: random walking into walls and
-## faces, replayed from host states with a delay: no correction ever.
+## faces, replayed from host states with a delay: no correction ever. Both sides step the same
+## PlayerSim on the same unedited data, so this checks determinism and the replay bookkeeping only;
+## prediction against walls the host broke first is test_net_maps.gd's (M3-fix review note).
 func _check_prediction_in_dungeon() -> void:
 	var d: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
 	var start: Vector2 = DungeonGen.arrival_point(d)
@@ -448,6 +484,75 @@ func _check_travel_in_main() -> void:
 		"back in the surface's world")
 	check_eq(player.sim_position, DungeonGen.arrival_below(entrance), "just south of the entrance")
 	check_ne(p, player.sim_position, "moved")
+
+
+## M3-fix: a session client that lost its host plays on alone (NetSession.continue_offline) with the
+## Player the session made and, if it never went down, the empty dungeon world Main.add_dungeon(false)
+## made. F on the entrance must not travel into that empty world (it used to: script errors and a
+## player stuck in an empty map), and the session-made player's swings and torch clicks must reach
+## Main's offline mining and placing (only spawn() used to connect them).
+func _check_offline_after_host_loss() -> void:
+	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
+	add_node(main)
+	await await_frames(2)
+	var old: GameWorld = main.worlds[Config.MAP_DUNGEON]
+	main.worlds.erase(Config.MAP_DUNGEON)
+	old.get_parent().remove_child(old)
+	old.free()
+	main.add_dungeon(false)
+	var dungeon: GameWorld = main.worlds[Config.MAP_DUNGEON]
+	var surface: GameWorld = main.world
+	check(dungeon.data == null, "host loss: the client's dungeon world has no map yet")
+	for d: Character in main.dummies:
+		d.get_parent().remove_child(d)
+		d.free()
+	main.dummies.clear()
+	main.player.get_parent().remove_child(main.player)
+	main.player.free()
+	var entrance: Rect2i = SurfaceGen.entrance_rect(surface.data)
+	var m: NetMember = NetMember.create(surface.data, surface.entities, 0, 0, "paladin", DungeonGen.arrival_below(entrance),
+		RigData.Dir.NORTH)
+	main._on_local_player_ready(m.player)
+	var p: Player = m.player
+	p.local_input = true
+	p.controls = true
+	p.test_aim = Vector2(0, -16)
+	check(p.action_impact.is_connected(main._on_action_impact) and p.place_requested.is_connected(main._on_place_requested),
+		"host loss: the session-made player's swings and torch clicks reach Main")
+	await _physics(2)
+	check(WorldItems.is_portal(surface.data, p.aim_cell), "host loss: aiming at the entrance")
+	main.pick_up()
+	await _physics(2)
+	check(main.current_map == Config.MAP_SURFACE and surface.visible and not dungeon.visible and p.get_parent() == surface.entities,
+		"host loss: F on the entrance of a never-received dungeon stays on the surface")
+	# Had the client received the dungeon, it goes down and mines and places torches there alone.
+	dungeon.load_data(DungeonGen.generate(Config.DEFAULT_SEED))
+	main.pick_up()
+	await _physics(2)
+	check(main.current_map == Config.MAP_DUNGEON and p.data == dungeon.data, "host loss: with the map received, F goes down")
+	var exit: Rect2i = DungeonGen.exit_rect(dungeon.data)
+	p.teleport(Vector2((exit.position.x - 1) * Config.TILE + Config.TILE / 2.0, dungeon.arrival_point().y))
+	p.inventory.clear()
+	p.inventory.add(&"pickaxe", 1)  # slot 0
+	p.inventory.add(&"torch", 2)  # slot 1
+	p.inventory.select(0)
+	var owner: Vector2i = Vector2i(exit.position.x - 1, exit.position.y - 1)
+	check(Walls.is_face(dungeon.data, owner + Vector2i(0, 1)) and Walls.hardness(dungeon.data, owner) == Config.HARDNESS_ROCK,
+		"host loss: the rock beside the stairs is breakable")
+	Input.action_press(&"use_item")
+	await _physics(Mining.impact_tick() + 4)
+	Input.action_release(&"use_item")
+	await _physics(Config.ACTION_FRAME_TICKS * RigData.frame_count(RigData.Anim.PICKAXE))
+	check_eq(Walls.hits_at(dungeon.data, owner), Config.MINING_POWER_COMMON, "host loss: the swing mines the rock beside the stairs")
+	p.inventory.select(1)
+	p.test_aim = Vector2(0, 16)
+	await _physics(1)
+	var spot: Vector2i = p.aim_cell
+	Input.action_press(&"use_item")
+	await _physics(2)
+	Input.action_release(&"use_item")
+	await _physics(1)
+	check_eq(dungeon.data.get_value(WorldData.Layer.PLACEABLE, spot), WorldData.PLACEABLE_TORCH, "host loss: a click places a torch")
 
 
 ## M3b: a session host takes a member down the entrance (TRAVEL) and back up the stairs; a PICKUP on

@@ -172,7 +172,8 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.cell = aim_cell
 			f.anim = anim
 			f.item = inventory.selected_stack().id
-		elif use_pressed and WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE 				and WorldItems.in_reach(sim_position, aim_cell):
+		elif use_pressed and WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
+				and WorldItems.in_reach(sim_position, aim_cell):
 			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
 			# action: the host (or offline Main) places it; nothing is predicted.
 			f.op = NetProtocol.Op.USE

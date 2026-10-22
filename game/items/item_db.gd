@@ -23,6 +23,8 @@ enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE }
 enum Grade { NONE, COMMON, FINE }
 
 const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable"]
+## IMPL (M3-fix): inventory slots the debug kit leaves free (debug_kit()).
+const DEBUG_KIT_FREE_SLOTS: int = 2
 const GRADE_NAMES: PackedStringArray = ["none", "common", "fine"]
 const ART_DIR: String = "res://art/items/"
 
@@ -119,16 +121,18 @@ static func grade_from_name(text: String) -> int:
 	return GRADE_NAMES.find(text)
 
 
-## Debug kit (F5): every tool, (M3a) ten torches right after them (in the hotbar, slot 7), a few of each
-## gatherable kind, the material. It fills all Config.INVENTORY_SLOTS slots (24): what mining breaks
-## stacks onto the stone, the ores do not fit and are dropped (README).
+## Debug kit (F5): every tool, (M3a) ten torches right after them (in the hotbar, slot 7), a few of most
+## gatherable kinds, the material. It leaves DEBUG_KIT_FREE_SLOTS of the Config.INVENTORY_SLOTS slots
+## free (M3-fix: with the torches it had filled all 24, so a herbalist's first FINE herb of a kind and
+## every ore from mining found no slot): the two ash-side stones (stone_veined, stone_mould, which lie
+## on the surface's ash zones) are left out for that.
 static func debug_kit() -> Array[Array]:
 	return [
 		[&"pickaxe", 1], [&"hoe", 1], [&"sickle", 1], [&"watering_can", 1], [&"sword", 1], [&"bow", 1], [&"torch", 10],
 		[&"wild_healing", 12], [&"mushroom_a", 5], [&"stone_a", 30], [&"stone_block", 8],
 		[&"wild_healing", 3, Grade.FINE], [&"wild_buff", 4], [&"wild_poison", 2], [&"herb_clump", 6],
 		[&"mushroom_b", 3], [&"mushroom_c", 2], [&"mushroom_d", 1], [&"mushroom_ash", 2],
-		[&"stone_b", 4], [&"stone_c", 4], [&"stone_mossy", 2], [&"stone_veined", 1], [&"stone_mould", 1],
+		[&"stone_b", 4], [&"stone_c", 4], [&"stone_mossy", 2],
 	]
 
 
@@ -166,7 +170,8 @@ static func _build() -> void:
 	# The torch (gameplay-design §3.0 ● R11: "기본 키트 (횃불, 발판)"; the merchant who sells it is M8): the
 	# debug kit and --give hand it out. No torch item art exists: the icon is drawn in code
 	# (items/item_icons.gd) and the placed torch is the 04-env ground lantern (lit), the only floor
-	# light a player puts down in the 04-env art (world/fixture_view.gd). PROVISIONAL stack size.
+	# light a player puts down in the 04-env art (world/fixture_view.gd). PROVISIONAL stack size (99, the
+	# materials' Config.STACK_MATERIAL) and kind PLACEABLE (README "임시값" M3a 횃불).
 	var torch: ItemDef = ItemDef.new(&"torch", Kind.PLACEABLE, Config.STACK_MATERIAL)
 	torch.icon_code = &"torch"
 	torch.place = WorldData.PLACEABLE_TORCH

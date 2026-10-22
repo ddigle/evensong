@@ -6,8 +6,8 @@ extends "res://tests/base_test.gd"
 ##   - the host's request checks on maps (a real NetSession + SessionHost, no transport): TRAVEL in and
 ##     out of reach, on a tile with no way, spammed (rate), while the last map entry still streams
 ##     (loading), a PICKUP on the entrance; requests aimed on the wrong map (use, pick up, drop,
-##     travel); a malicious client mining far tiles, the bedrock border and the exit's bedrock, and
-##     spamming uses during a swing (busy)
+##     travel); a malicious client mining far tiles, the bedrock border and the exit's bedrock (M3-fix:
+##     the miner's 3x3 too), spamming uses during a swing (busy), spamming torch USEs (rate, M3-fix)
 ##   - two swings landing on one tile in the same host tick (SessionHost.tick): exactly one break,
 ##     the item to the member whose hit broke it (common players and miners, a tile one hit short and
 ##     two hits short)
@@ -462,6 +462,18 @@ func _check_wrong_map_requests() -> void:
 	check_eq(m.op_budget, NetMember.OP_BUDGET_MAX, "a wrong-map request costs no request budget (refused before it)")
 	r.host.run_frame(m, _op(NetProtocol.Op.USE, Config.MAP_DUNGEON, EAST_ROCK, 0))
 	check_eq(m.player.action_anim, RigData.Anim.PICKAXE, "the same swing aimed on the dungeon starts")
+	# M3-fix: torch USEs take the request budget like a pick up: ten in one tick on one open tile, the
+	# first places it, the next three find it taken (not open floor), the rest are refused as rate.
+	var t: NetMember = _member(r, 101, "cleric", Config.MAP_DUNGEON, EAST_STAND + Vector2i(-2, 0))
+	t.player.inventory.add(&"torch", 10)
+	var spot: Vector2i = EAST_STAND + Vector2i(-2, 1)
+	for i: int in 10:
+		r.host.run_frame(t, _op(NetProtocol.Op.USE, Config.MAP_DUNGEON, spot, 0))
+	var rate: int = t.ops_refused.get("rate", 0)
+	var taken_spot: int = t.ops_refused.get(WorldItems.WHY_NOT_OPEN, 0)
+	check(rate == 10 - _op_burst() and taken_spot == _op_burst() - 1
+		and t.player.inventory.count_of(&"torch") == 9 and r.dungeon.data.get_value(WorldData.Layer.PLACEABLE, spot) == WorldData.PLACEABLE_TORCH,
+		"ten torch USEs in one tick: one placed, the budget (%d) spent, the rest rate (%s)" % [_op_burst(), t.ops_refused])
 
 
 func _check_malicious_mining() -> void:
@@ -509,6 +521,18 @@ func _check_malicious_mining() -> void:
 		r.host.run_frame(m, NetProtocol.InputFrame.new(0, Vector2i.ZERO))
 	check_eq(m.swings_missed.get(Mining.WHY_TOO_HARD, 0), 2, "the bedrock above the exit stairs: too hard")
 	check(WorldItems.is_portal(d, stairs), "the stairs are still there")
+	# M3-fix: the miner too: its 3x3 does not reach around the stairs' bedrock (it broke the rock beside
+	# and behind it: 13 tiles in three swings).
+	var miner_before: int = r.s.log_for(Config.MAP_DUNGEON).size()
+	var dungeon_before: String = d.content_hash()
+	miner.player.teleport(r.dungeon.arrival_point())
+	for k: int in 3:
+		r.host.run_frame(miner, _op(NetProtocol.Op.USE, Config.MAP_DUNGEON, stairs + Vector2i(k % 2, 0), 0))
+		for i: int in PlayerSim.action_ticks(RigData.Anim.PICKAXE):
+			r.host.run_frame(miner, NetProtocol.InputFrame.new(0, Vector2i.ZERO))
+	check_eq(miner.swings_missed.get(Mining.WHY_TOO_HARD, 0), 4, "the miner's three swings at the stairs: too hard (and one at the border)")
+	check(r.s.log_for(Config.MAP_DUNGEON).size() == miner_before and d.content_hash() == dungeon_before,
+		"the miner at the stairs: no edit, the dungeon unchanged")
 	note("malicious mining: cleric refused %s, missed %s; miner missed %s" % [m.ops_refused, m.swings_missed, miner.swings_missed])
 
 
@@ -595,9 +619,15 @@ func _check_same_tick_mining() -> void:
 		check(v["mismatches"] == 0 and v["overlay_mismatches"] == 0, "%s: the host's cave view follows %s" % [label, v])
 
 
+## The request budget a member starts with (Config.NET_OP_BURST).
+static func _op_burst() -> int:
+	return Config.NET_OP_BURST
+
+
 ## Items a member got from mining (stones and ores).
 static func _mined_items(m: NetMember) -> int:
-	return m.player.inventory.count_of(Config.MINED_ROCK_ITEM) + m.player.inventory.count_of(&"ore_copper") 		+ m.player.inventory.count_of(&"ore_iron")
+	return m.player.inventory.count_of(Config.MINED_ROCK_ITEM) + m.player.inventory.count_of(&"ore_copper") \
+		+ m.player.inventory.count_of(&"ore_iron")
 
 
 static func _broken(log: EditLog) -> int:
@@ -665,6 +695,7 @@ func _check_map_flow() -> void:
 	check_eq(ma.map_id, Config.MAP_DUNGEON, "the host moved A down")
 	_deliver(r, a)
 	check(a.s.local.map_id == Config.MAP_DUNGEON and a.maps_changed == ([Config.MAP_DUNGEON] as Array[int]), "A switched to the dungeon")
+	check(host_on_a.player.visible, "M3-fix: the map entry itself shows the players already down there (before draw_others)")
 	check_eq(a.dungeon.data.content_hash(), hd.content_hash(), "A's dungeon = the host's (crack, torch, drop)")
 	check(a.dungeon.data.drops.size() == 1 and Walls.hits_at(a.dungeon.data, EAST_ROCK) == Walls.hits_at(hd, EAST_ROCK),
 		"the drop and the crack came in the map snapshot")
