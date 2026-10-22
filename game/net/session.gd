@@ -32,6 +32,15 @@ extends Node
 ## its movement, and the host's state wins. The world snapshot carries the gatherables (VEGETATION
 ## layer) and the drops, so a late joiner sees what was picked and what lies around.
 ##
+## M3b (maps): the host has every map (`worlds`: the surface and the first dungeon, each a GameWorld
+## with its own data and its own edit log, `log_for`) and every member is on one of them
+## (NetMember.map_id). Going down or up is a TRAVEL request (F on the entrance / the exit stairs),
+## checked like a pick up and applied by the host: the member moves to the other map's arrival point,
+## and its client gets that map the way a joiner gets the world (the same chunked snapshot, then a map
+## entry message, then the edits made meanwhile). A client keeps only the map it is on: edits go to
+## the members on their map, nobody else. States carry each player's map; a client draws only the
+## players on its own map. Requests aimed at a tile carry the map they were aimed on.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -39,6 +48,9 @@ extends Node
 ## Machine-readable log lines start with "EVENSONG_NET".
 
 signal local_player_ready(player: Player)
+## M3b: the local player is now on map `map_id` (the host moved it; a client has that map loaded):
+## show that map (core/main.gd).
+signal local_map_changed(map_id: int)
 ## The session is over: finished, left, refused, failed, lost the host, timed out. `code` is the
 ## exit code a test instance quits with (EXIT_*).
 signal ended(reason: String, code: int)
@@ -55,13 +67,23 @@ const EXIT_TIMEOUT: int = 6
 
 
 var role: Role = Role.OFFLINE
+## The surface's world (main.tscn's World). M3b: `worlds` has every map's GameWorld by map id (the host
+## generates them all; a client has the surface and an empty dungeon world it fills on entering).
 var world: GameWorld
+var worlds: Dictionary[int, GameWorld] = {}
 var options: CliOptions
 var transport: NetTransport
 ## Players by slot.
 var members: Dictionary[int, NetMember] = {}
 var local: NetMember
-var edit_log: EditLog = EditLog.new()
+## M3b: one edit log per map (log_for). A client has the log of the map it is on.
+var edit_logs: Dictionary[int, EditLog] = {}
+## The surface's log (M1 / M2 code and tests).
+var edit_log: EditLog:
+	get:
+		return log_for(Config.MAP_SURFACE)
+	set(value):
+		edit_logs[Config.MAP_SURFACE] = value
 var tick: int = 0
 var link: LinkSim = LinkSim.new()
 var stats: NetStats = NetStats.new()
@@ -110,6 +132,8 @@ func instance_name() -> String:
 ## Starts hosting or joining as `p_options` says (--host / --join).
 func start(p_world: GameWorld, p_options: CliOptions) -> void:
 	world = p_world
+	if not worlds.has(Config.MAP_SURFACE):
+		worlds[Config.MAP_SURFACE] = world
 	options = p_options
 	role = Role.HOST if options.host else Role.CLIENT
 	_start_ms = Time.get_ticks_msec()
@@ -146,6 +170,31 @@ func start(p_world: GameWorld, p_options: CliOptions) -> void:
 
 func is_host() -> bool:
 	return role == Role.HOST
+
+
+## M3b: the edit log of map `map_id` (a new one the first time).
+func log_for(map_id: int) -> EditLog:
+	if not edit_logs.has(map_id):
+		edit_logs[map_id] = EditLog.new()
+	return edit_logs[map_id]
+
+
+## M3b: the GameWorld of map `map_id` (the surface's is `world`; null for a map this session has none of).
+func world_of(map_id: int) -> GameWorld:
+	if worlds.has(map_id):
+		return worlds[map_id]
+	return world if map_id == Config.MAP_SURFACE else null
+
+
+## M3b: the map the local player is on (the surface before it exists).
+func local_map() -> int:
+	return local.map_id if local != null else Config.MAP_SURFACE
+
+
+## M3b: the world this machine shows: the local player's map's.
+func view_world() -> GameWorld:
+	var w: GameWorld = world_of(local_map())
+	return w if w != null else world
 
 
 ## Whether a host honours clients' debug give and debug drop requests: only in a debug build (the
@@ -258,21 +307,29 @@ func stall_after_tick(ms: int) -> void:
 
 ## Traffic by situation: "<moving>/<players>" (walking players), "act<acting>/<players>" while any
 ## player plays a body action (M2b), "req/<players>" around a request (M2b: the host handled one, or
-## this client sent one; that tick and the next two), or "joining" while the host sends a joiner its
-## world.
+## this client sent one; that tick and the next two), "joining" while the host sends a joiner its
+## world. M3b: " split" is added while the players are on more than one map, and "entering" counts
+## the ticks the host sends a player the map it went to.
 func _count_traffic() -> void:
 	var moving: int = 0
 	var acting: int = 0
+	var maps: Dictionary[int, bool] = {}
 	for slot: int in members:
 		if members[slot].player.walking:
 			moving += 1
 		if members[slot].player.action_anim >= 0:
 			acting += 1
+		maps[members[slot].map_id] = true
 	var key: String = "%d/%d" % [moving, members.size()] if acting == 0 else "act%d/%d" % [acting, members.size()]
 	if request_ticks > 0:
 		request_ticks -= 1
 		if acting == 0:
 			key = "req/%d" % members.size()
+	if maps.size() > 1:
+		key += " split"
+	if host != null and host.entering_ticks > 0:
+		host.entering_ticks -= 1
+		key = "entering"
 	if host != null and host.joining_ticks > 0:
 		host.joining_ticks -= 1
 		key = "joining"
@@ -324,6 +381,13 @@ func _rpc_left(payload: PackedByteArray) -> void:
 func _rpc_edit(payload: PackedByteArray) -> void:
 	if role == Role.CLIENT:
 		client.on_edit(payload)
+
+
+## Client (M3b): the map it went to is complete (its chunks came first); its edits follow.
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_map(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_map_entry(payload)
 
 
 ## Client: its own inventory as the host has it (M2b).
@@ -408,6 +472,10 @@ func send_inventory(peer: int, payload: PackedByteArray) -> void:
 	_rpc_inventory.rpc_id(peer, payload)
 
 
+func send_map_entry(peer: int, payload: PackedByteArray) -> void:
+	_rpc_map.rpc_id(peer, payload)
+
+
 ## Client -> host input (through the link simulation, so it may run later; dropped once over).
 func send_input(payload: PackedByteArray) -> void:
 	if active and not over:
@@ -487,10 +555,29 @@ func _exit_tree() -> void:
 
 # --- players ---------------------------------------------------------------------------------
 
-func add_member(slot: int, peer_id: int, class_id: String, pos: Vector2, facing: int) -> NetMember:
-	var m: NetMember = NetMember.create(world.data, world.entities, slot, peer_id, class_id, pos, facing)
+## A player on map `map_id`. The host puts it into that map's world (it steps there); a client into the
+## world it shows, hidden unless it is on the client's own map (the client has no other map).
+func add_member(slot: int, peer_id: int, class_id: String, pos: Vector2, facing: int,
+		map_id: int = Config.MAP_SURFACE) -> NetMember:
+	var w: GameWorld = view_world() if role == Role.CLIENT else world_of(map_id)
+	if w == null:
+		w = world
+	var m: NetMember = NetMember.create(w.data, w.entities, slot, peer_id, class_id, pos, facing)
+	m.map_id = map_id
 	members[slot] = m
+	if role == Role.CLIENT and local != null:
+		m.player.visible = map_id == local.map_id
 	return m
+
+
+## M3b: puts member `m`'s Player node under world `w`'s entities (y-sorted with that map's things).
+static func move_player_node(m: NetMember, w: GameWorld) -> void:
+	var p: Player = m.player
+	if p.get_parent() == w.entities:
+		return
+	if p.get_parent() != null:
+		p.get_parent().remove_child(p)
+	w.entities.add_child(p)
 
 
 func remove_member(slot: int) -> void:

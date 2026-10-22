@@ -9,12 +9,14 @@ extends RefCounted
 ## so applying it twice changes nothing. Sources: the host's debug floor edit (bot command "edit",
 ## grass <-> soil, M1) and, M2b, gameplay: a gatherable picked up (VEGETATION cell = 0) and drops put
 ## down, changed (picked in part) or removed (net/session_host.gd, items/world_items.gd).
-## Edit message: u32 index, then u8 code:
-##   0..5   cell edit on that layer: u16 x, u16 y, u8 value                         (10 B in all)
-##   0x40   drop put: u32 id, u8 item index, u8 count, u8 grade, u16 x, u16 y (px)   (16 B)
-##   0x41   drop removed: u32 id                                                     (9 B)
+## M3a/M3b: mining (WALL / ORE cells), torches (PLACEABLE cells) and their drops. Each map has its own
+## log (NetSession.log_for): indices count per map, and a client gets the edits of the map it is on.
+## Edit message: u32 index, u8 map (M3b), then u8 code:
+##   0..5   cell edit on that layer: u16 x, u16 y, u8 value                         (11 B in all)
+##   0x40   drop put: u32 id, u8 item index, u8 count, u8 grade, u16 x, u16 y (px)   (17 B)
+##   0x41   drop removed: u32 id                                                     (10 B)
 
-const HEADER_SIZE: int = 4
+const HEADER_SIZE: int = 5
 const EDIT_SIZE: int = 6
 const CODE_DROP_PUT: int = 0x40
 const CODE_DROP_REMOVE: int = 0x41
@@ -122,7 +124,8 @@ static func apply_to_data(data: WorldData, edit: WorldEdit) -> bool:
 	return true
 
 
-static func encode_one(edit: WorldEdit, index: int) -> PackedByteArray:
+## Edit number `index` of map `map`'s log as a message.
+static func encode_one(edit: WorldEdit, index: int, map: int = Config.MAP_SURFACE) -> PackedByteArray:
 	var out: PackedByteArray = PackedByteArray()
 	match edit.kind:
 		Kind.DROP_PUT:
@@ -137,30 +140,34 @@ static func encode_one(edit: WorldEdit, index: int) -> PackedByteArray:
 			out.resize(HEADER_SIZE + EDIT_SIZE)
 			_write_edit(out, HEADER_SIZE, edit)
 	out.encode_u32(0, index)
+	out.encode_u8(4, map)
 	return out
 
 
-## (index, edit) from encode_one(), or index -1 when malformed (wrong size for its code, a drop
-## that is no valid item stack).
+## (index, edit, map) from encode_one(), or index -1 when malformed (wrong size for its code, an
+## unknown map, a drop that is no valid item stack).
 static func decode_one(bytes: PackedByteArray) -> Array:
 	if bytes.size() < HEADER_SIZE + 1:
-		return [-1, null]
+		return [-1, null, -1]
+	var map: int = bytes.decode_u8(4)
+	if not NetProtocol.valid_map(map):
+		return [-1, null, -1]
 	var code: int = bytes.decode_u8(HEADER_SIZE)
 	if code == CODE_DROP_PUT:
 		if bytes.size() != HEADER_SIZE + 1 + WorldData.DROP_BYTES:
-			return [-1, null]
+			return [-1, null, -1]
 		# The map size is checked when the edit is applied (apply_to_data); here only the stack.
 		var d: WorldData.Drop = WorldData.read_drop(bytes, HEADER_SIZE + 1, Vector2i(4096, 4096))
 		if d == null:
-			return [-1, null]
-		return [bytes.decode_u32(0), WorldEdit.drop_put(d)]
+			return [-1, null, -1]
+		return [bytes.decode_u32(0), WorldEdit.drop_put(d), map]
 	if code == CODE_DROP_REMOVE:
 		if bytes.size() != HEADER_SIZE + 1 + 4:
-			return [-1, null]
-		return [bytes.decode_u32(0), WorldEdit.drop_remove(bytes.decode_u32(HEADER_SIZE + 1))]
+			return [-1, null, -1]
+		return [bytes.decode_u32(0), WorldEdit.drop_remove(bytes.decode_u32(HEADER_SIZE + 1)), map]
 	if bytes.size() != HEADER_SIZE + EDIT_SIZE:
-		return [-1, null]
-	return [bytes.decode_u32(0), _read_edit(bytes, HEADER_SIZE)]
+		return [-1, null, -1]
+	return [bytes.decode_u32(0), _read_edit(bytes, HEADER_SIZE), map]
 
 
 static func _write_edit(out: PackedByteArray, at: int, edit: WorldEdit) -> void:

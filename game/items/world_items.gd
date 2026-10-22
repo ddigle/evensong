@@ -14,6 +14,9 @@ extends RefCounted
 ## COMMON (일반); other gatherables have no grade (ItemDB).
 ## Reach (PROVISIONAL, Config.REACH_TILES): pick up, use and drop act on the target tile, one of the
 ## tiles around the feet tile (not the feet tile itself, ○ gameplay-design §3.2 "인접 타일").
+## M3b: going to another map (F on the surface entrance or the dungeon's exit stairs) is travel(): the
+## same reach, and the way on that tile names the map (portal_destination). Offline Main and the host
+## (net/session_host.gd) both use it; in a session the host moves the player and sends it the map.
 
 ## Gatherable item ids by VEGETATION value - 1. The wire and the snapshot carry the value, so the
 ## order only grows at the end.
@@ -39,6 +42,19 @@ const WHY_TOO_MANY: String = "too many drops"
 const WHY_BAD_ITEM: String = "unknown item"
 const WHY_BAD_SLOT: String = "no such slot"
 const WHY_BAD_COUNT: String = "bad count"
+## M3a: a torch needs open floor (no wall or wall face, no placeable, no gatherable).
+const WHY_NOT_OPEN: String = "not open floor"
+const WHY_NOT_PLACEABLE: String = "not placeable"
+## M3b: F (pick up) on an entrance or stairs tile: that is a way, not a thing (the F key travels there;
+## a PICKUP request on it is refused).
+const WHY_PORTAL: String = "a way to another map"
+## M3b: a TRAVEL request on a tile with no way to another map.
+const WHY_NOT_PORTAL: String = "no way there"
+## M3b: a tile request aimed on another map than the one the player is on (frames made before the
+## sender heard it had moved, or a forged map id).
+const WHY_WRONG_MAP: String = "wrong map"
+## M3b: a TRAVEL while the host is still sending the player the map it went to.
+const WHY_LOADING: String = "still loading"
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
 ## debug give from a client goes out as several requests (Main.give_requests).
 const GIVE_COUNT_MAX: int = 255
@@ -109,6 +125,8 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
+	if is_portal(data, c):
+		return Outcome.refused(WHY_PORTAL)
 	var o: Outcome = Outcome.new()
 	var plant: StringName = gatherable_at(data, c)
 	if not plant.is_empty():
@@ -141,7 +159,8 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 	return o
 
 
-## Debug drop: `count` (0 = all) of the stack in `slot` onto tile `c`, at its centre.
+## Debug drop: `count` (0 = all) of the stack in `slot` onto tile `c`, at its centre. Not onto a
+## placeable, nor (M3-fix) into a wall or onto a wall's face tile (Walls.blocks, like place()).
 static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, count: int, c: Vector2i) -> Outcome:
 	if slot < 0 or slot >= inv.size():
 		return Outcome.refused(WHY_BAD_SLOT)
@@ -152,7 +171,7 @@ static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, coun
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
-	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE:
+	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE or Walls.blocks(data, c):
 		return Outcome.refused(WHY_BLOCKED)
 	if data.drops.size() >= Config.MAX_DROPS:
 		return Outcome.refused(WHY_TOO_MANY)
@@ -187,6 +206,74 @@ static func use_action(feet: Vector2, inv: Inventory, slot: int, c: Vector2i, ou
 	if not why.is_empty():
 		out_why.append(why)
 	return anim
+
+
+## M3a: whether tile `c` is a way between maps (the surface entrance or the dungeon's exit stairs).
+static func is_portal(data: WorldData, c: Vector2i) -> bool:
+	var p: int = data.get_value(WorldData.Layer.PLACEABLE, c)
+	return p == WorldData.PLACEABLE_ENTRANCE or p == WorldData.PLACEABLE_EXIT
+
+
+## M3b: the map the way on tile `c` leads to (the entrance down to the dungeon, the exit stairs up to
+## the surface), -1 for no way.
+static func portal_destination(data: WorldData, c: Vector2i) -> int:
+	match data.get_value(WorldData.Layer.PLACEABLE, c):
+		WorldData.PLACEABLE_ENTRANCE:
+			return Config.MAP_DUNGEON
+		WorldData.PLACEABLE_EXIT:
+			return Config.MAP_SURFACE
+	return -1
+
+
+## M3b: F on tile `c` to go to another map: the map it leads to, or -1 and `why` set (outside the map,
+## out of reach (PROVISIONAL Config.REACH_TILES: the entrance / stairs must be next to the feet), no
+## way there).
+static func travel(data: WorldData, feet: Vector2, c: Vector2i, out_why: Array[String] = []) -> int:
+	if not data.in_bounds(c):
+		out_why.append(WHY_OUTSIDE)
+		return -1
+	if not in_reach(feet, c):
+		out_why.append(WHY_REACH)
+		return -1
+	var to: int = portal_destination(data, c)
+	if to < 0:
+		out_why.append(WHY_NOT_PORTAL)
+	return to
+
+
+## M3a: the placeable the stack in `slot` puts down (WorldData.PLACEABLE_NONE: not a placeable item).
+static func placeable_in(inv: Inventory, slot: int) -> int:
+	if slot < 0 or slot >= inv.size() or inv.stack_at(slot) == null:
+		return WorldData.PLACEABLE_NONE
+	var def: ItemDB.ItemDef = inv.stack_at(slot).def()
+	return def.place if def != null else WorldData.PLACEABLE_NONE
+
+
+## M3a: "use" with a placeable (the torch) in hotbar slot `slot` on tile `c`: one of it from the
+## stack onto the tile (PROVISIONAL rule: in reach, open floor: no wall, no wall face, no placeable,
+## no gatherable; drops may lie there).
+static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i) -> Outcome:
+	if slot < 0 or slot >= inv.hotbar_size:
+		return Outcome.refused(WHY_BAD_SLOT)
+	var stack: ItemStack = inv.stack_at(slot)
+	if stack == null:
+		return Outcome.refused(WHY_EMPTY)
+	var value: int = placeable_in(inv, slot)
+	if value == WorldData.PLACEABLE_NONE:
+		return Outcome.refused(WHY_NOT_PLACEABLE)
+	if not data.in_bounds(c):
+		return Outcome.refused(WHY_OUTSIDE)
+	if not in_reach(feet, c):
+		return Outcome.refused(WHY_REACH)
+	if Walls.blocks(data, c) or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE \
+			or data.get_value(WorldData.Layer.VEGETATION, c) != 0:
+		return Outcome.refused(WHY_NOT_OPEN)
+	var o: Outcome = Outcome.new()
+	o.item = stack.id
+	o.count = 1
+	inv.remove(slot, 1)
+	o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, value))
+	return o
 
 
 ## Debug give: `count` of item `index` (GIVE_KIT = the debug kit) at `grade` (-1 = default).

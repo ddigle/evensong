@@ -34,6 +34,10 @@ extends Node2D
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
+## M3a: the playing action reached Mining.impact_tick() (the pickaxe lands; offline, Main mines then).
+signal action_impact(item: StringName, anim: int, target: Vector2i)
+## M3a, offline: a frame used a placeable item (the torch) from hotbar slot `slot` on tile `cell`.
+signal place_requested(slot: int, cell: Vector2i)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -141,7 +145,10 @@ func mouse_aiming() -> bool:
 ## then the player moves (unless an action locks it) and faces the mouse while aiming or the
 ## movement otherwise.
 func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, delta: float) -> void:
-	step_frame(make_frame(input, mouse, aiming, use_pressed, use_held), delta)
+	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held)
+	step_frame(f, delta)
+	if f.op == NetProtocol.Op.USE and f.anim < 0:
+		place_requested.emit(f.slot, f.cell)
 
 
 ## One tick of local input as an input frame (seq 0: a session numbers it). Updates the aim from the
@@ -150,6 +157,8 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 ## look is the facing toward the mouse while aiming or using, -1 otherwise (facing by movement).
 func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
+	if data != null:
+		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
 	var to_mouse: Vector2 = mouse - sim_position
 	aim_sector = Aim.sector(to_mouse, aim_sector)
@@ -162,6 +171,14 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.slot = inventory.selected
 			f.cell = aim_cell
 			f.anim = anim
+			f.item = inventory.selected_stack().id
+		elif use_pressed and WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
+				and WorldItems.in_reach(sim_position, aim_cell):
+			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
+			# action: the host (or offline Main) places it; nothing is predicted.
+			f.op = NetProtocol.Op.USE
+			f.slot = inventory.selected
+			f.cell = aim_cell
 			f.item = inventory.selected_stack().id
 	_aim_input = aiming or use_held
 	f.look = Aim.facing(to_mouse, facing) if (_aim_input or f.anim >= 0) else -1
@@ -184,6 +201,8 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> void:
 		action_finished.emit(before)
 	if events & PlayerSim.STARTED:
 		action_started.emit(action_item, action_anim, action_cell)
+	if action_anim >= 0 and action_tick == Mining.impact_tick():
+		action_impact.emit(action_item, action_anim, action_cell)
 
 
 ## The simulation state (a copy).
@@ -300,6 +319,17 @@ func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false
 	action_anim = p_action if RigData.is_action(p_action) else -1
 	action_tick = p_action_tick if action_anim >= 0 else 0
 	_sync_view()
+
+
+## M3a: moves the player onto another map's data at feet position `feet`, facing south, any action
+## stopped (Main.travel).
+func set_world(p_data: WorldData, feet: Vector2) -> void:
+	data = p_data
+	action_anim = -1
+	action_tick = 0
+	walking = false
+	facing = RigData.Dir.SOUTH
+	teleport(feet)
 
 
 ## Puts the player at a feet position (spawn, tests). No drawing between the old and new place.

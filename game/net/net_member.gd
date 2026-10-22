@@ -5,11 +5,16 @@ extends RefCounted
 ## M2b: the host keeps every member's inventory (Player.inventory, the one copy that counts), counts
 ## its requests (done, refused by reason) and rate-limits them (request tokens); a client's own
 ## member holds the inventory the host last sent it.
+## M3b: every member is on one map (`map_id`). On the host that is the truth (its Player lives in that
+## map's world and steps on its data); a client knows its own map (the one it has loaded) and the
+## others' from their states, and draws only the players on its own map.
 
 var slot: int = -1
 ## Peer id on the host (1 = the host itself); 0 on clients, which only know slots.
 var peer_id: int = 0
 var class_id: String = ""
+## M3b: the map this player is on (Config.MAP_SURFACE, MAP_DUNGEON).
+var map_id: int = Config.MAP_SURFACE
 var player: Player
 ## Host: input check of a remote client's frames.
 var gate: InputGate
@@ -22,6 +27,8 @@ var op_budget: int = OP_BUDGET_MAX
 var ops_done: Dictionary[String, int] = {}
 var ops_refused: Dictionary[String, int] = {}
 var inventory_dirty: bool = false
+## Host (M3b): pickaxe swings that landed on nothing breakable, by reason (Mining: no wall, too hard, ...).
+var swings_missed: Dictionary[String, int] = {}
 ## Actions this member's player started (host: simulated; client: seen), by action name.
 var actions_seen: Dictionary[String, int] = {}
 const OP_BUDGET_MAX: int = Config.NET_OP_BURST * Config.NET_OP_INTERVAL_TICKS
@@ -62,6 +69,7 @@ func state() -> NetProtocol.PlayerState:
 	s.action = player.action_anim
 	s.action_tick = player.action_tick
 	s.held = player.held_id()
+	s.map = map_id
 	return s
 
 

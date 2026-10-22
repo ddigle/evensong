@@ -16,11 +16,29 @@ extends RefCounted
 ##   10..13  grass variants          tiles_grass_var_1..4_v02.png
 ##   20..21  soil variants           tiles_soil_var_1..2_v01.png
 ##   30..32  ash variants            tiles_ash_var_1..3_v02.png
+##
+## The dungeon TileSet (M3a, build_dungeon, res://world/tilesets/dungeon.tres) comes from the 04-env
+## cliff tileset (corners lower / upper / transition = floor / wall / wall face, world/walls.gd):
+##   0       floor<->wall cliff set  tiles_dungeon_v02.png + tiles_dungeon_v01.json (all 25 tiles; some
+##           corner keys have two tiles told apart by the corners above / below them: custom data
+##           "context" = [above NW, above NE, below SW, below SE], 255 = any, from the JSON pattern_4x4)
+##   10      inner variants          tiles_dungeon_v02_var.png (floor x3, wall top x2)
 
 const ART_DIR: String = "res://art/tiles/"
 const SURFACE_PATH: String = "res://world/tilesets/surface.tres"
+const DUNGEON_PATH: String = "res://world/tilesets/dungeon.tres"
 const DATA_CORNERS: String = "corners"
 const DATA_NAME: String = "name"
+const DATA_CONTEXT: String = "context"
+const DUNGEON_PNG: String = "tiles_dungeon_v02.png"
+const DUNGEON_JSON: String = "tiles_dungeon_v01.json"
+const DUNGEON_VARIANTS_PNG: String = "tiles_dungeon_v02_var.png"
+## Corner values of the variant tiles in tiles_dungeon_v02_var.png, left to right.
+const DUNGEON_VARIANT_CORNERS: PackedInt32Array = [Walls.V_FLOOR, Walls.V_FLOOR, Walls.V_FLOOR, Walls.V_WALL, Walls.V_WALL]
+const SRC_DUNGEON: int = 0
+const SRC_DUNGEON_VARIANTS: int = 10
+const CONTEXT_ANY: int = 255
+const PIXELLAB_CODES: Dictionary[String, int] = {"lower": 0, "upper": 1, "transition": 2}
 
 const SRC_GRASS_SOIL: int = 0
 const SRC_GRASS_ASH: int = 1
@@ -49,6 +67,9 @@ class WangTileInfo:
 	var name: String = ""
 	var corners: PackedByteArray = PackedByteArray()
 	var rect: Rect2i = Rect2i()
+	## M3a: the pattern's outer corners [above NW, above NE, below SW, below SE] (CONTEXT_ANY = any),
+	## mapped like the corners.
+	var context: PackedByteArray = PackedByteArray()
 
 
 ## Reads a PixelLab create_topdown_tileset JSON (tileset_data.tiles[].corners / bounding_box).
@@ -77,6 +98,19 @@ static func read_pixellab(json_path: String, terrain_map: Dictionary[String, int
 				push_error("TilesetBuilder: %s tile %s has unknown terrain '%s'" % [json_path, info.name, terrain_name])
 				return []
 			info.corners.append(terrain_map[terrain_name])
+		var pattern: Dictionary = tile.get("pattern_4x4", {})
+		var row0: Array = pattern.get("row_0", [])
+		var row3: Array = pattern.get("row_3", [])
+		# PixelLab pattern codes: lower 0, upper 1, transition 2, wildcard 255 (tiles_dungeon_v01.json).
+		var by_code: Dictionary[int, int] = {}
+		for code_name: String in PIXELLAB_CODES:
+			if terrain_map.has(code_name):
+				by_code[PIXELLAB_CODES[code_name]] = terrain_map[code_name]
+		var outer: Array = [row0[1] if row0.size() > 2 else CONTEXT_ANY, row0[2] if row0.size() > 2 else CONTEXT_ANY,
+			row3[1] if row3.size() > 2 else CONTEXT_ANY, row3[2] if row3.size() > 2 else CONTEXT_ANY]
+		for raw_code: Variant in outer:
+			var code: int = _int_of(raw_code)
+			info.context.append(by_code[code] if by_code.has(code) else CONTEXT_ANY)
 		var bb: Dictionary = tile.get("bounding_box", {})
 		info.rect = Rect2i(_int_of(bb.get("x", -1)), _int_of(bb.get("y", -1)), _int_of(bb.get("width", 0)),
 			_int_of(bb.get("height", 0)))
@@ -114,6 +148,43 @@ static func build_surface() -> TileSet:
 		ok = ok and _add_variant_source(ts, SRC_ASH_VARIANTS + i, "ash_var/%d" % (i + 1), ASH_VARIANTS[i],
 			Terrain.ASH)
 	return ts if ok else null
+
+
+## The dungeon TileSet (M3a): the cliff set with corner and context data, and the inner variants.
+static func build_dungeon() -> TileSet:
+	var ts: TileSet = TileSet.new()
+	ts.tile_size = Vector2i(Config.TILE, Config.TILE)
+	for layer: Array in [[DATA_CORNERS, TYPE_PACKED_BYTE_ARRAY], [DATA_NAME, TYPE_STRING], [DATA_CONTEXT, TYPE_PACKED_BYTE_ARRAY]]:
+		var layer_name: String = layer[0]
+		var layer_type: int = layer[1]
+		ts.add_custom_data_layer()
+		ts.set_custom_data_layer_name(ts.get_custom_data_layers_count() - 1, layer_name)
+		ts.set_custom_data_layer_type(ts.get_custom_data_layers_count() - 1, layer_type)
+	var cliff_map: Dictionary[String, int] = {"lower": Walls.V_FLOOR, "upper": Walls.V_WALL, "transition": Walls.V_FACE}
+	var texture: Texture2D = _load_texture(DUNGEON_PNG)
+	var variants: Texture2D = _load_texture(DUNGEON_VARIANTS_PNG)
+	var tiles: Array[WangTileInfo] = read_pixellab(ART_DIR + DUNGEON_JSON, cliff_map)
+	if texture == null or variants == null or tiles.is_empty():
+		return null
+	var source: TileSetAtlasSource = _new_atlas(ts, SRC_DUNGEON, texture, "cliff_dungeon")
+	for info: WangTileInfo in tiles:
+		var coords: Vector2i = info.rect.position / Config.TILE
+		source.create_tile(coords)
+		var td: TileData = source.get_tile_data(coords, 0)
+		td.set_custom_data(DATA_CORNERS, info.corners)
+		td.set_custom_data(DATA_NAME, "dungeon/%s" % info.name)
+		td.set_custom_data(DATA_CONTEXT, info.context)
+	var var_source: TileSetAtlasSource = _new_atlas(ts, SRC_DUNGEON_VARIANTS, variants, "variant_dungeon")
+	for i: int in DUNGEON_VARIANT_CORNERS.size():
+		var coords: Vector2i = Vector2i(i, 0)
+		var v: int = DUNGEON_VARIANT_CORNERS[i]
+		var_source.create_tile(coords)
+		var td: TileData = var_source.get_tile_data(coords, 0)
+		td.set_custom_data(DATA_CORNERS, PackedByteArray([v, v, v, v]))
+		td.set_custom_data(DATA_NAME, "dungeon_var/%d" % (i + 1))
+		td.set_custom_data(DATA_CONTEXT, PackedByteArray([CONTEXT_ANY, CONTEXT_ANY, CONTEXT_ANY, CONTEXT_ANY]))
+		td.probability = Config.VARIANT_WEIGHT
+	return ts
 
 
 ## Number of tiles over all atlas sources.

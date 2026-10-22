@@ -29,9 +29,22 @@ extends "res://tests/base_test.gd"
 ##         the host edits the world every 4 ticks while a late joiner streams its world in 1-byte
 ##         chunks: the edits made meanwhile follow its welcome and its world equals the host's. M2b:
 ##         some of those edits are drops the host puts down while the joiner streams.
+##   cave  (M3b) host (miner) + c1 (cleric) + a late c2 (herbalist), seed 1. The host goes down the
+##         entrance, places a torch and cracks the rock west of the arrival room (one 3x3 swing) while
+##         c1 stays on the surface: c1 gets none of those edits and does not draw the host. c1 goes
+##         down and gets the dungeon as it is (map snapshot: the cracks, the torch). Both mine: the host
+##         breaks its 3x3 and drops stones, c1 cracks the rock east of the room (4 swings) and places a
+##         torch; each gets the other's edits live. c2 joins while both are below (draws nobody on the
+##         surface), sees c1 come back up the stairs, goes down and gets every break, crack, torch
+##         and drop. The bots wait for each other with "waitmap". Every map's hash is compared: the
+##         surface of c1, the dungeon of c2 and of c1 when it left.
+##   four  (M3b) after the M2b race c2 and c3 go down (the map in 32-byte chunks) and swing at the same
+##         rock from two sides (c3 at its face) until it breaks: exactly one break, the stone to the
+##         one whose hit broke it. The late c4 joins while both are below and draws neither.
 ##
-## Checked: exit codes, positions hash, world hash and ground picture (view hash) equal to the
-## host's, everyone sees every player, ground view = data, items drawn = data (gatherables, drops),
+## Checked: exit codes, positions hash (with each player's map), world hash and picture (view hash)
+## of the map each client is on equal to the host's (M3b: per map), everyone knows every player,
+## ground / cave view = data, items drawn = data (gatherables, drops),
 ## client prediction error <= PREDICTION_BOUND_PX and no facing or action correction, no malformed
 ## messages, input tokens refilled at the host's real-time pace, every snapshot sent at
 ## NET_SNAPSHOT_CHUNKS_PER_TICK per tick, late joiners' snapshot and log position, no "ERROR:" line in any child log, every process
@@ -40,7 +53,8 @@ extends "res://tests/base_test.gd"
 ##
 ## Runner flags (after "--"): --net-exe=<path> starts the children from that executable instead of
 ## this editor build (e.g. build/evensong.console.exe, relative to game/), --net-full adds the
-## 10-process cap test, --net-keep keeps the run folder (user://net_test/...) even when passing.
+## 10-process cap test, --net-keep keeps the run folder (user://net_test/...) even when passing,
+## --net-sessions=<a,b> runs only those sessions (pair, four, lag, stall, cave, full).
 
 const Runner := preload("res://tests/run_all.gd")
 
@@ -81,8 +95,32 @@ const FOUR_DROP: Vector2i = Vector2i(63, 53)
 const FOUR_HOST: String = ("move:1,0,90;move:0,1,60;wait:180;walkto:63,52;aimat:63,53;wait:150;drop:5;mark:dropped;" +
 	"wait:150;" + EDIT + ";mark:edited;wait:60")
 const FOUR_C1: String = "move:-1,0,90;move:0,-1,60;wait:180;walkto:66,50;walkto:64,53;aimat:63,53;wait:100;pick:90;wait:30;leave"
-const FOUR_C2: String = "move:0,1,90;move:1,0,60;wait:180;walkto:66,50;walkto:62,53;aimat:63,53;wait:60;pick:90;wait:30"
-const FOUR_C3: String = "move:1,1,60;move:-1,0,90;wait:180;walkto:63,54;aimat:63,53;wait:120;pick:90;wait:30"
+## M3b: after the race c2 and c3 (pickaxes from --give, hotbar slot 1) go down and swing at FOUR_ROCK, c2
+## beside it, c3 at its face below, until well after it broke; they mark "down" once both are below
+## (the late c4 is started after that) and "mined" at the end.
+const FOUR_ROCK: Vector2i = Vector2i(42, 15)
+const FOUR_DOWN: String = ";walkto:70,52;walkto:73,48;aimat:73,47;pick;wait:20;waitmap:2,dungeon;mark:down;select:1;"
+const FOUR_C2: String = ("move:0,1,90;move:1,0,60;wait:180;walkto:66,50;walkto:62,53;aimat:63,53;wait:60;pick:90;wait:30" +
+	FOUR_DOWN + "walkto:41,15;aimat:42,15;use:180;wait:60;mark:mined")
+const FOUR_C3: String = ("move:1,1,60;move:-1,0,90;wait:180;walkto:63,54;aimat:63,53;wait:120;pick:90;wait:30" +
+	FOUR_DOWN + "walkto:41,16;aimat:42,16;use:180;wait:60;mark:mined")
+## cave (M3b, seed 1): the host (miner) goes down, places a torch south of the arrival point, cracks the
+## rock west of the arrival room with one 3x3 swing (CAVE_WEST from the tile east of it), waits for c1,
+## breaks it with two more swings, drops 3 of its stones; then waits for c2 to join, c1 to go up and c2
+## to come down. c1 (cleric) waits on the surface until the host is below (and 5 s more: both idle on
+## two maps), goes down, cracks the rock east of the room (CAVE_EAST, 4 swings), places a torch, waits
+## for c2 to join, goes back up. c2 joins after the host's "mined": nobody else on the surface, then
+## c1 comes up, then it goes down too.
+const CAVE_WEST: Vector2i = Vector2i(33, 15)
+const CAVE_EAST: Vector2i = Vector2i(42, 15)
+const CAVE_DOWN: String = "walkto:70,49;walkto:73,48;aimat:73,47;pick;wait:20;"
+const CAVE_HOST: String = (CAVE_DOWN + "mark:down;select:2;aim:0,24;use:2;wait:10;select:1;walkto:34,15;aimat:33,15;use:30;" +
+	"wait:40;mark:cracked;waitmap:2,dungeon;wait:60;use:60;wait:40;select:3;aim:0,24;drop:3;wait:10;mark:mined;" +
+	"waitmap:1,surface;waitmap:2,surface;waitmap:2,dungeon;wait:60")
+const CAVE_C1: String = ("move:0,1,30;waitmap:1,dungeon;wait:300;mark:alone;" + CAVE_DOWN + "waitmap:2,dungeon;mark:down;" +
+	"walkto:41,15;aimat:42,15;use:140;wait:30;select:2;aim:0,24;use:2;wait:10;mark:mined;waitmap:1,surface;wait:90;" +
+	"walkto:38,15;aimat:38,14;pick;wait:30;mark:up;wait:120")
+const CAVE_C2: String = "wait:20;mark:alone;waitmap:2,surface;wait:30;mark:sees;" + CAVE_DOWN + "waitmap:2,dungeon;wait:30;mark:down;wait:60"
 const LAG_HOST: String = "move:1,0,60;move:0,1,30;wait:60"
 const LAG_C1: String = "move:-1,-1,45;move:-1,0,30;move:1,1,40;move:0,-1,25;wait:30"
 const FULL_BOT: String = "move:1,0,90;wait:120"
@@ -134,12 +172,23 @@ func run() -> Array[String]:
 		Time.get_ticks_msec()])
 	DirAccess.make_dir_recursive_absolute(_run_dir)
 	var t0: int = Time.get_ticks_msec()
-	await _session_pair()
-	await _session_four()
-	await _session_lag()
-	await _session_stall()
-	if args.has("net-full"):
+	# --net-sessions=cave,four runs only those (development); default: all but "full".
+	var only_arg: String = args.get("net-sessions", "")
+	var only: PackedStringArray = only_arg.split(",", false)
+	if only.is_empty() or only.has("pair"):
+		await _session_pair()
+	if only.is_empty() or only.has("four"):
+		await _session_four()
+	if only.is_empty() or only.has("lag"):
+		await _session_lag()
+	if only.is_empty() or only.has("stall"):
+		await _session_stall()
+	if only.is_empty() or only.has("cave"):
+		await _session_cave()
+	if args.has("net-full") or only.has("full"):
 		await _session_full()
+	if not only.is_empty():
+		note("only the sessions %s ran (--net-sessions)" % ", ".join(only))
 	_check_logs()
 	note("sessions took %.1f s; run folder %s" % [(Time.get_ticks_msec() - t0) / 1000.0,
 		_run_dir if (_keep or not failures.is_empty()) else "(removed)"])
@@ -196,17 +245,21 @@ func _session_four() -> void:
 	var port: int = _port()
 	if not check(port > 0, "four: free port"):
 		return
-	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--max-players=4", "--net-start=3",
+	var host_flags: Array = ["--host=%d" % port, "--max-players=4", "--net-start=3",
 		"--net-expect=4", "--net-expect-refused=1", "--bot=" + FOUR_HOST, "--test-snapshot-chunk-bytes=%d" % FOUR_CHUNK_BYTES,
-		"--give=stone_a:5"])
+		"--give=stone_a:5"]
+	if not _use_path:
+		host_flags.append("--test-allow-give")  # c2 and c3 ask for pickaxes (M3b)
+	var host: Instance = _launch(dir, "host", host_flags)
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "four: host listens"):
 		await _reap()
 		return
 	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=miner", "--bot=" + FOUR_C1])
-	var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=archer", "--bot=" + FOUR_C2])
-	var c3: Instance = _launch(dir, "c3", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + FOUR_C3])
-	if not check(await _wait_files([dir.path_join("host.edited.marker"), dir.path_join("c1.json")], STEP_WAIT_SEC),
-			"four: c1 left and the host edited the world"):
+	var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=archer", "--bot=" + FOUR_C2, "--give=pickaxe"])
+	var c3: Instance = _launch(dir, "c3", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--bot=" + FOUR_C3, "--give=pickaxe"])
+	if not check(await _wait_files([dir.path_join("host.edited.marker"), dir.path_join("c1.json"),
+			dir.path_join("c2.down.marker"), dir.path_join("c3.down.marker")], STEP_WAIT_SEC),
+			"four: c1 left, the host edited the world, c2 and c3 went down"):
 		await _reap()
 		return
 	var c4: Instance = _launch(dir, "c4", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=" + LATE])
@@ -224,6 +277,7 @@ func _session_four() -> void:
 	_check_agreement("four", host, [c2, c3, c4], 4)
 	_check_late_joiner("four", host, c4, false, 3)
 	_check_four_race(host, [c1, c2, c3])
+	_check_four_mining(dir, host, c2, c3, c4)
 	var four_chunks: int = ceili(_num(c4.result, "snapshot_bytes") / FOUR_CHUNK_BYTES)
 	check(four_chunks > Config.NET_SNAPSHOT_CHUNKS_PER_TICK and _num(c4.result, "snapshot_chunks") == float(four_chunks),
 		"four/c4: its world came in %d chunks of %d B (more than one tick's %d)" % [four_chunks, FOUR_CHUNK_BYTES,
@@ -368,16 +422,211 @@ static func _edits_script(count: int, every: int, drop_every: int = 0) -> String
 
 
 ## The host's record of the stream that sent `joiner` its world ({} if none). The last one for its
-## slot: a late joiner can take the slot of a player who left (four).
-func _stream_for(host: Instance, joiner: Instance) -> Dictionary:
+## slot: a late joiner can take the slot of a player who left (four). M3b: `kind` "join" (the world on
+## joining) or "map" (a map it went to; `map` picks which, -1 any).
+func _stream_for(host: Instance, joiner: Instance, kind: String = "join", map: int = -1) -> Dictionary:
 	var slot: int = roundi(_num(joiner.result, "slot"))
 	var streams: Array = host.result.get("streams", [])
 	var found: Dictionary = {}
 	for item: Variant in streams:
 		var d: Dictionary = item
-		if roundi(_num(d, "slot")) == slot:
+		if roundi(_num(d, "slot")) == slot and str(d.get("kind", "join")) == kind and (map < 0 or roundi(_num(d, "map")) == map):
 			found = d
 	return found
+
+
+## M3b, see the file comment: two maps, travelling both ways, mining, late join while others are below.
+func _session_cave() -> void:
+	var dir: String = _session_dir("cave")
+	var port: int = _port()
+	if not check(port > 0, "cave: free port"):
+		return
+	var host_flags: Array = ["--host=%d" % port, "--net-start=1", "--net-expect=2", "--class=miner", "--give=pickaxe,torch:5",
+		"--bot=" + CAVE_HOST]
+	if not _use_path:
+		host_flags.append("--test-allow-give")
+	var host: Instance = _launch(dir, "host", host_flags)
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "cave: host listens"):
+		await _reap()
+		return
+	var c1: Instance = _launch(dir, "c1", ["--join=127.0.0.1:%d" % port, "--class=cleric", "--give=pickaxe,torch:3",
+		"--bot=" + CAVE_C1])
+	if not check(await _wait_files([dir.path_join("host.mined.marker"), dir.path_join("c1.mined.marker")], STEP_WAIT_SEC),
+			"cave: both mined in the dungeon"):
+		await _reap()
+		return
+	var c2: Instance = _launch(dir, "c2", ["--join=127.0.0.1:%d" % port, "--class=herbalist", "--bot=" + CAVE_C2])
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json")], STEP_WAIT_SEC),
+		"cave: every instance wrote its result")
+	await _reap()
+	if not _load_results(dir, [host, c1, c2]):
+		return
+	_expect_codes("cave", {host: 0, c1: 0, c2: 0})
+	_check_agreement("cave", host, [c1, c2], 3)
+	var hs: int = roundi(_num(host.result, "slot"))
+	var s1: int = roundi(_num(c1.result, "slot"))
+	var s2: int = roundi(_num(c2.result, "slot"))
+	# Where everyone ended: the host and c2 below, c1 up.
+	check(roundi(_num(host.result, "map")) == Config.MAP_DUNGEON and roundi(_num(c1.result, "map")) == Config.MAP_SURFACE
+		and roundi(_num(c2.result, "map")) == Config.MAP_DUNGEON, "cave: the host and c2 end below, c1 on the surface")
+	for inst: Instance in [host, c1, c2]:
+		for slot: int in [hs, s1, s2]:
+			var want: int = Config.MAP_SURFACE if slot == s1 else Config.MAP_DUNGEON
+			check_eq(roundi(_num(_player(inst, slot), "map", -1.0)), want, "cave/%s: knows slot %d's map" % [inst.name, slot])
+	# Drawn: each draws exactly the players on its own map.
+	check(_flag(_player(host, s2), "drawn") and not _flag(_player(host, s1), "drawn"), "cave/host: draws c2, not c1 (up)")
+	check(not _flag(_player(c1, hs), "drawn") and not _flag(_player(c1, s2), "drawn") and _flag(_player(c1, s1), "drawn"),
+		"cave/c1: on the surface it draws only itself")
+	check(_flag(_player(c2, hs), "drawn") and not _flag(_player(c2, s1), "drawn"), "cave/c2: draws the host below, not c1")
+	# c1 alone on the surface while the host was below.
+	var alone: Dictionary = _marker(dir, "c1", "alone")
+	check(roundi(_num(alone, "map")) == Config.MAP_SURFACE and _seen_map(alone, hs) == Config.MAP_DUNGEON
+		and not _seen_drawn(alone, hs), "cave/c1: while the host was below, c1 (surface) did not draw it %s" % alone)
+	var host_down: Dictionary = _marker(dir, "host", "down")
+	check(roundi(_num(host_down, "map")) == Config.MAP_DUNGEON and not _seen_drawn(host_down, s1),
+		"cave/host: below, it did not draw c1 on the surface %s" % host_down)
+	# c1 got none of the host's dungeon edits while up, and the dungeon as it was when it went down.
+	var c1_log: PackedStringArray = _log_lines(c1)
+	var entered_at: int = _first_line(c1_log, "map entered map=dungeon")
+	var first_dungeon_edit: int = _first_line(c1_log, "map=1 world=")
+	check(entered_at >= 0 and (first_dungeon_edit < 0 or first_dungeon_edit > entered_at),
+		"cave/c1: no dungeon edit reached it before its map entry (entry line %d, first dungeon edit %d)" % [entered_at, first_dungeon_edit])
+	var c1_entry: Dictionary = _stream_for(host, c1, "map", Config.MAP_DUNGEON)
+	check(_num(c1_entry, "edit_position") >= 2.0, "cave/c1: its dungeon snapshot held the host's edits so far (%s)" % c1_entry.get("edit_position"))
+	check(entered_at >= 0 and c1_log[entered_at].contains("torches=1") and _int_after(c1_log[entered_at], "cracked=") >= 6,
+		"cave/c1: the snapshot had the host's torch and its six cracked tiles (%s)" % (c1_log[entered_at] if entered_at >= 0 else "?"))
+	# Both mined; each saw the other's edits live.
+	var host_log: PackedStringArray = _log_lines(host)
+	check(_count_lines(host_log, "host mine slot=%d map=1" % hs) == 3 and _count_lines(host_log, "host mine slot=%d map=1" % s1) == 4,
+		"cave: the host landed 3 swings (3x3), c1 4 (1x1)")
+	check(_count_lines(c1_log, "edit wall %d,%d=0" % [CAVE_WEST.x, CAVE_WEST.y]) == 1, "cave/c1: saw the host break the rock west of the room live")
+	check(_count_lines(host_log, "edit wall %d,%d=%d" % [CAVE_EAST.x, CAVE_EAST.y, Walls.pack(Walls.KIND_ROCK, 4)]) == 1
+		and _count_lines(c1_log, "edit wall %d,%d=%d" % [CAVE_EAST.x, CAVE_EAST.y, Walls.pack(Walls.KIND_ROCK, 4)]) == 1,
+		"cave: c1's fourth hit on the east rock (crack stage 2) on the host and back on c1")
+	# c1's dungeon when it left = the host's after the same number of edits.
+	var left: Array = c1.result.get("left_maps", [])
+	var left_d: Dictionary = {}
+	for item: Variant in left:
+		var d: Dictionary = item
+		if roundi(_num(d, "map")) == Config.MAP_DUNGEON:
+			left_d = d
+	check_eq(left.size(), 2, "cave/c1: left the surface (down) and the dungeon (up)")
+	var at_edit: int = roundi(_num(left_d, "edits")) - 1
+	var host_line: String = _line_with(host_log, "index=%d map=1 world=" % at_edit)
+	check(not host_line.is_empty() and str(left_d.get("hash", "?")).left(12) == _word_after(host_line, "world="),
+		"cave/c1: the dungeon it left (%d edits, %s) = the host's after edit %d (%s)" % [at_edit + 1, str(left_d.get("hash", "?")).left(12),
+		at_edit, _word_after(host_line, "world=")])
+	# c2: joined with both below, saw c1 come up, went down and got everything.
+	check_eq(roundi(_num(c2.result, "others_on_welcome")), 2, "cave/c2: welcomed with two players below")
+	var c2_alone: Dictionary = _marker(dir, "c2", "alone")
+	check(not _seen_drawn(c2_alone, hs) and not _seen_drawn(c2_alone, s1) and _seen_map(c2_alone, s1) == Config.MAP_DUNGEON,
+		"cave/c2: on the surface with both below it drew neither %s" % c2_alone)
+	var c2_sees: Dictionary = _marker(dir, "c2", "sees")
+	check(_seen_drawn(c2_sees, s1) and _seen_map(c2_sees, s1) == Config.MAP_SURFACE and not _seen_drawn(c2_sees, hs),
+		"cave/c2: c1 came up the stairs and c2 draws it %s" % c2_sees)
+	var c2_down: Dictionary = _marker(dir, "c2", "down")
+	check(_seen_drawn(c2_down, hs) and not _seen_drawn(c2_down, s1), "cave/c2: below it draws the host, not c1 %s" % c2_down)
+	var c2_entry: Dictionary = _stream_for(host, c2, "map", Config.MAP_DUNGEON)
+	var host_d: Dictionary = _map_of(host.result, str(Config.MAP_DUNGEON))
+	check(_num(c2_entry, "edit_position") >= _num(host_d, "edits") - 1.0 and _num(c2_entry, "edit_position") > 10.0,
+		"cave/c2: its dungeon snapshot had every edit so far (%s of %s)" % [c2_entry.get("edit_position"), host_d.get("edits")])
+	var c2_log: PackedStringArray = _log_lines(c2)
+	var c2_entered: String = _line_with(c2_log, "map entered map=dungeon")
+	check(c2_entered.contains("torches=2") and c2_entered.contains("drops=1") and _int_after(c2_entered, "cracked=") >= 1,
+		"cave/c2: breaks, cracks, both torches and the drop came in its map snapshot (%s)" % c2_entered)
+	check(_num(host.result, "travels") == 4.0 and _num(host.result, "map_entries") == 3.0,
+		"cave: 4 travels (host down, c1 down and up, c2 down) and 3 map entries sent to clients (%s / %s)" % [
+		host.result.get("travels"), host.result.get("map_entries")])
+	var ops: Dictionary = host.result.get("ops", {})
+	for slot: String in ops:
+		var o: Dictionary = ops[slot]
+		check_eq(o.get("refused", {"?": 1}), {}, "cave: no request of slot %s refused" % slot)
+	_cave_traffic_notes(host, c1)
+
+
+## A result's entry for map `key` ({} if none).
+static func _map_of(result: Dictionary, key: String) -> Dictionary:
+	var maps: Dictionary = result.get("maps", {})
+	var m: Dictionary = maps.get(key, {})
+	return m
+
+
+## Lines of an instance's log.
+func _log_lines(inst: Instance) -> PackedStringArray:
+	return FileAccess.get_file_as_string(inst.log_path).split("\n")
+
+
+func _first_line(lines: PackedStringArray, text: String) -> int:
+	for i: int in lines.size():
+		if lines[i].contains(text):
+			return i
+	return -1
+
+
+func _line_with(lines: PackedStringArray, text: String) -> String:
+	var i: int = _first_line(lines, text)
+	return lines[i] if i >= 0 else ""
+
+
+func _count_lines(lines: PackedStringArray, text: String) -> int:
+	var n: int = 0
+	for line: String in lines:
+		if line.contains(text):
+			n += 1
+	return n
+
+
+static func _word_after(line: String, key: String) -> String:
+	var at: int = line.find(key)
+	if at < 0:
+		return ""
+	return line.substr(at + key.length()).get_slice(" ", 0).strip_edges()
+
+
+static func _int_after(line: String, key: String) -> int:
+	var w: String = _word_after(line, key)
+	return w.to_int() if w.is_valid_int() else -1
+
+
+## A marker file's JSON (what the instance saw then: SessionReport.seen), {} if none.
+func _marker(dir: String, name: String, marker: String) -> Dictionary:
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(dir.path_join("%s.%s.marker" % [name, marker])))
+	if parsed is Dictionary:
+		var d: Dictionary = parsed
+		return d
+	return {}
+
+
+static func _seen_player(seen: Dictionary, slot: int) -> Dictionary:
+	var players: Dictionary = seen.get("players", {})
+	var p: Dictionary = players.get(str(slot), {})
+	return p
+
+
+static func _seen_drawn(seen: Dictionary, slot: int) -> bool:
+	return _flag(_seen_player(seen, slot), "drawn")
+
+
+static func _seen_map(seen: Dictionary, slot: int) -> int:
+	return roundi(_num(_seen_player(seen, slot), "map", -1.0))
+
+
+## M3b traffic: idle on two maps, mining with the other player up (it gets the states, not the edits),
+## both mining below, and the map entries.
+func _cave_traffic_notes(host: Instance, c1: Instance) -> void:
+	var hs: Dictionary = host.result.get("stats", {})
+	var cs: Dictionary = c1.result.get("stats", {})
+	for key: String in hs:
+		if key.contains("split") or key.begins_with("act") or key == "entering" or key.begins_with("0/"):
+			var b: Dictionary = hs[key]
+			var c: Dictionary = cs.get(key, {})
+			note("cave host %s: sends %s B/s (%s with UDP/IP) in %s pkt/s over %s s; c1 receives %s B/s there" % [key,
+				b.get("sent_bps"), b.get("wire_sent_bps"), b.get("packets_ps"), b.get("sec"), c.get("received_bps", "-")])
+	var idle_split: Dictionary = hs.get("0/2 split", {})
+	var act_split: Dictionary = hs.get("act1/2 split", {})
+	if check(not idle_split.is_empty() and _num(idle_split, "sec") >= 1.0, "cave: at least 1 s with both idle on two maps (%s s)" % idle_split.get("sec")):
+		check(_num(idle_split, "sent_bps", 1e9) < 0.25 * _num(act_split, "sent_bps", 0.0),
+			"cave: idle on two maps is quiet (%s B/s vs %s B/s while the host mines)" % [idle_split.get("sent_bps"), act_split.get("sent_bps")])
 
 
 ## Opt-in (--net-full): the real cap. 1 host + 8 clients = 9 players, a tenth is refused.
@@ -423,6 +672,8 @@ func _session_full() -> void:
 
 # --- checks --------------------------------------------------------------------------------------
 
+## M3b: per map. Every instance's maps (the host: all; a client: the one it is on) are drawn as their data
+## says; each client's map equals the host's copy of it.
 func _check_agreement(label: String, host: Instance, clients: Array[Instance], players: int) -> void:
 	var h: Dictionary = host.result
 	check_eq(h.get("ended", ""), "finished", "%s: host finished" % label)
@@ -439,21 +690,33 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 	check(_flag(h, "bot_finished"), "%s: host bot finished" % label)
 	for inst: Instance in [host] + clients:
 		var r: Dictionary = inst.result
-		var view: Dictionary = r.get("view", {})
-		check(_num(view, "mismatches") == 0.0 and _num(view, "missing") == 0.0 and _num(view, "fallbacks") == 0.0,
-			"%s/%s: ground view = data %s" % [label, inst.name, view])
+		var maps: Dictionary = r.get("maps", {})
+		check(maps.has(str(roundi(_num(r, "map")))), "%s/%s: has the map it is on (%s)" % [label, inst.name, maps.keys()])
+		for key: Variant in maps:
+			var mr: Dictionary = maps[key]
+			var dungeon: bool = str(key) == str(Config.MAP_DUNGEON)
+			var view: Dictionary = mr.get("view", {})
+			check(_num(view, "mismatches") == 0.0 and _num(view, "missing") == 0.0 and (dungeon or _num(view, "fallbacks") == 0.0)
+				and _num(view, "overlay_mismatches", 0.0) == 0.0, "%s/%s: map %s drawn = data %s" % [label, inst.name, key, view])
+			var items: Dictionary = mr.get("items_view", {})
+			check(_num(items, "mismatches") == 0.0 and (dungeon or _num(items, "gatherables") > 0.0),
+				"%s/%s: map %s gatherables and drops drawn = data %s" % [label, inst.name, key, items])
+			var fx: Dictionary = mr.get("fixtures", {})
+			check_eq(_num(fx, "mismatches"), 0.0, "%s/%s: map %s placeables drawn = data %s" % [label, inst.name, key, fx])
 		check_eq(r.get("bad_messages", -1), 0, "%s/%s: no malformed messages" % [label, inst.name])
-		var items: Dictionary = r.get("items_view", {})
-		check(_num(items, "mismatches") == 0.0 and _num(items, "gatherables") > 0.0,
-			"%s/%s: gatherables and drops drawn = data %s" % [label, inst.name, items])
 		check_eq(r.get("unknown_senders", -1), 0, "%s/%s: no input from strangers" % [label, inst.name])
 	for c: Instance in clients:
 		var r: Dictionary = c.result
 		check_eq(r.get("ended", ""), "finished", "%s/%s: finished" % [label, c.name])
 		check_eq(r.get("positions_hash", ""), h.get("positions_hash", "?"), "%s/%s: positions = host (%s vs %s)" % [
 			label, c.name, JSON.stringify(r.get("players", [])), JSON.stringify(h.get("players", []))])
-		check_eq(r.get("world_hash", ""), h.get("world_hash", "?"), "%s/%s: world = host" % [label, c.name])
-		check_eq(r.get("view_hash", ""), h.get("view_hash", "?"), "%s/%s: draws the host's ground (view hash)" % [label, c.name])
+		var map_key: String = str(roundi(_num(r, "map")))
+		var mine: Dictionary = _map_of(r, map_key)
+		var hosts: Dictionary = _map_of(h, map_key)
+		check(not mine.is_empty() and not hosts.is_empty(), "%s/%s: map %s in both results" % [label, c.name, map_key])
+		check_eq(mine.get("hash", ""), hosts.get("hash", "?"), "%s/%s: map %s = host's" % [label, c.name, map_key])
+		check_eq(mine.get("view_hash", ""), hosts.get("view_hash", "?"), "%s/%s: draws the host's map %s (view hash)" % [label, c.name, map_key])
+		check_eq(mine.get("edits", -1), hosts.get("edits", -2), "%s/%s: map %s log position = host's" % [label, c.name, map_key])
 		check(_num(r, "snapshot_chunks") >= 1.0 and _num(r, "snapshot_bytes") > 0.0,
 			"%s/%s: got its world as a snapshot (%s B in %s chunks)" % [label, c.name, r.get("snapshot_bytes"),
 			r.get("snapshot_chunks")])
@@ -467,8 +730,8 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		check_eq(p.get("pending", -1), 0, "%s/%s: every input frame acknowledged" % [label, c.name])
 		check_eq(_num(p, "facing_corrections"), 0.0, "%s/%s: the host's derived facing = the predicted one" % [label, c.name])
 		check_eq(_num(p, "action_corrections"), 0.0, "%s/%s: the host's body actions = the predicted ones" % [label, c.name])
-		check_eq(r.get("gatherables", -1), h.get("gatherables", -2), "%s/%s: the same gatherables left" % [label, c.name])
-		check_eq(r.get("drops", []), h.get("drops", []), "%s/%s: the same drops" % [label, c.name])
+		check_eq(mine.get("gatherables", -1), hosts.get("gatherables", -2), "%s/%s: the same gatherables left" % [label, c.name])
+		check_eq(mine.get("drops", []), hosts.get("drops", []), "%s/%s: the same drops" % [label, c.name])
 		check(_flag(r, "bot_finished"), "%s/%s: bot finished" % [label, c.name])
 		var samples: float = _num(r, "interp_samples")
 		var starved: float = _num(r, "interp_starved")
@@ -496,8 +759,8 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		var st: Dictionary = item
 		var chunks: float = _num(st, "chunks")
 		check(_num(st, "ticks") == float(ceili(chunks / Config.NET_SNAPSHOT_CHUNKS_PER_TICK)),
-			"%s: slot %d's world went out at %d chunks per tick (%d chunks in %d ticks)" % [label, roundi(_num(st, "slot")),
-			Config.NET_SNAPSHOT_CHUNKS_PER_TICK, roundi(chunks), roundi(_num(st, "ticks"))])
+			"%s: slot %d's %s (map %d) went out at %d chunks per tick (%d chunks in %d ticks)" % [label, roundi(_num(st, "slot")),
+			st.get("kind", "join"), roundi(_num(st, "map", 0.0)), Config.NET_SNAPSHOT_CHUNKS_PER_TICK, roundi(chunks), roundi(_num(st, "ticks"))])
 	check(streams.size() >= clients.size(), "%s: the host recorded a stream for every joiner (%d)" % [label, streams.size()])
 
 
@@ -510,9 +773,11 @@ func _check_late_joiner(label: String, host: Instance, late: Instance, perturbed
 	var who: String = "%s/%s" % [label, late.name]
 	check_eq(_num(_stream_for(host, late), "edit_position"), float(position),
 		"%s: its snapshot held the first %d edits (they came inside it)" % [who, position])
-	check_eq(r.get("edits", -1), h.get("edits", -2), "%s: then every later edit (log position %s)" % [who, h.get("edits")])
-	check_eq(r.get("world_hash", ""), h.get("world_hash", "?"), "%s: the host's world" % who)
-	check_ne(r.get("world_hash", ""), h.get("generator_hash", "?"), "%s: the edited world, not the bare seed" % who)
+	var rs: Dictionary = _map_of(r, str(Config.MAP_SURFACE))
+	var hs: Dictionary = _map_of(h, str(Config.MAP_SURFACE))
+	check_eq(rs.get("edits", -1), hs.get("edits", -2), "%s: then every later edit (log position %s)" % [who, hs.get("edits")])
+	check_eq(rs.get("hash", ""), hs.get("hash", "?"), "%s: the host's world" % who)
+	check_ne(rs.get("hash", ""), h.get("generator_hash", "?"), "%s: the edited world, not the bare seed" % who)
 	check_eq(r.get("host_generator_hash", ""), h.get("generator_hash", "?"), "%s: the welcome carried the host's generator hash" % who)
 	if perturbed:
 		var own: String = r.get("generator_hash", "")
@@ -594,13 +859,12 @@ func _check_four_race(host: Instance, clients: Array[Instance]) -> void:
 	check(_log_has(host, "host drop slot=0 item=stone_a count=5 grade=none %s" % drop), "four: the host dropped 5 stones")
 	check_eq(_log_count(host, "item=stone_a count=5 grade=none %s" % drop) - 1, 1, "four: exactly one pickup of them")
 	var winners: Array[String] = []
-	var have: int = 0
+	var host_log: PackedStringArray = _log_lines(host)
 	for c: Instance in clients:
-		var inv: String = str(_player(c, roundi(_num(c.result, "slot"))).get("inventory", "?"))
-		if inv.contains("stone_a"):
+		var slot: int = roundi(_num(c.result, "slot"))
+		if _count_lines(host_log, "host pickup slot=%d item=stone_a count=5 grade=none %s" % [slot, drop]) == 1:
 			winners.append(c.name)
-			have += 1 if inv == "0:stone_a x5" else 100
-	check(winners.size() == 1 and have == 1, "four: exactly one client holds the 5 stones (%s)" % [winners])
+	check(winners.size() == 1, "four: exactly one client got the 5 stones (%s)" % [winners])
 	var ops: Dictionary = host.result.get("ops", {})
 	var rate: int = 0
 	var nothing: int = 0
@@ -617,6 +881,64 @@ func _check_four_race(host: Instance, clients: Array[Instance]) -> void:
 	check(rate > 0 and nothing > 0 and done <= 1, "four: spammed F refused as rate (%d) and nothing there (%d), %d pickup(s) by the clients still in" % [
 		rate, nothing, done])
 	note("four race: %s got the stones; host refused %d requests as rate, %d as nothing there" % [winners, rate, nothing])
+
+
+## four (M3b): c2 and c3 went down (the dungeon in 32-byte chunks over several ticks), swung at the same
+## rock from two sides until it broke: exactly one break, the stone to the one whose hit broke it, both
+## saw it; c4 joined while they were below and drew neither.
+func _check_four_mining(dir: String, host: Instance, c2: Instance, c3: Instance, c4: Instance) -> void:
+	var host_log: PackedStringArray = _log_lines(host)
+	var s2: int = roundi(_num(c2.result, "slot"))
+	var s3: int = roundi(_num(c3.result, "slot"))
+	var rock: String = "edit wall %d,%d=0 " % [FOUR_ROCK.x, FOUR_ROCK.y]
+	check_eq(_count_lines(host_log, rock), 1, "four: the rock both swung at broke exactly once")
+	# The swing that broke it: the host logs a swing's edits, then the swing ("mine slot=..").
+	var breaker: int = -1
+	var broke_at: int = _first_line(host_log, rock)
+	for i: int in range(maxi(broke_at, 0), host_log.size()):
+		if broke_at >= 0 and host_log[i].contains("host mine slot="):
+			breaker = _int_after(host_log[i], "slot=")
+			break
+	var landed: Dictionary[int, PackedInt32Array] = {s2: PackedInt32Array(), s3: PackedInt32Array()}
+	var broken: Dictionary[int, int] = {s2: 0, s3: 0}
+	for line: String in host_log:
+		if not line.contains("host mine slot="):
+			continue
+		var slot: int = _int_after(line, "slot=")
+		if landed.has(slot):
+			landed[slot].append(_int_after(line, "tick="))
+			if line.contains("broken=1"):
+				broken[slot] += 1
+	check(breaker == s2 or breaker == s3, "four: one of the two broke it (slot %d)" % breaker)
+	check(landed[s2].size() >= 2 and landed[s3].size() >= 2, "four: both landed hits on it (c2 %d, c3 %d)" % [landed[s2].size(),
+		landed[s3].size()])
+	var same_tick: int = 0
+	for t: int in landed[s2]:
+		if landed[s3].has(t):
+			same_tick += 1
+	for c: Instance in [c2, c3]:
+		var slot: int = roundi(_num(c.result, "slot"))
+		var stones: int = _stones(str(_player(host, slot).get("inventory", "")))
+		var won_race: bool = _count_lines(host_log, "host pickup slot=%d item=stone_a count=5" % slot) == 1
+		check_eq(stones, (5 if won_race else 0) + broken[slot],
+			"four/%s: its stones = the race's %d + one per tile it broke (%d)" % [c.name, 5 if won_race else 0, broken[slot]])
+		check(_count_lines(_log_lines(c), rock) == 1, "four/%s: saw the break live" % c.name)
+		var entry: Dictionary = _stream_for(host, c, "map", Config.MAP_DUNGEON)
+		check(_num(entry, "chunks") > float(Config.NET_SNAPSHOT_CHUNKS_PER_TICK) and _num(entry, "ticks") >= 2.0,
+			"four/%s: the dungeon came in %s chunks of %d B over %s ticks" % [c.name, entry.get("chunks"), FOUR_CHUNK_BYTES, entry.get("ticks")])
+	check_eq(roundi(_num(c4.result, "others_on_welcome")), 2, "four/c4: welcomed while c2 and c3 were below")
+	check(not _flag(_player(c4, s2), "drawn") and not _flag(_player(c4, s3), "drawn") and _flag(_player(c4, 0), "drawn"),
+		"four/c4: draws the host, not the two below")
+	note("four mining: slot %d broke the rock; c2 landed at ticks %s, c3 at %s (%d tick(s) with both)" % [breaker, landed[s2],
+		landed[s3], same_tick])
+
+
+static func _stones(inventory: String) -> int:
+	var n: int = 0
+	for part: String in inventory.split(", "):
+		if part.contains("stone_a x"):
+			n += part.get_slice(" x", 1).to_int()
+	return n
 
 
 ## A player entry of an instance's result by slot ({} if none).

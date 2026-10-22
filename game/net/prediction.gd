@@ -17,6 +17,16 @@ extends RefCounted
 ## aims (the look): the host derives it with the same rule (Movement.facing_for), and
 ## `facing_corrections` counts states whose facing differed from the prediction for that frame;
 ## `action_corrections` the same for the body action (0 when both sides agree).
+##
+## M3b, maps: the prediction steps on the data of the map the client has loaded (`data`, `map`; the
+## same WorldData the host's edits change, so a wall the host broke stops blocking as soon as its edit
+## is here; until then the prediction is blocked where the host is not, the host's state corrects it,
+## and the replay from inside that wall walks out of it: Movement ignores what the box already
+## overlaps). The client does not predict travel: after F on an entrance it goes on stepping on the
+## old map until the host's map entry arrives; switch_map() then takes the host's state on the new map
+## and replays the frames the host has not handled yet there. Host states for this player on another
+## map than `map` (sent before the entry arrived) are skipped (`other_map`). A use aimed on another
+## map (frame.map) is refused by the host ("wrong map"), so a replay does not start its action either.
 
 class Pending:
 	extends RefCounted
@@ -25,6 +35,8 @@ class Pending:
 
 
 var data: WorldData
+## M3b: the map `data` is (the client's loaded map).
+var map: int = Config.MAP_SURFACE
 ## The predicted state now.
 var sim: PlayerSim = PlayerSim.new()
 var next_seq: int = 1
@@ -42,6 +54,9 @@ var facing_corrections: int = 0
 var action_corrections: int = 0
 var stale: int = 0
 var dropped_unsent: int = 0
+## M3b: map switches, and host states skipped because they were on another map.
+var switches: int = 0
+var other_map: int = 0
 
 var _last_dir: Vector2i = Vector2i.ZERO
 
@@ -58,6 +73,7 @@ var walking: bool:
 
 func setup(p_data: WorldData, p_pos: Vector2, p_facing: int, ack: int) -> void:
 	data = p_data
+	map = p_data.map_id
 	sim = PlayerSim.new()
 	sim.pos = p_pos
 	sim.facing = p_facing
@@ -123,15 +139,13 @@ func pending_ops(op: int, after_seq: int) -> Array[NetProtocol.InputFrame]:
 ## Applies the host's state for this player. Returns the prediction error in px (how far the
 ## predicted position after frame `ack` was from the host's), or -1 for a stale state.
 func reconcile(state: NetProtocol.PlayerState) -> float:
+	if state.map != map:
+		other_map += 1
+		return -1.0
 	if state.ack < base_seq:
 		stale += 1
 		return -1.0
-	var host: PlayerSim = PlayerSim.new()
-	host.pos = state.pos
-	host.facing = state.facing
-	host.walking = state.walking
-	host.action = state.action
-	host.action_tick = state.action_tick
+	var host: PlayerSim = _sim_of(state)
 	var predicted: PlayerSim = base
 	if state.ack > base_seq:
 		predicted = host  # a frame we no longer hold: nothing to compare
@@ -156,11 +170,50 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 		pending.pop_front()
 	# Replay what the host has not handled yet, from the host's state, with the rule the host applies
 	# to each frame.
-	sim = host.copy()
-	for p: Pending in pending:
-		sim.step(data, p.frame.dir, p.frame.look, p.frame.anim, p.frame.cell, Config.NET_TICK)
-		p.after = sim.copy()
+	_replay(host)
 	return error
+
+
+## M3b: the host moved this player to map `p_map` (data `p_data`) and says where it stands there after
+## frame `state.ack`: take that state and replay the frames after it on the new map (a map change is
+## not a prediction error, so nothing is counted but the switch).
+func switch_map(p_data: WorldData, p_map: int, state: NetProtocol.PlayerState) -> void:
+	data = p_data
+	map = p_map
+	switches += 1
+	var host: PlayerSim = _sim_of(state)
+	host.action_cell = sim.action_cell
+	base_seq = maxi(base_seq, state.ack)
+	base = host
+	while not pending.is_empty() and pending[0].frame.seq <= state.ack:
+		pending.pop_front()
+	_replay(host)
+
+
+## Replays the unacknowledged frames from `from` with the rule the host applies to each frame (a use
+## aimed on another map starts nothing: the host refuses it).
+func _replay(from: PlayerSim) -> void:
+	sim = from.copy()
+	for p: Pending in pending:
+		sim.step(data, p.frame.dir, p.frame.look, anim_on_map(p.frame), p.frame.cell, Config.NET_TICK)
+		p.after = sim.copy()
+
+
+## The action frame `f` starts on this map: its own, unless it is a request aimed on another map.
+func anim_on_map(f: NetProtocol.InputFrame) -> int:
+	if NetProtocol.op_has_map(f.op) and f.map != map:
+		return -1
+	return f.anim
+
+
+static func _sim_of(state: NetProtocol.PlayerState) -> PlayerSim:
+	var host: PlayerSim = PlayerSim.new()
+	host.pos = state.pos
+	host.facing = state.facing
+	host.walking = state.walking
+	host.action = state.action
+	host.action_tick = state.action_tick
+	return host
 
 
 func to_dict() -> Dictionary:
@@ -168,4 +221,5 @@ func to_dict() -> Dictionary:
 		"frames": frames, "reconciles": reconciles, "corrections": corrections, "max_error_px": max_error_px,
 		"facing_corrections": facing_corrections, "action_corrections": action_corrections,
 		"stale": stale, "pending": pending.size(), "dropped_unsent": dropped_unsent, "next_seq": next_seq,
+		"map": map, "switches": switches, "other_map": other_map,
 	}

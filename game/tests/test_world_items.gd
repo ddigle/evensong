@@ -160,6 +160,7 @@ func _check_rules() -> void:
 	# Give.
 	var g: Inventory = Inventory.new()
 	check(WorldItems.give(g, WorldItems.GIVE_KIT, 0, 0).ok() and g.count_of(&"pickaxe") == 1, "give the debug kit")
+	g = Inventory.new()
 	check(WorldItems.give(g, ItemDB.index_of(&"wild_buff"), 3, ItemDB.Grade.FINE).ok()
 		and g.count_of(&"wild_buff", ItemDB.Grade.FINE) == 3, "give 3 fine wild buffs")
 	check_eq(WorldItems.give(g, 200, 1, 0).why, WorldItems.WHY_BAD_ITEM, "give an unknown item")
@@ -552,11 +553,11 @@ func _check_edit_log_and_view() -> void:
 	check(joiner.items.drops.has(put.id) and joiner.items.drops[put.id].texture == ItemIcons.texture_for(&"wild_buff"),
 		"a drop shows its item's icon")
 	# Edit wire format: sizes, refusals.
-	check_eq(EditLog.encode_one(later[0], 7).size(), 16, "drop put edit = 16 B")
-	check_eq(EditLog.encode_one(later[2], 7).size(), 9, "drop removed edit = 9 B")
-	check_eq(EditLog.encode_one(edits[0], 7).size(), 10, "cell edit = 10 B (as M1)")
+	check_eq(EditLog.encode_one(later[0], 7).size(), 17, "drop put edit = 17 B (M3b: + map)")
+	check_eq(EditLog.encode_one(later[2], 7).size(), 10, "drop removed edit = 10 B (M3b: + map)")
+	check_eq(EditLog.encode_one(edits[0], 7).size(), 11, "cell edit = 11 B (M1's 10 + map, M3b)")
 	var bad_put: PackedByteArray = EditLog.encode_one(later[0], 7)
-	bad_put[4 + 1 + 4] = ItemDB.count()
+	bad_put[EditLog.HEADER_SIZE + 1 + 4] = ItemDB.count()
 	var r1: Array = EditLog.decode_one(bad_put)
 	var r1_index: int = r1[0]
 	check_eq(r1_index, -1, "a drop edit with an unknown item is malformed")

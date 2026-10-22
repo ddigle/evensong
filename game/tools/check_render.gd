@@ -23,6 +23,19 @@ extends SceneTree
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
 ##            none of their pixels may fall on the altar art (nothing of them hidden).
+##   cave     (M3a) the seed-1 dungeon around its arrival room, darkness off, its entities hidden,
+##            walls partly mined (crack stages 1-3 on faced and side walls, a broken tile): the screen
+##            equals a CPU composite of the cliff tiles each display cell has (CaveView.drawn_at) plus
+##            the ore and crack overlays, pixel for pixel. The surface world is hidden meanwhile.
+##   dark     (M3a) the dungeon's darkness with one placed torch (the other lights off, the other
+##            entities hidden): pixels farther than the torch radius stay dark (darkness on / off ratio),
+##            pixels in its inner step are lit; the torch's spot is not the safe zone (light only).
+##   cave_net (M3b) the dungeon as a session client gets it: the host's seed-1 dungeon mined with the
+##            real rules (Mining.strike: a miner's 3x3 cracked and another broken, a common player's
+##            cracks at stages 2 and 3), applied edit by edit to the host's view; a client world built
+##            from a map snapshot taken half way (WorldSnapshot, Receiver.finish for the dungeon) gets the
+##            rest as live edits. Both screens (darkness off, entities hidden) must be the same pixels,
+##            and equal the CPU composite of the client's data (tiles + ore and crack overlays).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -76,6 +89,7 @@ func _run() -> void:
 		await _check_rig()
 		await _check_items()
 		await _check_ysort()
+		await _check_cave_and_dark()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -503,3 +517,321 @@ func _check_ysort() -> void:
 		_fail("ysort", line)
 		_save(got, "ysort_got.png")
 		_save(expected, "ysort_expected.png")
+
+
+# --- M3a: the dungeon --------------------------------------------------------------------------
+
+func _check_cave_and_dark() -> void:
+	var dun: GameWorld = (load(WORLD_SCENE) as PackedScene).instantiate() as GameWorld
+	dun.auto_generate = false
+	dun.map_id = Config.MAP_DUNGEON
+	root.add_child(dun)
+	dun.generate(Config.DEFAULT_SEED)
+	dun.overlay.visible = false
+	dun.camera.set_process(false)
+	world.visible = false
+	dun.visible = true
+	dun.camera.make_current()
+	await _check_cave(dun)
+	await _check_dark(dun)
+	root.remove_child(dun)
+	dun.free()
+	await _check_cave_net()
+	world.visible = true
+	world.camera.make_current()
+
+
+func _cave_look_at(dun: GameWorld, center: Vector2i) -> Vector2i:
+	dun.camera.position = Vector2(center)
+	dun.camera.reset_smoothing()
+	return center - Config.VIEW_SIZE / 2
+
+
+## Walls around the seed-1 arrival room mined to show every crack stage on faced and side walls and
+## a broken tile (direct edits, the kind mining makes). Returns the tiles touched.
+static func mine_for_show(dun: GameWorld) -> Array[Vector2i]:
+	var d: WorldData = dun.data
+	var exit: Rect2i = DungeonGen.exit_rect(d)
+	var room_top: int = exit.position.y
+	var done: Array[Vector2i] = []
+	var faced: Array[Vector2i] = []
+	var side: Array[Vector2i] = []
+	for x: int in range(exit.position.x - 8, exit.end.x + 8):
+		var c: Vector2i = Vector2i(x, room_top - 1)
+		if Walls.kind_at(d, c) == Walls.KIND_ROCK and Walls.is_face(d, c + Vector2i(0, 1)) \
+				and d.get_value(WorldData.Layer.PLACEABLE, c) == 0 and Walls.max_hits(d, c) > 0:
+			faced.append(c)
+	for y: int in range(room_top + 1, room_top + 6):
+		for x: int in range(exit.position.x - 8, exit.end.x + 8):
+			var c: Vector2i = Vector2i(x, y)
+			if Walls.kind_at(d, c) == Walls.KIND_ROCK and not Walls.is_face(d, c + Vector2i(0, 1)) \
+					and not Movement.is_blocked(d, c + Vector2i(1, 0)) and Walls.max_hits(d, c) > 0:
+				side.append(c)
+				break
+	var stage_hits: Array[int] = [1, Config.WALL_HITS_ROCK / 2, Config.WALL_HITS_ROCK - 1]
+	for i: int in mini(3, faced.size()):
+		dun.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, faced[i], Walls.pack(Walls.KIND_ROCK, stage_hits[i])))
+		done.append(faced[i])
+	for i: int in mini(3, side.size()):
+		dun.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, side[i], Walls.pack(Walls.KIND_ROCK, stage_hits[i])))
+		done.append(side[i])
+	if faced.size() > 3:
+		var gone: Vector2i = faced[faced.size() - 1]
+		dun.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, gone, 0))
+		done.append(gone)
+	return done
+
+
+func _check_cave(dun: GameWorld) -> void:
+	dun.lighting.set_evening(false)
+	dun.entities.visible = false
+	var mined: Array[Vector2i] = mine_for_show(dun)
+	var exit: Rect2i = DungeonGen.exit_rect(dun.data)
+	var origin: Vector2i = _cave_look_at(dun, exit.position * Config.TILE + Vector2i(16, 60))
+	var got: Image = await _capture()
+	var composite: Array = cave_composite(dun, origin)
+	var expected: Image = composite[0]
+	var overlays: int = composite[1]
+	var stages: Dictionary[int, bool] = {}
+	var faced_cracks: int = 0
+	for c: Vector2i in mined:
+		var stage: int = Walls.crack_stage(Walls.hits_at(dun.data, c), Walls.max_hits(dun.data, c))
+		if stage > 0:
+			stages[stage] = true
+			if Walls.is_face(dun.data, c + Vector2i(0, 1)):
+				faced_cracks += 1
+	var n: int = count_diff(got, expected)
+	var line: String = "cliff tiles + %d overlays on screen, crack stages %s (%d on faced walls), mined tiles %d, mismatches=%d" % [
+		overlays, stages.keys(), faced_cracks, mined.size(), n]
+	if n > 0 or save_all:
+		_save(got, "cave_got.png")
+		_save(expected, "cave_expected.png")
+	if n == 0 and stages.size() == 3 and faced_cracks > 0 and overlays > 3:
+		print("EVENSONG_RENDER cave ok %s" % line)
+	else:
+		_fail("cave", line)
+	dun.entities.visible = true
+
+
+## What the screen with world pixel `origin` at (0, 0) must show of dungeon world `dun` (darkness off,
+## entities hidden): each display cell's cliff tile (CaveView.drawn_at) and the ore and crack overlays
+## from the data, with the positions written out here. [image, overlays drawn].
+static func cave_composite(dun: GameWorld, origin: Vector2i) -> Array:
+	var expected: Image = Image.create_empty(Config.VIEW_SIZE.x, Config.VIEW_SIZE.y, false, Image.FORMAT_RGBA8)
+	expected.fill(Color(0, 0, 0, 1))
+	var view: CaveView = dun.cave
+	var atlases: Dictionary[int, Image] = {}
+	var r: Rect2i = view.display_rect()
+	for dy: int in range(r.position.y, r.end.y):
+		for dx: int in range(r.position.x, r.end.x):
+			var at: Vector2i = Vector2i(dx, dy) * Config.TILE + Vector2i(8, 8) - origin
+			if at.x <= -Config.TILE or at.y <= -Config.TILE or at.x >= Config.VIEW_SIZE.x or at.y >= Config.VIEW_SIZE.y:
+				continue
+			var t: Vector3i = view.drawn_at(Vector2i(dx, dy))
+			if t.x < 0:
+				continue
+			if not atlases.has(t.x):
+				var src: TileSetAtlasSource = view.table.tile_set.get_source(t.x) as TileSetAtlasSource
+				atlases[t.x] = LightGen.to_rgba8(src.texture.get_image())
+			expected.blend_rect(atlases[t.x], Rect2i(t.y * Config.TILE, t.z * Config.TILE, Config.TILE, Config.TILE), at)
+	# Overlays from the data with the art files and the positions written out here (not the sprites'):
+	# ore pixels on the wall tile (rows above the face only on a faced wall), then per cracked wall the
+	# top crack (on the tile; on a faced wall just above where the face starts, 8 + FACE_TOP_PX - 16)
+	# and, when faced, the face crack (16x24 from 8 + FACE_TOP_PX below the tile's top).
+	var overlays: int = 0
+	var top_art: Image = LightGen.to_rgba8(CaveView.CRACK_TOP.get_image())
+	var face_art: Image = LightGen.to_rgba8(CaveView.CRACK_FACE.get_image())
+	var screen: Rect2i = Rect2i(origin - Vector2i(32, 32), Config.VIEW_SIZE + Vector2i(64, 64))
+	for c: Vector2i in Walls.wall_cells(dun.data):
+		if not screen.has_point(c * Config.TILE):
+			continue
+		var faced: bool = Walls.is_face(dun.data, c + Vector2i(0, 1))
+		var tile_px: Vector2i = c * Config.TILE - origin
+		var ore: int = Walls.ore_at(dun.data, c)
+		if ore != Walls.ORE_NONE:
+			var ore_img: Image = LightGen.to_rgba8(CaveView.ore_texture(ore, c).get_image())
+			var rows: int = Config.TILE / 2 + Config.FACE_TOP_PX if faced else Config.TILE
+			expected.blend_rect(ore_img, Rect2i(0, 0, Config.TILE, rows), tile_px)
+			overlays += 1
+		var stage: int = Walls.crack_stage(Walls.hits_at(dun.data, c), Walls.max_hits(dun.data, c))
+		if stage == 0:
+			continue
+		var top_y: int = Config.TILE / 2 + Config.FACE_TOP_PX - Config.TILE if faced else 0
+		expected.blend_rect(top_art, Rect2i((stage - 1) * Config.TILE, 0, Config.TILE, Config.TILE), tile_px + Vector2i(0, top_y))
+		overlays += 1
+		if faced:
+			expected.blend_rect(face_art, Rect2i((stage - 1) * Config.TILE, 0, Config.TILE, Config.FACE_HEIGHT_PX),
+				tile_px + Vector2i(0, Config.TILE / 2 + Config.FACE_TOP_PX))
+			overlays += 1
+	return [expected, overlays]
+
+
+## M3b: the host's dungeon mined with the real rules, edit by edit; a client's built from a map snapshot
+## half way plus the rest as live edits; both drawn the same, and as the composite says.
+func _check_cave_net() -> void:
+	var host_w: GameWorld = _dungeon_world()
+	var client_w: GameWorld = _dungeon_world(false)
+	var d: WorldData = host_w.data
+	# (swinger class, feet tile, target tile, swings) on the seed-1 arrival room (README M3b).
+	var plan: Array[Array] = [
+		[Mining.MINER_CLASS, Vector2i(34, 15), Vector2i(33, 15), 1],   # 3x3 west: 6 rock tiles at stage 1
+		["cleric", Vector2i(34, 15), Vector2i(34, 14), 3],             # the face north-west: its rock at stage 2
+		["cleric", Vector2i(36, 15), Vector2i(36, 14), 5],             # the face north: its rock at stage 3
+		[Mining.MINER_CLASS, Vector2i(41, 15), Vector2i(42, 15), 3],   # 3x3 east: broken
+	]
+	var edits: Array[EditLog.WorldEdit] = []
+	var inv: Inventory = Inventory.new()
+	for step_index: int in plan.size():
+		var step: Array = plan[step_index]
+		var class_id: String = step[0]
+		var feet_cell: Vector2i = step[1]
+		var target: Vector2i = step[2]
+		var swings: int = step[3]
+		var feet: Vector2 = Vector2(feet_cell.x * Config.TILE + Config.TILE / 2.0, feet_cell.y * Config.TILE + Config.TILE - 2)
+		for i: int in swings:
+			var res: Mining.Result = Mining.strike(d, feet, class_id, inv, target)
+			for e: EditLog.WorldEdit in res.edits:
+				host_w.apply_edit(e)  # as SessionHost.apply_world_edit
+				edits.append(e)
+		if step_index == 1:
+			# Half way the client enters the map: a map snapshot of the host's dungeon as it is now.
+			_load_snapshot(host_w, client_w)
+			snapshot_edits = edits.size()
+	if client_w.data == null:
+		return
+	# The rest reaches the client as live edits (GameWorld.apply_edit, as SessionClient.on_edit).
+	for i: int in range(snapshot_edits, edits.size()):
+		client_w.apply_edit(edits[i])
+	var same_data: bool = client_w.data.content_hash() == host_w.data.content_hash()
+	var stages: Dictionary[int, bool] = {}
+	var broken: int = 0
+	for c: Vector2i in Walls.wall_cells(DungeonGen.generate(Config.DEFAULT_SEED)):
+		if not Walls.is_wall(d, c):
+			broken += 1
+		else:
+			var stage: int = Walls.crack_stage(Walls.hits_at(d, c), Walls.max_hits(d, c))
+			if stage > 0:
+				stages[stage] = true
+	var shots: Array[Image] = []
+	var origin: Vector2i = Vector2i.ZERO
+	for w: GameWorld in [host_w, client_w]:
+		host_w.visible = w == host_w
+		client_w.visible = w == client_w
+		w.camera.make_current()
+		origin = _cave_look_at(w, Vector2i(38 * Config.TILE, 15 * Config.TILE))
+		shots.append(await _capture())
+	var composite: Array = cave_composite(client_w, origin)
+	var expected: Image = composite[0]
+	var overlays: int = composite[1]
+	var n_expected: int = count_diff(shots[1], expected)
+	var n_host: int = count_diff(shots[0], shots[1])
+	var line: String = "%d edits (%d after the client's snapshot of %d B), crack stages %s, %d broken, %d overlays, same data %s, client vs composite %d, host vs client %d" % [
+		edits.size(), edits.size() - snapshot_edits, snapshot_bytes, stages.keys(), broken, overlays, same_data, n_expected, n_host]
+	if n_expected > 0 or n_host > 0 or save_all:
+		_save(shots[0], "cave_net_host.png")
+		_save(shots[1], "cave_net_client.png")
+		_save(expected, "cave_net_expected.png")
+	if same_data and n_expected == 0 and n_host == 0 and stages.size() == 3 and broken >= 6 and snapshot_edits > 0 \
+			and snapshot_edits < edits.size():
+		print("EVENSONG_RENDER cave_net ok %s" % line)
+	else:
+		_fail("cave_net", line)
+	for w: GameWorld in [host_w, client_w]:
+		root.remove_child(w)
+		w.free()
+
+
+var snapshot_edits: int = 0
+var snapshot_bytes: int = 0
+
+
+## A dungeon world for the check (darkness off, entities hidden). `generate` false: empty (a client's).
+func _dungeon_world(generate: bool = true) -> GameWorld:
+	var w: GameWorld = (load(WORLD_SCENE) as PackedScene).instantiate() as GameWorld
+	w.auto_generate = false
+	w.map_id = Config.MAP_DUNGEON
+	root.add_child(w)
+	if generate:
+		w.generate(Config.DEFAULT_SEED)
+	w.overlay.visible = false
+	w.camera.set_process(false)
+	w.visible = false
+	w.lighting.set_evening(false)
+	w.entities.visible = false
+	return w
+
+
+## The client's world from a map snapshot of the host's world now (the join path, checked for the dungeon).
+func _load_snapshot(host_w: GameWorld, client_w: GameWorld) -> void:
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host_w.data)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5,
+		Config.MAP_DUNGEON)
+	if got == null:
+		_fail("cave_net", "map snapshot refused: %s" % rx.error)
+		return
+	client_w.load_data(got)
+	snapshot_bytes = packed.bytes.size()
+
+
+func _check_dark(dun: GameWorld) -> void:
+	var feet: Vector2 = dun.arrival_point()
+	var cell: Vector2i = Aim.feet_cell(feet) + Vector2i(0, 2)
+	dun.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, cell, WorldData.PLACEABLE_TORCH))
+	var light: PointLight2D = dun.fixtures.light_nodes[cell]
+	for child: Node in dun.lighting.torches.get_children():
+		var l: PointLight2D = child as PointLight2D
+		if l != null and l != light:
+			l.enabled = false
+	var torch_node: Node2D = dun.fixtures.nodes[cell]
+	for child: Node in dun.entities.get_children():
+		var ci: CanvasItem = child as CanvasItem
+		if ci != null:
+			ci.visible = child == torch_node
+	var center: Vector2i = Vector2i(light.position)
+	var origin: Vector2i = _cave_look_at(dun, center)
+	dun.lighting.set_evening(true)
+	var dark: Image = await _capture()
+	dun.lighting.set_evening(false)
+	var bright: Image = await _capture()
+	if save_all:
+		_save(dark, "dark_on.png")
+		_save(bright, "dark_off.png")
+	var sprite_rect: Rect2i = Rect2i(FixtureView.torch_origin(cell) - origin, FixtureView.LANTERN.get_size())
+	var r: float = float(Config.TORCH_LIGHT_RADIUS_PX)
+	var far_lit: int = 0
+	var near_dark: int = 0
+	var far: int = 0
+	var near: int = 0
+	for y: int in Config.VIEW_SIZE.y:
+		for x: int in Config.VIEW_SIZE.x:
+			if sprite_rect.has_point(Vector2i(x, y)):
+				continue
+			var off: Color = bright.get_pixel(x, y)
+			if _brightness(off) < MIN_BRIGHTNESS:
+				continue
+			var ratio: float = _brightness(dark.get_pixel(x, y)) / _brightness(off)
+			var dist: float = (Vector2(origin + Vector2i(x, y)) + Vector2(0.5, 0.5)).distance_to(light.position)
+			if dist > r + 2.0:
+				far += 1
+				if ratio > 0.3:
+					far_lit += 1
+			elif dist < TorchLight.STEP_ENDS[0] * r - 2.0:
+				near += 1
+				if ratio < 0.75:
+					near_dark += 1
+	for child: Node in dun.entities.get_children():
+		var ci: CanvasItem = child as CanvasItem
+		if ci != null:
+			ci.visible = true
+	var safe: bool = dun.is_in_safe_zone(light.position)
+	var line: String = "far pixels %d (lit %d), inner-step pixels %d (dark %d), safe zone at the torch: %s" % [far, far_lit,
+		near, near_dark, safe]
+	if far > 1000 and near > 500 and far_lit == 0 and near_dark == 0 and not safe:
+		print("EVENSONG_RENDER dark ok %s" % line)
+	else:
+		_fail("dark", line)
+		_save(dark, "dark_on.png")
+		_save(bright, "dark_off.png")

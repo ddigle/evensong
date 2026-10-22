@@ -211,6 +211,9 @@ func _check_main_aim() -> void:
 				check_eq(player.aim_cell, Aim.feet_cell(player.sim_position) + Aim.SECTOR_OFFSETS[sector], "%s: target tile" % label)
 				check_eq(player.facing, Aim.facing(to_mouse, player.facing), "%s: faces the mouse" % label)
 				check(player.aim_active, "%s: aiming after the mouse moved" % label)
+				# The marker follows in _process. Under load Godot can run both physics ticks above in one frame
+				# with no process step between (M3b: seen once in a full run), so let one process step pass.
+				await await_frames(2)
 				check(main.marker.visible and main.marker.position == Vector2(player.aim_cell * Config.TILE), "%s: marker on the tile" % label)
 				if place == 0:
 					seen[sector] = true

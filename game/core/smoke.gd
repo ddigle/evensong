@@ -5,6 +5,12 @@ extends RefCounted
 ## world drawn with the ground view (corners, fallbacks, soil/ash, its hash = SurfaceGen.GOLDEN_HASH,
 ## the x86_64 result), the character art and rig tables, the body action sheets, item icons and M2a
 ## input actions, the safe-zone light texture against the rule, the flame mask, and the run scene.
+## M3a: the surface world's dungeon entrance, the committed dungeon TileSet, the seed-1 dungeon (its
+## hash = DungeonGen.GOLDEN_HASH, exit stairs, arrival point, shrine) drawn with the cave view.
+## M3b: the dungeons of seeds 1..8 (DungeonGen.SEEDS_GOLDEN, printed as dungeon_seeds= for comparing
+## another machine), wire v4 (a state with its map, a request aimed on a map, an edit naming its map,
+## the map entry) and a mined dungeon (cracks, a break, a torch, a drop) through the map snapshot path
+## into a cave view that draws it exactly.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -54,6 +60,7 @@ static func run(tree: SceneTree) -> Report:
 	var table: WangTable = _check_tileset(r)
 	if table != null:
 		_check_world(r, table)
+	_check_dungeon(r)
 	_check_actors(r)
 	_check_items(r)
 	_check_light(r)
@@ -151,6 +158,62 @@ static func _check_world(r: Report, table: WangTable) -> void:
 	r.expect_eq(v["fallbacks"], 0, "display cells drawn with a fallback tile")
 	r.fields.append("seed=%d world=%dx%d hash=%s cells=%d chunks=%d gatherables=%d" % [data.world_seed, data.size.x,
 		data.size.y, data.content_hash().left(12), cells, view.chunk_count(), gatherables])
+	view.free()
+
+
+## M3a: the dungeon TileSet (2 sources, 30 tiles, 21 corner keys), the seed-1 dungeon (hash, exit
+## stairs, arrival point open, shrine) drawn with the cave view (every display cell by the rule), and
+## the surface's entrance.
+static func _check_dungeon(r: Report) -> void:
+	var ts: TileSet = load(TilesetBuilder.DUNGEON_PATH) as TileSet
+	if not r.expect(ts != null, "dungeon tileset missing"):
+		return
+	r.expect_eq(ts.get_source_count(), 2, "dungeon tileset sources")
+	r.expect_eq(TilesetBuilder.count_tiles(ts), 30, "dungeon tileset tiles")
+	var table: CaveTable = CaveTable.from_tile_set(ts)
+	r.expect_eq(table.exact_keys, 21, "dungeon corner keys with art")
+	var data: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	r.expect_eq(data.size, Config.DUNGEON_SIZE, "dungeon size")
+	r.expect_eq(data.content_hash(), DungeonGen.GOLDEN_HASH, "seed %d dungeon hash (DungeonGen.GOLDEN_HASH)" % Config.DEFAULT_SEED)
+	r.expect_eq(DungeonGen.exit_rect(data).size, Config.EXIT_FOOTPRINT, "dungeon exit stairs")
+	r.expect_eq(DungeonGen.shrine_rect(data).size, Config.SHRINE_FOOTPRINT, "dungeon shrine spot")
+	r.expect(Movement.can_stand(data, DungeonGen.arrival_point(data)), "dungeon arrival point open")
+	var view: CaveView = CaveView.new()
+	view.setup(data, table)
+	var v: Dictionary[String, int] = view.verify()
+	r.expect_eq(v["missing"] + v["mismatches"] + v["overlay_mismatches"], 0, "dungeon display cells / overlays against the data")
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	r.expect_eq(SurfaceGen.entrance_rect(surface).size, Config.ENTRANCE_FOOTPRINT, "surface dungeon entrance")
+	r.fields.append("dungeon=%dx%d hash=%s ores=%d" % [data.size.x, data.size.y, data.content_hash().left(12),
+		Walls.ore_cells(data).size()])
+	# M3b: more seeds, for comparing machines (the generator is integer math only).
+	var digest: String = DungeonGen.seeds_digest()
+	r.expect_eq(digest, DungeonGen.SEEDS_GOLDEN, "dungeons of seeds 1..%d (DungeonGen.SEEDS_GOLDEN)" % DungeonGen.SEEDS_DIGEST_COUNT)
+	r.fields.append("dungeon_seeds=%s" % digest.left(12))
+	# M3b: a mined dungeon through the map snapshot path, drawn by a fresh cave view.
+	var mined: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var feet: Vector2 = DungeonGen.arrival_point(mined) + Vector2(3 * Config.TILE, 0)
+	var inv: Inventory = Inventory.new()
+	var hits: int = 0
+	for i: int in 3:
+		var res: Mining.Result = Mining.strike(mined, feet, Mining.MINER_CLASS, inv, Aim.feet_cell(feet) + Vector2i(1, 0))
+		for e: EditLog.WorldEdit in res.edits:
+			EditLog.apply_to_data(mined, e)
+		hits += res.hit.size()
+	mined.set_value(WorldData.Layer.PLACEABLE, Aim.feet_cell(feet) + Vector2i(0, 1), WorldData.PLACEABLE_TORCH)
+	mined.drops[1] = WorldData.Drop.new(1, &"ore_copper", 2, ItemDB.Grade.NONE, Vector2i(feet))
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(mined)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5,
+		Config.MAP_DUNGEON)
+	if r.expect(got != null and got.content_hash() == mined.content_hash() and got.map_id == Config.MAP_DUNGEON and hits > 0,
+			"mined dungeon map snapshot round trip: %s" % rx.error):
+		view.setup(got, table)
+		var mv: Dictionary[String, int] = view.verify()
+		r.expect_eq(mv["missing"] + mv["mismatches"] + mv["overlay_mismatches"], 0, "mined dungeon drawn = data")
+		r.fields.append("dungeon_map=%dB" % packed.bytes.size())
 	view.free()
 
 
@@ -271,6 +334,27 @@ static func _check_net(r: Report) -> void:
 	var inputs: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([frame] as Array[NetProtocol.InputFrame]))
 	r.expect(inputs.ok and inputs.frames.size() == 1 and inputs.frames[0].same_request(frame) and inputs.frames[0].look == frame.look,
 		"input frame with a request round trip (M2b)")
+	# M3b: maps on the wire.
+	s.map = Config.MAP_DUNGEON
+	var dbatch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(78, [s] as Array[NetProtocol.PlayerState]))
+	r.expect(dbatch.ok and dbatch.states[0].map == Config.MAP_DUNGEON, "state with its map round trip (M3b)")
+	var travel: NetProtocol.InputFrame = NetProtocol.InputFrame.new(10, Vector2i.ZERO)
+	travel.op = NetProtocol.Op.TRAVEL
+	travel.map = Config.MAP_DUNGEON
+	travel.cell = Vector2i(37, 14)
+	var tp: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([travel] as Array[NetProtocol.InputFrame]))
+	r.expect(tp.ok and tp.frames[0].same_request(travel) and tp.frames[0].map == Config.MAP_DUNGEON, "travel request round trip (M3b)")
+	var edit: Array = EditLog.decode_one(EditLog.encode_one(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(42, 15), 0), 9,
+		Config.MAP_DUNGEON))
+	var edit_map: int = edit[2]
+	r.expect_eq(edit_map, Config.MAP_DUNGEON, "edit names its map (M3b)")
+	var entry: NetProtocol.MapEntry = NetProtocol.MapEntry.new()
+	entry.map = Config.MAP_DUNGEON
+	entry.packed_size = 300
+	entry.chunk_count = 1
+	entry.state = s
+	var eb: NetProtocol.MapEntry = NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(entry))
+	r.expect(eb.ok and eb.map == Config.MAP_DUNGEON and eb.state.same_as(s), "map entry round trip (M3b)")
 	r.fields.append("snapshot=%dB/%dB" % [packed.bytes.size(), packed.raw_size])
 	var roster: Roster = Roster.new()
 	for i: int in Config.MAX_PLAYERS:

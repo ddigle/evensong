@@ -49,6 +49,9 @@ extends RefCounted
 ##                                (frame 1-based, default the middle one)
 ##   --test-action-lineup[=<frame>]     instead of the dummies, the local class doing every body
 ##                                action (rows facing south and east) frozen at a frame (default middle)
+## M3a (offline):
+##   --start-map=<surface|dungeon>  start on that map (dungeon: at its arrival point)
+##   --bot=<script>               offline too: the bot drives the local player instead of the keys
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -91,6 +94,8 @@ var test_aim: Variant = null
 var test_action: Array[int] = []
 ## --test-action-lineup: frame (0-based, -1 = middle), -2 when not given.
 var test_action_lineup: int = -2
+## --start-map (M3a): Config.MAP_SURFACE or MAP_DUNGEON.
+var start_map: int = Config.MAP_SURFACE
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -165,6 +170,13 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: transport must be one of %s" % [raw, ", ".join(Transports.KINDS)])
 				else:
 					o.transport = value
+			"start-map":
+				if value == "surface":
+					o.start_map = Config.MAP_SURFACE
+				elif value == "dungeon":
+					o.start_map = Config.MAP_DUNGEON
+				else:
+					o.errors.append("%s: map must be surface or dungeon" % raw)
 			"bot":
 				var bot_error: String = "empty script" if value.strip_edges().is_empty() else NetBot.new().parse(value)
 				if not bot_error.is_empty():

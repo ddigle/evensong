@@ -14,6 +14,7 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_hello": NetProtocol.CH_CONTROL, "_rpc_world": NetProtocol.CH_CONTROL, "_rpc_welcome": NetProtocol.CH_CONTROL,
 	"_rpc_refused": NetProtocol.CH_CONTROL, "_rpc_joined": NetProtocol.CH_CONTROL,
 	"_rpc_left": NetProtocol.CH_CONTROL, "_rpc_edit": NetProtocol.CH_CONTROL, "_rpc_inventory": NetProtocol.CH_CONTROL,
+	"_rpc_map": NetProtocol.CH_CONTROL,
 	"_rpc_keyframe": NetProtocol.CH_CONTROL, "_rpc_go": NetProtocol.CH_CONTROL,
 	"_rpc_done": NetProtocol.CH_CONTROL, "_rpc_finish": NetProtocol.CH_CONTROL,
 	"_rpc_input": NetProtocol.CH_INPUT, "_rpc_state": NetProtocol.CH_STATE,
@@ -108,6 +109,7 @@ func _check_request_codec() -> void:
 		frames.append(NetProtocol.InputFrame.new(50 + i, Vector2i(i % 3 - 1, 0)))
 	frames[1].look = RigData.Dir.WEST
 	frames[1].op = NetProtocol.Op.USE
+	frames[1].map = Config.MAP_DUNGEON  # M3b: tile requests name their map
 	frames[1].slot = 3
 	frames[1].cell = Vector2i(127, 95)
 	frames[2].op = NetProtocol.Op.PICKUP
@@ -118,18 +120,23 @@ func _check_request_codec() -> void:
 	frames[5].slot = 23
 	frames[5].count = 0
 	frames[5].cell = Vector2i(300, 2)
+	frames[6].op = NetProtocol.Op.TRAVEL
+	frames[6].map = Config.MAP_DUNGEON
+	frames[6].cell = Vector2i(37, 14)
 	frames[7].op = NetProtocol.Op.GIVE
 	frames[7].item_index = WorldItems.GIVE_KIT
 	frames[7].count = 9
 	frames[7].grade = ItemDB.Grade.FINE
 	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
-	var ops_bytes: int = 1 + (2 + 5) + (2 + 4) + (2 + 1) + (2 + 6) + (2 + 3)
-	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 8 + ops_bytes, "8 frames + 5 requests = header + 8 B + %d B" % ops_bytes)
+	var ops_bytes: int = 1 + (2 + 6) + (2 + 5) + (2 + 1) + (2 + 7) + (2 + 5) + (2 + 3)
+	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 8 + ops_bytes, "8 frames + 6 requests = header + 8 B + %d B (M3b: + map)" % ops_bytes)
 	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
 	var same: bool = p.ok and p.frames.size() == 8
 	for i: int in mini(p.frames.size(), 8):
 		same = same and p.frames[i].same_request(frames[i]) and p.frames[i].look == frames[i].look and p.frames[i].dir == frames[i].dir
 	check(same, "every request round trips with its frame")
+	check(p.ok and p.frames[1].map == Config.MAP_DUNGEON and p.frames[6].map == Config.MAP_DUNGEON and p.frames[2].map == Config.MAP_SURFACE
+		and p.frames[6].op == NetProtocol.Op.TRAVEL and p.frames[6].cell == Vector2i(37, 14), "M3b: maps and TRAVEL round trip")
 	var plain: Array[NetProtocol.InputFrame] = [NetProtocol.InputFrame.new(1, Vector2i(1, 0))]
 	check_eq(NetProtocol.encode_inputs(plain).size(), NetProtocol.INPUT_HEADER + 1, "no request: no request section (M1 size)")
 	# Every truncation of the request section is refused.
@@ -150,14 +157,20 @@ func _check_request_codec() -> void:
 	b[at + 1] = 8
 	cases["request on frame 8 of 8"] = b
 	b = bytes.duplicate()
-	b[at + 1 + 7] = 1  # second request on frame 1 again (indices must rise)
+	b[at + 1 + 2 + NetProtocol.OP_SIZES[NetProtocol.Op.USE]] = 1  # second request on frame 1 again (indices must rise)
 	cases["two requests on one frame"] = b
 	b = bytes.duplicate()
 	b[at + 2] = NetProtocol.OP_SIZES.size()
 	cases["unknown request kind"] = b
 	b = bytes.duplicate()
-	b[at + 3] = Config.HOTBAR_SLOTS  # use: slot outside the hotbar
+	b[at + 4] = Config.HOTBAR_SLOTS  # use: slot outside the hotbar (after its map byte)
 	cases["use slot outside the hotbar"] = b
+	b = bytes.duplicate()
+	b[at + 3] = Config.MAP_COUNT  # M3b: use aimed on a map that does not exist
+	cases["use on an unknown map"] = b
+	b = bytes.duplicate()
+	b[bytes.size() - (2 + 3) - (2 + 5) + 2] = 200  # M3b: travel (the request before the give) from map 200
+	cases["travel from an unknown map"] = b
 	b = bytes.duplicate()
 	b.append(0)
 	cases["trailing byte"] = b
@@ -191,10 +204,12 @@ func _check_states_codec() -> void:
 			s.action = RigData.ACTION_ANIMS[i % RigData.ACTION_ANIMS.size()]
 			s.action_tick = PlayerSim.action_ticks(s.action) - 1 - i
 		s.held = ItemDB.id_at(i * 2) if i < 8 else &""
+		s.map = i % Config.MAP_COUNT
 		states.append(s)
 	var bytes: PackedByteArray = NetProtocol.encode_states(123456, states)
 	check_eq(bytes.size(), NetProtocol.STATE_HEADER + NetProtocol.STATE_SIZE * Config.MAX_PLAYERS,
-		"9-player batch = 5 + 9 x 16 B (M2b: + action frames, held item)")
+		"9-player batch = 5 + 9 x 17 B (M2b: + action frames, held item; M3b: + map)")
+	check_eq(NetProtocol.STATE_SIZE, 17, "a state is 17 B (M3b)")
 	var b: NetProtocol.StateBatch = NetProtocol.decode_states(bytes)
 	check(b.ok and b.tick == 123456 and b.states.size() == Config.MAX_PLAYERS, "state batch decodes")
 	var exact: bool = true
@@ -222,6 +237,10 @@ func _check_states_codec() -> void:
 	var bad_held: PackedByteArray = bytes.duplicate()
 	bad_held[NetProtocol.STATE_HEADER + 15] = ItemDB.count() + 1
 	check(not NetProtocol.decode_states(bad_held).ok, "an unknown held item is rejected")
+	var bad_map: PackedByteArray = bytes.duplicate()
+	bad_map[NetProtocol.STATE_HEADER + 16] = Config.MAP_COUNT
+	check(not NetProtocol.decode_states(bad_map).ok, "M3b: a map id that does not exist is rejected")
+	check(b.ok and b.states[1].map == Config.MAP_DUNGEON and b.states[2].map == Config.MAP_SURFACE, "M3b: the map round trips")
 	check(NetProtocol.decode_states(NetProtocol.encode_states(9, [] as Array[NetProtocol.PlayerState])).ok,
 		"an empty batch is valid")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()

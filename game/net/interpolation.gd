@@ -14,6 +14,9 @@ extends RefCounted
 ## the action's start tick is known: sample(t) shows an action from the tick it started (also when
 ## that lies between two states) and counts its frames at t, until it ends. The held item comes from
 ## the older state.
+## M3b: a state also says which map the player is on. A state on another map than the ones before it
+## (the player went down or up) drops them: positions on two maps are never blended, and the player
+## shows on its new map from the first state there (SessionClient draws only those on its own map).
 
 const MAX_SNAPS: int = 64
 
@@ -26,6 +29,7 @@ class Snap:
 	var action: int = -1
 	var action_tick: int = 0
 	var held: StringName = &""
+	var map: int = Config.MAP_SURFACE
 
 	func copy_at(t: float) -> Snap:
 		var s: Snap = Snap.new()
@@ -36,6 +40,7 @@ class Snap:
 		s.action = action
 		s.action_tick = action_tick
 		s.held = held
+		s.map = map
 		return s
 
 	## The tick this snap's action started (only meaningful with an action).
@@ -56,9 +61,14 @@ func push(tick: int, state: NetProtocol.PlayerState) -> void:
 	s.action = state.action
 	s.action_tick = state.action_tick
 	s.held = state.held
+	s.map = state.map
 	if not snaps.is_empty():
 		var last: Snap = snaps.back()
 		if s.tick <= last.tick:
+			return
+		if last.map != s.map:
+			snaps.clear()  # another map: nothing to blend with
+			snaps.append(s)
 			return
 		if s.tick - last.tick > 1.5 * interval_ticks:
 			var again: Snap = last.copy_at(s.tick - interval_ticks)

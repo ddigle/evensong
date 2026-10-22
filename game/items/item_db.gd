@@ -17,11 +17,14 @@ extends RefCounted
 ## herbs are graded. Whether mushrooms, stones or tools have grades is not in the docs (PROVISIONAL:
 ## no). Stacks of different grades do not merge.
 
-enum Kind { TOOL, MATERIAL, GATHERABLE }
+## M3a: PLACEABLE = put on a floor tile by "use" (the torch).
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
-const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable"]
+const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable"]
+## IMPL (M3-fix): inventory slots the debug kit leaves free (debug_kit()).
+const DEBUG_KIT_FREE_SLOTS: int = 2
 const GRADE_NAMES: PackedStringArray = ["none", "common", "fine"]
 const ART_DIR: String = "res://art/items/"
 
@@ -41,6 +44,8 @@ class ItemDef:
 	var graded: bool
 	## RigData body action played by "use" (-1: none).
 	var action: int
+	## M3a: WorldData placeable value "use" puts on the target tile (PLACEABLE_NONE: none).
+	var place: int = WorldData.PLACEABLE_NONE
 
 	func _init(p_id: StringName, p_kind: int, p_stack: int, p_graded: bool = false, p_action: int = -1) -> void:
 		id = p_id
@@ -116,14 +121,18 @@ static func grade_from_name(text: String) -> int:
 	return GRADE_NAMES.find(text)
 
 
-## Debug kit (F5): every tool, a few of each gatherable kind, the material.
+## Debug kit (F5): every tool, (M3a) ten torches right after them (in the hotbar, slot 7), a few of most
+## gatherable kinds, the material. It leaves DEBUG_KIT_FREE_SLOTS of the Config.INVENTORY_SLOTS slots
+## free (M3-fix: with the torches it had filled all 24, so a herbalist's first FINE herb of a kind and
+## every ore from mining found no slot): the two ash-side stones (stone_veined, stone_mould, which lie
+## on the surface's ash zones) are left out for that.
 static func debug_kit() -> Array[Array]:
 	return [
-		[&"pickaxe", 1], [&"hoe", 1], [&"sickle", 1], [&"watering_can", 1], [&"sword", 1], [&"bow", 1],
+		[&"pickaxe", 1], [&"hoe", 1], [&"sickle", 1], [&"watering_can", 1], [&"sword", 1], [&"bow", 1], [&"torch", 10],
 		[&"wild_healing", 12], [&"mushroom_a", 5], [&"stone_a", 30], [&"stone_block", 8],
 		[&"wild_healing", 3, Grade.FINE], [&"wild_buff", 4], [&"wild_poison", 2], [&"herb_clump", 6],
 		[&"mushroom_b", 3], [&"mushroom_c", 2], [&"mushroom_d", 1], [&"mushroom_ash", 2],
-		[&"stone_b", 4], [&"stone_c", 4], [&"stone_mossy", 2], [&"stone_veined", 1], [&"stone_mould", 1],
+		[&"stone_b", 4], [&"stone_c", 4], [&"stone_mossy", 2],
 	]
 
 
@@ -154,6 +163,19 @@ static func _build() -> void:
 		_art(StringName("mushroom_" + m), Kind.GATHERABLE, Config.STACK_GATHERABLE, false, "item_mushroom_%s_v02.png" % m)
 	for s: String in ["a", "b", "c", "mossy", "veined", "mould"]:
 		_art(StringName("stone_" + s), Kind.GATHERABLE, Config.STACK_GATHERABLE, false, "item_stone_%s_v02.png" % s)
+	# M3a (appended: the wire sends items by index). Ores from mining (04-env 묶음 2 item_ore_*_a, the
+	# ones the 04-env dungeon mockup uses), materials like the stone block.
+	_art(&"ore_copper", Kind.MATERIAL, Config.STACK_MATERIAL, false, "item_ore_copper_a_v02.png")
+	_art(&"ore_iron", Kind.MATERIAL, Config.STACK_MATERIAL, false, "item_ore_iron_a_v02.png")
+	# The torch (gameplay-design §3.0 ● R11: "기본 키트 (횃불, 발판)"; the merchant who sells it is M8): the
+	# debug kit and --give hand it out. No torch item art exists: the icon is drawn in code
+	# (items/item_icons.gd) and the placed torch is the 04-env ground lantern (lit), the only floor
+	# light a player puts down in the 04-env art (world/fixture_view.gd). PROVISIONAL stack size (99, the
+	# materials' Config.STACK_MATERIAL) and kind PLACEABLE (README "임시값" M3a 횃불).
+	var torch: ItemDef = ItemDef.new(&"torch", Kind.PLACEABLE, Config.STACK_MATERIAL)
+	torch.icon_code = &"torch"
+	torch.place = WorldData.PLACEABLE_TORCH
+	_add(torch)
 
 
 static func _tool(id: StringName, action: int) -> void:

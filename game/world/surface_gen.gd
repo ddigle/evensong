@@ -16,6 +16,12 @@ extends RefCounted
 ##      Config.GATHER_ON_ASH on ash, in that order and count, every one with its cell centre at least
 ##      GATHER_CLEARANCE_TILES beyond the safe radius, at least 2 cells from the map edge (so every
 ##      side can be reached), and none in the 8 cells around another (PROVISIONAL counts and places).
+##   5. Dungeon entrance (M3a, PLACEABLE_ENTRANCE): Config.ENTRANCE_FOOTPRINT at Config.
+##      ENTRANCE_OFFSET_TILES from the altar footprint's top-left cell, or, if that spot is not clear,
+##      the nearest clear one (rings of growing distance around it, row by row): every footprint cell
+##      centre beyond the safe radius + 1 tile, the footprint and the tiles around it inside the map
+##      (2 tiles from the edge) with no gatherable, no placeable and no soil. Placed after step 4 and
+##      without random numbers, so the gatherables are where they were in M2b.
 ##   Everything else is grass. Soil and ash never share a display cell (WorldData.set_terrain
 ##   refuses it, and the distances keep them far apart anyway).
 
@@ -24,8 +30,9 @@ const MAX_ATTEMPTS: int = 200
 ## generated on the x86_64 desktop. It pins the output (an unintended change fails test_world.gd,
 ## and --smoke on another machine shows whether that machine generates the same world); whether
 ## the rules hold is checked separately over many seeds. When the generator or its constants
-## change on purpose, update it (the failure prints the new value).
-const GOLDEN_HASH: String = "ff2e1d90c4dc12d6dfad926584d440d0"
+## change on purpose, update it (the failure prints the new value). M3a changed it on purpose: step 5
+## puts the dungeon entrance into the PLACEABLE layer (the gatherables did not move).
+const GOLDEN_HASH: String = "1d9f92c7b5ef2a715f95cc32d7424b36"
 ## Cells kept free between a gatherable and the map edge (PROVISIONAL, Config).
 const GATHER_EDGE: int = Config.GATHER_EDGE_TILES
 
@@ -46,6 +53,7 @@ static func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> World
 	_place_ash(data, rng)
 	_place_gatherables(data, rng, Config.GATHER_ON_GRASS, Terrain.GRASS)
 	_place_gatherables(data, rng, Config.GATHER_ON_ASH, Terrain.ASH)
+	_place_entrance(data)
 	return data
 
 
@@ -186,3 +194,41 @@ static func _place_gatherables(data: WorldData, rng: RandomNumberGenerator, coun
 				if gatherable_spot_ok(data, c, terrain):
 					data.set_value(WorldData.Layer.VEGETATION, c, value)
 					break
+
+
+## Whether the dungeon entrance may take footprint `rect` (step 5).
+static func entrance_spot_ok(data: WorldData, rect: Rect2i) -> bool:
+	var area: Rect2i = rect.grow(1)
+	if not Rect2i(Vector2i(GATHER_EDGE, GATHER_EDGE), data.size - Vector2i(2 * GATHER_EDGE, 2 * GATHER_EDGE)).encloses(area):
+		return false
+	var min_px: float = Config.safe_radius_px() + Config.TILE
+	for y: int in range(area.position.y, area.end.y):
+		for x: int in range(area.position.x, area.end.x):
+			var c: Vector2i = Vector2i(x, y)
+			if data.get_value(WorldData.Layer.VEGETATION, c) != 0 or data.get_value(WorldData.Layer.PLACEABLE, c) != 0:
+				return false
+			if data.terrain_at(c) == Terrain.SOIL:
+				return false
+			if rect.has_point(c) and ((Vector2(c) + Vector2(0.5, 0.5)) * Config.TILE).distance_to(data.altar_center_px()) < min_px:
+				return false
+	return true
+
+
+static func _place_entrance(data: WorldData) -> void:
+	var want: Vector2i = data.altar_rect.position + Config.ENTRANCE_OFFSET_TILES
+	var reach: int = maxi(data.size.x, data.size.y)
+	for d: int in reach:
+		for y: int in range(want.y - d, want.y + d + 1):
+			for x: int in range(want.x - d, want.x + d + 1):
+				if maxi(absi(x - want.x), absi(y - want.y)) != d:
+					continue
+				var rect: Rect2i = Rect2i(Vector2i(x, y), Config.ENTRANCE_FOOTPRINT)
+				if entrance_spot_ok(data, rect):
+					data.put_placeable(rect, WorldData.PLACEABLE_ENTRANCE)
+					return
+
+
+## The dungeon entrance's footprint (empty rect when there is none).
+static func entrance_rect(data: WorldData) -> Rect2i:
+	var all: Array[Rect2i] = data.footprints(WorldData.PLACEABLE_ENTRANCE)
+	return all[0] if not all.is_empty() else Rect2i()

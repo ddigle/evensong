@@ -6,31 +6,37 @@ extends RefCounted
 ##
 ## Channels (one ordered stream each, so the streams do not hold each other up):
 ##   CH_CONTROL 0 reliable            hello, world chunks, welcome, refused, joined, left, edits,
-##                                    keyframe, inventory, go, done, finish (one ordered stream: a
-##                                    joiner gets its world chunks, then the welcome, then the rest)
+##                                    keyframe, inventory, map entry, go, done, finish (one ordered
+##                                    stream: a joiner gets its world chunks, then the welcome, then
+##                                    the rest; M3b: a player entering a map gets that map's chunks,
+##                                    then the map entry, then that map's edits)
 ##   CH_INPUT   1 unreliable ordered  client -> host input frames (and the requests riding on them)
 ##   CH_STATE   2 unreliable ordered  host -> clients player-state batches
 ##
 ## Input packet  u32 first_seq, u8 count, count x u8 frame code (frames first_seq, first_seq+1, ...),
 ##               then, only when some of those frames carry a request (M2b): u8 op count, and per op
 ##               u8 frame index (ascending, one op per frame), u8 op, the op's fields:
-##                 USE     u8 hotbar slot, s16 x, s16 y (target tile)          start that tool's action
-##                 PICKUP  s16 x, s16 y (target tile)                          F: pick up what lies there
+##                 USE     u8 map, u8 hotbar slot, s16 x, s16 y (target tile)  start that tool's action
+##                 PICKUP  u8 map, s16 x, s16 y (target tile)                  F: pick up what lies there
 ##                 SELECT  u8 hotbar slot                                      Q / E
-##                 DROP    u8 slot, u8 count (0 = all), s16 x, s16 y           debug: drop onto the tile
+##                 DROP    u8 map, u8 slot, u8 count (0 = all), s16 x, s16 y   debug: drop onto the tile
 ##                 GIVE    u8 item index (255 = debug kit), u8 count, u8 grade debug, test builds only
+##                 TRAVEL  u8 map, s16 x, s16 y (the entrance / stairs tile)   M3b: F on a way to another map
+##               M3b: a request aimed at a tile names the map it was aimed on (the map the sender
+##               was on when it made the frame); the host refuses it on any other map ("wrong map").
 ##               frame code = (dx + 1) + 3 * (dy + 1) + 9 * (look + 1), 0..44: 8 ways + none, and the
 ##               look = the facing toward the mouse while aiming (0..3) or -1 (the facing follows the
 ##               movement; the host derives it with the client's rule, Movement.facing_for). Codes
 ##               0..8 are M1's frames. Requests repeat with their frame until the host acknowledges
 ##               it, and the host handles them when it handles that frame, at that position.
-## State batch   u32 host_tick, u8 count, count x state (16 B):
+## State batch   u32 host_tick, u8 count, count x state (17 B):
 ##               u8 slot, f32 x, f32 y, u8 flags (bits 0-1 facing, bit 2 walking, bits 3-6 body
 ##               action: 0 = none, else the RigData action anim), u32 ack, u8 action frames so far,
-##               u8 held item (0 = empty hand, else item index + 1)
+##               u8 held item (0 = empty hand, else item index + 1), u8 map (M3b: the map the player
+##               is on; a client draws only the players on its own map)
 ##               Positions are the host's float32 simulation values, sent exactly, so a client that
 ##               replays its unacknowledged frames from them lands where the host will.
-## Player info   u8 class index + state (17 B), in welcome and joined
+## Player info   u8 class index + state (18 B), in welcome and joined
 ## Hello         u16 version, u8 class index
 ## World chunk   u32 index + at most NET_SNAPSHOT_CHUNK_BYTES of the packed world (net/world_snapshot.gd),
 ##               reliable, before the welcome
@@ -43,11 +49,17 @@ extends RefCounted
 ## Inventory     host -> its owner only (M2b): u32 ack (the owner's last frame the host handled when it
 ##               sent this), u8 selected hotbar slot, u8 slot count, per slot u8 item (0 = empty, else
 ##               index + 1), u8 count, u8 grade
+## Map entry     host -> the player who went to another map (M3b), after that map's world chunks:
+##               u8 map, u32 edit position (that map's edits already in the snapshot), u32 raw size,
+##               u32 packed size, u32 chunk count, 16 B packed md5, 16 B world md5, then the
+##               player's own state (17 B, ack = its last frame the host handled) on the new map
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
 ## 3 (M2b): frames carry the look and requests, states the body action and held item, inventories,
 ## drop edits, gatherables and drops in the world snapshot.
-const VERSION: int = 3
+## 4 (M3b): maps in sessions: states carry the map, tile requests the map they aim on, TRAVEL, edits
+## the map they change, the snapshot header its map, the map entry message.
+const VERSION: int = 4
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -58,18 +70,19 @@ enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO }
 const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "class_taken", "bad_hello"]
 
 ## Requests riding on input frames (M2b).
-enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE }
-const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give"]
+enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL }
+const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel"]
 ## Field bytes per op (after the frame index and the op byte).
-const OP_SIZES: PackedInt32Array = [0, 5, 4, 1, 6, 3]
+const OP_SIZES: PackedInt32Array = [0, 6, 5, 1, 7, 3, 5]
 
 const INPUT_HEADER: int = 5
 const STATE_HEADER: int = 5
-const STATE_SIZE: int = 16
-const INFO_SIZE: int = 17
+const STATE_SIZE: int = 17
+const INFO_SIZE: int = 18
 const HELLO_SIZE: int = 3
 const WELCOME_FIXED: int = 2 + 1 + 1 + 4 + 1 + 4 + 4 + 4 + 4 + 16 + 16 + 16
 const INVENTORY_HEADER: int = 6
+const MAP_ENTRY_SIZE: int = 1 + 4 + 4 + 4 + 4 + 16 + 16 + STATE_SIZE
 const INVENTORY_SLOT_BYTES: int = 3
 ## Directions (9) x looks (none + 4 facings).
 const CODE_COUNT: int = 45
@@ -91,6 +104,8 @@ class InputFrame:
 	var count: int = 0
 	var item_index: int = 0
 	var grade: int = 0
+	## M3b: the map a tile request (USE, PICKUP, DROP, TRAVEL) was aimed on.
+	var map: int = Config.MAP_SURFACE
 	## Resolved, not sent: the body action a USE starts (-1 = none) and the item playing it.
 	var anim: int = -1
 	var item: StringName = &""
@@ -102,20 +117,22 @@ class InputFrame:
 	## The request part equals `o`'s (op and its fields).
 	func same_request(o: InputFrame) -> bool:
 		return o != null and op == o.op and slot == o.slot and cell == o.cell and count == o.count \
-			and item_index == o.item_index and grade == o.grade
+			and item_index == o.item_index and grade == o.grade and (map == o.map or not NetProtocol.op_has_map(op))
 
 	func describe_op() -> String:
 		match op:
 			Op.USE:
-				return "use slot=%d at=%d,%d" % [slot, cell.x, cell.y]
+				return "use map=%d slot=%d at=%d,%d" % [map, slot, cell.x, cell.y]
 			Op.PICKUP:
-				return "pickup at=%d,%d" % [cell.x, cell.y]
+				return "pickup map=%d at=%d,%d" % [map, cell.x, cell.y]
 			Op.SELECT:
 				return "select slot=%d" % slot
 			Op.DROP:
-				return "drop slot=%d count=%d at=%d,%d" % [slot, count, cell.x, cell.y]
+				return "drop map=%d slot=%d count=%d at=%d,%d" % [map, slot, count, cell.x, cell.y]
 			Op.GIVE:
 				return "give item=%d count=%d grade=%d" % [item_index, count, grade]
+			Op.TRAVEL:
+				return "travel map=%d at=%d,%d" % [map, cell.x, cell.y]
 		return "none"
 
 
@@ -131,10 +148,12 @@ class PlayerState:
 	var action: int = -1
 	var action_tick: int = 0
 	var held: StringName = &""
+	## M3b: the map the player is on.
+	var map: int = Config.MAP_SURFACE
 
 	func same_as(o: PlayerState) -> bool:
 		return o != null and slot == o.slot and pos == o.pos and facing == o.facing and walking == o.walking \
-			and ack == o.ack and action == o.action and action_tick == o.action_tick and held == o.held
+			and ack == o.ack and action == o.action and action_tick == o.action_tick and held == o.held and map == o.map
 
 
 ## Who a player is (class) and where they are.
@@ -187,6 +206,22 @@ class Welcome:
 	var players: Array[PlayerInfo] = []
 
 
+## M3b: what a player who went to another map gets after that map's world chunks: which map, the
+## snapshot's numbers (checked like the welcome's) and its own state there.
+class MapEntry:
+	extends RefCounted
+	var ok: bool = false
+	var map: int = Config.MAP_SURFACE
+	## Edits of that map already in the snapshot (the index of its next live edit).
+	var edit_position: int = 0
+	var raw_size: int = 0
+	var packed_size: int = 0
+	var chunk_count: int = 0
+	var packed_md5: PackedByteArray = PackedByteArray()
+	var world_md5: PackedByteArray = PackedByteArray()
+	var state: PlayerState = PlayerState.new()
+
+
 ## A player's inventory as the host sends it to its owner (M2b).
 class InventoryState:
 	extends RefCounted
@@ -210,6 +245,15 @@ static func frame_from_code(code: int, seq: int) -> InputFrame:
 	var f: InputFrame = InputFrame.new(seq, Vector2i(d % 3 - 1, d / 3 - 1))
 	f.look = code / DIR_CODES - 1
 	return f
+
+
+## Whether requests of kind `op` carry a map (they aim at a tile of it).
+static func op_has_map(op: int) -> bool:
+	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL
+
+
+static func valid_map(map: int) -> bool:
+	return map >= 0 and map < Config.MAP_COUNT
 
 
 static func class_index(class_id: String) -> int:
@@ -252,12 +296,15 @@ static func encode_inputs(frames: Array[InputFrame]) -> PackedByteArray:
 
 
 static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
+	if op_has_map(f.op):
+		out.encode_u8(at, f.map)
+		at += 1
 	match f.op:
 		Op.USE:
 			out.encode_u8(at, f.slot)
 			out.encode_s16(at + 1, f.cell.x)
 			out.encode_s16(at + 3, f.cell.y)
-		Op.PICKUP:
+		Op.PICKUP, Op.TRAVEL:
 			out.encode_s16(at, f.cell.x)
 			out.encode_s16(at + 2, f.cell.y)
 		Op.SELECT:
@@ -273,15 +320,20 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_u8(at + 2, f.grade)
 
 
-## The op's fields at `at` into `f`; false when a field is out of range (slots, item, grade).
+## The op's fields at `at` into `f`; false when a field is out of range (map, slots, item, grade).
 static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> bool:
 	f.op = op
+	if op_has_map(op):
+		f.map = bytes.decode_u8(at)
+		at += 1
+		if not valid_map(f.map):
+			return false
 	match op:
 		Op.USE:
 			f.slot = bytes.decode_u8(at)
 			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
 			return f.slot < Config.HOTBAR_SLOTS
-		Op.PICKUP:
+		Op.PICKUP, Op.TRAVEL:
 			f.cell = Vector2i(bytes.decode_s16(at), bytes.decode_s16(at + 2))
 			return true
 		Op.SELECT:
@@ -380,6 +432,7 @@ static func _put_state(out: PackedByteArray, at: int, s: PlayerState) -> void:
 	out.encode_u32(at + 10, s.ack)
 	out.encode_u8(at + 14, s.action_tick if action != 0 else 0)
 	out.encode_u8(at + 15, ItemDB.index_of(s.held) + 1 if not s.held.is_empty() else 0)
+	out.encode_u8(at + 16, s.map)
 
 
 static func _get_state(bytes: PackedByteArray, at: int) -> PlayerState:
@@ -393,7 +446,9 @@ static func _get_state(bytes: PackedByteArray, at: int) -> PlayerState:
 	s.ack = bytes.decode_u32(at + 10)
 	var tick: int = bytes.decode_u8(at + 14)
 	var held: int = bytes.decode_u8(at + 15)
-	if s.slot >= Config.MAX_PLAYERS or (flags & 0x80) != 0 or not (is_finite(s.pos.x) and is_finite(s.pos.y)):
+	s.map = bytes.decode_u8(at + 16)
+	if s.slot >= Config.MAX_PLAYERS or (flags & 0x80) != 0 or not (is_finite(s.pos.x) and is_finite(s.pos.y)) \
+			or not valid_map(s.map):
 		return null
 	if action == 0:
 		if tick != 0:
@@ -523,6 +578,43 @@ static func decode_welcome(bytes: PackedByteArray) -> Welcome:
 static func _put_md5(out: PackedByteArray, at: int, md5: PackedByteArray) -> void:
 	for i: int in 16:
 		out.encode_u8(at + i, md5[i] if i < md5.size() else 0)
+
+
+# --- map entry (M3b) -------------------------------------------------------------------------
+
+static func encode_map_entry(e: MapEntry) -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(MAP_ENTRY_SIZE)
+	out.encode_u8(0, e.map)
+	out.encode_u32(1, e.edit_position)
+	out.encode_u32(5, e.raw_size)
+	out.encode_u32(9, e.packed_size)
+	out.encode_u32(13, e.chunk_count)
+	_put_md5(out, 17, e.packed_md5)
+	_put_md5(out, 33, e.world_md5)
+	_put_state(out, 49, e.state)
+	return out
+
+
+## The map entry, or ok = false (size, map id, chunk count against the packed size, the state).
+static func decode_map_entry(bytes: PackedByteArray) -> MapEntry:
+	var e: MapEntry = MapEntry.new()
+	if bytes.size() != MAP_ENTRY_SIZE:
+		return e
+	e.map = bytes.decode_u8(0)
+	e.edit_position = bytes.decode_u32(1)
+	e.raw_size = bytes.decode_u32(5)
+	e.packed_size = bytes.decode_u32(9)
+	e.chunk_count = bytes.decode_u32(13)
+	e.packed_md5 = bytes.slice(17, 33)
+	e.world_md5 = bytes.slice(33, 49)
+	var st: PlayerState = _get_state(bytes, 49)
+	if st == null or not valid_map(e.map) or st.map != e.map:
+		return e
+	e.state = st
+	e.ok = e.packed_size > 0 and e.chunk_count >= WorldSnapshot.chunks_for(e.packed_size, Config.NET_SNAPSHOT_CHUNK_BYTES) \
+		and e.chunk_count <= e.packed_size
+	return e
 
 
 # --- inventory (M2b) -------------------------------------------------------------------------
