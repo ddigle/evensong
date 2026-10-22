@@ -9,7 +9,11 @@ extends RefCounted
 ## Raw      header + the six layers in WorldData.Layer order, w x h bytes each (row-major) + the
 ##          drops (M2b: WorldData.drops_bytes(), u16 count + 11 B each, by id; gatherables are the
 ##          VEGETATION layer)
-##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (6)
+##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (6),
+##          u8 map id (M3b: which map this is; not in the content hash)
+## M3b: the same path sends a map to a player who enters it (net/session_host.gd: a stream per entry,
+## the map entry message in place of the welcome), so the dungeon (walls with their hits = cracks,
+## ore, torches, drops) arrives exactly as the host has it.
 ## Packed   raw compressed with zstd. Godot's zstd decoder returns nothing for bad input (deflate
 ##          logs an engine error), so a broken snapshot is counted, not logged.
 ## Chunks   packed split into chunk_bytes pieces (u32 index + bytes; Config.NET_SNAPSHOT_CHUNK_BYTES,
@@ -19,7 +23,7 @@ extends RefCounted
 ## bytes' md5 and the world's content hash (WorldData.content_hash); the joiner checks every one of
 ## them before it uses the world (Receiver.finish).
 
-const HEADER_SIZE: int = 2 + 2 + 8 + 2 + 2 + 2 + 2 + 1
+const HEADER_SIZE: int = 2 + 2 + 8 + 2 + 2 + 2 + 2 + 1 + 1
 const CHUNK_HEADER: int = 4
 const COMPRESSION: FileAccess.CompressionMode = FileAccess.COMPRESSION_ZSTD
 ## Cells per axis a snapshot may claim (bounds what a joiner allocates; u16 on the wire). 4x the M1
@@ -108,9 +112,10 @@ class Receiver:
 		chunks += 1
 		return true
 
-	## The world, once the welcome's numbers match what arrived; null (and `error`) otherwise.
+	## The world, once the welcome's (or map entry's) numbers match what arrived; null (and `error`)
+	## otherwise. `map` (M3b): the map it must be (-1 = any).
 	func finish(chunk_count: int, packed_size: int, packed_md5: PackedByteArray, raw_size: int,
-			world_md5: PackedByteArray) -> WorldData:
+			world_md5: PackedByteArray, map: int = -1) -> WorldData:
 		if chunks != chunk_count or bytes.size() != packed_size:
 			error = "got %d chunks / %d bytes, the host sent %d / %d" % [chunks, bytes.size(), chunk_count, packed_size]
 			return null
@@ -123,6 +128,9 @@ class Receiver:
 			return null
 		if data.content_hash() != world_md5.hex_encode():
 			error = "world hash %s, the host's %s" % [data.content_hash(), world_md5.hex_encode()]
+			return null
+		if map >= 0 and data.map_id != map:
+			error = "map %d, the host said %d" % [data.map_id, map]
 			return null
 		return data
 
@@ -152,6 +160,7 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 	out.encode_u16(16, data.altar_rect.size.x)
 	out.encode_u16(18, data.altar_rect.size.y)
 	out.encode_u8(20, WorldData.LAYER_COUNT)
+	out.encode_u8(21, data.map_id)
 	for grid: PackedByteArray in data.layers:
 		out.append_array(grid)
 	out.append_array(data.drops_bytes())
@@ -159,15 +168,15 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 
 
 ## The world from raw_bytes(), or null when the bytes do not describe a valid one (size, layer
-## count, altar inside the map, floor values that are terrains, drops: at most Config.MAX_DROPS,
-## each a valid item stack inside the map, ids unique, nothing after them).
+## count, a known map id, altar inside the map, floor values that are terrains, drops: at most
+## Config.MAX_DROPS, each a valid item stack inside the map, ids unique, nothing after them).
 static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < HEADER_SIZE:
 		return null
 	var size: Vector2i = Vector2i(raw.decode_u16(0), raw.decode_u16(2))
 	if size.x < 1 or size.y < 1 or size.x > MAX_SIDE or size.y > MAX_SIDE:
 		return null
-	if raw.decode_u8(20) != WorldData.LAYER_COUNT:
+	if raw.decode_u8(20) != WorldData.LAYER_COUNT or not NetProtocol.valid_map(raw.decode_u8(21)):
 		return null
 	var cells: int = size.x * size.y
 	var drops_at: int = HEADER_SIZE + WorldData.LAYER_COUNT * cells
@@ -181,6 +190,7 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 		return null
 	var data: WorldData = WorldData.new(size)
 	data.world_seed = raw.decode_s64(4)
+	data.map_id = raw.decode_u8(21)
 	data.altar_rect = altar if altar.has_area() else Rect2i()
 	for i: int in WorldData.LAYER_COUNT:
 		var start: int = HEADER_SIZE + i * cells

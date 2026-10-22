@@ -169,5 +169,15 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 	return true
 
 
+## M3b: md5 of what this map draws (the surface's ground, the dungeon's cave walls and overlays).
+func view_hash() -> String:
+	return cave.view_hash() if cave != null and map_id == Config.MAP_DUNGEON else ground.view_hash()
+
+
+## M3b: this map's drawing against its data (GroundView.verify / CaveView.verify).
+func view_check() -> Dictionary[String, int]:
+	return cave.verify() if cave != null and map_id == Config.MAP_DUNGEON else ground.verify()
+
+
 func map_rect_px() -> Rect2:
 	return Rect2(Vector2.ZERO, Vector2(data.size * Config.TILE))

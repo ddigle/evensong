@@ -43,6 +43,7 @@ func local_action() -> NetBot.Action:
 	var feet: Vector2 = p.sim_position if p != null else Vector2.ZERO
 	if bot != null:
 		if bots_started:
+			bot.map_counts = map_counts()
 			return bot.step(feet)
 		var idle: NetBot.Action = NetBot.Action.new()
 		idle.mouse = feet
@@ -117,8 +118,12 @@ func _host_finish(now: int) -> void:
 	_drain_until_ms = now + int(HOST_DRAIN_SEC * 1000.0)
 	for peer: int in s.host.remote_peers():
 		s.send_finish(peer)
-	s.log_event("finish", "players=%d edits=%d world=%s" % [s.members.size(), s.edit_log.size(),
-		s.world.data.content_hash().left(12)])
+	var maps: PackedStringArray = []
+	for map: int in s.worlds:
+		if s.worlds[map].data != null:
+			maps.append("%s edits=%d world=%s" % [Config.MAP_NAMES[map], s.log_for(map).size(),
+				s.worlds[map].data.content_hash().left(12)])
+	s.log_event("finish", "players=%d %s" % [s.members.size(), ", ".join(maps)])
 	write_result("finished")
 
 
@@ -160,7 +165,20 @@ func write_result(reason: String) -> void:
 		printerr("EVENSONG_NET cannot write %s" % s.options.net_out.path_join(s.instance_name() + ".json"))
 
 
+## M3b: how many players are on each map, as this machine knows it (the host: its members; a client:
+## its own map and the others' latest states). Bot "waitmap" waits on it.
+func map_counts() -> Dictionary[int, int]:
+	var out: Dictionary[int, int] = {}
+	for slot: int in s.members:
+		var map: int = s.members[slot].map_id
+		var n: int = out.get(map, 0)
+		out[map] = n + 1
+	return out
+
+
+## Logs `marker` and writes the marker file (--net-out). M3b: its text is a JSON snapshot of what this
+## machine sees then: the tick, its map and per slot that player's map and whether it is drawn here.
 func mark(marker: String) -> void:
 	s.log_event("mark", marker)
 	if s.options != null and not s.options.net_out.is_empty():
-		SessionReport.write_marker(s.options.net_out, s.instance_name(), marker, str(s.tick))
+		SessionReport.write_marker(s.options.net_out, s.instance_name(), marker, JSON.stringify(SessionReport.seen(s)))

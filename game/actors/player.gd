@@ -157,6 +157,8 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 ## look is the facing toward the mouse while aiming or using, -1 otherwise (facing by movement).
 func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
+	if data != null:
+		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
 	var to_mouse: Vector2 = mouse - sim_position
 	aim_sector = Aim.sector(to_mouse, aim_sector)

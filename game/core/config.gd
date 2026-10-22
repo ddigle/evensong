@@ -320,6 +320,9 @@ const LIGHT_LAYER_ACTORS: int = 2
 ## IMPL (M3a): map ids. Each player is on exactly one map; the surface is 0, the first dungeon 1.
 const MAP_SURFACE: int = 0
 const MAP_DUNGEON: int = 1
+## IMPL (M3b): how many maps exist (map ids 0..MAP_COUNT - 1); decoders refuse any other map id.
+const MAP_COUNT: int = 2
+const MAP_NAMES: PackedStringArray = ["surface", "dungeon"]
 ## IMPL (M3a): the dungeon's wall faces (measured from 04-env tiles_dungeon_v02): a wall tile's front
 ## face starts this many px below the wall tile's centre row and is FACE_HEIGHT_PX tall, so it covers
 ## the tile below the wall (blocked: collision = what is drawn) and 3 px of the next one.

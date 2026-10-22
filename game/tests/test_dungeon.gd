@@ -7,7 +7,7 @@ extends "res://tests/base_test.gd"
 ## M2b), the cave view (every display cell = the rule, incremental redraws = a fresh view), wall
 ## collision (walls and faces block, a torch does not; prediction replays the host exactly in the
 ## dungeon), the darkness, and travelling between maps in main.tscn (F on the entrance / exit) plus
-## the host refusing the entrance in a session.
+## (M3b) a session host taking a member down and up (the full map checks are in test_net_maps.gd).
 
 const TestWorld := preload("res://tests/test_world.gd")
 const SEEDS: int = 40
@@ -23,7 +23,7 @@ func run() -> Array[String]:
 	_check_prediction_in_dungeon()
 	await _check_world_scene()
 	await _check_travel_in_main()
-	_check_session_refuses_entrance()
+	_check_session_travel()
 	return failures
 
 
@@ -201,6 +201,8 @@ func _check_determinism() -> void:
 	check_eq(a.content_hash(), DungeonGen.GOLDEN_HASH, "seed %d dungeon unchanged (update DungeonGen.GOLDEN_HASH on purpose)" %
 		Config.DEFAULT_SEED)
 	check_ne(a.content_hash(), SurfaceGen.generate(Config.DEFAULT_SEED).content_hash(), "the dungeon is not the surface")
+	check_eq(DungeonGen.seeds_digest(), DungeonGen.SEEDS_GOLDEN, "M3b: the dungeons of seeds 1..%d unchanged (DungeonGen.SEEDS_GOLDEN, --smoke)" %
+		DungeonGen.SEEDS_DIGEST_COUNT)
 
 
 func _check_surface_entrance() -> void:
@@ -370,6 +372,7 @@ func _check_prediction_in_dungeon() -> void:
 			st.facing = host.facing
 			st.walking = host.walking
 			st.ack = seq
+			st.map = Config.MAP_DUNGEON
 			queue.append([t + 6, st])
 		while not queue.is_empty() and _due(queue) <= t:
 			var item: Array = queue.pop_front()
@@ -447,29 +450,56 @@ func _check_travel_in_main() -> void:
 	check_ne(p, player.sim_position, "moved")
 
 
-func _check_session_refuses_entrance() -> void:
-	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
-	w.auto_generate = false
-	w.free_camera = false
-	add_node(w)
-	w.generate(Config.DEFAULT_SEED)
+## M3b: a session host takes a member down the entrance (TRAVEL) and back up the stairs; a PICKUP on
+## the entrance is no travel ("a way to another map").
+func _check_session_travel() -> void:
+	var surface: GameWorld = _world_node(Config.MAP_SURFACE)
+	var dungeon: GameWorld = _world_node(Config.MAP_DUNGEON)
 	var s: NetSession = NetSession.new()
 	s.name = &"TestNet"
 	add_node(s)
-	s.world = w
+	s.world = surface
+	s.worlds = {Config.MAP_SURFACE: surface, Config.MAP_DUNGEON: dungeon}
 	s.options = CliOptions.new()
 	s.role = NetSession.Role.HOST
 	var host: SessionHost = SessionHost.new(s)
 	s.host = host
-	var e: Rect2i = SurfaceGen.entrance_rect(w.data)
+	var e: Rect2i = SurfaceGen.entrance_rect(surface.data)
 	var m: NetMember = s.add_member(1, 7, "miner", DungeonGen.arrival_below(e), RigData.Dir.NORTH)
 	m.gate = InputGate.new()
-	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
-	f.op = NetProtocol.Op.PICKUP
-	f.cell = e.position
-	host.run_frame(m, f)
-	check_eq(m.ops_refused.get(WorldItems.WHY_OFFLINE_ONLY, 0), 1, "a session host refuses the entrance (%s)" % m.ops_refused)
-	check_eq(s.edit_log.size(), 0, "and changes nothing")
+	var pick: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
+	pick.op = NetProtocol.Op.PICKUP
+	pick.cell = e.position
+	host.run_frame(m, pick)
+	check_eq(m.ops_refused.get(WorldItems.WHY_PORTAL, 0), 1, "a PICKUP on the entrance is no travel (%s)" % m.ops_refused)
+	var down: NetProtocol.InputFrame = NetProtocol.InputFrame.new(2, Vector2i.ZERO)
+	down.op = NetProtocol.Op.TRAVEL
+	down.cell = e.position
+	host.run_frame(m, down)
+	check(m.map_id == Config.MAP_DUNGEON and m.player.data == dungeon.data and m.player.get_parent() == dungeon.entities
+		and m.player.sim_position == dungeon.arrival_point(), "TRAVEL on the entrance: the member is at the dungeon's arrival point")
+	check(host.streams.has(7) and host.streams[7].entry and host.streams[7].map == Config.MAP_DUNGEON,
+		"and its client is being sent the dungeon")
+	host.streams.clear()
+	for t: int in Config.NET_OP_INTERVAL_TICKS:
+		m.refill_ops()
+	var up: NetProtocol.InputFrame = NetProtocol.InputFrame.new(3, Vector2i.ZERO)
+	up.op = NetProtocol.Op.TRAVEL
+	up.map = Config.MAP_DUNGEON
+	up.cell = DungeonGen.exit_rect(dungeon.data).position
+	host.run_frame(m, up)
+	check(m.map_id == Config.MAP_SURFACE and m.player.sim_position == surface.arrival_point(), "TRAVEL on the stairs: back south of the entrance")
+	check_eq(s.edit_log.size() + s.log_for(Config.MAP_DUNGEON).size(), 0, "travelling edits no map")
+
+
+func _world_node(map: int) -> GameWorld:
+	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
+	w.auto_generate = false
+	w.free_camera = false
+	w.map_id = map
+	add_node(w)
+	w.generate(Config.DEFAULT_SEED)
+	return w
 
 
 static func _due(queue: Array[Array]) -> int:

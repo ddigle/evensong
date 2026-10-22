@@ -30,9 +30,12 @@ extends Node2D
 ## entrance (travel(): the player node moves into the other world, the camera, the marker and the
 ## darkness switch with it; the dummies stay on the surface). A pickaxe swing that lands
 ## (Player.action_impact) mines (items/mining.gd), a click with a torch places it (Player.
-## place_requested). In a session there is only the surface: the host refuses the entrance
-## ("dungeon offline only") and the dungeon is not created. --start-map=dungeon starts in the
-## dungeon; offline, --bot drives the local player (net/net_bot.gd, for screenshots and tests).
+## place_requested). --start-map=dungeon starts in the dungeon (offline); offline, --bot drives the
+## local player (net/net_bot.gd, for screenshots and tests).
+## M3b (sessions): both maps exist here too. The host generates the dungeon like offline; a client
+## adds an empty dungeon world that the session fills when the host sends it the map. F on the
+## entrance or stairs is a TRAVEL request; the session moves the player and says so
+## (NetSession.local_map_changed), and Main shows that map (the camera, the marker, the darkness).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -73,7 +76,11 @@ func _ready() -> void:
 		get_window().title = "Evensong (%s, %s)" % ["host" if options.host else "client",
 			options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS]
 		net.local_player_ready.connect(_on_local_player_ready)
+		net.local_map_changed.connect(_on_local_map_changed)
 		net.ended.connect(_on_net_ended)
+		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
+		for id: int in worlds:
+			net.worlds[id] = worlds[id]
 		net.start(world, options)
 		return
 	add_dungeon()
@@ -86,15 +93,19 @@ func _ready() -> void:
 
 
 ## M3a: the dungeon's world (a second world.tscn, hidden until the local player goes down).
-func add_dungeon() -> void:
+## `generate` false (M3b, a session client): no map yet; the session loads the host's dungeon into it.
+func add_dungeon(generate: bool = true) -> void:
 	if worlds.has(Config.MAP_DUNGEON):
 		return
 	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
 	w.name = &"Dungeon"
 	w.map_id = Config.MAP_DUNGEON
 	w.free_camera = false
+	w.auto_generate = generate
 	w.visible = false
 	add_child(w)
+	if not generate:
+		w.lighting.set_evening(not CliOptions.current().no_evening)
 	move_child(w, world.get_index() + 1)
 	worlds[Config.MAP_DUNGEON] = w
 
@@ -135,8 +146,8 @@ func travel(to: int) -> void:
 	player.set_world(w.data, w.arrival_point())
 	_follow(player)
 	marker.refresh()
-	print("EVENSONG_MAP travel to=%s feet=%d,%d" % ["dungeon" if to == Config.MAP_DUNGEON else "surface",
-		roundi(player.sim_position.x), roundi(player.sim_position.y)])
+	print("EVENSONG_MAP travel to=%s feet=%d,%d" % [Config.MAP_NAMES[to], roundi(player.sim_position.x),
+		roundi(player.sim_position.y)])
 
 
 func _physics_process(delta: float) -> void:
@@ -230,6 +241,16 @@ func _on_local_player_ready(p: Player) -> void:
 	_bind(p)
 
 
+## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
+func _on_local_map_changed(map_id: int) -> void:
+	_show_map(map_id)
+	if player != null:
+		_follow(player)
+	marker.refresh()
+	print("EVENSONG_MAP travel to=%s feet=%d,%d" % [Config.MAP_NAMES[map_id], roundi(player.sim_position.x),
+		roundi(player.sim_position.y)])
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or not is_instance_valid(player):
 		return
@@ -297,8 +318,9 @@ func pick_up() -> void:
 		return
 	var cell: Vector2i = Aim.target_cell(player.sim_position, player.aim_sector)
 	var data: WorldData = current_world().data
-	if WorldItems.is_portal(data, cell) and WorldItems.in_reach(player.sim_position, cell):
-		travel(Config.MAP_SURFACE if current_map == Config.MAP_DUNGEON else Config.MAP_DUNGEON)
+	var to: int = WorldItems.travel(data, player.sim_position, cell)
+	if to >= 0:
+		travel(to)
 		return
 	_apply_offline(WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell),
 		"pickup", cell)

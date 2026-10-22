@@ -14,6 +14,9 @@ extends RefCounted
 ## COMMON (일반); other gatherables have no grade (ItemDB).
 ## Reach (PROVISIONAL, Config.REACH_TILES): pick up, use and drop act on the target tile, one of the
 ## tiles around the feet tile (not the feet tile itself, ○ gameplay-design §3.2 "인접 타일").
+## M3b: going to another map (F on the surface entrance or the dungeon's exit stairs) is travel(): the
+## same reach, and the way on that tile names the map (portal_destination). Offline Main and the host
+## (net/session_host.gd) both use it; in a session the host moves the player and sends it the map.
 
 ## Gatherable item ids by VEGETATION value - 1. The wire and the snapshot carry the value, so the
 ## order only grows at the end.
@@ -42,9 +45,16 @@ const WHY_BAD_COUNT: String = "bad count"
 ## M3a: a torch needs open floor (no wall or wall face, no placeable, no gatherable).
 const WHY_NOT_OPEN: String = "not open floor"
 const WHY_NOT_PLACEABLE: String = "not placeable"
-## M3a: going down into the dungeon (F on the entrance) is offline only; in a session the host
-## refuses it (maps in sessions are the next step, README).
-const WHY_OFFLINE_ONLY: String = "dungeon offline only"
+## M3b: F (pick up) on an entrance or stairs tile: that is a way, not a thing (the F key travels there;
+## a PICKUP request on it is refused).
+const WHY_PORTAL: String = "a way to another map"
+## M3b: a TRAVEL request on a tile with no way to another map.
+const WHY_NOT_PORTAL: String = "no way there"
+## M3b: a tile request aimed on another map than the one the player is on (frames made before the
+## sender heard it had moved, or a forged map id).
+const WHY_WRONG_MAP: String = "wrong map"
+## M3b: a TRAVEL while the host is still sending the player the map it went to.
+const WHY_LOADING: String = "still loading"
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
 ## debug give from a client goes out as several requests (Main.give_requests).
 const GIVE_COUNT_MAX: int = 255
@@ -116,7 +126,7 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
 	if is_portal(data, c):
-		return Outcome.refused(WHY_OFFLINE_ONLY)
+		return Outcome.refused(WHY_PORTAL)
 	var o: Outcome = Outcome.new()
 	var plant: StringName = gatherable_at(data, c)
 	if not plant.is_empty():
@@ -201,6 +211,33 @@ static func use_action(feet: Vector2, inv: Inventory, slot: int, c: Vector2i, ou
 static func is_portal(data: WorldData, c: Vector2i) -> bool:
 	var p: int = data.get_value(WorldData.Layer.PLACEABLE, c)
 	return p == WorldData.PLACEABLE_ENTRANCE or p == WorldData.PLACEABLE_EXIT
+
+
+## M3b: the map the way on tile `c` leads to (the entrance down to the dungeon, the exit stairs up to
+## the surface), -1 for no way.
+static func portal_destination(data: WorldData, c: Vector2i) -> int:
+	match data.get_value(WorldData.Layer.PLACEABLE, c):
+		WorldData.PLACEABLE_ENTRANCE:
+			return Config.MAP_DUNGEON
+		WorldData.PLACEABLE_EXIT:
+			return Config.MAP_SURFACE
+	return -1
+
+
+## M3b: F on tile `c` to go to another map: the map it leads to, or -1 and `why` set (outside the map,
+## out of reach (PROVISIONAL Config.REACH_TILES: the entrance / stairs must be next to the feet), no
+## way there).
+static func travel(data: WorldData, feet: Vector2, c: Vector2i, out_why: Array[String] = []) -> int:
+	if not data.in_bounds(c):
+		out_why.append(WHY_OUTSIDE)
+		return -1
+	if not in_reach(feet, c):
+		out_why.append(WHY_REACH)
+		return -1
+	var to: int = portal_destination(data, c)
+	if to < 0:
+		out_why.append(WHY_NOT_PORTAL)
+	return to
 
 
 ## M3a: the placeable the stack in `slot` puts down (WorldData.PLACEABLE_NONE: not a placeable item).

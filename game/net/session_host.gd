@@ -24,14 +24,31 @@ extends RefCounted
 ##
 ## M3a: a USE of a placeable (the torch) places it on the target tile (WorldItems.place, request rate
 ## like pick up) instead of starting an action; a pickaxe swing that lands (Mining.impact_tick) mines
-## (items/mining.gd): on the surface there are no walls, so nothing changes there. The dungeon is not
-## part of a session yet (the entrance is refused: "dungeon offline only").
+## (items/mining.gd): on the surface there are no walls, so nothing changes there.
+##
+## M3b (maps): every member is on a map (NetMember.map_id) and every request runs on that map's data.
+## A request aimed at a tile names the map it was aimed on; on any other map it is refused ("wrong
+## map": frames a client made before it heard that it moved, or a forged id). TRAVEL (F on the
+## entrance / the exit stairs): request rate like pick up, refused while the member's last map entry
+## is still streaming ("still loading"), then WorldItems.travel (in reach, a way there). Applied at
+## once: the member moves to the other map's arrival point (its Player node into that map's world),
+## the frame then steps there. A client gets that map like a joiner gets the world: a stream of the
+## map's snapshot (WorldSnapshot, the same chunks and rate), then the map entry (its own state there),
+## then that map's edits made since the snapshot. Edits are numbered per map and go only to the
+## members on that map whose entry is complete (peers_on). Mining is checked twice: the use (tool in
+## the slot, the target next to the feet, not busy: one swing at a time, so the action's length is
+## its rate) and the swing that lands (a wall there, hardness within the class's cap, in reach). Two
+## swings landing on one tile in one tick: members in slot order, edits at once, so the lower slot's
+## breaks it and the other one finds no wall.
 
-## A joiner whose world is still being sent.
+## A joiner whose world is still being sent, or (M3b, `entry`) a member being sent the map it went to.
 class Stream:
 	extends RefCounted
 	var peer: int = 0
 	var slot: int = 0
+	## M3b: the map being sent, and whether this is a map entry (true) or the join (false).
+	var map: int = Config.MAP_SURFACE
+	var entry: bool = false
 	var snapshot: WorldSnapshot.Packed
 	var sender: WorldSnapshot.Sender
 	## Edit log position when the snapshot was taken.
@@ -46,9 +63,12 @@ var roster: Roster
 ## Batch / keyframe / quiet decisions.
 var broadcast: StateBroadcast = StateBroadcast.new()
 var refusals: Dictionary[String, int] = {}
-## Joiners still receiving their world, by peer.
+## Joiners still receiving their world, and (M3b) members still receiving the map they went to, by peer.
 var streams: Dictionary[int, Stream] = {}
 var snapshots_sent: int = 0
+## M3b: map entries completed, travels done.
+var map_entries: int = 0
+var travels: int = 0
 var snapshot_bytes_sent: int = 0
 ## Every finished stream, for the test results: slot, chunks, ticks, edit position, catch-up edits.
 var streams_done: Array[Dictionary] = []
@@ -56,6 +76,8 @@ var streams_done: Array[Dictionary] = []
 ## the tick that sent chunks or a welcome and the next two, since ENet sends at the end of the frame
 ## and the bytes are counted on the next tick.
 var joining_ticks: int = 0
+## M3b: the same for map entries (NetStats bucket "entering").
+var entering_ticks: int = 0
 
 var connected_ms: Dictionary[int, int] = {}
 var refused_ms: Dictionary[int, int] = {}
@@ -130,13 +152,7 @@ func on_hello(peer_id: int, payload: PackedByteArray) -> void:
 	var m: NetMember = s.add_member(slot, peer_id, class_id, s.world.spawn_point(slot), Config.SPAWN_FACING)
 	m.gate = InputGate.new()
 	broadcast.note_activity(s.tick)
-	var stream: Stream = Stream.new()
-	stream.peer = peer_id
-	stream.slot = slot
-	stream.snapshot = WorldSnapshot.encode(s.world.data)
-	stream.sender = WorldSnapshot.Sender.new(stream.snapshot)
-	stream.edit_position = s.edit_log.size()
-	stream.started_ms = Time.get_ticks_msec()
+	var stream: Stream = _stream(peer_id, slot, Config.MAP_SURFACE, false)
 	streams[peer_id] = stream
 	var joined: PackedByteArray = NetProtocol.encode_info(m.info())
 	for peer: int in remote_peers():
@@ -157,7 +173,22 @@ func _refuse(peer_id: int, reason: NetProtocol.Refusal) -> void:
 	s.log_event("refused", "peer=%d reason=%s players=%d" % [peer_id, name, roster.count()])
 
 
-## Sends every joiner its next chunks; a joiner whose last chunk went out is welcomed.
+## A stream of map `map`'s world (packed now, with that map's log position) to `peer`.
+func _stream(peer_id: int, slot: int, map: int, entry: bool) -> Stream:
+	var stream: Stream = Stream.new()
+	stream.peer = peer_id
+	stream.slot = slot
+	stream.map = map
+	stream.entry = entry
+	stream.snapshot = WorldSnapshot.encode(s.world_of(map).data)
+	stream.sender = WorldSnapshot.Sender.new(stream.snapshot)
+	stream.edit_position = s.log_for(map).size()
+	stream.started_ms = Time.get_ticks_msec()
+	return stream
+
+
+## Sends every joiner (and, M3b, every member entering a map) its next chunks; a joiner whose last
+## chunk went out is welcomed, an entering member gets its map entry.
 func _pump_streams() -> void:
 	for peer: int in streams.keys():
 		var st: Stream = streams[peer]
@@ -169,26 +200,69 @@ func _pump_streams() -> void:
 			snapshot_bytes_sent += chunk.size()
 		if not chunks.is_empty():
 			st.ticks += 1
-		joining_ticks = 3
+		if st.entry:
+			entering_ticks = 3
+		else:
+			joining_ticks = 3
 		if st.sender.done():
 			streams.erase(peer)
-			_welcome(st)
+			if st.entry:
+				_enter_map(st)
+			else:
+				_welcome(st)
+
+
+## The edits of the stream's map made since its snapshot, to its peer (after the welcome / map entry).
+func _catch_up(st: Stream) -> int:
+	var log: EditLog = s.log_for(st.map)
+	var n: int = 0
+	for index: int in range(st.edit_position, log.size()):
+		s.send_edit(st.peer, EditLog.encode_one(log.edit_at(index), index, st.map))
+		n += 1
+	return n
+
+
+func _record_stream(st: Stream, catch_up: int) -> void:
+	snapshots_sent += 1
+	streams_done.append({"slot": st.slot, "chunks": st.snapshot.chunk_count(), "bytes": st.snapshot.bytes.size(),
+		"ticks": st.ticks, "edit_position": st.edit_position, "catch_up_edits": catch_up,
+		"kind": "map" if st.entry else "join", "map": st.map, "raw": st.snapshot.raw_size,
+		"ms": Time.get_ticks_msec() - st.started_ms})
 
 
 func _welcome(st: Stream) -> void:
 	s.send_welcome(st.peer, NetProtocol.encode_welcome(_welcome_for(st)))
-	var catch_up: int = 0
-	for index: int in range(st.edit_position, s.edit_log.size()):
-		s.send_edit(st.peer, EditLog.encode_one(s.edit_log.edit_at(index), index))
-		catch_up += 1
-	snapshots_sent += 1
-	streams_done.append({"slot": st.slot, "chunks": st.snapshot.chunk_count(), "bytes": st.snapshot.bytes.size(),
-		"ticks": st.ticks, "edit_position": st.edit_position, "catch_up_edits": catch_up})
+	var catch_up: int = _catch_up(st)
+	_record_stream(st, catch_up)
 	s.log_event("welcomed", "peer=%d slot=%d chunks=%d bytes=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
 		st.peer, st.slot, st.snapshot.chunk_count(), st.snapshot.bytes.size(), st.ticks, st.edit_position, catch_up,
 		Time.get_ticks_msec() - st.started_ms])
 	if not s.bots.bots_started and s.options.net_start > 0 and remote_peers().size() >= s.options.net_start:
 		s.bots.start_bots()
+
+
+## M3b: the member of stream `st` has its map's chunks: the map entry (with its state there), then the
+## map's edits made since.
+func _enter_map(st: Stream) -> void:
+	if not s.members.has(st.slot) or s.members[st.slot].peer_id != st.peer or s.members[st.slot].map_id != st.map:
+		return  # gone (or moved on, which TRAVEL refuses while streaming)
+	var m: NetMember = s.members[st.slot]
+	var e: NetProtocol.MapEntry = NetProtocol.MapEntry.new()
+	e.map = st.map
+	e.edit_position = st.edit_position
+	e.raw_size = st.snapshot.raw_size
+	e.packed_size = st.snapshot.bytes.size()
+	e.chunk_count = st.snapshot.chunk_count()
+	e.packed_md5 = st.snapshot.packed_md5
+	e.world_md5 = st.snapshot.world_md5
+	e.state = m.state()
+	s.send_map_entry(st.peer, NetProtocol.encode_map_entry(e))
+	var catch_up: int = _catch_up(st)
+	map_entries += 1
+	_record_stream(st, catch_up)
+	s.log_event("entered", "peer=%d slot=%d map=%s chunks=%d bytes=%d raw=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
+		st.peer, st.slot, Config.MAP_NAMES[st.map], st.snapshot.chunk_count(), st.snapshot.bytes.size(), st.snapshot.raw_size,
+		st.ticks, st.edit_position, catch_up, Time.get_ticks_msec() - st.started_ms])
 
 
 func _welcome_for(st: Stream) -> NetProtocol.Welcome:
@@ -222,15 +296,18 @@ func edit(world_edit: EditLog.WorldEdit) -> String:
 	return ""
 
 
-## Applies, logs and sends an edit the rules already allowed (debug edit, or a request's outcome).
-func apply_world_edit(world_edit: EditLog.WorldEdit) -> void:
-	s.world.apply_edit(world_edit)
-	var payload: PackedByteArray = EditLog.encode_one(world_edit, s.edit_log.size())
-	s.edit_log.append(world_edit)
-	for peer: int in remote_peers():
+## Applies, logs and sends an edit the rules already allowed (debug edit, or a request's outcome) on
+## map `map` (M3b: numbered in that map's log, sent to the members on that map).
+func apply_world_edit(world_edit: EditLog.WorldEdit, map: int = Config.MAP_SURFACE) -> void:
+	var w: GameWorld = s.world_of(map)
+	var log: EditLog = s.log_for(map)
+	w.apply_edit(world_edit)
+	var payload: PackedByteArray = EditLog.encode_one(world_edit, log.size(), map)
+	log.append(world_edit)
+	for peer: int in peers_on(map):
 		s.send_edit(peer, payload)
-	s.log_event("edit", "%s index=%d world=%s" % [world_edit.describe(), s.edit_log.size() - 1,
-		s.world.data.content_hash().left(12)])
+	s.log_event("edit", "%s index=%d map=%d world=%s" % [world_edit.describe(), log.size() - 1, map,
+		w.data.content_hash().left(12)])
 
 
 # --- requests (M2b) --------------------------------------------------------------------------
@@ -245,7 +322,11 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_frames += 1
 	if frame.op != NetProtocol.Op.NONE:
 		s.request_ticks = 3
-	if frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
+	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
+		_refuse_op(m, frame, WorldItems.WHY_WRONG_MAP)
+	elif frame.op == NetProtocol.Op.TRAVEL:
+		_travel(m, frame)
+	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
@@ -270,18 +351,62 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_mine(m)
 
 
-## M3a: the swing of member `m` lands on its action's target tile.
+## M3a: the swing of member `m` lands on its action's target tile (M3b: on its map; refused swings
+## are counted by reason: "no wall", "too hard", "out of reach").
 func _mine(m: NetMember) -> void:
 	var p: Player = m.player
-	var r: Mining.Result = Mining.strike(s.world.data, p.sim_position, m.class_id, p.inventory, p.action_cell)
+	var r: Mining.Result = Mining.strike(p.data, p.sim_position, m.class_id, p.inventory, p.action_cell)
 	if not r.ok():
+		var n: int = m.swings_missed.get(r.why, 0)
+		m.swings_missed[r.why] = n + 1
 		return
 	for e: EditLog.WorldEdit in r.edits:
-		apply_world_edit(e)
+		apply_world_edit(e, m.map_id)
 	if not r.gained.is_empty():
 		m.inventory_dirty = true
 	_changed = true
-	s.log_event("mine", "slot=%d at=%d,%d %s" % [m.slot, p.action_cell.x, p.action_cell.y, r.describe()])
+	m.count_done("mine")
+	s.log_event("mine", "slot=%d map=%d tick=%d at=%d,%d %s" % [m.slot, m.map_id, s.tick, p.action_cell.x, p.action_cell.y,
+		r.describe()])
+
+
+## M3b: TRAVEL (F on the entrance / the exit stairs): rate, not while the last map entry streams, then
+## WorldItems.travel on the member's map; the member moves to the map it leads to.
+func _travel(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	if streams.has(m.peer_id):
+		_refuse_op(m, frame, WorldItems.WHY_LOADING)
+		return
+	var why: Array[String] = []
+	var to: int = WorldItems.travel(p.data, p.sim_position, frame.cell, why)
+	if to < 0 or s.world_of(to) == null:
+		_refuse_op(m, frame, why[0] if not why.is_empty() else WorldItems.WHY_NOT_PORTAL)
+		return
+	var from: int = m.map_id
+	move_to_map(m, to)
+	m.count_done("travel")
+	travels += 1
+	_changed = true
+	s.log_event("travel", "slot=%d from=%s to=%s at=%d,%d feet=%d,%d" % [m.slot, Config.MAP_NAMES[from], Config.MAP_NAMES[to],
+		frame.cell.x, frame.cell.y, roundi(p.sim_position.x), roundi(p.sim_position.y)])
+
+
+## M3b: member `m` goes to map `to`: its arrival point there (facing south, any action stopped), its
+## Player node into that map's world; a client is sent the map (a stream, then the map entry), the
+## host's own player shows the map at once (local_map_changed).
+func move_to_map(m: NetMember, to: int) -> void:
+	var w: GameWorld = s.world_of(to)
+	m.map_id = to
+	NetSession.move_player_node(m, w)
+	m.player.set_world(w.data, w.arrival_point())
+	broadcast.note_activity(s.tick)
+	if m == s.local:
+		s.local_map_changed.emit(to)
+	elif m.gate != null:
+		streams[m.peer_id] = _stream(m.peer_id, m.slot, to, true)
 
 
 ## M3a: a USE of a placeable item: rate, then WorldItems.place.
@@ -290,16 +415,16 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
 		return
-	var o: WorldItems.Outcome = WorldItems.place(s.world.data, p.sim_position, p.inventory, frame.slot, frame.cell)
+	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell)
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return
 	for e: EditLog.WorldEdit in o.edits:
-		apply_world_edit(e)
+		apply_world_edit(e, m.map_id)
 	m.count_done("place")
 	m.inventory_dirty = true
 	_changed = true
-	s.log_event("place", "slot=%d item=%s at=%d,%d" % [m.slot, o.item, frame.cell.x, frame.cell.y])
+	s.log_event("place", "slot=%d map=%d item=%s at=%d,%d" % [m.slot, m.map_id, o.item, frame.cell.x, frame.cell.y])
 
 
 ## Select, then pick up, drop, give: rate, then the rules (items/world_items.gd).
@@ -322,7 +447,7 @@ func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var o: WorldItems.Outcome = null
 	match frame.op:
 		NetProtocol.Op.PICKUP:
-			o = WorldItems.pickup(s.world.data, p.sim_position, m.class_id, p.inventory, frame.cell)
+			o = WorldItems.pickup(p.data, p.sim_position, m.class_id, p.inventory, frame.cell)
 		NetProtocol.Op.DROP:
 			# Debug F7: a client's only where its give would be honoured (an exported release refuses
 			# it, so a client cannot grow the edit log by dropping and picking up in a loop).
@@ -330,7 +455,7 @@ func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 				_refuse_op(m, frame, "drop off")
 				return
 			var slot: int = frame.slot if frame.slot >= 0 else p.inventory.selected
-			o = WorldItems.drop(s.world.data, p.sim_position, p.inventory, slot, frame.count, frame.cell)
+			o = WorldItems.drop(p.data, p.sim_position, p.inventory, slot, frame.count, frame.cell)
 		NetProtocol.Op.GIVE:
 			if m.peer_id != 1 and not s.give_allowed:
 				_refuse_op(m, frame, "give off")
@@ -343,7 +468,7 @@ func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_refuse_op(m, frame, o.why)
 		return
 	for e: EditLog.WorldEdit in o.edits:
-		apply_world_edit(e)
+		apply_world_edit(e, m.map_id)
 	var op_name: String = NetProtocol.OP_NAMES[frame.op]
 	m.count_done(op_name)
 	m.inventory_dirty = true
@@ -381,7 +506,8 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 ## goes on the next free frame) so key presses and --give normally are not refused as "rate" (they
 ## still can be when the host gets them bunched, after a lost packet or a host hitch: README).
 ## PICKUP / DROP aim at the target tile; a DROP without a slot drops the selected one. A client
-## applies a hotbar selection at once (predicted).
+## applies a hotbar selection at once (predicted). M3b: F (PICKUP) on an entrance or stairs tile of the
+## player's map is a TRAVEL there, and every tile request names the map the player is on.
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
 	var q: NetProtocol.InputFrame = null
 	if action.op != null:
@@ -404,8 +530,12 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 	f.cell = q.cell
 	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP:
 		f.cell = p.aim_cell
+	if q.op == NetProtocol.Op.PICKUP and p.data != null and WorldItems.is_portal(p.data, f.cell):
+		f.op = NetProtocol.Op.TRAVEL
 	if q.op == NetProtocol.Op.DROP and q.slot < 0:
 		f.slot = p.inventory.selected
+	if p.data != null and NetProtocol.op_has_map(f.op):
+		f.map = p.data.map_id
 
 
 ## Each member whose inventory changed gets it (its own only), with its last handled frame.
@@ -507,8 +637,22 @@ func _drop_silent_peers(now: int) -> void:
 func remote_peers() -> Array[int]:
 	var out: Array[int] = []
 	for peer: int in roster.peers():
-		if peer != 1 and not streams.has(peer) and s.transport.can_send_to(peer):
+		if peer != 1 and not (streams.has(peer) and not streams[peer].entry) and s.transport.can_send_to(peer):
 			out.append(peer)
+	return out
+
+
+## M3b: the welcomed clients on map `map` whose entry to it is complete (they get its live edits; one
+## still receiving the map gets the edits made meanwhile after its map entry).
+func peers_on(map: int) -> Array[int]:
+	var out: Array[int] = []
+	for peer: int in remote_peers():
+		var slot: int = roster.slot_of(peer)
+		if slot < 0 or not s.members.has(slot) or s.members[slot].map_id != map:
+			continue
+		if streams.has(peer) and streams[peer].entry:
+			continue
+		out.append(peer)
 	return out
 
 

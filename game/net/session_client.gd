@@ -17,6 +17,17 @@ extends RefCounted
 ## host's state wins. The own inventory is the host's (on_inventory), with the hotbar selections not
 ## yet handled by the host laid on top. Other players are drawn with their action and held item from
 ## the states. World edits from requests (gatherables picked, drops) arrive like M1's edits.
+##
+## M3b (maps): the client keeps only the map it is on (NetMember.map_id of its own member). F on the
+## entrance or stairs sends a TRAVEL request (not predicted: the player goes on stepping on the old map
+## until the host's answer). The host then sends that map's chunks (the join path: WorldSnapshot.Receiver)
+## and the map entry: the client checks the map like a joined world (count, size, md5s, world hash, map
+## id), loads it into that map's GameWorld (main.tscn: the surface's World or the Dungeon it added),
+## moves its own and the other players' nodes there, drops the old map's edit log, switches the
+## prediction to the new data from the host's state and replays the frames after it
+## (Prediction.switch_map), and tells Main to show that map (local_map_changed). Edits carry their map:
+## one for another map than the client's is a malformed message. The other players are drawn only while
+## their (interpolated) state is on the client's map; their positions are still followed elsewhere.
 
 var s: NetSession
 var prediction: Prediction
@@ -39,6 +50,17 @@ var snapshot_chunks: int = 0
 ## Diagnostic: the host's generator hash for its seed, and whether this machine's matches it.
 var host_generator_hash: String = ""
 var generator_match: bool = false
+## M3b: map entries received, and the last one's numbers (for the results).
+var map_entries: int = 0
+var last_entry: Dictionary = {}
+## M3b: when the map left last was left: its id, hash and edit count then (the test compares them
+## with the host's log).
+var left_maps: Array[Dictionary] = []
+
+## M3b: players on another map than the joiner's when it was welcomed, and edits of another map
+## (malformed).
+var others_on_welcome: int = 0
+var wrong_map_edits: int = 0
 
 var _last_state_tick: int = -1
 
@@ -74,8 +96,10 @@ func on_server_disconnected() -> void:
 
 # --- joining ---------------------------------------------------------------------------------
 
+## A chunk of the world (before the welcome) or, M3b, of the map this player went to (before its map
+## entry).
 func on_world_chunk(payload: PackedByteArray) -> void:
-	if s.local != null or s.over:
+	if s.over:
 		return
 	if not receiver.add(payload):
 		_world_failed("bad world chunk: %s" % receiver.error)
@@ -89,17 +113,24 @@ func on_welcome(payload: PackedByteArray) -> void:
 	if not w.ok or w.version != NetProtocol.VERSION:
 		s.end_session("failed: bad welcome", NetSession.EXIT_FAILED)
 		return
+	others_on_welcome = 0
+	for info: NetProtocol.PlayerInfo in w.players:
+		if info.state.slot != w.slot and info.state.map != Config.MAP_SURFACE:
+			others_on_welcome += 1
 	var t0: int = Time.get_ticks_usec()
-	var data: WorldData = receiver.finish(w.chunk_count, w.packed_size, w.packed_md5, w.raw_size, w.world_md5)
+	var data: WorldData = receiver.finish(w.chunk_count, w.packed_size, w.packed_md5, w.raw_size, w.world_md5,
+		Config.MAP_SURFACE)
 	if data == null:
 		_world_failed(receiver.error)
 		return
 	s.world.load_data(data)
+	s.worlds[Config.MAP_SURFACE] = s.world
 	world_build_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	snapshot_bytes = w.packed_size
 	snapshot_raw = w.raw_size
 	snapshot_chunks = w.chunk_count
 	receiver = WorldSnapshot.Receiver.new()
+	s.edit_logs.clear()
 	s.edit_log = EditLog.new()
 	s.edit_log.base = w.edit_position
 	# Diagnostic only: would this machine's generator have made the host's seed world? (The seed
@@ -109,15 +140,16 @@ func on_welcome(payload: PackedByteArray) -> void:
 	generator_match = s.generator_hash == host_generator_hash
 	for info: NetProtocol.PlayerInfo in w.players:
 		var m: NetMember = s.add_member(info.state.slot, 0, NetProtocol.class_name_of(info.class_index), info.state.pos,
-			info.state.facing)
+			info.state.facing, info.state.map)
 		if info.state.slot == w.slot:
 			s.local = m
 		else:
 			_as_remote(m, info.state)
 			m.interp.push(w.tick, info.state)
-	if s.local == null:
-		s.end_session("failed: welcome without my player", NetSession.EXIT_FAILED)
+	if s.local == null or s.local.map_id != Config.MAP_SURFACE:
+		s.end_session("failed: welcome without my player on the surface", NetSession.EXIT_FAILED)
 		return
+	_show_others()
 	prediction = Prediction.new()
 	var me: NetProtocol.PlayerState = s.local.state()
 	prediction.setup(s.world.data, me.pos, me.facing, 0)
@@ -126,15 +158,81 @@ func on_welcome(payload: PackedByteArray) -> void:
 	s.active = true
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
-		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d generator=%s") % [w.slot, s.local.class_id,
+		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d elsewhere=%d generator=%s") % [w.slot, s.local.class_id,
 		s.members.size(), w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size,
 		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
-		"match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12),
+		others_on_welcome, "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12),
 		host_generator_hash.left(12)]])
 	s.local_player_ready.emit(s.local.player)
 	s.bots.mark("welcome")
 	if w.bots_started:
 		s.bots.start_bots()
+
+
+## M3b: the host moved this player to another map and sent that map (its chunks came first): check
+## and load it, move the players' nodes there, switch the prediction, show it.
+func on_map_entry(payload: PackedByteArray) -> void:
+	if not s.active or s.local == null or s.over:
+		return
+	var e: NetProtocol.MapEntry = NetProtocol.decode_map_entry(payload)
+	if not e.ok or e.state.slot != s.local.slot:
+		s.bad_messages += 1
+		_world_failed("bad map entry")
+		return
+	var w: GameWorld = s.world_of(e.map)
+	if w == null:
+		_world_failed("no world for map %d" % e.map)
+		return
+	var t0: int = Time.get_ticks_usec()
+	var data: WorldData = receiver.finish(e.chunk_count, e.packed_size, e.packed_md5, e.raw_size, e.world_md5, e.map)
+	var error: String = receiver.error
+	receiver = WorldSnapshot.Receiver.new()
+	if data == null:
+		_world_failed("map %d: %s" % [e.map, error])
+		return
+	var old: int = s.local.map_id
+	var old_world: GameWorld = s.world_of(old)
+	if old_world != null and old_world.data != null:
+		left_maps.append({"map": old, "hash": old_world.data.content_hash(), "edits": s.log_for(old).size()})
+		s.log_event("map_left", "map=%s edits=%d world=%s" % [Config.MAP_NAMES[old], s.log_for(old).size(),
+			old_world.data.content_hash().left(12)])
+	w.load_data(data)
+	s.edit_logs.erase(old)
+	s.edit_logs.erase(e.map)
+	s.log_for(e.map).base = e.edit_position
+	s.local.map_id = e.map
+	NetSession.move_player_node(s.local, w)
+	s.local.player.set_world(data, e.state.pos)
+	for slot: int in s.members:
+		if s.members[slot] != s.local:
+			NetSession.move_player_node(s.members[slot], w)
+	prediction.switch_map(data, e.map, e.state)
+	_show_predicted(false)
+	_show_others()
+	map_entries += 1
+	var ms: float = (Time.get_ticks_usec() - t0) / 1000.0
+	last_entry = {"map": e.map, "bytes": e.packed_size, "raw": e.raw_size, "chunks": e.chunk_count,
+		"edit_position": e.edit_position, "build_ms": ms}
+	s.log_event("map", "entered map=%s world=%s bytes=%d raw=%d chunks=%d edits=%d drops=%d torches=%d cracked=%d build_ms=%.1f" % [
+		Config.MAP_NAMES[e.map], data.content_hash().left(12), e.packed_size, e.raw_size, e.chunk_count, e.edit_position,
+		data.drops.size(), data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH), _cracked(data), ms])
+	s.local_map_changed.emit(e.map)
+
+
+static func _cracked(data: WorldData) -> int:
+	var n: int = 0
+	for c: Vector2i in Walls.wall_cells(data):
+		if Walls.hits_at(data, c) > 0:
+			n += 1
+	return n
+
+
+## The other players: shown where their state is on this client's map, hidden elsewhere.
+func _show_others() -> void:
+	for slot: int in s.members:
+		var m: NetMember = s.members[slot]
+		if m != s.local:
+			m.player.visible = m.map_id == s.local.map_id
 
 
 func _world_failed(why: String) -> void:
@@ -157,7 +255,7 @@ func on_joined(payload: PackedByteArray) -> void:
 		s.bad_messages += 1
 		return
 	var m: NetMember = s.add_member(info.state.slot, 0, NetProtocol.class_name_of(info.class_index), info.state.pos,
-		info.state.facing)
+		info.state.facing, info.state.map)
 	_as_remote(m, info.state)
 	m.interp.push(maxi(_last_state_tick, 0), info.state)
 	s.log_event("joined", "slot=%d class=%s players=%d" % [m.slot, m.class_id, s.members.size()])
@@ -181,6 +279,8 @@ func on_left(payload: PackedByteArray) -> void:
 	s.log_event("left", "slot=%d players=%d" % [payload[0], s.members.size()])
 
 
+## A numbered edit of the map this client is on (M3b: an edit of another map is malformed: the host
+## sends a map's edits only to the players on it, and only after their map entry).
 func on_edit(payload: PackedByteArray) -> void:
 	if not s.active:
 		return
@@ -190,13 +290,20 @@ func on_edit(payload: PackedByteArray) -> void:
 		s.bad_messages += 1
 		return
 	var edit: EditLog.WorldEdit = decoded[1]
-	if index != s.edit_log.size():
+	var map: int = decoded[2]
+	var w: GameWorld = s.world_of(map)
+	if map != s.local_map() or w == null or w.data == null:
 		s.bad_messages += 1
-	if s.world.apply_edit(edit):
-		s.edit_log.append(edit)
+		wrong_map_edits += 1
+		return
+	var log: EditLog = s.log_for(map)
+	if index != log.size():
+		s.bad_messages += 1
+	if w.apply_edit(edit):
+		log.append(edit)
 	else:
 		s.bad_messages += 1
-	s.log_event("edit", "%s index=%d world=%s" % [edit.describe(), index, s.world.data.content_hash().left(12)])
+	s.log_event("edit", "%s index=%d map=%d world=%s" % [edit.describe(), index, map, w.data.content_hash().left(12)])
 
 
 ## The own inventory as the host has it after frame `ack`; hotbar selections the host has not handled
@@ -247,10 +354,13 @@ func _apply_states(payload: PackedByteArray) -> void:
 	clock.observe(batch.tick, Interpolation.RemoteClock.now_ticks())
 	for st: NetProtocol.PlayerState in batch.states:
 		if st.slot == s.local.slot:
-			prediction.reconcile(st)
-			_show_predicted(false)
+			# M3b: a state on another map than the loaded one (the host moved this player, its map entry
+			# is still on the way) is skipped by the prediction.
+			if prediction.reconcile(st) >= 0.0:
+				_show_predicted(false)
 		elif s.members.has(st.slot) and s.members[st.slot].interp != null:
 			s.members[st.slot].interp.push(batch.tick, st)
+			s.members[st.slot].map_id = st.map
 
 
 ## The own player as predicted (`tick`: this tick's step, drawn from the tick's start).
@@ -298,15 +408,19 @@ func draw_others() -> void:
 		if m.interp == null:
 			continue
 		var newest: Interpolation.Snap = m.interp.latest()
-		if newest != null and newest.walking:
+		var here: bool = newest != null and newest.map == s.local.map_id
+		if here and newest.walking:
 			interp_samples += 1
 			if t > newest.tick:
 				interp_starved += 1  # drawing past the newest state of a walking player: buffer ran dry
 		var smp: Interpolation.Snap = m.interp.sample(t)
 		if smp != null:
+			# M3b: drawn only on this client's map; elsewhere followed (positions) but hidden.
+			m.player.visible = smp.map == s.local.map_id
 			m.player.state_held = smp.held
 			m.player.show_state(smp.pos, smp.facing, smp.walking, false, smp.action, smp.action_tick)
-			m.note_action(smp.action, smp.action_tick, t)
+			if m.player.visible:
+				m.note_action(smp.action, smp.action_tick, t)
 
 
 static func interp_delay_ticks() -> float:

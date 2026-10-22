@@ -30,6 +30,12 @@ extends SceneTree
 ##   dark     (M3a) the dungeon's darkness with one placed torch (the other lights off, the other
 ##            entities hidden): pixels farther than the torch radius stay dark (darkness on / off ratio),
 ##            pixels in its inner step are lit; the torch's spot is not the safe zone (light only).
+##   cave_net (M3b) the dungeon as a session client gets it: the host's seed-1 dungeon mined with the
+##            real rules (Mining.strike: a miner's 3x3 cracked and another broken, a common player's
+##            cracks at stages 2 and 3), applied edit by edit to the host's view; a client world built
+##            from a map snapshot taken half way (WorldSnapshot, Receiver.finish for the dungeon) gets the
+##            rest as live edits. Both screens (darkness off, entities hidden) must be the same pixels,
+##            and equal the CPU composite of the client's data (tiles + ore and crack overlays).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -530,6 +536,7 @@ func _check_cave_and_dark() -> void:
 	await _check_dark(dun)
 	root.remove_child(dun)
 	dun.free()
+	await _check_cave_net()
 	world.visible = true
 	world.camera.make_current()
 
@@ -582,6 +589,34 @@ func _check_cave(dun: GameWorld) -> void:
 	var exit: Rect2i = DungeonGen.exit_rect(dun.data)
 	var origin: Vector2i = _cave_look_at(dun, exit.position * Config.TILE + Vector2i(16, 60))
 	var got: Image = await _capture()
+	var composite: Array = cave_composite(dun, origin)
+	var expected: Image = composite[0]
+	var overlays: int = composite[1]
+	var stages: Dictionary[int, bool] = {}
+	var faced_cracks: int = 0
+	for c: Vector2i in mined:
+		var stage: int = Walls.crack_stage(Walls.hits_at(dun.data, c), Walls.max_hits(dun.data, c))
+		if stage > 0:
+			stages[stage] = true
+			if Walls.is_face(dun.data, c + Vector2i(0, 1)):
+				faced_cracks += 1
+	var n: int = count_diff(got, expected)
+	var line: String = "cliff tiles + %d overlays on screen, crack stages %s (%d on faced walls), mined tiles %d, mismatches=%d" % [
+		overlays, stages.keys(), faced_cracks, mined.size(), n]
+	if n > 0 or save_all:
+		_save(got, "cave_got.png")
+		_save(expected, "cave_expected.png")
+	if n == 0 and stages.size() == 3 and faced_cracks > 0 and overlays > 3:
+		print("EVENSONG_RENDER cave ok %s" % line)
+	else:
+		_fail("cave", line)
+	dun.entities.visible = true
+
+
+## What the screen with world pixel `origin` at (0, 0) must show of dungeon world `dun` (darkness off,
+## entities hidden): each display cell's cliff tile (CaveView.drawn_at) and the ore and crack overlays
+## from the data, with the positions written out here. [image, overlays drawn].
+static func cave_composite(dun: GameWorld, origin: Vector2i) -> Array:
 	var expected: Image = Image.create_empty(Config.VIEW_SIZE.x, Config.VIEW_SIZE.y, false, Image.FORMAT_RGBA8)
 	expected.fill(Color(0, 0, 0, 1))
 	var view: CaveView = dun.cave
@@ -628,25 +663,117 @@ func _check_cave(dun: GameWorld) -> void:
 			expected.blend_rect(face_art, Rect2i((stage - 1) * Config.TILE, 0, Config.TILE, Config.FACE_HEIGHT_PX),
 				tile_px + Vector2i(0, Config.TILE / 2 + Config.FACE_TOP_PX))
 			overlays += 1
+	return [expected, overlays]
+
+
+## M3b: the host's dungeon mined with the real rules, edit by edit; a client's built from a map snapshot
+## half way plus the rest as live edits; both drawn the same, and as the composite says.
+func _check_cave_net() -> void:
+	var host_w: GameWorld = _dungeon_world()
+	var client_w: GameWorld = _dungeon_world(false)
+	var d: WorldData = host_w.data
+	# (swinger class, feet tile, target tile, swings) on the seed-1 arrival room (README M3b).
+	var plan: Array[Array] = [
+		[Mining.MINER_CLASS, Vector2i(34, 15), Vector2i(33, 15), 1],   # 3x3 west: 6 rock tiles at stage 1
+		["cleric", Vector2i(34, 15), Vector2i(34, 14), 3],             # the face north-west: its rock at stage 2
+		["cleric", Vector2i(36, 15), Vector2i(36, 14), 5],             # the face north: its rock at stage 3
+		[Mining.MINER_CLASS, Vector2i(41, 15), Vector2i(42, 15), 3],   # 3x3 east: broken
+	]
+	var edits: Array[EditLog.WorldEdit] = []
+	var inv: Inventory = Inventory.new()
+	for step_index: int in plan.size():
+		var step: Array = plan[step_index]
+		var class_id: String = step[0]
+		var feet_cell: Vector2i = step[1]
+		var target: Vector2i = step[2]
+		var swings: int = step[3]
+		var feet: Vector2 = Vector2(feet_cell.x * Config.TILE + Config.TILE / 2.0, feet_cell.y * Config.TILE + Config.TILE - 2)
+		for i: int in swings:
+			var res: Mining.Result = Mining.strike(d, feet, class_id, inv, target)
+			for e: EditLog.WorldEdit in res.edits:
+				host_w.apply_edit(e)  # as SessionHost.apply_world_edit
+				edits.append(e)
+		if step_index == 1:
+			# Half way the client enters the map: a map snapshot of the host's dungeon as it is now.
+			_load_snapshot(host_w, client_w)
+			snapshot_edits = edits.size()
+	if client_w.data == null:
+		return
+	# The rest reaches the client as live edits (GameWorld.apply_edit, as SessionClient.on_edit).
+	for i: int in range(snapshot_edits, edits.size()):
+		client_w.apply_edit(edits[i])
+	var same_data: bool = client_w.data.content_hash() == host_w.data.content_hash()
 	var stages: Dictionary[int, bool] = {}
-	var faced_cracks: int = 0
-	for c: Vector2i in mined:
-		var stage: int = Walls.crack_stage(Walls.hits_at(dun.data, c), Walls.max_hits(dun.data, c))
-		if stage > 0:
-			stages[stage] = true
-			if Walls.is_face(dun.data, c + Vector2i(0, 1)):
-				faced_cracks += 1
-	var n: int = count_diff(got, expected)
-	var line: String = "cliff tiles + %d overlays on screen, crack stages %s (%d on faced walls), mined tiles %d, mismatches=%d" % [
-		overlays, stages.keys(), faced_cracks, mined.size(), n]
-	if n > 0 or save_all:
-		_save(got, "cave_got.png")
-		_save(expected, "cave_expected.png")
-	if n == 0 and stages.size() == 3 and faced_cracks > 0 and overlays > 3:
-		print("EVENSONG_RENDER cave ok %s" % line)
+	var broken: int = 0
+	for c: Vector2i in Walls.wall_cells(DungeonGen.generate(Config.DEFAULT_SEED)):
+		if not Walls.is_wall(d, c):
+			broken += 1
+		else:
+			var stage: int = Walls.crack_stage(Walls.hits_at(d, c), Walls.max_hits(d, c))
+			if stage > 0:
+				stages[stage] = true
+	var shots: Array[Image] = []
+	var origin: Vector2i = Vector2i.ZERO
+	for w: GameWorld in [host_w, client_w]:
+		host_w.visible = w == host_w
+		client_w.visible = w == client_w
+		w.camera.make_current()
+		origin = _cave_look_at(w, Vector2i(38 * Config.TILE, 15 * Config.TILE))
+		shots.append(await _capture())
+	var composite: Array = cave_composite(client_w, origin)
+	var expected: Image = composite[0]
+	var overlays: int = composite[1]
+	var n_expected: int = count_diff(shots[1], expected)
+	var n_host: int = count_diff(shots[0], shots[1])
+	var line: String = "%d edits (%d after the client's snapshot of %d B), crack stages %s, %d broken, %d overlays, same data %s, client vs composite %d, host vs client %d" % [
+		edits.size(), edits.size() - snapshot_edits, snapshot_bytes, stages.keys(), broken, overlays, same_data, n_expected, n_host]
+	if n_expected > 0 or n_host > 0 or save_all:
+		_save(shots[0], "cave_net_host.png")
+		_save(shots[1], "cave_net_client.png")
+		_save(expected, "cave_net_expected.png")
+	if same_data and n_expected == 0 and n_host == 0 and stages.size() == 3 and broken >= 6 and snapshot_edits > 0 \
+			and snapshot_edits < edits.size():
+		print("EVENSONG_RENDER cave_net ok %s" % line)
 	else:
-		_fail("cave", line)
-	dun.entities.visible = true
+		_fail("cave_net", line)
+	for w: GameWorld in [host_w, client_w]:
+		root.remove_child(w)
+		w.free()
+
+
+var snapshot_edits: int = 0
+var snapshot_bytes: int = 0
+
+
+## A dungeon world for the check (darkness off, entities hidden). `generate` false: empty (a client's).
+func _dungeon_world(generate: bool = true) -> GameWorld:
+	var w: GameWorld = (load(WORLD_SCENE) as PackedScene).instantiate() as GameWorld
+	w.auto_generate = false
+	w.map_id = Config.MAP_DUNGEON
+	root.add_child(w)
+	if generate:
+		w.generate(Config.DEFAULT_SEED)
+	w.overlay.visible = false
+	w.camera.set_process(false)
+	w.visible = false
+	w.lighting.set_evening(false)
+	w.entities.visible = false
+	return w
+
+
+## The client's world from a map snapshot of the host's world now (the join path, checked for the dungeon).
+func _load_snapshot(host_w: GameWorld, client_w: GameWorld) -> void:
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host_w.data)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5,
+		Config.MAP_DUNGEON)
+	if got == null:
+		_fail("cave_net", "map snapshot refused: %s" % rx.error)
+		return
+	client_w.load_data(got)
+	snapshot_bytes = packed.bytes.size()
 
 
 func _check_dark(dun: GameWorld) -> void:

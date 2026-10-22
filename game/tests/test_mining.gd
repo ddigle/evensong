@@ -321,23 +321,25 @@ func _check_host() -> void:
 	var s: NetSession = NetSession.new()
 	s.name = &"TestNet"
 	add_node(s)
-	s.world = w
+	s.worlds = {Config.MAP_DUNGEON: w}
 	s.options = CliOptions.new()
 	s.role = NetSession.Role.HOST
 	var host: SessionHost = SessionHost.new(s)
 	s.host = host
+	var log: EditLog = s.log_for(Config.MAP_DUNGEON)
 	var exit: Rect2i = DungeonGen.exit_rect(w.data)
 	var feet: Vector2 = w.arrival_point()
-	var m: NetMember = s.add_member(1, 9, Mining.MINER_CLASS, feet, RigData.Dir.NORTH)
+	var m: NetMember = s.add_member(1, 9, Mining.MINER_CLASS, feet, RigData.Dir.NORTH, Config.MAP_DUNGEON)
 	m.gate = InputGate.new()
 	m.player.inventory.add(&"torch", 2)
 	m.player.inventory.add(&"pickaxe", 1)
 	var place: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
 	place.op = NetProtocol.Op.USE
+	place.map = Config.MAP_DUNGEON
 	place.slot = 0
 	place.cell = Aim.feet_cell(feet) + Vector2i(0, 1)
 	host.run_frame(m, place)
-	check(w.data.get_value(WorldData.Layer.PLACEABLE, place.cell) == WorldData.PLACEABLE_TORCH and s.edit_log.size() == 1
+	check(w.data.get_value(WorldData.Layer.PLACEABLE, place.cell) == WorldData.PLACEABLE_TORCH and log.size() == 1
 		and m.player.inventory.count_of(&"torch") == 1 and m.inventory_dirty, "the host places a client's torch (edit + inventory)")
 	# Walk the miner to a rock wall it can swing at: the tile west of the arrival room's west face row.
 	var target: Vector2i = Vector2i(-1, -1)
@@ -353,9 +355,10 @@ func _check_host() -> void:
 	if not check(target.x >= 0, "a rock wall to swing at"):
 		return
 	m.player.teleport(Vector2(stand.x * 16 + 8, stand.y * 16 + 14))
-	var edits_before: int = s.edit_log.size()
+	var edits_before: int = log.size()
 	var use: NetProtocol.InputFrame = NetProtocol.InputFrame.new(2, Vector2i.ZERO)
 	use.op = NetProtocol.Op.USE
+	use.map = Config.MAP_DUNGEON
 	use.slot = 1
 	use.cell = target
 	use.look = RigData.Dir.WEST
@@ -366,13 +369,14 @@ func _check_host() -> void:
 	var landed_at: int = -1
 	for t: int in range(1, PlayerSim.action_ticks(RigData.Anim.PICKAXE)):
 		host.run_frame(m, NetProtocol.InputFrame.new(2 + t, Vector2i.ZERO))
-		if s.edit_log.size() > edits_before:
+		if log.size() > edits_before:
 			landed_at = t
 			break
 	check_eq(landed_at, Config.MINING_IMPACT_FRAME * Config.ACTION_FRAME_TICKS,
 		"the swing lands on the first tick of pickaxe frame %d" % (Config.MINING_IMPACT_FRAME + 1))
-	check(s.edit_log.size() > edits_before and Walls.hits_at(w.data, target) == Config.MINING_POWER_MINER,
-		"the 3x3 takes the miner's hits (%d edits)" % (s.edit_log.size() - edits_before))
+	check(log.size() > edits_before and Walls.hits_at(w.data, target) == Config.MINING_POWER_MINER,
+		"the 3x3 takes the miner's hits (%d edits)" % (log.size() - edits_before))
+	check_eq(s.edit_log.size(), 0, "M3b: the dungeon's edits are in the dungeon's log, not the surface's")
 	var v: Dictionary[String, int] = w.cave.verify()
 	check(v["mismatches"] == 0 and v["overlay_mismatches"] == 0, "the host's view follows its edits %s" % v)
 

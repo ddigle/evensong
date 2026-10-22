@@ -27,6 +27,11 @@ const MAX_ATTEMPTS: int = 200
 ## the output (tests/test_dungeon.gd, --smoke); whether the rules hold is checked over many seeds.
 ## Update it when the generator or its constants change on purpose (the failure prints the new value).
 const GOLDEN_HASH: String = "009e7147ad7969ac9098fc6cd2afcd4a"
+## IMPL (M3b): seeds_digest() with the current constants: md5 over the content hashes of the dungeons of
+## seeds 1..SEEDS_DIGEST_COUNT. --smoke prints and checks it so the human can see that another machine
+## (the ARM64 Surface) makes the same dungeons (integer math only: it should).
+const SEEDS_DIGEST_COUNT: int = 8
+const SEEDS_GOLDEN: String = "3ec443b95c4cde2eb5bc48f2ab45f802"
 ## Mixed into the seed so the dungeon's random numbers do not repeat the surface's.
 const SEED_SALT: int = 0x5D0E5
 const STEPS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
@@ -239,6 +244,15 @@ static func _place_wall_torches(data: WorldData, layout: Layout) -> void:
 					and Walls.is_face(data, c + Vector2i(0, 1)) \
 					and data.get_value(WorldData.Layer.PLACEABLE, c + Vector2i(0, 1)) == WorldData.PLACEABLE_NONE:
 				data.set_value(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_WALL_TORCH)
+
+
+## md5 over the content hashes of the dungeons of seeds 1..count (see SEEDS_GOLDEN).
+static func seeds_digest(count: int = SEEDS_DIGEST_COUNT) -> String:
+	var ctx: HashingContext = HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	for i: int in count:
+		ctx.update(generate(i + 1).content_hash().to_ascii_buffer())
+	return ctx.finish().hex_encode()
 
 
 # --- reading a dungeon back ------------------------------------------------------------------

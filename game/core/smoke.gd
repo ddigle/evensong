@@ -7,6 +7,10 @@ extends RefCounted
 ## input actions, the safe-zone light texture against the rule, the flame mask, and the run scene.
 ## M3a: the surface world's dungeon entrance, the committed dungeon TileSet, the seed-1 dungeon (its
 ## hash = DungeonGen.GOLDEN_HASH, exit stairs, arrival point, shrine) drawn with the cave view.
+## M3b: the dungeons of seeds 1..8 (DungeonGen.SEEDS_GOLDEN, printed as dungeon_seeds= for comparing
+## another machine), wire v4 (a state with its map, a request aimed on a map, an edit naming its map,
+## the map entry) and a mined dungeon (cracks, a break, a torch, a drop) through the map snapshot path
+## into a cave view that draws it exactly.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -182,6 +186,34 @@ static func _check_dungeon(r: Report) -> void:
 	r.expect_eq(SurfaceGen.entrance_rect(surface).size, Config.ENTRANCE_FOOTPRINT, "surface dungeon entrance")
 	r.fields.append("dungeon=%dx%d hash=%s ores=%d" % [data.size.x, data.size.y, data.content_hash().left(12),
 		Walls.ore_cells(data).size()])
+	# M3b: more seeds, for comparing machines (the generator is integer math only).
+	var digest: String = DungeonGen.seeds_digest()
+	r.expect_eq(digest, DungeonGen.SEEDS_GOLDEN, "dungeons of seeds 1..%d (DungeonGen.SEEDS_GOLDEN)" % DungeonGen.SEEDS_DIGEST_COUNT)
+	r.fields.append("dungeon_seeds=%s" % digest.left(12))
+	# M3b: a mined dungeon through the map snapshot path, drawn by a fresh cave view.
+	var mined: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var feet: Vector2 = DungeonGen.arrival_point(mined) + Vector2(3 * Config.TILE, 0)
+	var inv: Inventory = Inventory.new()
+	var hits: int = 0
+	for i: int in 3:
+		var res: Mining.Result = Mining.strike(mined, feet, Mining.MINER_CLASS, inv, Aim.feet_cell(feet) + Vector2i(1, 0))
+		for e: EditLog.WorldEdit in res.edits:
+			EditLog.apply_to_data(mined, e)
+		hits += res.hit.size()
+	mined.set_value(WorldData.Layer.PLACEABLE, Aim.feet_cell(feet) + Vector2i(0, 1), WorldData.PLACEABLE_TORCH)
+	mined.drops[1] = WorldData.Drop.new(1, &"ore_copper", 2, ItemDB.Grade.NONE, Vector2i(feet))
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(mined)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5,
+		Config.MAP_DUNGEON)
+	if r.expect(got != null and got.content_hash() == mined.content_hash() and got.map_id == Config.MAP_DUNGEON and hits > 0,
+			"mined dungeon map snapshot round trip: %s" % rx.error):
+		view.setup(got, table)
+		var mv: Dictionary[String, int] = view.verify()
+		r.expect_eq(mv["missing"] + mv["mismatches"] + mv["overlay_mismatches"], 0, "mined dungeon drawn = data")
+		r.fields.append("dungeon_map=%dB" % packed.bytes.size())
 	view.free()
 
 
@@ -302,6 +334,27 @@ static func _check_net(r: Report) -> void:
 	var inputs: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([frame] as Array[NetProtocol.InputFrame]))
 	r.expect(inputs.ok and inputs.frames.size() == 1 and inputs.frames[0].same_request(frame) and inputs.frames[0].look == frame.look,
 		"input frame with a request round trip (M2b)")
+	# M3b: maps on the wire.
+	s.map = Config.MAP_DUNGEON
+	var dbatch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(78, [s] as Array[NetProtocol.PlayerState]))
+	r.expect(dbatch.ok and dbatch.states[0].map == Config.MAP_DUNGEON, "state with its map round trip (M3b)")
+	var travel: NetProtocol.InputFrame = NetProtocol.InputFrame.new(10, Vector2i.ZERO)
+	travel.op = NetProtocol.Op.TRAVEL
+	travel.map = Config.MAP_DUNGEON
+	travel.cell = Vector2i(37, 14)
+	var tp: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([travel] as Array[NetProtocol.InputFrame]))
+	r.expect(tp.ok and tp.frames[0].same_request(travel) and tp.frames[0].map == Config.MAP_DUNGEON, "travel request round trip (M3b)")
+	var edit: Array = EditLog.decode_one(EditLog.encode_one(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(42, 15), 0), 9,
+		Config.MAP_DUNGEON))
+	var edit_map: int = edit[2]
+	r.expect_eq(edit_map, Config.MAP_DUNGEON, "edit names its map (M3b)")
+	var entry: NetProtocol.MapEntry = NetProtocol.MapEntry.new()
+	entry.map = Config.MAP_DUNGEON
+	entry.packed_size = 300
+	entry.chunk_count = 1
+	entry.state = s
+	var eb: NetProtocol.MapEntry = NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(entry))
+	r.expect(eb.ok and eb.map == Config.MAP_DUNGEON and eb.state.same_as(s), "map entry round trip (M3b)")
 	r.fields.append("snapshot=%dB/%dB" % [packed.bytes.size(), packed.raw_size])
 	var roster: Roster = Roster.new()
 	for i: int in Config.MAX_PLAYERS:

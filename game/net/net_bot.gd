@@ -20,13 +20,18 @@ extends RefCounted
 ##   select:<1..8>                select that hotbar slot (Q / E)
 ##   drop[:<count>]               debug: drop <count> (default all) of the selected stack on the target tile
 ##   give:<id>[:<count>[:<grade>]]  debug: items into the inventory (a client asks the host for them)
+## M3b (maps; F = pick is also how a bot goes down the entrance or up the stairs):
+##   waitmap:<players>,<map>[,<ticks>]  stand still until at least <players> players are on <map>
+##                                (surface / dungeon / 0 / 1) as this machine knows it (the session
+##                                sets map_counts each tick); gives up after <ticks> (default 1800)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
-	"select", "drop", "give"]
+	"select", "drop", "give", "waitmap"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
+const WAITMAP_LIMIT_TICKS: int = 1800
 ## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
 const ARRIVE_PX: float = 0.6
 
@@ -47,6 +52,7 @@ class Command:
 	var count: int = 0
 	var item: StringName = &""
 	var grade: int = -1
+	var map: int = 0
 
 
 ## What the bot does this tick.
@@ -68,6 +74,8 @@ class Action:
 
 
 var commands: Array[Command] = []
+## M3b: players per map as this machine knows it (set by the session before each step; waitmap).
+var map_counts: Dictionary[int, int] = {}
 var index: int = 0
 var finished: bool = false
 var _left: int = -1
@@ -178,6 +186,14 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				c.grade = ItemDB.grade_from_name(parts[2])
 				if not ItemDB.valid_grade(c.item, c.grade):
 					return "%s takes no grade %s" % [parts[0], parts[2]]
+		"waitmap":
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
+				return "expected waitmap:<players>,<map>[,<ticks>]"
+			c.count = args[0].to_int()
+			c.map = Config.MAP_NAMES.find(args[1]) if not args[1].is_valid_int() else args[1].to_int()
+			if not NetProtocol.valid_map(c.map):
+				return "unknown map %s" % args[1]
+			c.ticks = args[2].to_int() if args.size() == 3 else WAITMAP_LIMIT_TICKS
 		_:
 			return "unknown command (%s)" % ", ".join(OPS)
 	return ""
@@ -278,6 +294,14 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.op.count = c.count
 				a.op.slot = -1  # the selected slot, filled in when the frame is built
 				_next()
+				return
+			"waitmap":
+				if _left < 0:
+					_left = c.ticks
+				var there: int = map_counts.get(c.map, 0)
+				_left -= 1
+				if there >= c.count or _left <= 0:
+					_next()
 				return
 			"give":
 				a.op = NetProtocol.InputFrame.new()
