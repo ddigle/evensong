@@ -153,7 +153,7 @@ func _draw() -> void:
 	draw_rect(Rect2(p), Hud.FILL)
 	_frame(p, Hud.FRAME_DARK)
 	_frame(p.grow(-1), Hud.FRAME)
-	var icon: Texture2D = ItemIcons.texture_for(&"alchemy_table")
+	var icon: Texture2D = ItemIcons.texture_for(Crafting.station_icon(station.kind))  # M6-fix: the station's own
 	if icon != null:
 		draw_texture(icon, Vector2(header_icon_at()))
 	draw_rect(Rect2(p.position.x + PAD, p.position.y + PAD + HEADER - 1, p.size.x - 2 * PAD, 1), Hud.SELECT_INNER)

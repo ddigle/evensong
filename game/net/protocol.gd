@@ -88,7 +88,7 @@ extends RefCounted
 ##               M6b, a thrown potion: 2 = thrown (u32 id, u8 potion item index, u8 thrower slot, u32 host
 ##               tick, f32 x, f32 y (where it left the hand), f32 x, f32 y (where it lands at most): 27 B),
 ##               3 = broke (u32 id, u8 potion item index, u32 host tick, f32 x, f32 y (the splash), u8 why
-##               (FLASK_STOPS): 19 B). The client flies the bottle itself (Arena.flask_advance, the host's
+##               (FLASK_STOPS): 19 B). The client flies the bottle itself (Arena.flask_points, the host's
 ##               own steps) and shows the splash from the tick it broke.
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
@@ -139,6 +139,9 @@ const SHOT_END_SIZE: int = 18
 ## M6b: a thrown potion's events.
 const FLASK_THROW_SIZE: int = 27
 const FLASK_SPLASH_SIZE: int = 19
+## IMPL (named in M6-fix): a thrown event whose landing point is farther than Config.THROW_RANGE_PX + this (px) from
+## where it left the hand is refused (the host clamps it to the range; the slack takes float rounding).
+const FLASK_RANGE_SLACK_PX: float = 1.0
 const SHOT_EVENTS_MAX: int = 255
 ## Why a shot stopped (Arena.Shot.stopped_by), by wire index.
 const SHOT_STOPS: PackedStringArray = ["spent", "wall", "heretic", "shrine", "player"]
@@ -1182,7 +1185,7 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 			e.tick = bytes.decode_u32(at + 7)
 			e.pos = Vector2(bytes.decode_float(at + 11), bytes.decode_float(at + 15))
 			e.target = Vector2(bytes.decode_float(at + 19), bytes.decode_float(at + 23))
-			if e.item.is_empty() or not (is_finite(e.pos.x) and is_finite(e.pos.y) and is_finite(e.target.x) 					and is_finite(e.target.y)) or e.pos.distance_to(e.target) > Config.THROW_RANGE_PX + 1.0:
+			if e.item.is_empty() or not (is_finite(e.pos.x) and is_finite(e.pos.y) and is_finite(e.target.x) 					and is_finite(e.target.y)) or e.pos.distance_to(e.target) > Config.THROW_RANGE_PX + FLASK_RANGE_SLACK_PX:
 				return s
 			at += FLASK_THROW_SIZE
 		elif e.kind == ShotEvent.Kind.SPLASH:

@@ -27,8 +27,9 @@ var heretics: Dictionary[int, Heretic] = {}
 var shots: Dictionary[int, Node2D] = {}
 var shrine_bar: Node2D
 ## M6a: thrown potions (the potion's icon, PLACEHOLDER composed from the 04-env items strip: no flying bottle
-## art exists) and splashes (PLACEHOLDER drawn in code: droplets in the potion's colour spreading to the
-## splash radius over Config.SPLASH_SHOW_TICKS, unshaded).
+## art exists; M6-fix: unshaded, so it reads in the evening and the dark dungeon) and splashes (PLACEHOLDER drawn
+## in code: droplets in the potion's colour spreading to the splash radius over Config.SPLASH_SHOW_TICKS,
+## unshaded).
 var flasks: Dictionary[int, Node2D] = {}
 var splashes: Dictionary[int, Node2D] = {}
 var _bars: Dictionary[int, Node2D] = {}
@@ -43,6 +44,11 @@ var _shrine_node_rect: Rect2i = Rect2i()
 const SPLASH_HALF: int = 27
 const SPLASH_FRAMES: int = 3
 const SPLASH_DROPS: int = 10
+## IMPL (named in M6-fix): the inner ring of droplets (from the second frame) at this part of the outer ring's
+## radius, the rings turned this much (radians) per frame and the inner one this much more (so drops do not line up).
+const SPLASH_INNER_RING: float = 0.55
+const SPLASH_TURN_PER_FRAME: float = 0.3
+const SPLASH_INNER_TURN: float = 0.4
 const SPLASH_COLOURS: Array[Array] = [
 	[Color8(0xb8, 0x2e, 0x24), Color8(0x6e, 0x1c, 0x16)],
 	[Color8(0xe0, 0x86, 0x1a), Color8(0x8c, 0x4a, 0x22)],
@@ -171,6 +177,7 @@ func _sync_flasks() -> void:
 			sp.texture = ItemIcons.texture_for(f.item)
 			sp.centered = false
 			sp.light_mask = Config.LIGHT_LAYER_ACTORS
+			sp.material = FixtureView.unshaded_material()  # M6-fix: it reads in the dark like its splash (it was shaded)
 			n.add_child(sp)
 			entities.add_child(n)
 			flasks[f.id] = n
@@ -239,11 +246,11 @@ static func splash_image(effect: int, frame: int) -> Image:
 	# The outer ring of droplets, and (after the first frame) half as many on a ring half way out.
 	var rings: Array[Vector2] = [Vector2(r, SPLASH_DROPS)]
 	if frame > 0:
-		rings.append(Vector2(r * 0.55, SPLASH_DROPS / 2))
+		rings.append(Vector2(r * SPLASH_INNER_RING, SPLASH_DROPS / 2))
 	for ring: Vector2 in rings:
 		var drops: int = int(ring.y)
 		for k: int in drops:
-			var a: float = TAU * k / drops + frame * 0.3 + (0.0 if ring.x == r else 0.4)
+			var a: float = TAU * k / drops + frame * SPLASH_TURN_PER_FRAME + (0.0 if ring.x == r else SPLASH_INNER_TURN)
 			var at: Vector2i = Vector2i(roundi(SPLASH_HALF + ring.x * cos(a)), roundi(SPLASH_HALF + ring.x * sin(a)))
 			for dy: int in 2:
 				for dx: int in 2:

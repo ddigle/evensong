@@ -238,7 +238,9 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.cell = aim_cell
 			f.anim = RigData.Anim.THROW
 			f.item = selected.id
-			f.throw_to = Potions.throw_target(Combat.body_point(sim_position), mouse)
+			# M6-fix: in whole px, as the wire carries it (NetProtocol THROW), so offline and the host throw at the same
+			# point; the arena clamps it to Config.THROW_RANGE_PX again when it leaves the hand (Arena.throw_potion).
+			f.throw_to = Potions.throw_target(Combat.body_point(sim_position), mouse).round()
 		else:
 			potion_refused.emit("throw", why_throw)
 	elif free and potions_on and use_pressed and selected != null and Potions.is_potion(selected.id):

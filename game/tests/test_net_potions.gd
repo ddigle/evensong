@@ -141,6 +141,15 @@ static func effects_close(p: Vitals, h: Vitals, slack: int) -> bool:
 	return p.hp == h.hp and p.life == h.life and p.buff_pct == h.buff_pct and p.poison_damage == h.poison_damage 		and p.buff_ticks <= h.buff_ticks and h.buff_ticks - p.buff_ticks <= slack and p.poison_ticks <= h.poison_ticks 		and h.poison_ticks - p.poison_ticks <= slack
 
 
+## Client `c` draws the other players (and its combat view) at the rig's host time. M6-fix: the rig runs ticks far
+## faster than real time, so the client's RemoteClock (wall time) stays near the last batch it got and, with everyone
+## at rest, would draw an old state for good (a mark that has ended still shown).
+static func draw_at_rig_time(r: Rig, c: Client) -> void:
+	c.s.client.clock.known = true
+	c.s.client.clock.offset = float(r.s.tick) - Interpolation.RemoteClock.now_ticks()
+	c.s.client.draw_others()
+
+
 ## Ticks until player `p` plays no action (a throw finished).
 func wait_free(r: Rig, p: Player) -> void:
 	tick_until(r, func() -> bool: return p.action_anim < 0, 120)
@@ -501,6 +510,24 @@ func _check_throw_requests() -> void:
 	check_eq(arena.stat("throws") - thrown_before, 1, "40 THROWs in 40 frames: one bottle (one per %d-frame throw)" % throw_ticks)
 	check_eq(m.refused(SessionHost.WHY_BUSY) - busy_before, 39, "the other 39 busy")
 	check_eq(used_before - m.player.inventory.count_of(&"potion_poison"), 1, "and one potion used")
+	# M6-fix: a THROW and Space in one frame: the dash wins; no throw starts, none is counted as done, no potion used.
+	var done_before: int = m.ops_done.get("throw", 0)
+	var dashes_before: int = m.combat_count("dashes")
+	var left_before: int = m.player.inventory.count_of(&"potion_poison")
+	var thrown_before2: int = arena.stat("throws")
+	var both: NetProtocol.InputFrame = _throw(Config.MAP_SURFACE, below, pslot, feet + Vector2(0, 50))
+	both.dash = true
+	host_frame(r, m, both)
+	for i: int in throw_ticks:
+		host_frame(r, m, NetProtocol.InputFrame.new())
+	var done_after: int = m.ops_done.get("throw", 0)
+	check(done_after == done_before and m.combat_count("dashes") == dashes_before + 1 and arena.stat("throws") == thrown_before2
+		and m.player.inventory.count_of(&"potion_poison") == left_before, "THROW + Space in one frame: a dash, no throw done (%d -> %d)" % [
+		done_before, done_after])
+	check_eq(done_after, arena.stat("throws"), "every throw counted as done let a bottle go")
+	m.player.teleport(feet)
+	for i: int in 30:
+		host_frame(r, m, NetProtocol.InputFrame.new())
 	# Out of reach (the tile sets the facing; a far one is refused like a use's), a sword, another map.
 	host_frame(r, m, _throw(Config.MAP_SURFACE, below + Vector2i(0, 3), pslot, feet + Vector2(0, 50)))
 	check_eq(m.refused(WorldItems.WHY_REACH), 1, "a throw aimed with a tile 4 tiles off: out of reach")
@@ -613,6 +640,8 @@ func _check_poison_kill() -> void:
 	_tick(r, 30)
 	check(not h.alive() and arena.stat("poison_kills") == 1, "two FINE poisons killed the heretic (poison kill %d)" % arena.stat("poison_kills"))
 	check_eq(m.combat_count("kills"), 1, "the host counted the kill for the herbalist")
+	check(m.combat_count("hits") == 0 and m.combat_count("poison_hits") >= 2,
+		"its poison ticks count as poison hits, not weapon hits (M6-fix: %d / %d)" % [m.combat_count("hits"), m.combat_count("poison_hits")])
 	check_eq(m.combat_count("throws"), 2, "two throws on the host")
 	check_eq(c.s.local.player.inventory.count_of(&"potion_poison"), 1, "the client's inventory: one potion left")
 	check(flask_ticks > 10 and flask_mismatch == 0, "every tick a bottle flew on the host (%d), the client's track had it at the host's point (%d off)" % [
@@ -670,7 +699,7 @@ func _check_heal_and_buff() -> void:
 	var on_c2: NetMember = c2.s.members[m.slot]
 	check(on_c2.interp.latest() != null and on_c2.interp.latest().vitals != null and on_c2.interp.latest().vitals.buffed(),
 		"the other client gets the buff in the paladin's state")
-	c2.s.client.draw_others()
+	draw_at_rig_time(r, c2)
 	check(on_c2.player.effect_marks.shown == ([EffectMarks.Kind.BUFF] as Array[int]), "and draws its mark (%s)" % [on_c2.player.effect_marks.shown])
 	var x0: float = m.player.sim_position.x
 	var walk: NetBot.Action = NetBot.Action.new()
@@ -698,6 +727,10 @@ func _check_heal_and_buff() -> void:
 		"thrown healing on the downed paladin: still down at 0 HP (Config.THROW_HEAL_REVIVES off), its buff ended when it went down")
 	check_eq(r.host.arenas[Config.MAP_SURFACE].stat("splash_revives"), 0, "no splash revive")
 	check_eq(c.s.client.prediction.sim.vit.life, Vitals.Life.DOWN, "the client: down too")
+	_tick(r, SessionClient.interp_delay_ticks() + 2)
+	draw_at_rig_time(r, c2)
+	check(on_c2.player.effect_marks.shown.is_empty(), "the other client's buff mark is gone once the buff ended (down) (%s)" % [
+		on_c2.player.effect_marks.shown])
 	check_prediction("heal and buff / paladin", c)
 	check_prediction("heal and buff / archer", c2)
 	_free_rig(r)
@@ -777,7 +810,7 @@ func _check_late_join_effects() -> void:
 	var on_late: NetMember = late.s.members[ma.slot]
 	check(on_late.interp.latest() != null and on_late.interp.latest().vitals != null and on_late.interp.latest().vitals.buffed(),
 		"its welcome had the paladin buffed")
-	late.s.client.draw_others()
+	draw_at_rig_time(r, late)
 	check(on_late.player.effect_marks.shown == ([EffectMarks.Kind.BUFF] as Array[int]), "it draws the buff mark")
 	var lc: NetCombat = late.s.client.combat
 	check(lc.poisoned_seen.has(h.id), "its enemy keyframe had the heretic poisoned")
@@ -790,6 +823,12 @@ func _check_late_join_effects() -> void:
 	_tick(r, 3)
 	check(track(late, in_air) != null and track(late, in_air).end_tick >= 0, "its splash came live")
 	check_eq(late.s.client.combat.latest_hash(), r.host.combat_hash(Config.MAP_SURFACE), "its enemy view = the host's")
+	# M6-fix: the buff runs out on the host; the late joiner's mark goes too (drawn at the rig's host time).
+	var ran: int = tick_until(r, func() -> bool: return not ma.player.vitals.buffed(), Config.BUFF_TICKS[ItemDB.Grade.COMMON] + 60)
+	_tick(r, SessionClient.interp_delay_ticks() + 2)
+	draw_at_rig_time(r, late)
+	check(not ma.player.vitals.buffed() and on_late.player.effect_marks.shown.is_empty(),
+		"the buff ran out after %d more ticks: the late joiner's mark is gone (%s)" % [ran, on_late.player.effect_marks.shown])
 	# The dungeon: the host puts a table there; a client sent down gets it in the map snapshot.
 	var d: WorldData = r.dungeon.data
 	var arrive: Vector2i = Aim.feet_cell(DungeonGen.arrival_point(d))
@@ -933,6 +972,7 @@ func _check_shared_sim_frames() -> void:
 	var mismatch: int = 0
 	var first_bad: String = ""
 	var throws: int = 0
+	var far_throws: int = 0
 	var drinks: int = 0
 	var flask_off: int = 0
 	var dir: Vector2i = Vector2i.ZERO
@@ -942,7 +982,12 @@ func _check_shared_sim_frames() -> void:
 	for t: int in 1500:
 		if t % 25 == 0:
 			dir = Vector2i(rng.randi_range(-1, 1), rng.randi_range(-1, 1))
-		var mouse: Vector2 = (off.sim_position + Vector2(rng.randi_range(-60, 60), rng.randi_range(-60, 60))).round()
+		# M6-fix: every other stretch of 131 ticks the mouse goes beyond the range and off the pixel grid (the throw point
+		# is clamped, then whole px: offline makes the frame the wire carries, so the bottles fly the same).
+		var spread: int = 60 if (t / 131) % 2 == 0 else 220
+		var mouse: Vector2 = off.sim_position + Vector2(rng.randi_range(-spread, spread), rng.randi_range(-spread, spread)) 			+ (Vector2.ZERO if spread == 60 else Vector2(0.37, -0.21))
+		if spread == 60:
+			mouse = mouse.round()
 		var click: bool = t % 97 == 40
 		var skill: bool = t % 131 == 70
 		if click or skill:
@@ -965,6 +1010,8 @@ func _check_shared_sim_frames() -> void:
 			if rel.ok():
 				if rel.thrown:
 					throws += 1
+					if off.action_target.distance_to(rel.flask.origin) > Config.THROW_RANGE_PX - 1.0:
+						far_throws += 1
 				else:
 					drinks += 1
 					host_events += 1
@@ -1014,7 +1061,8 @@ func _check_shared_sim_frames() -> void:
 					flask_off += 1
 	check_eq(mismatch, 0, "offline == host every tick with drink and throw frames through the wire %s" % first_bad)
 	check_eq(flask_off, 0, "the bottles flew the same offline and on the host")
-	check(throws >= 4 and drinks >= 2, "the run threw (%d) and drank (%d)" % [throws, drinks])
+	check(throws >= 4 and drinks >= 2 and far_throws >= 2, "the run threw (%d, %d of them past the range) and drank (%d)" % [throws,
+		far_throws, drinks])
 	for it: Array in items:
 		var id3: StringName = it[0]
 		check_eq(m.player.inventory.count_of(id3), off.inventory.count_of(id3), "%s: the same left offline and on the host" % id3)

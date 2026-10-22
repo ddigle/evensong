@@ -19,8 +19,8 @@ var hotbar_size: int
 ## Selected hotbar slot (0..hotbar_size - 1).
 var selected: int = 0
 ## M6a: every item id this inventory has ever been given (add(); any grade): recipes unlock on it
-## (Crafting.unlocked, ○ gameplay-design §3.5). Kept when the items leave (it is knowledge); a client's
-## load_state() does not touch it (crafting is offline until M6b).
+## (Crafting.unlocked, ○ gameplay-design §3.5). Kept when the items leave (it is knowledge). load_state() does not
+## touch it: a session client marks what the host's inventories hold (SessionClient.take_inventory, M6b).
 var seen: Dictionary[StringName, bool] = {}
 
 

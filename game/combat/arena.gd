@@ -92,7 +92,8 @@ class Splash:
 
 
 ## M4b: a hit on a heretic (logging on): which, how much, its HP after, who (the attacker's node instance
-## id, 0 = unknown) and whether it died.
+## id, 0 = unknown) and whether it died. M6-fix: `poison` = a poison tick (the thrower's), not a weapon hit (the
+## host counts it apart, "poison_hits", and tags its log line).
 class Hit:
 	extends RefCounted
 	var heretic_id: int = 0
@@ -100,6 +101,7 @@ class Hit:
 	var hp_after: int = 0
 	var by_id: int = 0
 	var killed: bool = false
+	var poison: bool = false
 
 var data: WorldData
 var safe: SafeZone
@@ -567,6 +569,7 @@ func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 		h.state = HereticSim.State.DEAD
 		h.state_ticks = 0
 		h.walking = false
+		_end_poison(h)  # M6-fix: a heretic killed while poisoned is no longer poisoned
 		count("killed")
 		return
 	if h.state == HereticSim.State.ATTACK and not Config.HERETIC_HURT_INTERRUPTS_ATTACK:
@@ -597,7 +600,7 @@ func poison_heretic(h: HereticSim, damage: int, ticks: int, by: int = 0) -> bool
 ## M6a: one tick of a heretic's poison (step(), alive heretics): a poison tick takes HP without a stagger and
 ## does not stop an attack (Config "M6a"); at 0 it dies like any other kill (counted "killed", a Hit record
 ## for the thrower with logging on: the host counts it as that player's kill, M6b). A dead heretic's poison
-## ends.
+## ends (M6-fix: whatever killed it, hit_heretic too).
 func _tick_poison(h: HereticSim) -> void:
 	h.poison_ticks -= 1
 	h.poison_timer -= 1
@@ -605,9 +608,13 @@ func _tick_poison(h: HereticSim) -> void:
 		h.poison_timer = Config.POISON_INTERVAL_TICKS
 		_poison_damage(h, h.poison_damage)
 	if h.poison_ticks <= 0 or not h.alive():
-		h.poison_ticks = 0
-		h.poison_damage = 0
-		h.poison_timer = 0
+		_end_poison(h)
+
+
+static func _end_poison(h: HereticSim) -> void:
+	h.poison_ticks = 0
+	h.poison_damage = 0
+	h.poison_timer = 0
 
 
 func _poison_damage(h: HereticSim, amount: int) -> void:
@@ -621,6 +628,7 @@ func _poison_damage(h: HereticSim, amount: int) -> void:
 		r.hp_after = h.hp
 		r.by_id = h.poison_by
 		r.killed = h.hp == 0
+		r.poison = true
 		hits.append(r)
 	if h.hp == 0:
 		h.state = HereticSim.State.DEAD

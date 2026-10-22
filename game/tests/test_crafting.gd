@@ -20,6 +20,7 @@ func run() -> Array[String]:
 	_check_unlock()
 	_check_station_reach()
 	_check_table_placement()
+	_check_reserved_spots()
 	_check_table_blocks()
 	await _check_table_drawn()
 	await _check_main_tab()
@@ -218,6 +219,33 @@ func _check_station_reach() -> void:
 	d.put_placeable(Rect2i(16, 10, 3, 1), WorldData.PLACEABLE_NONE)
 	check(not Crafting.still_at(d, Arena.spawn_feet(Vector2i(15, 11)), mid), "that table gone")
 	check(Crafting.station_near(null, Vector2.ZERO) == null, "no data")
+	# M6-fix: a footprint of any size within reach counts (M6b's window was sized for 3 tiles and looked only at the
+	# top-left tile: a 5-wide one 2 tiles off its east end was missed).
+	var wide: WorldData = WorldData.new(Vector2i(30, 20))
+	wide.put_placeable(Rect2i(10, 10, 5, 1), WorldData.PLACEABLE_ALCHEMY)
+	var east: Vector2 = Arena.spawn_feet(Vector2i(16, 10))
+	var w_at: Crafting.StationAt = Crafting.station_near(wide, east)
+	check(w_at != null and w_at.rect == Rect2i(10, 10, 5, 1), "a 5-tile footprint, the feet 2 tiles off its east end: at it")
+	check(Crafting.station_near(wide, Arena.spawn_feet(Vector2i(17, 10))) == null, "3 tiles off: not")
+	# station_of_kind_near: only that kind (the host's CRAFT check: the recipe's station, whatever is nearer).
+	check(Crafting.station_of_kind_near(wide, east, Crafting.ALCHEMY) != null, "of its kind: found")
+	check(Crafting.station_of_kind_near(wide, east, &"anvil") == null, "of another kind: none")
+	# Two as near: the first footprint row by row; still_at stays with the one the panel opened at.
+	var two: WorldData = WorldData.new(Vector2i(30, 20))
+	two.put_placeable(Rect2i(10, 10, 3, 1), WorldData.PLACEABLE_ALCHEMY)
+	two.put_placeable(Rect2i(14, 10, 3, 1), WorldData.PLACEABLE_ALCHEMY)
+	var between: Vector2 = Arena.spawn_feet(Vector2i(13, 11))
+	var first: Crafting.StationAt = Crafting.station_near(two, between)
+	check(first != null and first.rect.position == Vector2i(10, 10), "two tables as near: the first row by row")
+	var opened: Crafting.StationAt = Crafting.station_near(two, Arena.spawn_feet(Vector2i(17, 11)))
+	check(opened != null and opened.rect.position == Vector2i(14, 10), "the east one from its east side")
+	check(Crafting.still_at(two, between, opened), "still at the east one where the west one is as near")
+	check(not Crafting.still_at(two, Arena.spawn_feet(Vector2i(10, 12)), opened), "away from it (at the west one): not")
+	var moved: Crafting.StationAt = Crafting.StationAt.new()
+	moved.kind = opened.kind
+	moved.rect = opened.rect
+	moved.map = Config.MAP_DUNGEON
+	check(not Crafting.still_at(two, between, moved), "another map: not")
 
 
 func _check_table_placement() -> void:
@@ -267,6 +295,66 @@ func _check_table_placement() -> void:
 	var t_inv: Inventory = inv_with([[&"torch", 2]])
 	var t: WorldItems.Outcome = WorldItems.place(d, feet, t_inv, 0, Vector2i(11, 10))
 	check(t.ok() and t.edits.size() == 1, "a torch beside the table and on the placer's side (%s)" % t.why)
+
+
+## M6-fix: a table may not cover a feet point where players appear without walking there (WorldItems.reserved_feet,
+## WHY_RESERVED): the arrival below the way in on each map (seed 1: the surface entrance, the dungeon's exit stairs)
+## and the altar's nine spawn slots. For each point, every footprint that covers its feet box, tried by a placer on
+## each free tile next to the target: some refused as reserved, none placed. Before, a table went down on the
+## dungeon's arrival and on every spawn slot (the player who then arrived stood inside it).
+func _check_reserved_spots() -> void:
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var dungeon: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var on_surface: Array[Vector2] = WorldItems.reserved_feet(surface)
+	var below: Array[Vector2] = WorldItems.reserved_feet(dungeon)
+	check_eq(on_surface.size(), 1 + Config.SPAWN_SLOTS.size(), "surface: the arrival below the entrance and the spawn slots")
+	check_eq(below.size(), 1, "dungeon: the arrival below the exit stairs")
+	if on_surface.is_empty() or below.is_empty():
+		return
+	check_eq(on_surface[0], DungeonGen.arrival_below(SurfaceGen.entrance_rect(surface)), "the surface's arrival point")
+	check_eq(on_surface[1], surface.altar_center_px() + Vector2(Config.SPAWN_SLOTS[0]), "spawn slot 0 (GameWorld.spawn_point)")
+	check_eq(below[0], DungeonGen.arrival_point(dungeon), "the dungeon's arrival point")
+	check(WorldItems.reserved_feet(WorldData.new(Vector2i(30, 20))).is_empty(), "a map with no way in and no altar: none")
+	var inv: Inventory = inv_with([[&"alchemy_table", 1]])
+	var bad: PackedStringArray = []
+	var points: int = 0
+	var refused: int = 0
+	for d: WorldData in [surface, dungeon]:
+		for r: Vector2 in WorldItems.reserved_feet(d):
+			points += 1
+			if not Movement.can_stand(d, r):
+				bad.append("%s %s: cannot stand there" % [Config.MAP_NAMES[d.map_id], r])
+				continue
+			var box: Rect2 = Movement.feet_box(r)
+			var f: Vector2i = Aim.feet_cell(r)
+			var reserved: int = 0
+			for ty: int in range(f.y - 1, f.y + 2):
+				for tx: int in range(f.x - 2, f.x + 3):
+					var t: Vector2i = Vector2i(tx, ty)
+					var rect: Rect2i = WorldItems.place_rect(WorldData.PLACEABLE_ALCHEMY, t)
+					var px: Rect2 = Rect2(Vector2(rect.position * Config.TILE), Vector2(rect.size * Config.TILE))
+					if not px.intersects(box):
+						continue
+					for o: Vector2i in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1),
+							Vector2i(-1, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+						var pf: Vector2 = Arena.spawn_feet(t + o)
+						if px.intersects(Movement.feet_box(pf)) or not Movement.can_stand(d, pf):
+							continue
+						var why: String = WorldItems.place(d, pf, inv, 0, t).why
+						if why == WorldItems.WHY_RESERVED:
+							reserved += 1
+						elif why.is_empty():
+							bad.append("%s %s: placed on target %s" % [Config.MAP_NAMES[d.map_id], r, t])
+			if reserved == 0:
+				bad.append("%s %s: no try refused as reserved" % [Config.MAP_NAMES[d.map_id], r])
+			refused += reserved
+	check(bad.is_empty() and points == 11, "every point where players appear (%d) kept clear: %d tries refused as reserved, none placed %s" % [
+		points, refused, bad])
+	check_eq(inv.count_of(&"alchemy_table"), 1, "nothing used")
+	# Two tiles south of the dungeon's arrival (its feet clear) the same table goes down.
+	var arrive: Vector2i = Aim.feet_cell(below[0])
+	var near_ok: WorldItems.Outcome = WorldItems.place(dungeon, Arena.spawn_feet(arrive + Vector2i(0, 1)), inv, 0, arrive + Vector2i(0, 2))
+	check(near_ok.ok(), "two tiles south of the arrival: placed (%s)" % near_ok.why)
 
 
 func _check_table_blocks() -> void:

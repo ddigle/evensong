@@ -28,6 +28,10 @@ extends RefCounted
 ## left the hand (Arena.flask_points, the host's own steps), up to the tick it lands on its target.
 class FlaskTrack:
 	extends RefCounted
+	## IMPL (named in M6-fix): ticks of path beyond the ticks a whole range takes (float slack), and how long a
+	## bottle without its broke event stays before the client forgets it (1 s).
+	const FLASK_PATH_SPARE_TICKS: int = 2
+	const FLASK_WAIT_BROKE_TICKS: int = Config.NET_TICK_RATE
 	var id: int = 0
 	var item: StringName = &""
 	var owner: int = 255
@@ -41,11 +45,12 @@ class FlaskTrack:
 	var end_tick: int = -1
 	var end_pos: Vector2 = Vector2.ZERO
 
-	## The flight's points tick by tick, the host's steps without its walls (the broke event cuts it).
+	## The flight's points tick by tick, the host's steps without its walls (the broke event cuts it): at most the
+	## ticks a whole range takes plus FLASK_PATH_SPARE_TICKS (it stops on the tick it lands).
 	func build_path() -> void:
 		path.clear()
 		var at: Vector2 = origin
-		for i: int in ceili(Config.THROW_RANGE_PX / (Config.THROW_SPEED / Config.NET_TICK_RATE)) + 2:
+		for i: int in ceili(Config.THROW_RANGE_PX / (Config.THROW_SPEED / Config.NET_TICK_RATE)) + FLASK_PATH_SPARE_TICKS:
 			var arrive: bool = Arena.flask_arrives(at, target)
 			var points: PackedVector2Array = Arena.flask_points(at, target)
 			at = points[points.size() - 1]
@@ -81,11 +86,12 @@ class FlaskTrack:
 		var age: int = floori(t) - end_tick
 		return age if age >= 0 and age < Config.SPLASH_SHOW_TICKS else -1
 
-	## Gone for good by host time `t`.
+	## Gone for good by host time `t`: its splash shown; without a broke event (it cannot be lost: reliable, but a
+	## map change may cut it off), FLASK_WAIT_BROKE_TICKS after its flight and splash would have ended.
 	func over(t: float) -> bool:
 		if end_tick >= 0:
 			return floori(t) - end_tick >= Config.SPLASH_SHOW_TICKS
-		return t - tick > path.size() + Config.SPLASH_SHOW_TICKS + Config.NET_TICK_RATE
+		return t - tick > path.size() + Config.SPLASH_SHOW_TICKS + FLASK_WAIT_BROKE_TICKS
 
 ## One received heretic state at a host tick (its timed state's start as a whole host tick).
 class FoeSnap:

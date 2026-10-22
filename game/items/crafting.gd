@@ -3,8 +3,12 @@ extends RefCounted
 ## M6a: crafting (○ gameplay-design §3.5 "작업대 근처에서 Tab"): stations, recipes and the craft rule, pure
 ## functions on WorldData + Inventory like items/world_items.gd, so M6b's host and M7's workbench, anvil and
 ## relic bench use the same frame (a station kind per placeable fixture, recipes per station). M6b: a session's
-## craft is a CRAFT request (the recipe's index, recipe_at) that the host checks with station_near on its own
-## data and position of the player and craft() on the player's inventory (net/session_host.gd).
+## craft is a CRAFT request (the recipe's index, recipe_at) that the host checks with station_of_kind_near (M6-fix:
+## a station of the recipe's kind within reach, whatever is nearer) on its own data and position of the player and
+## craft() on the player's inventory (net/session_host.gd).
+## M6-fix, what a new station still needs besides its STATION_OF / STATION_ICON / WorldItems.FOOTPRINT_OF entries and
+## its recipes (README "제작 틀"): its art in world/fixture_view.gd (tables only so far), the panel's rows
+## (ui/crafting_panel.gd draws one input per row and one class mark, the herbalist's pouch) and its place / scroll.
 ##
 ## Station: a placeable fixture whose WorldData value is in STATION_OF; a player is at it while its feet tile
 ## is within Config.STATION_REACH_TILES (Chebyshev) of the footprint (station_near). M6a has one, the alchemy
@@ -24,13 +28,16 @@ extends RefCounted
 
 ## Station kinds (M7 adds the workbench, the anvil, the relic bench).
 const ALCHEMY: StringName = &"alchemy"
-## The station each placeable fixture is.
+## The station each placeable fixture is (its footprint: WorldItems.FOOTPRINT_OF).
 const STATION_OF: Dictionary[int, StringName] = {WorldData.PLACEABLE_ALCHEMY: ALCHEMY}
+## M6-fix: the item whose icon heads each station's crafting panel (ui/crafting_panel.gd).
+const STATION_ICON: Dictionary[StringName, StringName] = {ALCHEMY: &"alchemy_table"}
 ## The class the ● §3.0 herbalist-only potions need.
 const HERB_CLASS: String = "herbalist"
 
 const WHY_NO_STATION: String = "no station"
 const WHY_LOCKED: String = "locked"
+## The refusal of a recipe only the herbalist may craft (M6-fix: Recipe.class_refusal makes it from the classes).
 const WHY_CLASS: String = "herbalist only"
 const WHY_MISSING: String = "missing inputs"
 const WHY_NO_ROOM: String = "no room"
@@ -63,6 +70,10 @@ class Recipe:
 
 	func allows(class_id: String) -> bool:
 		return classes.is_empty() or classes.has(class_id)
+
+	## M6-fix: why another class may not craft it ("<class>[/<class>...] only"; WHY_CLASS for the herbalist's).
+	func class_refusal() -> String:
+		return "%s only" % "/".join(classes)
 
 	func describe() -> String:
 		var parts: PackedStringArray = []
@@ -186,6 +197,11 @@ static func station_kind(p: int) -> StringName:
 	return STATION_OF.get(p, &"")
 
 
+## M6-fix: the item whose icon stands for station `kind` (&"" for none).
+static func station_icon(kind: StringName) -> StringName:
+	return STATION_ICON.get(kind, &"")
+
+
 ## Chebyshev distance in tiles from tile `c` to footprint `rect` (0 = inside).
 static func tiles_to(c: Vector2i, rect: Rect2i) -> int:
 	var dx: int = maxi(maxi(rect.position.x - c.x, c.x - (rect.end.x - 1)), 0)
@@ -194,38 +210,62 @@ static func tiles_to(c: Vector2i, rect: Rect2i) -> int:
 
 
 ## The nearest station a player with feet at `feet` stands at (its feet tile within
-## Config.STATION_REACH_TILES of the footprint), or null.
+## Config.STATION_REACH_TILES of the footprint), or null. Tab opens its panel.
 static func station_near(data: WorldData, feet: Vector2) -> StationAt:
+	return _nearest(data, feet, &"")
+
+
+## M6-fix: the nearest station of kind `kind` a player with feet at `feet` stands at, or null: the host's check of a
+## CRAFT (a recipe's station within reach counts, whatever other station is nearer).
+static func station_of_kind_near(data: WorldData, feet: Vector2, kind: StringName) -> StationAt:
+	return _nearest(data, feet, kind)
+
+
+## The nearest station (of kind `kind`, &"" = any) within reach of feet `feet`; between two as near, the one whose
+## footprint's top-left tile comes first row by row. M6-fix: every tile within reach of the feet tile is looked at
+## and a station tile there names its whole footprint (WorldData.footprint_at), so a footprint of any size counts
+## (the tile of a footprint nearest the feet tile is within reach when the footprint is); before, the window was
+## sized for the alchemy table's 3 tiles and looked only at each footprint's top-left tile.
+static func _nearest(data: WorldData, feet: Vector2, kind: StringName) -> StationAt:
 	if data == null:
 		return null
 	var f: Vector2i = Aim.feet_cell(feet)
 	var reach: int = Config.STATION_REACH_TILES
 	var best: StationAt = null
 	var best_d: int = reach + 1
-	var big: int = maxi(Config.ALCHEMY_FOOTPRINT.x, Config.ALCHEMY_FOOTPRINT.y)
-	for y: int in range(f.y - reach - big, f.y + reach + big + 1):
-		for x: int in range(f.x - reach - big, f.x + reach + big + 1):
+	for y: int in range(f.y - reach, f.y + reach + 1):
+		for x: int in range(f.x - reach, f.x + reach + 1):
 			var c: Vector2i = Vector2i(x, y)
-			var kind: StringName = station_kind(data.get_value(WorldData.Layer.PLACEABLE, c))
-			if kind.is_empty():
+			var k: StringName = station_kind(data.get_value(WorldData.Layer.PLACEABLE, c))
+			if k.is_empty() or (not kind.is_empty() and k != kind):
 				continue
 			var rect: Rect2i = data.footprint_at(c)
-			if rect.position != c:
-				continue  # one look per footprint, from its top-left tile
 			var d: int = tiles_to(f, rect)
-			if d < best_d:
+			if d > reach:
+				continue
+			if best == null or d < best_d or (d == best_d and _before(rect.position, best.rect.position)):
 				best_d = d
 				best = StationAt.new()
-				best.kind = kind
+				best.kind = k
 				best.rect = rect
 				best.map = data.map_id
 	return best
 
 
-## Whether the station `at` is still there and `feet` still at it (the panel closes otherwise).
+static func _before(a: Vector2i, b: Vector2i) -> bool:
+	return a.y < b.y or (a.y == b.y and a.x < b.x)
+
+
+## Whether the station `at` is still there (the same kind on the same footprint, on the same map) and `feet` still
+## within reach of it (the panel closes otherwise). M6-fix: that station, not the nearest one (another station
+## coming nearer does not close the panel).
 static func still_at(data: WorldData, feet: Vector2, at: StationAt) -> bool:
-	var now: StationAt = station_near(data, feet)
-	return now != null and data.map_id == at.map and now.kind == at.kind and now.rect == at.rect
+	if data == null or at == null or data.map_id != at.map:
+		return false
+	if station_kind(data.get_value(WorldData.Layer.PLACEABLE, at.rect.position)) != at.kind \
+			or data.footprint_at(at.rect.position) != at.rect:
+		return false
+	return tiles_to(Aim.feet_cell(feet), at.rect) <= Config.STATION_REACH_TILES
 
 
 ## How many of `item` at `grade` (-1 = any) `inv` holds.
@@ -241,7 +281,7 @@ static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
 	if not unlocked(r, inv):
 		return WHY_LOCKED
 	if not r.allows(class_id):
-		return WHY_CLASS
+		return r.class_refusal()
 	for i: Ingredient in r.inputs:
 		if have(inv, i.item, i.grade) < i.count:
 			return WHY_MISSING

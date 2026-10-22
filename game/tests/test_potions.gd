@@ -24,6 +24,8 @@ func run() -> Array[String]:
 	_check_throw_controls()
 	_check_marks()
 	_check_shared_sim()
+	_check_release_refusals()
+	_check_effect_edges()
 	await _check_main_flow()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
@@ -449,7 +451,9 @@ func _check_throw_controls() -> void:
 	check(f.op == NetProtocol.Op.THROW and f.anim == RigData.Anim.THROW and f.item == &"potion_poison",
 		"key 1: the throw action (M6b: a THROW request, M6a's was a USE)")
 	var origin: Vector2 = Combat.body_point(herb.sim_position)
-	check(absf(f.throw_to.distance_to(origin) - Config.THROW_RANGE_PX) < 0.01, "toward the mouse, at most THROW_RANGE_PX")
+	# M6-fix: in whole px (what the wire carries), so offline throws at the host's point; the arena clamps it again.
+	check(f.throw_to == Potions.throw_target(origin, far_mouse).round() and absf(f.throw_to.distance_to(origin) - Config.THROW_RANGE_PX) < 1.0,
+		"toward the mouse, at most THROW_RANGE_PX, in whole px (%s)" % f.throw_to)
 	tick(herb, f)
 	check_eq(herb.action_anim, RigData.Anim.THROW, "throwing (base_body_v02_throw)")
 	check_eq(herb.action_target, f.throw_to, "it remembers where")
@@ -468,6 +472,92 @@ func _check_throw_controls() -> void:
 	check_eq(empty_hand.make_frame(Vector2i.ZERO, far_mouse, true, false, false, false, false, true).op, NetProtocol.Op.NONE,
 		"a sword cannot be thrown")
 	check_eq(Potions.throw_refusal("herbalist", null), Potions.WHY_NOT_POTION, "an empty hand")
+
+
+## M6-fix: Potions.release's refusals on the effect / release frame: the potion gone meanwhile (WHY_GONE: nothing
+## works, nothing used), another stack of the same grade used when the slot holds something else, a throw with no
+## arena (WHY_NO_ARENA).
+func _check_release_refusals() -> void:
+	var d: WorldData = open_world()
+	var p: Player = player(d, "paladin", Arena.spawn_feet(Vector2i(10, 10)))
+	p.inventory.add(&"potion_healing", 1, ItemDB.Grade.FINE)
+	p.vitals.hp = 40
+	var east: Vector2 = p.sim_position + Vector2(30, 0)
+	tick(p, p.make_frame(Vector2i.ZERO, east, true, true, true))
+	check(p.action_anim == Config.DRINK_ANIM and p.action_slot == 0, "drinking from slot 0")
+	p.inventory.remove(0, 1)  # dropped (or moved away) before the effect frame
+	var gone: Potions.Released = Potions.release(p, &"potion_healing", Config.DRINK_ANIM, null)
+	check(gone.why == Potions.WHY_GONE and p.vitals.hp == 40, "the potion gone by the effect frame: %s, no heal" % gone.why)
+	# The slot now holds a COMMON one, a FINE one lies further on: the FINE one is used (the action's grade).
+	p.inventory.add(&"potion_healing", 2, ItemDB.Grade.COMMON)
+	p.inventory.add(&"potion_healing", 1, ItemDB.Grade.FINE)
+	var other: Potions.Released = Potions.release(p, &"potion_healing", Config.DRINK_ANIM, null)
+	check(other.ok() and p.vitals.hp == 40 + Config.POTION_HEAL_HP[ItemDB.Grade.FINE]
+		and p.inventory.count_of(&"potion_healing", ItemDB.Grade.FINE) == 0
+		and p.inventory.count_of(&"potion_healing", ItemDB.Grade.COMMON) == 2,
+		"another stack of the action's grade is used, the COMMON one in its slot stays (%s)" % other.why)
+	var herb: Player = player(d, "herbalist", Arena.spawn_feet(Vector2i(20, 10)))
+	herb.inventory.add(&"potion_poison", 1)
+	var none: Potions.Released = Potions.release(herb, &"potion_poison", RigData.Anim.THROW, null)
+	check(none.why == Potions.WHY_NO_ARENA and herb.inventory.count_of(&"potion_poison") == 1,
+		"a throw with no arena: %s, nothing used" % none.why)
+
+
+## M6-fix: the effects' edges the review found. A poison that runs out leaves no field set whatever the life state
+## (Config.EFFECTS_END_ON_DOWN false left its damage and timer after a down on its last tick: has_effects() for good);
+## a down on the last poison tick then a revive: no effect. The effects go on through map travel (Player.set_world).
+## A heretic killed by a weapon while poisoned is not poisoned. A bottle in the air when its map empties is gone
+## with its potion (no splash); a heretic's poison waits for the map to run again.
+func _check_effect_edges() -> void:
+	var s: PlayerSim = PlayerSim.new()
+	s.add_poison(3, 1)
+	s.vit.life = Vitals.Life.DOWN  # as after a down with Config.EFFECTS_END_ON_DOWN false
+	s._tick_effects()
+	check(not s.vit.has_effects(), "a poison that ran out leaves nothing set, also while down (%s)" % s.vit.describe())
+	var last: PlayerSim = PlayerSim.new()
+	last.vit.hp = 3
+	last.add_poison(3, Config.POISON_INTERVAL_TICKS)
+	var d: WorldData = open_world()
+	var downed: bool = false
+	for t: int in Config.POISON_INTERVAL_TICKS:
+		downed = downed or step_sim(last, d) & PlayerSim.DOWNED != 0
+	check(downed and last.vit.life == Vitals.Life.DOWN, "down on the poison's last tick")
+	last.revive()
+	check(not last.vit.has_effects(), "revived: no effect left (%s)" % last.vit.describe())
+	# Map travel keeps them.
+	var p: Player = player(d, "archer", Arena.spawn_feet(Vector2i(10, 10)))
+	p.apply_potion(&"potion_buff", ItemDB.Grade.FINE)
+	p.apply_potion(&"potion_poison", ItemDB.Grade.COMMON)
+	for t2: int in 31:
+		tick(p)
+	var before: Vitals = p.vitals.copy()
+	var other: WorldData = open_world()
+	other.map_id = Config.MAP_SURFACE
+	p.set_world(other, Arena.spawn_feet(Vector2i(5, 5)))
+	check(p.vitals.has_effects() and p.vitals.same_effects(before), "map travel keeps the buff and the poison (%s)" % p.vitals.describe())
+	tick(p)
+	check_eq(p.vitals.buff_ticks, before.buff_ticks - 1, "and they go on counting on the new map")
+	# A weapon kill ends a heretic's poison.
+	var a: Arena = arena_for(open_world())
+	var h: HereticSim = a.spawn_heretic(Arena.spawn_feet(Vector2i(10, 10)))
+	a.poison_heretic(h, 2, 300)
+	a.hit_heretic(h, Config.HERETIC_HP)
+	check(not h.alive() and not h.poisoned() and h.poison_ticks == 0 and h.poison_damage == 0,
+		"killed by a weapon while poisoned: no poison left on the corpse")
+	# An emptied map: the bottle in the air is gone (its potion was used), the poison waits.
+	var e: Arena = arena_for(open_world())
+	var thrower: Player = player(e.data, "herbalist", Arena.spawn_feet(Vector2i(10, 10)))
+	var foe: HereticSim = e.spawn_heretic(Arena.spawn_feet(Vector2i(20, 10)))
+	e.poison_heretic(foe, 2, 300)
+	e.throw_potion(thrower, &"potion_poison", ItemDB.Grade.COMMON, Combat.body_point(thrower.sim_position) + Vector2(80, 0))
+	e.step([thrower] as Array[Player])
+	var hp_then: int = foe.hp
+	var ticks_then: int = foe.poison_ticks
+	e.idle_tick()
+	for t3: int in 120:
+		e.idle_tick()
+	check(e.flasks.is_empty() and e.stat("splashes") == 0, "an emptied map: the bottle in the air is gone, no splash")
+	check(foe.hp == hp_then and foe.poison_ticks == ticks_then, "its heretic's poison waits (README \"M6-fix 빈 지도의 병과 독\")")
 
 
 ## The marks over heads (EffectMarks) and in the HUD.

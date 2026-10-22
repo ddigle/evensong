@@ -67,6 +67,12 @@ const WHY_NO_ROOM: String = "no room for a bag"
 ## (M6b: in a session too; M6a's session refused the table, "alchemy table offline only").
 const WHY_BODY: String = "someone stands there"
 const WHY_TOO_CLOSE: String = "too close to another"
+## M6-fix: a blocking placeable would cover a feet point where players appear without walking there
+## (reserved_feet: the arrival below the way in, the altar's spawn slots).
+const WHY_RESERVED: String = "where players appear"
+## M6-fix: the footprint (tiles) of each placeable that covers more than its own tile (place_rect; any other is
+## one tile). M7's stations add theirs here.
+const FOOTPRINT_OF: Dictionary[int, Vector2i] = {WorldData.PLACEABLE_ALCHEMY: Config.ALCHEMY_FOOTPRINT}
 ## M4a: how far (tiles, rings around the death tile) the bag looks for a free tile.
 const BAG_SEARCH_TILES: int = 3
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
@@ -381,13 +387,33 @@ static func placeable_in(inv: Inventory, slot: int) -> int:
 	return def.place if def != null else WorldData.PLACEABLE_NONE
 
 
-## M6a: the footprint placeable `value` covers when put down on target tile `c`: the alchemy table's
-## (Config.ALCHEMY_FOOTPRINT) has `c` as the middle of its bottom row; anything else is the tile itself.
+## M6-fix: the footprint size (tiles) of placeable `value` (FOOTPRINT_OF, else one tile).
+static func footprint_of(value: int) -> Vector2i:
+	return FOOTPRINT_OF.get(value, Vector2i.ONE)
+
+
+## M6a: the footprint placeable `value` covers when put down on target tile `c`: `c` is the middle of its bottom
+## row (the alchemy table's, Config.ALCHEMY_FOOTPRINT; a one-tile placeable is the tile itself).
 static func place_rect(value: int, c: Vector2i) -> Rect2i:
-	if value == WorldData.PLACEABLE_ALCHEMY:
-		var fp: Vector2i = Config.ALCHEMY_FOOTPRINT
-		return Rect2i(Vector2i(c.x - fp.x / 2, c.y - fp.y + 1), fp)
-	return Rect2i(c, Vector2i.ONE)
+	var fp: Vector2i = footprint_of(value)
+	return Rect2i(Vector2i(c.x - fp.x / 2, c.y - fp.y + 1), fp)
+
+
+## M6-fix (PROVISIONAL README "M6-fix 조제대가 비워 두는 자리"): the feet points on map `data` where players appear
+## without walking there, which a blocking placeable may not cover (nothing can take one away again, and a player
+## put inside one could only walk out on some sides): the arrival point below the way in (the surface entrance, the
+## dungeon's exit stairs: DungeonGen.arrival_below, where travel from the other map puts a player) and, on a map with
+## the altar, every Config.SPAWN_SLOTS place around it (joining and respawning; GameWorld.spawn_point).
+static func reserved_feet(data: WorldData) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var way: Rect2i = DungeonGen.exit_rect(data) if data.map_id == Config.MAP_DUNGEON else SurfaceGen.entrance_rect(data)
+	if way.has_area():
+		out.append(DungeonGen.arrival_below(way))
+	if data.altar_rect.has_area():
+		var centre: Vector2 = data.altar_center_px()
+		for o: Vector2i in Config.SPAWN_SLOTS:
+			out.append(centre + Vector2(o))
+	return out
 
 
 ## M3a: "use" with a placeable (the torch) in hotbar slot `slot` on tile `c`: one of it from the
@@ -397,6 +423,7 @@ static func place_rect(value: int, c: Vector2i) -> Rect2i:
 ## footprint on the map and open floor with no drop (they could not be picked up under it); one that blocks
 ## walking (WorldData.placeable_blocks) may not cover the placer's feet box nor any of `bodies` (other feet:
 ## players, heretics) and may not touch another of its kind (WorldData.footprint_at would merge them).
+## M6-fix: nor a feet box at a point where players appear (reserved_feet: arrivals and the altar's spawn slots).
 static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
 		bodies: Array[Vector2] = []) -> Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
@@ -428,6 +455,9 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		for b: Vector2 in all:
 			if px.intersects(Movement.feet_box(b)):
 				return Outcome.refused(WHY_BODY)
+		for r: Vector2 in reserved_feet(data):
+			if px.intersects(Movement.feet_box(r)):
+				return Outcome.refused(WHY_RESERVED)
 		for y2: int in range(rect.position.y - 1, rect.end.y + 1):
 			for x2: int in range(rect.position.x - 1, rect.end.x + 1):
 				if data.get_value(WorldData.Layer.PLACEABLE, Vector2i(x2, y2)) == value:

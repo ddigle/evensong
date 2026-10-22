@@ -41,6 +41,8 @@ const STAMINA_LOW: Color = Color8(0x9c, 0x6a, 0x1f)      # §4 faith (below the 
 const BLEED_FILL: Color = Color8(0xa3, 0x49, 0x2c)
 const REVIVE_FILL: Color = Color8(0xf4, 0xc9, 0x5d)
 const GIVE_UP_FILL: Color = Color8(0xef, 0xe3, 0xc6)
+## IMPL (named in M6-fix): px between the HUD's effect icons, and from the stamina bar down to them.
+const EFFECT_ICON_GAP: int = 3
 ## M6a: an effect's time-left bar (§4 faith ivory).
 const EFFECT_LEFT: Color = Color8(0xef, 0xe3, 0xc6)
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
@@ -129,9 +131,10 @@ static func effect_fill(ticks: int, durations: PackedInt32Array) -> int:
 	return clampi(ceili(float(ticks) / longest * EffectMarks.SIZE), 1, EffectMarks.SIZE)
 
 
-## M6a: the top-left of the HUD's effect icon `i` (in EffectMarks.kinds_of order), below the stamina bar.
+## M6a: the top-left of the HUD's effect icon `i` (in EffectMarks.kinds_of order), EFFECT_ICON_GAP below the
+## stamina bar and apart.
 static func effect_icon_at(i: int) -> Vector2i:
-	return BAR_AT + Vector2i(i * (EffectMarks.SIZE + 3), HP_BAR.y + 3 + STAMINA_BAR.y + 3)
+	return BAR_AT + Vector2i(i * (EffectMarks.SIZE + EFFECT_ICON_GAP), HP_BAR.y + 3 + STAMINA_BAR.y + EFFECT_ICON_GAP)
 
 
 ## The respawn countdown in whole seconds (rounded up) for a dead player's vitals.

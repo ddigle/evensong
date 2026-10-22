@@ -57,8 +57,9 @@ extends SceneTree
 ##   potions  (M6a) evening off, on one screen: an alchemy table placed through the world's edits, a poisoned
 ##            heretic (its sheet frame and the poison mark), a thrown bottle half way (the potion icon on its
 ##            arc) and two splashes (frames 0 and 1): the screen equals the background plus their CPU
-##            composites, pixel for pixel; then a player's buff and poison marks over its head and the HUD's
-##            effect icons and time-left bars on their exact pixels.
+##            composites, pixel for pixel; (M6-fix) with the evening on, the bottle's and the splashes' pixels still
+##            their own colours (unshaded) while the ground around them darkens; then a player's buff and poison
+##            marks over its head and the HUD's effect icons and time-left bars on their exact pixels.
 ##   potions_net (M6b) what a session client draws of the host's potions: a real host arena (logging on) where a
 ##            herbalist threw two bottles (one broke a few ticks ago: its splash; one in the air) at a poisoned
 ##            heretic, and a player with a buff and a poison; drawn by the host's CombatView and Player, then by a
@@ -762,6 +763,25 @@ func _check_potions() -> void:
 	if n > 0 or save_all:
 		_save(got, "potions_got.png")
 		_save(expected, "potions_expected.png")
+	# M6-fix: in the dark (the evening on, outside the light) the bottle and the splashes keep their own colours
+	# (unshaded like the bolt and the marks; the bottle was shaded and all but vanished in the dark dungeon).
+	world.lighting.set_evening(true)
+	var dark: Image = await _capture()
+	world.lighting.set_evening(false)
+	var lit_want: Dictionary[Vector2i, Color] = {}
+	_image_pixels(lit_want, bottle, Vector2i(f.pos.round()) - origin + CombatView.flask_offset(f.progress()))
+	var bottle_pixels: int = lit_want.size()
+	for s3: Arena.Splash in splashes:
+		_image_pixels(lit_want, CombatView.splash_image(Potions.effect_of(s3.item), CombatView.splash_frame(s3.age)),
+			Vector2i(s3.pos.round()) - origin - Vector2i(CombatView.SPLASH_HALF, CombatView.SPLASH_HALF))
+	var dark_bad: int = _count_wrong(dark, lit_want)
+	var darker: int = 0  # the background around them did darken (the evening is on)
+	for y: int in range(0, dark.get_height(), 8):
+		for x: int in range(0, dark.get_width(), 8):
+			if not lit_want.has(Vector2i(x, y)) and _brightness(dark.get_pixel(x, y)) < _brightness(bg.get_pixel(x, y)) * LIT_RATIO:
+				darker += 1
+	if dark_bad > 0 or save_all:
+		_save(dark, "potions_dark_got.png")
 	view.clear()
 	world.remove_child(view)
 	view.free()
@@ -796,8 +816,9 @@ func _check_potions() -> void:
 	hud.free()
 	world.entities.remove_child(p)
 	p.free()
-	var line: String = "screen_mismatches=%d drawn=%d mark_pixels=%d mark_mismatches=%d" % [n, drawn, want.size(), mark_bad]
-	if n == 0 and drawn > 1000 and mark_bad == 0 and want.size() > 100:
+	var line: String = "screen_mismatches=%d drawn=%d mark_pixels=%d mark_mismatches=%d dark_pixels=%d (bottle %d) dark_mismatches=%d darkened=%d" % [
+		n, drawn, want.size(), mark_bad, lit_want.size(), bottle_pixels, dark_bad, darker]
+	if n == 0 and drawn > 1000 and mark_bad == 0 and want.size() > 100 and dark_bad == 0 and bottle_pixels > 50 			and darker > 500:
 		print("EVENSONG_RENDER potions ok %s" % line)
 	else:
 		_fail("potions", line)

@@ -74,8 +74,9 @@ var dropped_unsent: int = 0
 ## M3b: map switches, and host states skipped because they were on another map.
 var switches: int = 0
 var other_map: int = 0
-## M4b: where this player respawns (its spawn slot on the surface), host events taken (a hit, a revive,
-## the host's own steps) and their largest position error, timer mismatches without one, respawns.
+## M4b: where this player respawns (its spawn slot on the surface), host events taken (a hit, a revive;
+## M6b: a potion's effect) and their largest position error, timer mismatches without one (M6-fix: including the
+## states the host made stepping a quiet client itself), respawns.
 var spawn_feet: Vector2 = Vector2.ZERO
 var event_corrections: int = 0
 var max_event_error_px: float = 0.0
@@ -186,7 +187,9 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 				break
 	var error: float = predicted.pos.distance_to(state.pos)
 	reconciles += 1
-	# M4b: a hit, a revive (or its progress) or the host stepping this player itself is the host's event.
+	# M4b: a hit, a revive (or its progress) is the host's event. M6-fix: the host stepping this player itself (a
+	# quiet client, SessionHost "host_steps") is not told apart here: a state it made counts as a vitals correction
+	# when its timers ran ahead of the prediction's (README "M6b 예측", known issues).
 	var event: bool = predicted.vit.hp != host.vit.hp or predicted.vit.life != host.vit.life \
 		or predicted.vit.revive_ticks != host.vit.revive_ticks or effect_event(predicted.vit, host.vit)
 	if event:

@@ -3,7 +3,7 @@ extends "res://tests/test_net_session.gd"
 ## tests/test_net_session.gd, whose helpers and checks this file uses):
 ##   brew   host (herbalist, starts hurt like c1: --test-start-hp=herbalist:40) + c1 (herbalist) + a late c2
 ##          (cleric), seed 1, one heretic placed south of the light, spawns off. The host clicks the alchemy table
-##          down east of the altar (a host-checked edit); c1 walks up, opens the panel (Tab) and brews two FINE
+##          down south of the altar (a host-checked edit); c1 walks up, opens the panel (Tab) and brews two FINE
 ##          poison potions from its FINE herbs (CRAFT requests: the host checks the station, the recipe, the class,
 ##          the inputs, the room); c1 stands at the light's edge, the host throws a FINE healing potion at it (40 ->
 ##          90 HP) and then the buff; c1 throws its poison at the heretic outside the light (the bottle flies on
@@ -13,15 +13,16 @@ extends "res://tests/test_net_session.gd"
 ##          poison from the light's edge while the others fight; everyone agrees.
 ## The runner flags of test_net_session.gd apply (--net-exe, --net-keep; --net-sessions=brew or brew4).
 
-## brew (seed 1): the table's footprint is (64..66, 50) (the host clicks the tile south of (65, 49)); c1 brews
-## at (67, 49), throws from (63, 53) (inside the light, 5 tiles north of the heretic); the host throws from
-## (61, 52), in the light, 36 px from c1 (outside the splash's reach).
+## brew (seed 1): the table's footprint is (62..64, 50) (the host clicks the tile south of (63, 49)); c1 brews
+## at (66, 49), throws from (63, 53) (inside the light, 5 tiles north of the heretic); the host throws from
+## (61, 52), in the light, 36 px from c1 (outside the splash's reach). M6-fix: the table was at (64..66, 50), on
+## spawn slot 4's feet, which a table may no longer cover (WorldItems.reserved_feet).
 const BREW_HERETIC: String = "--test-heretic=63,58"
 const BREW_HOST_GIVE: String = "--give=alchemy_table,potion_healing:2:fine,potion_buff:2:fine"
-const BREW_HOST: String = ("select:1;walkto:65,49;aim:0,16;use:1;wait:10;aim:off;mark:table;select:2;walkto:62,49;" +
+const BREW_HOST: String = ("select:1;walkto:63,49;aim:0,16;use:1;wait:10;aim:off;mark:table;select:2;walkto:61,49;" +
 	"walkto:61,52;wait:180;aimat:63,53;wait:4;throw;wait:60;select:3;wait:4;throw;wait:60;aim:off;mark:healed;wait:1000")
 const BREW_C1_GIVE: String = "--give=wild_poison:4:fine"
-const BREW_C1: String = ("wait:120;walkto:67,49;tab;wait:10;craft:2;wait:10;craft:2;wait:10;tab;select:2;walkto:67,52;" +
+const BREW_C1: String = ("wait:120;walkto:66,49;tab;wait:10;craft:2;wait:10;craft:2;wait:10;tab;select:2;walkto:67,52;" +
 	"walkto:63,53;mark:edge;wait:240;aimfoe;wait:4;throw;wait:60;mark:poisoned;wait:330;aimfoe;wait:4;throw;" +
 	"waitfoe:0,900;wait:60")
 const BREW_C2: String = "wait:60;mark:seen;wait:60"
@@ -106,7 +107,8 @@ func _session_brew() -> void:
 	var hits: Dictionary = _hits_by_heretic(lines)
 	check(_hit_slots(hits, 1) == [s1] and _killed(lines, 1, s1), "brew: the poison alone killed the heretic, a kill counted for c1 (%s)" % [
 		hits.get(1, [])])
-	check(_line_with(lines, "KILLED").contains("amount=%d" % Config.POISON_DAMAGE[ItemDB.Grade.FINE]), "brew: the last blow was a poison tick (%s)" % (
+	check(_line_with(lines, "KILLED").contains("amount=%d" % Config.POISON_DAMAGE[ItemDB.Grade.FINE])
+		and _line_with(lines, "KILLED").contains(" POISON KILLED"), "brew: the last blow was a poison tick (%s)" % (
 		_line_with(lines, "KILLED")))
 	var h1_seq: Array = _hp_sequence(hits, 1)
 	var host_combat: Dictionary = host.result.get("combat", {})

@@ -260,7 +260,9 @@ func walk_speed() -> float:
 ## One tick of the buff and the poison (alive only): the buff runs out; the poison takes Vitals.poison_damage
 ## every Config.POISON_INTERVAL_TICKS (the first one interval after it started) until it runs out. A poison
 ## tick takes HP only: no stagger, no invulnerability, not stopped by one, no defence; at 0 the player goes
-## down (and the effects end). Returns POISON_TICK (| DOWNED).
+## down (and the effects end). Returns POISON_TICK (| DOWNED). A poison that ran out leaves no field set, also
+## when its last tick took the player down (M6-fix: with Config.EFFECTS_END_ON_DOWN false its damage and timer
+## stayed, so Vitals.has_effects() was true for good after a revive).
 func _tick_effects() -> int:
 	var events: int = 0
 	if vit.buff_ticks > 0:
@@ -274,7 +276,7 @@ func _tick_effects() -> int:
 		if vit.poison_timer <= 0:
 			vit.poison_timer = Config.POISON_INTERVAL_TICKS
 			events |= _poison_hit(amount)
-		if vit.poison_ticks == 0 and vit.life == Vitals.Life.ALIVE:
+		if vit.poison_ticks == 0:
 			vit.poison_damage = 0
 			vit.poison_timer = 0
 	return events

@@ -137,6 +137,6 @@ func describe() -> String:
 		RigData.DIR_NAMES[facing]]
 
 
-## M6a: poisoned now.
+## M6a: poisoned now (M6-fix: only while alive; a dead heretic's poison has ended).
 func poisoned() -> bool:
-	return poison_ticks > 0
+	return alive() and poison_ticks > 0
