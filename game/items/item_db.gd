@@ -5,6 +5,8 @@ extends RefCounted
 ##
 ## Kinds: TOOL (held in the hotbar, "use" plays its body action, gameplay-design §1 ○ "좌클릭 = 들고
 ## 있는 도구 사용"), MATERIAL (made or bought, kept), GATHERABLE (picked up in the world, §3.4 ○).
+## M6a: POTION (brewed at the alchemy table, items/crafting.gd; drunk or thrown, items/potions.gd) and the
+## alchemy table, a PLACEABLE like the torch.
 ## M2a has no gathering, crafting or world effect: items come from the debug give (--give, F5).
 ##
 ## Tools = the hand tools that have a body action of their own (● brief §5.6 R25: the tool is drawn
@@ -19,12 +21,19 @@ extends RefCounted
 ## herbs are graded. Whether mushrooms, stones or tools have grades is not in the docs (PROVISIONAL:
 ## no). Stacks of different grades do not merge.
 
-## M3a: PLACEABLE = put on a floor tile by "use" (the torch).
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE }
+## M3a: PLACEABLE = put on a floor tile by "use" (the torch; M6a: the alchemy table).
+## M6a: POTION = drunk with "use" (left click), thrown with the herbalist's skill (items/potions.gd).
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
-const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable"]
+const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion"]
+## M6a: the 04-env items strip (items_v04_strip.png, 18 icons of 16x16 in a row) holds the potion icons:
+## its 4th, 5th and 6th icons are the red, amber and poison potions (04-env/prompts.md "1차 판정 뒤 손질"
+## 작은 것 #21, #22, #23; v04 = the last touch-up, the poison cork rust). The file is copied whole
+## (byte-identical) and an icon is a region of it.
+const ITEMS_STRIP: String = "items_v04_strip.png"
+const STRIP_POTIONS: Dictionary[StringName, int] = {&"potion_healing": 3, &"potion_buff": 4, &"potion_poison": 5}
 ## IMPL (M3-fix): inventory slots the debug kit leaves free (debug_kit()). M4a: 3 on an empty inventory,
 ## so the offline player's start weapon (Config.START_WEAPON_SLOT) still leaves the M3-fix two.
 const DEBUG_KIT_FREE_SLOTS: int = 3
@@ -49,6 +58,10 @@ class ItemDef:
 	var action: int
 	## M3a: WorldData placeable value "use" puts on the target tile (PLACEABLE_NONE: none).
 	var place: int = WorldData.PLACEABLE_NONE
+	## M6a: the icon is this region of the icon file (an empty rect: the whole file).
+	var icon_region: Rect2i = Rect2i()
+	## M6a: a potion's effect (Potions.Effect; -1: not a potion).
+	var effect: int = -1
 
 	func _init(p_id: StringName, p_kind: int, p_stack: int, p_graded: bool = false, p_action: int = -1) -> void:
 		id = p_id
@@ -59,6 +72,9 @@ class ItemDef:
 
 	func is_tool() -> bool:
 		return kind == Kind.TOOL
+
+	func is_potion() -> bool:
+		return kind == Kind.POTION
 
 
 static var _table: Dictionary[StringName, ItemDef] = {}
@@ -184,6 +200,25 @@ static func _build() -> void:
 	# M4a (appended): the cleric's basic attack (Config.CLASS_WEAPONS, PROVISIONAL): plays the magic action
 	# (03-pixel base_body_v02_magic, no hand tool drawn) and lets a holy-light bolt go (Combat).
 	_tool(&"holy_light", RigData.Anim.MAGIC)
+	# M6a (appended): the three potions (● game-concept §12 R28: one per crop, healing / buff / status = poison;
+	# ● brief §5.7 R29: their colours follow the crops). Graded like the herbs they are brewed from (COMMON /
+	# FINE). Icons: regions of the 04-env items strip (STRIP_POTIONS). Kind POTION: "use" drinks, the
+	# herbalist's skill throws (items/potions.gd); they play no tool action (def.action -1).
+	var potions: Array[StringName] = [&"potion_healing", &"potion_buff", &"potion_poison"]
+	var effects: Array[int] = [Potions.Effect.HEAL, Potions.Effect.BUFF, Potions.Effect.POISON]
+	for i: int in potions.size():
+		var def: ItemDef = ItemDef.new(potions[i], Kind.POTION, Config.STACK_POTION, true)
+		def.icon_path = ART_DIR + ITEMS_STRIP
+		def.icon_region = Rect2i(STRIP_POTIONS[potions[i]] * 16, 0, 16, 16)
+		def.effect = effects[i]
+		_add(def)
+	# M6a: the alchemy table (○ game-concept §9.7: the herbalist brews at it), a crafting station put down like
+	# the torch (PROVISIONAL README "M6a 조제대 얻기": a debug item, --give=alchemy_table; nothing else makes
+	# one yet). No item art: the icon is drawn in code; the placed table is 04-env alchemy_table_v05.
+	var table: ItemDef = ItemDef.new(&"alchemy_table", Kind.PLACEABLE, Config.STACK_MATERIAL)
+	table.icon_code = &"alchemy_table"
+	table.place = WorldData.PLACEABLE_ALCHEMY
+	_add(table)
 
 
 static func _tool(id: StringName, action: int) -> void:

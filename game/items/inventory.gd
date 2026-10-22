@@ -18,6 +18,10 @@ var slots: Array[ItemStack] = []
 var hotbar_size: int
 ## Selected hotbar slot (0..hotbar_size - 1).
 var selected: int = 0
+## M6a: every item id this inventory has ever been given (add(); any grade): recipes unlock on it
+## (Crafting.unlocked, ○ gameplay-design §3.5). Kept when the items leave (it is knowledge); a client's
+## load_state() does not touch it (crafting is offline until M6b).
+var seen: Dictionary[StringName, bool] = {}
 
 
 func _init(size: int = Config.INVENTORY_SLOTS, hotbar: int = Config.HOTBAR_SLOTS) -> void:
@@ -87,8 +91,14 @@ func add(id: StringName, count: int, grade: int = -1) -> int:
 			slots[i] = ItemStack.new(id, n, g)
 			left -= n
 	if left != count:
+		seen[id] = true
 		changed.emit()
 	return left
+
+
+## M6a: whether item `id` was ever added (seen).
+func has_seen(id: StringName) -> bool:
+	return seen.has(id)
 
 
 ## Removes up to `count` from `slot`; returns how many were removed.

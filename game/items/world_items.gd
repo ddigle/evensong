@@ -63,6 +63,11 @@ const WHY_LOADING: String = "still loading"
 ## M4a: a death left nothing to drop / no free tile for the bag near the death spot.
 const WHY_NOTHING_TO_DROP: String = "nothing to drop"
 const WHY_NO_ROOM: String = "no room for a bag"
+## M6a: a blocking placeable (the alchemy table) would cover someone's feet / touch another of its kind;
+## a session refuses the table until M6b (crafting is offline only in M6a).
+const WHY_BODY: String = "someone stands there"
+const WHY_TOO_CLOSE: String = "too close to another"
+const WHY_OFFLINE_ONLY: String = "alchemy table offline only"
 ## M4a: how far (tiles, rings around the death tile) the bag looks for a free tile.
 const BAG_SEARCH_TILES: int = 3
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
@@ -377,10 +382,24 @@ static func placeable_in(inv: Inventory, slot: int) -> int:
 	return def.place if def != null else WorldData.PLACEABLE_NONE
 
 
+## M6a: the footprint placeable `value` covers when put down on target tile `c`: the alchemy table's
+## (Config.ALCHEMY_FOOTPRINT) has `c` as the middle of its bottom row; anything else is the tile itself.
+static func place_rect(value: int, c: Vector2i) -> Rect2i:
+	if value == WorldData.PLACEABLE_ALCHEMY:
+		var fp: Vector2i = Config.ALCHEMY_FOOTPRINT
+		return Rect2i(Vector2i(c.x - fp.x / 2, c.y - fp.y + 1), fp)
+	return Rect2i(c, Vector2i.ONE)
+
+
 ## M3a: "use" with a placeable (the torch) in hotbar slot `slot` on tile `c`: one of it from the
 ## stack onto the tile (PROVISIONAL rule: in reach, open floor: no wall, no wall face, no placeable,
 ## no gatherable; drops may lie there).
-static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i) -> Outcome:
+## M6a: a placeable that covers more than its tile (the alchemy table, place_rect) needs every tile of its
+## footprint on the map and open floor with no drop (they could not be picked up under it); one that blocks
+## walking (WorldData.placeable_blocks) may not cover the placer's feet box nor any of `bodies` (other feet:
+## players, heretics) and may not touch another of its kind (WorldData.footprint_at would merge them).
+static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
+		bodies: Array[Vector2] = []) -> Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
 		return Outcome.refused(WHY_BAD_SLOT)
 	var stack: ItemStack = inv.stack_at(slot)
@@ -393,14 +412,34 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
-	if Walls.blocks(data, c) or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE \
-			or data.get_value(WorldData.Layer.VEGETATION, c) != 0:
-		return Outcome.refused(WHY_NOT_OPEN)
+	var rect: Rect2i = place_rect(value, c)
+	for y: int in range(rect.position.y, rect.end.y):
+		for x: int in range(rect.position.x, rect.end.x):
+			var t: Vector2i = Vector2i(x, y)
+			if not data.in_bounds(t):
+				return Outcome.refused(WHY_OUTSIDE)
+			if Walls.blocks(data, t) or data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE \
+					or data.get_value(WorldData.Layer.VEGETATION, t) != 0 \
+					or (rect.size != Vector2i.ONE and not data.drops_at(t).is_empty()):
+				return Outcome.refused(WHY_NOT_OPEN)
+	if WorldData.placeable_blocks(value):
+		var px: Rect2 = Rect2(Vector2(rect.position * Config.TILE), Vector2(rect.size * Config.TILE))
+		var all: Array[Vector2] = [feet]
+		all.append_array(bodies)
+		for b: Vector2 in all:
+			if px.intersects(Movement.feet_box(b)):
+				return Outcome.refused(WHY_BODY)
+		for y2: int in range(rect.position.y - 1, rect.end.y + 1):
+			for x2: int in range(rect.position.x - 1, rect.end.x + 1):
+				if data.get_value(WorldData.Layer.PLACEABLE, Vector2i(x2, y2)) == value:
+					return Outcome.refused(WHY_TOO_CLOSE)
 	var o: Outcome = Outcome.new()
 	o.item = stack.id
 	o.count = 1
 	inv.remove(slot, 1)
-	o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, value))
+	for y3: int in range(rect.position.y, rect.end.y):
+		for x3: int in range(rect.position.x, rect.end.x):
+			o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(x3, y3), value))
 	return o
 
 

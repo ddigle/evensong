@@ -21,6 +21,9 @@ extends Node
 ##   bag       a death bag: PLACEHOLDER 04-env prop_sack_small_v03 (no death bag art exists) on its tile
 ##   broken shrine  PLACEHOLDER composed from our art: heretic_shrine_v02's slab (its rows from
 ##             SHRINE_SLAB_TOP down, the skull stack gone) with 04-env prop_bone_pile_a_v02 tumbled on it
+## M6a:
+##   alchemy table  04-env alchemy_table_v05 (adoption candidate) on its footprint (Config.ALCHEMY_FOOTPRINT),
+##             its opaque bottom row on the footprint's bottom, centred; its back half over the tile behind
 
 const ARCH: Texture2D = preload("res://art/env/dungeon_entrance_v02.png")
 const STAIRS: Texture2D = preload("res://art/env/dungeon_entrance_stairs_v01.png")
@@ -31,6 +34,9 @@ const FLAME: Texture2D = preload("res://art/env/flame_large_v01.png")
 const LANTERN: Texture2D = preload("res://art/env/prop_lantern_ground_v03_lit.png")
 const LANTERN_EMISSIVE: Texture2D = preload("res://art/env/prop_lantern_ground_v03_emissive.png")
 const SACK: Texture2D = preload("res://art/env/prop_sack_small_v03.png")
+## M6a: the alchemy table (04-env alchemy_table_v05, 48x32: opaque rows 3..27, columns 4..43, centred).
+const TABLE: Texture2D = preload("res://art/env/alchemy_table_v05.png")
+const TABLE_BOTTOM_ROW: int = 27
 const BONES: Texture2D = preload("res://art/env/prop_bone_pile_a_v02.png")
 ## M4a: the shrine art's slab starts at this row (the skull stack is above it); the bone pile's opaque
 ## bottom row and where it lands on the slab (shrine image row); the sack's opaque bottom row and centre.
@@ -82,6 +88,7 @@ func setup(p_data: WorldData, p_entities: Node2D, p_decals: Node2D, p_lights: No
 	for rect: Rect2i in data.footprints(WorldData.PLACEABLE_EXIT):
 		_add_exit(rect)
 	_add_shrines()
+	_add_tables()
 	var grid: PackedByteArray = data.layers[WorldData.Layer.PLACEABLE]
 	for i: int in grid.size():
 		if grid[i] == WorldData.PLACEABLE_TORCH or grid[i] == WorldData.PLACEABLE_WALL_TORCH \
@@ -108,6 +115,9 @@ func update_cell(c: Vector2i) -> void:
 	var p: int = data.get_value(WorldData.Layer.PLACEABLE, c)
 	if p == WorldData.PLACEABLE_SHRINE or p == WorldData.PLACEABLE_SHRINE_BROKEN or _shrine_anchor_of(c) != Walls.NO_CELL:
 		_add_shrines()
+		return
+	if p == WorldData.PLACEABLE_ALCHEMY or _anchor_with(&"table_rect", c) != Walls.NO_CELL:
+		_add_tables()  # M6a: a table is three tile edits; each redraws the tables
 		return
 	if nodes.has(c) and (p == WorldData.PLACEABLE_TORCH or p == WorldData.PLACEABLE_WALL_TORCH or p == WorldData.PLACEABLE_NONE
 			or p == WorldData.PLACEABLE_BAG):
@@ -151,6 +161,38 @@ func _add_shrines() -> void:
 		_add_shrine(rect)
 	for rect: Rect2i in data.footprints(WorldData.PLACEABLE_SHRINE_BROKEN):
 		_add_broken_shrine(rect)
+
+
+## M6a: the anchor of a node whose footprint (meta `key`) holds tile `c`, or Walls.NO_CELL.
+func _anchor_with(key: StringName, c: Vector2i) -> Vector2i:
+	for anchor: Vector2i in nodes:
+		var n: Node2D = nodes[anchor]
+		if is_instance_valid(n) and n.has_meta(key):
+			var r: Rect2i = n.get_meta(key)
+			if r.has_point(c):
+				return anchor
+	return Walls.NO_CELL
+
+
+## M6a: (re)draws every alchemy table footprint.
+func _add_tables() -> void:
+	for anchor: Vector2i in nodes.keys():
+		var n: Node2D = nodes[anchor]
+		if is_instance_valid(n) and n.has_meta(&"table_rect"):
+			_free(n)
+			nodes.erase(anchor)
+	for rect: Rect2i in data.footprints(WorldData.PLACEABLE_ALCHEMY):
+		var foot: Vector2 = foot_of(rect)
+		var n2: Node2D = _node(rect.position, "AlchemyTable_%d_%d" % [rect.position.x, rect.position.y], foot)
+		n2.set_meta(&"table_rect", rect)
+		_sprite(n2, TABLE, Vector2(table_origin(rect)), foot, Config.LIGHT_LAYER_WORLD).name = &"Sprite"
+
+
+## M6a: top-left (world px) of the table art on footprint `rect`: centred, its opaque bottom row on the
+## footprint's bottom row of pixels.
+static func table_origin(rect: Rect2i) -> Vector2i:
+	return Vector2i(rect.position.x * Config.TILE + rect.size.x * Config.TILE / 2 - TABLE.get_width() / 2,
+		rect.end.y * Config.TILE - 1 - TABLE_BOTTOM_ROW)
 
 
 func _process(_delta: float) -> void:
@@ -321,7 +363,7 @@ func verify() -> Dictionary[String, int]:
 	var bad: int = 0
 	var want: int = 0
 	for p: int in [WorldData.PLACEABLE_ENTRANCE, WorldData.PLACEABLE_EXIT, WorldData.PLACEABLE_SHRINE,
-			WorldData.PLACEABLE_SHRINE_BROKEN]:
+			WorldData.PLACEABLE_SHRINE_BROKEN, WorldData.PLACEABLE_ALCHEMY]:
 		for rect: Rect2i in data.footprints(p):
 			want += 1
 			if not nodes.has(rect.position) or nodes[rect.position].position != foot_of(rect) \

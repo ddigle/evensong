@@ -529,11 +529,15 @@ func move_to_map(m: NetMember, to: int) -> void:
 		streams[m.peer_id] = _stream(m.peer_id, m.slot, to, true)
 
 
-## M3a: a USE of a placeable item: rate, then WorldItems.place.
+## M3a: a USE of a placeable item: rate, then WorldItems.place. M6a: the alchemy table is refused in a session
+## (crafting is offline only until M6b, as M3a refused the dungeon).
 func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
+		return
+	if WorldItems.placeable_in(p.inventory, frame.slot) == WorldData.PLACEABLE_ALCHEMY:
+		_refuse_op(m, frame, WorldItems.WHY_OFFLINE_ONLY)
 		return
 	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell)
 	if not o.ok():

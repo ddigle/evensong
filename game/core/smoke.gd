@@ -11,6 +11,9 @@ extends RefCounted
 ## another machine), wire v4 (a state with its map, a request aimed on a map, an edit naming its map,
 ## the map entry) and a mined dungeon (cracks, a break, a torch, a drop) through the map snapshot path
 ## into a cave view that draws it exactly.
+## M6a: the recipes (six: three potions x two grades, who may brew them), a craft, the alchemy table art and
+## its placement, a drink, a poison tick to down, a thrown poison potion that splashes a heretic. Printed as
+## potions=<recipes>/<splash heretics>.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -64,6 +67,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_actors(r)
 	_check_items(r)
 	_check_combat(r)
+	_check_potions(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -262,7 +266,7 @@ static func _check_items(r: Report) -> void:
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
 	r.expect_eq(tools, 7, "tools (M4a: + holy_light)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash"]:
+			"interact", "debug_drop", "dash", "skill_1"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -325,6 +329,55 @@ static func _check_combat(r: Report) -> void:
 		"the broken shrine stops the dungeon spawns")
 	p.free()
 	r.fields.append("combat=%d/%d spawn_tiles=%d" % [hit_at, swings, cells.size()])
+
+
+## M6a: recipes, a craft, the table art and placement, a drink, a poison down, a thrown poison potion.
+static func _check_potions(r: Report) -> void:
+	var all: Array[Crafting.Recipe] = Crafting.recipes()
+	r.expect_eq(all.size(), 6, "recipes (3 potions x 2 grades)")
+	var inv: Inventory = Inventory.new()
+	inv.add(&"wild_healing", 2)
+	var miner_fine: Crafting.Recipe = Crafting.recipe(&"potion_healing_fine")
+	var common: Crafting.Recipe = Crafting.recipe(&"potion_healing_common")
+	r.expect(miner_fine != null and not miner_fine.allows("miner") and miner_fine.allows("herbalist"), "FINE potions are the herbalist's")
+	var o: Crafting.Outcome = Crafting.craft(common, "miner", inv)
+	r.expect(o.ok() and inv.count_of(&"potion_healing", ItemDB.Grade.COMMON) == 1 and inv.count_of(&"wild_healing") == 0,
+		"a COMMON healing potion from two herbs (%s)" % o.why)
+	var tex: Texture2D = load("res://art/env/alchemy_table_v05.png") as Texture2D
+	r.expect(tex != null and Vector2i(tex.get_size()) == Vector2i(48, 32), "alchemy table art 48x32")
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var feet: Vector2 = Vector2(surface.altar_center_px()) + Vector2(0, 80)
+	var kit: Inventory = Inventory.new()
+	kit.add(&"alchemy_table", 1)
+	var put: WorldItems.Outcome = WorldItems.place(surface, feet, kit, 0, Aim.feet_cell(feet) + Vector2i(0, 1))
+	for e: EditLog.WorldEdit in put.edits:
+		EditLog.apply_to_data(surface, e)
+	r.expect(put.ok() and put.edits.size() == 3 and Crafting.station_near(surface, feet) != null,
+		"the alchemy table goes down south of the feet and is a station (%s)" % put.why)
+	var sim: PlayerSim = PlayerSim.new()
+	sim.vit.hp = 50
+	r.expect(Potions.apply(sim, &"potion_healing", ItemDB.Grade.COMMON) == PlayerSim.HEALED
+		and sim.vit.hp == 50 + Config.POTION_HEAL_HP[ItemDB.Grade.COMMON], "a healing potion heals")
+	sim.vit.hp = 1
+	Potions.apply(sim, &"potion_poison", ItemDB.Grade.COMMON)
+	var downed: bool = false
+	for t: int in Config.POISON_INTERVAL_TICKS:
+		downed = downed or sim.step(surface, Vector2i.ZERO, -1, -1, Vector2i.ZERO, Config.NET_TICK) & PlayerSim.DOWNED != 0
+	r.expect(downed and sim.vit.life == Vitals.Life.DOWN and not sim.vit.poisoned(), "a poison tick takes a player down")
+	var arena: Arena = Arena.new()
+	arena.setup(surface, Config.DEFAULT_SEED)
+	arena.spawning = false
+	var at: Vector2 = Arena.spawn_feet(Vector2i(40, 30))
+	var h: HereticSim = arena.spawn_heretic(at)
+	var thrower: Player = Player.new()
+	thrower.setup(surface, "herbalist", at + Vector2(-60, 0))
+	arena.throw_potion(thrower, &"potion_poison", ItemDB.Grade.FINE, Combat.body_centre(at))
+	var no_players: Array[Player] = []
+	for t2: int in 60:
+		arena.step(no_players)
+	r.expect(arena.stat("splash_heretics") == 1 and h.poisoned(), "a thrown poison potion splashes the heretic")
+	thrower.free()
+	r.fields.append("potions=%d/%d" % [all.size(), arena.stat("splash_heretics")])
 
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,

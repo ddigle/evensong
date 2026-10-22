@@ -35,6 +35,14 @@ var revive_ticks: int = 0
 var give_up_ticks: int = 0
 ## Display only: ticks of hit flash left.
 var flash_ticks: int = 0
+## M6a, the effects (items/potions.gd; PlayerSim.step counts them down): the buff (walking speed percent,
+## 100 = none, and ticks left) and the poison (damage per poison tick, ticks left, ticks to the next poison
+## tick). Not on the wire yet (sessions have no effects until M6b), so not in idle() / at_rest().
+var buff_pct: int = 100
+var buff_ticks: int = 0
+var poison_damage: int = 0
+var poison_ticks: int = 0
+var poison_timer: int = 0
 
 
 func copy() -> Vitals:
@@ -53,6 +61,11 @@ func copy() -> Vitals:
 	c.revive_ticks = revive_ticks
 	c.give_up_ticks = give_up_ticks
 	c.flash_ticks = flash_ticks
+	c.buff_pct = buff_pct
+	c.buff_ticks = buff_ticks
+	c.poison_damage = poison_damage
+	c.poison_ticks = poison_ticks
+	c.poison_timer = poison_timer
 	return c
 
 
@@ -61,7 +74,7 @@ func same_as(o: Vitals) -> bool:
 		and regen_tick == o.regen_tick and dash_ticks == o.dash_ticks and dash_dir == o.dash_dir \
 		and dash_cooldown == o.dash_cooldown and hurt_ticks == o.hurt_ticks and invuln_ticks == o.invuln_ticks \
 		and life == o.life and life_ticks == o.life_ticks and revive_ticks == o.revive_ticks \
-		and give_up_ticks == o.give_up_ticks
+		and give_up_ticks == o.give_up_ticks and same_effects(o)
 
 
 ## M4b: every field the wire carries (NetProtocol.put_vitals), the hit flash included.
@@ -115,8 +128,34 @@ func reset(p_hp: int = Config.RESPAWN_HP) -> void:
 	revive_ticks = 0
 	give_up_ticks = 0
 	flash_ticks = 0
+	clear_effects()
 
 
 func describe() -> String:
-	return "%s hp=%d st=%d dash=%d cd=%d hurt=%d inv=%d t=%d rev=%d" % [LIFE_NAMES[life], hp, stamina, dash_ticks,
-		dash_cooldown, hurt_ticks, invuln_ticks, life_ticks, revive_ticks]
+	return "%s hp=%d st=%d dash=%d cd=%d hurt=%d inv=%d t=%d rev=%d buff=%d/%d poison=%d/%d/%d" % [LIFE_NAMES[life], hp,
+		stamina, dash_ticks,
+		dash_cooldown, hurt_ticks, invuln_ticks, life_ticks, revive_ticks, buff_pct, buff_ticks, poison_damage, poison_ticks,
+		poison_timer]
+
+
+## M6a: the same buff and poison (same_as includes it).
+func same_effects(o: Vitals) -> bool:
+	return buff_pct == o.buff_pct and buff_ticks == o.buff_ticks and poison_damage == o.poison_damage \
+		and poison_ticks == o.poison_ticks and poison_timer == o.poison_timer
+
+
+func buffed() -> bool:
+	return buff_ticks > 0
+
+
+func poisoned() -> bool:
+	return poison_ticks > 0
+
+
+## M6a: no buff, no poison (going down, a respawn: Config.EFFECTS_END_ON_DOWN).
+func clear_effects() -> void:
+	buff_pct = 100
+	buff_ticks = 0
+	poison_damage = 0
+	poison_ticks = 0
+	poison_timer = 0

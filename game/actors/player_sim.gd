@@ -25,6 +25,11 @@ extends RefCounted
 ## Config.DASH_SPEED with Movement's collision and does nothing else; a stagger (hurt) keeps it from
 ## moving, starting an action or dashing; a frame's dash starts one (stamina, cooldown) when no action
 ## plays. Damage is hurt() (from outside: the heretic's knife, combat/arena.gd).
+##
+## M6a: the Vitals hold the effects too (a buff raising the walking speed, poison taking HP every interval:
+## items/potions.gd, Config "M6a"); an alive player counts them down first thing (_tick_effects), so the
+## offline game, the host and a prediction run them alike. A potion works from outside (Potions.apply: heal,
+## add_buff, add_poison), like damage.
 
 var pos: Vector2 = Vector2.ZERO
 var facing: int = RigData.Dir.SOUTH
@@ -102,6 +107,12 @@ const RESPAWN: int = 16
 ## hurt(): the hit landed and staggers / took the player down.
 const HURT: int = 32
 const DOWNED: int = 64
+## M6a: a potion healed / buffed / poisoned the player (Potions.apply), and a poison tick took HP this frame
+## (with DOWNED when it took the last).
+const HEALED: int = 128
+const BUFFED: int = 256
+const POISONED: int = 512
+const POISON_TICK: int = 1024
 
 func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, delta: float, dash: bool = false,
 		interact: bool = false, aim: int = -1) -> int:
@@ -128,6 +139,11 @@ func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, 
 		walking = false
 		if vit.life_ticks >= Config.RESPAWN_TICKS:
 			events |= RESPAWN
+		return events
+	# M6a: the buff and the poison count down; a poison tick may take the player down.
+	events |= _tick_effects()
+	if vit.life != Vitals.Life.ALIVE:
+		walking = false
 		return events
 	if vit.invuln_ticks > 0:
 		vit.invuln_ticks -= 1
@@ -177,7 +193,7 @@ func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, 
 		events |= STARTED
 	var acting: bool = action >= 0
 	if not acting or not Config.ACTION_LOCKS_MOVEMENT:
-		pos = Movement.step(data, pos, dir, delta)
+		pos = Movement.step(data, pos, dir, delta, walk_speed())
 	if acting:
 		walking = dir != Vector2i.ZERO and not Config.ACTION_LOCKS_MOVEMENT
 	else:
@@ -212,16 +228,108 @@ func hurt(amount: int) -> int:
 	vit.dash_dir = Vector2i.ZERO
 	walking = false
 	if vit.hp == 0:
-		vit.life = Vitals.Life.DOWN
-		vit.life_ticks = 0
-		vit.revive_ticks = 0
-		vit.give_up_ticks = 0
-		vit.hurt_ticks = 0
-		vit.invuln_ticks = 0
+		_go_down()
 		return HURT | DOWNED
 	vit.hurt_ticks = Config.HURT_TICKS
 	vit.invuln_ticks = Config.HURT_INVULN_TICKS
 	return HURT
+
+
+## At 0 HP: down (its action and dash already stopped by the caller); M6a: the effects end
+## (Config.EFFECTS_END_ON_DOWN).
+func _go_down() -> void:
+	vit.life = Vitals.Life.DOWN
+	vit.life_ticks = 0
+	vit.revive_ticks = 0
+	vit.give_up_ticks = 0
+	vit.hurt_ticks = 0
+	vit.invuln_ticks = 0
+	if Config.EFFECTS_END_ON_DOWN:
+		vit.clear_effects()
+
+
+# --- M6a: effects (items/potions.gd) -------------------------------------------------------------------
+
+## Walking speed now: Config.WALK_SPEED, raised by the buff (Config.BUFF_SPEED_PCT) while it lasts.
+func walk_speed() -> float:
+	if vit.buff_ticks <= 0:
+		return Config.WALK_SPEED
+	return Config.WALK_SPEED * vit.buff_pct / 100.0
+
+
+## One tick of the buff and the poison (alive only): the buff runs out; the poison takes Vitals.poison_damage
+## every Config.POISON_INTERVAL_TICKS (the first one interval after it started) until it runs out. A poison
+## tick takes HP only: no stagger, no invulnerability, not stopped by one, no defence; at 0 the player goes
+## down (and the effects end). Returns POISON_TICK (| DOWNED).
+func _tick_effects() -> int:
+	var events: int = 0
+	if vit.buff_ticks > 0:
+		vit.buff_ticks -= 1
+		if vit.buff_ticks == 0:
+			vit.buff_pct = 100
+	if vit.poison_ticks > 0:
+		vit.poison_ticks -= 1
+		vit.poison_timer -= 1
+		var amount: int = vit.poison_damage
+		if vit.poison_timer <= 0:
+			vit.poison_timer = Config.POISON_INTERVAL_TICKS
+			events |= _poison_hit(amount)
+		if vit.poison_ticks == 0 and vit.life == Vitals.Life.ALIVE:
+			vit.poison_damage = 0
+			vit.poison_timer = 0
+	return events
+
+
+func _poison_hit(amount: int) -> int:
+	vit.hp = maxi(vit.hp - amount, 0)
+	vit.flash_ticks = Config.HIT_FLASH_TICKS
+	if vit.hp > 0:
+		return POISON_TICK
+	action = -1
+	action_tick = 0
+	vit.dash_ticks = 0
+	vit.dash_dir = Vector2i.ZERO
+	walking = false
+	_go_down()
+	return POISON_TICK | DOWNED
+
+
+## Restores up to `amount` HP (not past Config.PLAYER_HP_MAX; only while up). Returns the HP gained.
+func heal(amount: int) -> int:
+	if vit.life != Vitals.Life.ALIVE or amount <= 0:
+		return 0
+	var gained: int = mini(amount, Config.PLAYER_HP_MAX - vit.hp)
+	vit.hp += gained
+	return gained
+
+
+## The buff: walking speed `pct` percent for `ticks` (only while up). One already running keeps the longer
+## time and the larger percent (Config.EFFECT_REFRESH_KEEPS_STRONGER; else the new one replaces it).
+func add_buff(pct: int, ticks: int) -> bool:
+	if vit.life != Vitals.Life.ALIVE or ticks <= 0:
+		return false
+	if vit.buff_ticks > 0 and Config.EFFECT_REFRESH_KEEPS_STRONGER:
+		vit.buff_pct = maxi(vit.buff_pct, pct)
+		vit.buff_ticks = maxi(vit.buff_ticks, ticks)
+	else:
+		vit.buff_pct = pct
+		vit.buff_ticks = ticks
+	return true
+
+
+## Poison: `damage` every Config.POISON_INTERVAL_TICKS for `ticks` (only while up). A running one keeps the
+## longer time and the larger damage and its tick rhythm (Config.EFFECT_REFRESH_KEEPS_STRONGER).
+func add_poison(damage: int, ticks: int) -> bool:
+	if vit.life != Vitals.Life.ALIVE or ticks <= 0 or damage <= 0:
+		return false
+	if vit.poison_ticks > 0 and Config.EFFECT_REFRESH_KEEPS_STRONGER:
+		vit.poison_damage = maxi(vit.poison_damage, damage)
+		vit.poison_ticks = maxi(vit.poison_ticks, ticks)
+	else:
+		vit.poison_damage = damage
+		vit.poison_ticks = ticks
+		vit.poison_timer = Config.POISON_INTERVAL_TICKS
+	return true
 
 
 ## M4b: the respawn (shared by the offline game, the host and a client's prediction, so they land on the

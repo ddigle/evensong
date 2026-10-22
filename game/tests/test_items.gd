@@ -34,7 +34,10 @@ const ART: Dictionary[StringName, Array] = {
 }
 ## M3a: materials (the rest of ART are gatherables) and placeables (code icon, the placeable they put).
 const MATERIALS: Array[StringName] = [&"stone_block", &"ore_copper", &"ore_iron"]
-const PLACEABLES: Dictionary[StringName, int] = {&"torch": WorldData.PLACEABLE_TORCH}
+const PLACEABLES: Dictionary[StringName, int] = {&"torch": WorldData.PLACEABLE_TORCH,
+	&"alchemy_table": WorldData.PLACEABLE_ALCHEMY}
+## M6a: the potions (kind POTION, graded like their herbs, icons: regions of the 04-env items strip).
+const POTIONS: Dictionary[StringName, int] = {&"potion_healing": 3, &"potion_buff": 4, &"potion_poison": 5}
 const HERBS: Array[StringName] = [&"wild_healing", &"wild_buff", &"wild_poison", &"herb_clump"]
 
 
@@ -54,8 +57,8 @@ func run() -> Array[String]:
 
 func _check_table() -> void:
 	var ids: Array[StringName] = ItemDB.ids()
-	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size(),
-		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch)")
+	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size(),
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a)")
 	var kinds: Dictionary[int, int] = {}
 	for id: StringName in ids:
 		var def: ItemDB.ItemDef = ItemDB.get_def(id)
@@ -76,6 +79,15 @@ func _check_table() -> void:
 			check_eq(def.action, -1, "%s plays no action" % id)
 			check_eq(def.stack_max, Config.STACK_MATERIAL, "%s stack size" % id)
 			check_eq(String(def.icon_code), String(id), "%s icon is drawn in code" % id)
+		elif POTIONS.has(id):
+			check_eq(def.kind, ItemDB.Kind.POTION, "%s is a potion" % id)
+			check(def.is_potion() and not def.is_tool(), "%s: potion, not tool" % id)
+			check_eq(def.action, -1, "%s plays no tool action (drink / throw are Potions')" % id)
+			check_eq(def.stack_max, Config.STACK_POTION, "%s stack size" % id)
+			check(def.graded, "%s graded (COMMON / FINE, like its herbs)" % id)
+			check_eq(def.icon_path, ItemDB.ART_DIR + ItemDB.ITEMS_STRIP, "%s icon from the items strip" % id)
+			check_eq(def.icon_region, Rect2i(POTIONS[id] * 16, 0, 16, 16), "%s icon region" % id)
+			check(def.world_path.is_empty(), "%s grows nowhere" % id)
 		else:
 			check_eq(def.action, -1, "%s plays no action" % id)
 			check(def.icon_code.is_empty(), "%s icon is art" % id)
@@ -88,7 +100,8 @@ func _check_table() -> void:
 				"%s stack size" % id)
 			check_eq(def.graded, HERBS.has(id), "%s graded only if a herb" % id)
 	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0),
-		kinds.get(ItemDB.Kind.PLACEABLE, 0)], [7, 3, 15, 1], "items per kind (tool (M4a: 7), material, gatherable, placeable)")
+		kinds.get(ItemDB.Kind.PLACEABLE, 0), kinds.get(ItemDB.Kind.POTION, 0)], [7, 3, 15, 2, 3],
+		"items per kind (tool (M4a: 7), material, gatherable, placeable (M6a: + table), potion (M6a))")
 	# Every action with a hand tool has exactly one tool; throw has none (README). M4a: magic has the
 	# cleric's holy light.
 	var actions: Array[int] = []
@@ -120,6 +133,21 @@ func _check_icons() -> void:
 			check(world != null and Vector2i(world.get_size()) == Vector2i(16, 16), "%s world picture 16x16" % id)
 		check(ItemIcons.texture_for(id) == tex, "%s icon cached" % id)
 	check(ItemIcons.texture_for(&"nothing") == null, "no icon for an unknown item")
+	# M6a: a potion icon is exactly its 16x16 region of the strip (pixel by pixel).
+	var strip: Image = LightGen.to_rgba8((load(ItemDB.ART_DIR + ItemDB.ITEMS_STRIP) as Texture2D).get_image())
+	check_eq(strip.get_size(), Vector2i(288, 16), "the 04-env items strip: 18 icons of 16")
+	for potion: StringName in POTIONS:
+		var icon: Image = LightGen.to_rgba8(ItemIcons.texture_for(potion).get_image())
+		var region: Image = strip.get_region(Rect2i(POTIONS[potion] * 16, 0, 16, 16))
+		var diff: int = 0
+		var opaque_px: int = 0
+		for y: int in 16:
+			for x: int in 16:
+				if icon.get_pixel(x, y) != region.get_pixel(x, y):
+					diff += 1
+				if icon.get_pixel(x, y).a8 > 0:
+					opaque_px += 1
+		check(diff == 0 and opaque_px > 40, "%s icon = strip icon %d (%d differ, %d opaque)" % [potion, POTIONS[potion] + 1, diff, opaque_px])
 	for code: StringName in ItemIcons.MAPS:
 		var rows: Array = ItemIcons.MAPS[code]
 		check_eq(rows.size(), 16, "%s map has 16 rows" % code)

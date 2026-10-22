@@ -50,6 +50,15 @@ extends SceneTree
 ##            player's state with its vitals block, decoded into a NetCombat and a Player, sampled at the
 ##            batch's tick): both screens must be the same pixels, and the heretics, shots and bars must be
 ##            there (the screen differs from the background).
+##   crafting (M6a) the crafting panel open for a herbalist who may brew all six recipes, then for a paladin
+##            (four rows dimmed): every opaque pixel it draws on its exact place (the frames, the station icon
+##            and the underline, each row's input and output slot frames and icons, the arrows, the herbalist
+##            marks, the selected row's gold frame); dimmed rows' icons darker than the icon colours.
+##   potions  (M6a) evening off, on one screen: an alchemy table placed through the world's edits, a poisoned
+##            heretic (its sheet frame and the poison mark), a thrown bottle half way (the potion icon on its
+##            arc) and two splashes (frames 0 and 1): the screen equals the background plus their CPU
+##            composites, pixel for pixel; then a player's buff and poison marks over its head and the HUD's
+##            effect icons and time-left bars on their exact pixels.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -104,6 +113,8 @@ func _run() -> void:
 		await _check_heretic()
 		await _check_bars()
 		await _check_combat_net()
+		await _check_crafting()
+		await _check_potions()
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
@@ -545,6 +556,261 @@ func _check_bars() -> void:
 		_fail("bars", line)
 		_save(got, "bars_got.png")
 		_save(dead, "bars_dead_got.png")
+
+
+## M6a: the crafting panel's opaque pixels (see the header).
+func _check_crafting() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var inv: Inventory = Inventory.new()
+	for herb: StringName in [&"wild_healing", &"wild_buff", &"wild_poison"]:
+		inv.add(herb, 4, ItemDB.Grade.COMMON)
+		inv.add(herb, 2, ItemDB.Grade.FINE)
+	var at: Crafting.StationAt = Crafting.StationAt.new()
+	at.kind = Crafting.ALCHEMY
+	at.rect = Rect2i(10, 10, 3, 1)
+	hud.crafting.open_for(at, inv, "herbalist")
+	hud.crafting.selected = 2
+	hud.crafting.queue_redraw()
+	var got: Image = await _capture()
+	var panel: CraftingPanel = hud.crafting
+	var want: Dictionary[Vector2i, Color] = _panel_pixels(panel, true)
+	var bad: int = _count_wrong(got, want)
+	# A paladin: the FINE and poison rows are dimmed (darker than their icons), the others exact.
+	panel.open_for(at, inv, "paladin")
+	panel.selected = 1  # a dimmed row (its gold frame is not compared; row 0's would cover the header line)
+	panel.queue_redraw()
+	var dim_got: Image = await _capture()
+	var want_free: Dictionary[Vector2i, Color] = {}
+	var darker: int = 0
+	var dim_px: int = 0
+	var full: Dictionary[Vector2i, Color] = _panel_pixels(panel, false)
+	for i: int in panel.recipes.size():
+		var rect: Rect2i = panel.row_rect(i)
+		var dimmed: bool = not Crafting.refusal(panel.recipes[i], "paladin", inv).is_empty()
+		for p: Vector2i in full:
+			if not rect.grow(1).has_point(p):
+				continue
+			if dimmed and _brightness(full[p]) > 0.6:  # the icons, arrows, digits (the dark frames barely change)
+				dim_px += 1
+				if _brightness(dim_got.get_pixelv(p)) < _brightness(full[p]) - 0.05:
+					darker += 1
+			elif not dimmed:
+				want_free[p] = full[p]
+	bad += _count_wrong(dim_got, want_free)
+	if bad > 0 or save_all:
+		_save(got, "crafting_got.png")
+		_save(dim_got, "crafting_dim_got.png")
+	var rows: int = panel.recipes.size()
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "rows=%d pixels=%d free_pixels=%d dimmed=%d/%d mismatches=%d" % [rows, want.size(),
+		want_free.size(), darker, dim_px, bad]
+	if bad == 0 and darker == dim_px and dim_px > 100 and rows == 6:
+		print("EVENSONG_RENDER crafting ok %s" % line)
+	else:
+		_fail("crafting", line)
+
+
+## The opaque pixels the crafting panel draws (viewport px -> colour): frames, the station icon, the
+## underline, each row's slots, icons (not under a count or the FINE dot), arrow and mark, and (with
+## `selected`) the selected row's gold frame.
+static func _panel_pixels(panel: CraftingPanel, selected: bool) -> Dictionary[Vector2i, Color]:
+	var want: Dictionary[Vector2i, Color] = {}
+	var p: Rect2i = panel.panel_rect()
+	_frame_pixels(want, p, Hud.FRAME_DARK)
+	_frame_pixels(want, p.grow(-1), Hud.FRAME)
+	_icon_pixels(want, &"alchemy_table", panel.header_icon_at(), Rect2i())
+	for x: int in range(p.position.x + CraftingPanel.PAD, p.end.x - CraftingPanel.PAD):
+		want[Vector2i(x, p.position.y + CraftingPanel.PAD + CraftingPanel.HEADER - 1)] = Hud.SELECT_INNER
+	for i: int in panel.recipes.size():
+		var r: Crafting.Recipe = panel.recipes[i]
+		for slot: Array in [[panel.input_slot(i), r.inputs[0].item, r.inputs[0].count, r.inputs[0].grade],
+				[panel.output_slot(i), r.output, r.out_count, r.out_grade]]:
+			var o: Vector2i = slot[0]
+			var item: StringName = slot[1]
+			var n: int = slot[2]
+			var g: int = slot[3]
+			var sq: Rect2i = Rect2i(o, Vector2i(Hud.SLOT, Hud.SLOT))
+			_frame_pixels(want, sq, Hud.FRAME_DARK)
+			_frame_pixels(want, sq.grow(-1), Hud.FRAME)
+			var skip: Rect2i = Rect2i(o + Vector2i(Hud.SLOT - 3 - 4 * str(n).length(), Hud.SLOT - 8), Vector2i(4 * str(n).length() + 2, 7)) \
+				if n > 1 else Rect2i()
+			_icon_pixels(want, item, o + Vector2i(1, 1), skip, Rect2i(o + Vector2i(2, 2), Vector2i(2, 2)) if g == ItemDB.Grade.FINE else Rect2i())
+			for sy: int in range(skip.position.y, skip.end.y):
+				for sx: int in range(skip.position.x, skip.end.x):
+					want.erase(Vector2i(sx, sy))  # the count and its shadow cover the frame there too
+			if g == ItemDB.Grade.FINE:
+				for d: Vector2i in [Vector2i(2, 2), Vector2i(3, 2), Vector2i(2, 3), Vector2i(3, 3)]:
+					want[o + d] = Hud.FINE_MARK
+		_rows_pixels(want, CraftingPanel.ARROW, panel.row_rect(i).position + Vector2i(Hud.SLOT + CraftingPanel.ARROW_GAP,
+			(CraftingPanel.ROW - 5) / 2), Hud.DIGIT)
+		if not r.classes.is_empty():
+			_rows_pixels(want, CraftingPanel.MARK, panel.output_slot(i) + Vector2i(Hud.SLOT + 2, (CraftingPanel.ROW - 5) / 2),
+				CraftingPanel.MARK_OK if r.allows(panel.class_id) else CraftingPanel.MARK_NO)
+		if selected and i == panel.selected:
+			_frame_pixels(want, panel.row_rect(i).grow(1), Hud.SELECT)
+	return want
+
+
+static func _frame_pixels(want: Dictionary[Vector2i, Color], r: Rect2i, c: Color) -> void:
+	for x: int in range(r.position.x, r.end.x):
+		want[Vector2i(x, r.position.y)] = c
+		want[Vector2i(x, r.end.y - 1)] = c
+	for y: int in range(r.position.y + 1, r.end.y - 1):
+		want[Vector2i(r.position.x, y)] = c
+		want[Vector2i(r.end.x - 1, y)] = c
+
+
+static func _icon_pixels(want: Dictionary[Vector2i, Color], item: StringName, at: Vector2i, skip: Rect2i, skip2: Rect2i = Rect2i()) -> void:
+	var img: Image = LightGen.to_rgba8(ItemIcons.texture_for(item).get_image())
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			var p: Vector2i = at + Vector2i(x, y)
+			if img.get_pixel(x, y).a8 == 255 and not skip.has_point(p) and not skip2.has_point(p):
+				want[p] = img.get_pixel(x, y)
+
+
+static func _rows_pixels(want: Dictionary[Vector2i, Color], rows: Array, at: Vector2i, c: Color) -> void:
+	for y: int in rows.size():
+		var row: String = rows[y]
+		for x: int in row.length():
+			if row[x] == "1":
+				want[at + Vector2i(x, y)] = c
+
+
+static func _count_wrong(img: Image, want: Dictionary[Vector2i, Color]) -> int:
+	var bad: int = 0
+	for p: Vector2i in want:
+		if img.get_pixelv(p).to_rgba32() != want[p].to_rgba32():
+			bad += 1
+	return bad
+
+
+## M6a: the alchemy table, a poisoned heretic, a bottle in flight and two splashes against their CPU
+## composites; a player's effect marks and the HUD's effect icons (see the header).
+func _check_potions() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var table_at: Vector2i = Vector2i(origin.x / Config.TILE + 3, origin.y / Config.TILE + 4)
+	var edits: Array[EditLog.WorldEdit] = []
+	for x: int in range(table_at.x - 1, table_at.x + 2):
+		edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(x, table_at.y), WorldData.PLACEABLE_ALCHEMY))
+	for e: EditLog.WorldEdit in edits:
+		world.apply_edit(e)
+	var rect: Rect2i = Rect2i(table_at - Vector2i(1, 0), Config.ALCHEMY_FOOTPRINT)
+	var a: Arena = Arena.mirror(world.data)
+	var h: HereticSim = HereticSim.new()
+	h.id = 1
+	h.pos = Vector2(origin + Vector2i(170, 120))
+	h.poison_ticks = 100
+	a.heretics.append(h)
+	var f: Arena.Flask = Arena.Flask.new()
+	f.id = 2
+	f.item = &"potion_poison"
+	f.origin = Vector2(origin + Vector2i(260, 120))
+	f.target = f.origin + Vector2(80, 0)
+	f.pos = f.origin + Vector2(40, 0)
+	a.flasks.append(f)
+	var splashes: Array[Arena.Splash] = []
+	for k: int in 2:
+		var s: Arena.Splash = Arena.Splash.new()
+		s.id = 3 + k
+		s.item = [&"potion_healing", &"potion_buff"][k]
+		s.pos = Vector2(origin + Vector2i(120 + k * 90, 210))
+		s.age = k * Config.SPLASH_SHOW_TICKS / CombatView.SPLASH_FRAMES
+		a.splashes.append(s)
+		splashes.append(s)
+	var view: CombatView = CombatView.new()
+	world.add_child(view)
+	view.setup(a, world.entities)
+	view.sync()
+	var got: Image = await _capture()
+	var expected: Image = bg.duplicate() as Image
+	var table_img: Image = LightGen.to_rgba8(FixtureView.TABLE.get_image())
+	# Written out here (not FixtureView.table_origin): the art centred on the 3 tiles, its last opaque row
+	# (measured from the image) on the footprint's last pixel row.
+	var bottom: int = 0
+	for y: int in table_img.get_height():
+		for x: int in table_img.get_width():
+			if table_img.get_pixel(x, y).a8 > 0:
+				bottom = y
+	var table_top_left: Vector2i = Vector2i(rect.position.x * Config.TILE + (rect.size.x * Config.TILE - table_img.get_width()) / 2,
+		rect.end.y * Config.TILE - 1 - bottom)
+	_paste_at(expected, table_img, table_top_left - origin)
+	var hfeet: Vector2i = Vector2i(h.pos.round()) - origin
+	paste(expected, compose_heretic(h.facing, HereticSim.Anim.IDLE, 0), hfeet)
+	_paste_at(expected, EffectMarks.image(EffectMarks.Kind.POISON), hfeet + EffectMarks.icon_offset(0, 1))
+	var bottle: Image = LightGen.to_rgba8(ItemIcons.texture_for(&"potion_poison").get_image())
+	_paste_at(expected, bottle, Vector2i(f.pos.round()) - origin + CombatView.flask_offset(f.progress()))
+	for s2: Arena.Splash in splashes:
+		_paste_at(expected, CombatView.splash_image(Potions.effect_of(s2.item), CombatView.splash_frame(s2.age)),
+			Vector2i(s2.pos.round()) - origin - Vector2i(CombatView.SPLASH_HALF, CombatView.SPLASH_HALF))
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "potions_got.png")
+		_save(expected, "potions_expected.png")
+	view.clear()
+	world.remove_child(view)
+	view.free()
+	for e2: EditLog.WorldEdit in edits:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, e2.cell, WorldData.PLACEABLE_NONE))
+	# A player with both effects: its marks over the head; the HUD's icons and time-left bars.
+	var p: Player = Player.new()
+	world.entities.add_child(p)
+	p.local_input = false  # no ticks: the effects stay as set
+	p.setup(world.data, "cleric", Vector2(origin + Vector2i(240, 150)))
+	p.apply_potion(&"potion_buff", ItemDB.Grade.FINE)
+	p.apply_potion(&"potion_poison", ItemDB.Grade.COMMON)
+	p.vitals.buff_ticks = Config.BUFF_TICKS[ItemDB.Grade.FINE] / 2
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.bind_player(p)
+	var marks_got: Image = await _capture()
+	var want: Dictionary[Vector2i, Color] = {}
+	var pfeet: Vector2i = Vector2i(p.sim_position.round()) - origin
+	for i: int in 2:
+		var img: Image = EffectMarks.image(i)
+		_image_pixels(want, img, pfeet + EffectMarks.icon_offset(i, 2))
+		_image_pixels(want, img, Hud.effect_icon_at(i))
+		var fill: int = Hud.effect_fill(p.vitals.buff_ticks, Config.BUFF_TICKS) if i == EffectMarks.Kind.BUFF \
+			else Hud.effect_fill(p.vitals.poison_ticks, Config.POISON_TICKS)
+		for x: int in EffectMarks.SIZE:
+			want[Hud.effect_icon_at(i) + Vector2i(x, EffectMarks.SIZE + 1)] = Hud.EFFECT_LEFT if x < fill else Hud.FRAME_DARK
+	var mark_bad: int = _count_wrong(marks_got, want)
+	if mark_bad > 0 or save_all:
+		_save(marks_got, "potions_marks_got.png")
+	root.remove_child(hud)
+	hud.free()
+	world.entities.remove_child(p)
+	p.free()
+	var line: String = "screen_mismatches=%d drawn=%d mark_pixels=%d mark_mismatches=%d" % [n, drawn, want.size(), mark_bad]
+	if n == 0 and drawn > 1000 and mark_bad == 0 and want.size() > 100:
+		print("EVENSONG_RENDER potions ok %s" % line)
+	else:
+		_fail("potions", line)
+
+
+## Pastes the opaque pixels of `img` with its top-left at screen point `at`.
+static func _paste_at(dst: Image, img: Image, at: Vector2i) -> void:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			var c: Color = img.get_pixel(x, y)
+			var q: Vector2i = at + Vector2i(x, y)
+			if c.a8 == 0 or q.x < 0 or q.y < 0 or q.x >= dst.get_width() or q.y >= dst.get_height():
+				continue
+			dst.set_pixelv(q, c)
+
+
+static func _image_pixels(want: Dictionary[Vector2i, Color], img: Image, at: Vector2i) -> void:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 == 255:
+				want[at + Vector2i(x, y)] = img.get_pixel(x, y)
 
 
 ## M4b: the host's combat as the host draws it and as a client draws it from the wire (see the header).

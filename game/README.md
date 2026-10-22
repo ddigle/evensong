@@ -9,8 +9,9 @@
 그 위에 **M4a "체력 · 대시 · 기본 공격 · 사망 · 이단"**(혼자 할 때 먼저. 세션에서는 적·피해·대시가 아직 꺼져 있고 M2b·M3b 흐름 그대로, M4b에서 켠다)을 더했다: 공유 시뮬레이션(`PlayerSim.step`, 혼자·호스트·예측 공통)에 HP·스태미나·대시(Space, 걷기와 같은 충돌)·경직·다운·사망·부활 시간을 넣었다(`actors/vitals.gd`). 클래스마다 기본 공격 하나를 핫바 무기로(● §2.1 에임형, 좌클릭 = 든 아이템 사용 그대로): 팔라딘 검(근접 호), 아처 활(화살), 성직자 성광(마법 동작, 빛 탄, 새 아이템), 광부 곡괭이(근접. 벽을 겨누면 채굴만), 약초사 낫(근접, 임시값). 혼자 할 때 클래스 무기가 핫바 8번에 있다. 0 HP면 다운(사망 시트, 누움), 아군이 F를 누르고 있으면 소생(성직자 즉시, 다른 클래스 5초), 30초 지나면 사망(혼자면 F 1초로 포기), 사망 자리에 재료·소모품 일부가 든 가방(● §2.6, 절반 규칙, 상수 하나로 무작위 3종), 5초 뒤 제단에서 부활. 적 하나: 이단(근접, 03-pixel heretic_v02 시트 다섯, 서쪽 = 동쪽 반전): 빛 밖의 가장 가까운 플레이어를 쫓아 칼을 드는 예고 뒤 맞는 열에서 친다, 제단 빛에는 들어가지 않고 가장자리에서 4초 지켜보다 돌아간다, 오염 구역 둘레와 던전의 도착 방에서 먼 곳에 생기고 빛 안에는 생기지 않는다. 던전의 이단의 제단은 전투로 부서지고(● §3.0), 부서지면 던전 스폰이 멈춘다. 최소 HUD(HP·스태미나 막대, 다운·소생 막대, 부활 카운트다운, 적·제단 HP 막대). [M4a: 체력 · 대시 · 기본 공격 · 사망 · 이단](#m4a-체력--대시--기본-공격--사망--이단).
 그 위에 **M4b "세션의 전투"**를 더했다: M4a가 혼자 할 때 더한 것을 세션에서 모두 호스트가 정한다(HP·스태미나·다운/사망, 이단의 스폰·AI·HP·공격, 화살·빛 탄, 피해, 소생, 부활, 가방, 이단의 제단). 프레임 코드에 대시와 F 누르고 있기를 넣고(1바이트 그대로), USE에 조준을, 상태에 vitals 블록(쉬는 중이면 없음)을 더했다. 클라이언트는 자기 이동·대시·공격 동작·타이머·부활을 예측하고(피해는 호스트의 사건), 이단은 지도마다 그 지도의 사람에게만 적 묶음으로(공격 시작은 그 틱에 바로, 예고는 늦추지 않고 그림), 화살은 쏨·멈춤 사건 + 클라이언트 비행으로 받는다. 판정은 호스트 시간, 되감기 없음(예고 500ms에 한 방향 지연 50ms면 예고를 본 뒤 400ms 안에 대시하면 피함, 잼). 세션에서도 클래스 무기가 핫바 8번에 들어온다. 전송 형식 v5. [M4b: 세션의 전투](#m4b-세션의-전투).
 그 위에 M4 검토 지적을 반영했다(**M4-fix**): 소생은 F를 누른 사람 중 가장 빠른 사람 기준이라 성직자가 있으면 자리 순서와 상관없이 즉시(● §2.6), 활·성광은 화살이 그려져 나가는 점에서 마우스로 쏘고 그린 화살이 그린 이단 몸에 닿으면 맞음(전에는 발 근처를 눌러야 맞았다), 빛 가장자리의 이단은 빛 안에서 맞아도 지켜보기를 다시 세지 않아 4초 뒤 집으로, 사람이 떠난 지도는 한 번 비움(예고 중인 공격은 칼 없이 끝, 날던 화살 없앰, 스폰 시계 처음부터: 계단으로 도망쳤다 돌아오자마자 맞던 것), 클라이언트의 vitals·동작 시계를 호스트 시간에 묶음(앞서지 못하고 30틱 넘게 뒤처지지 못함: 서 있다 맞으면 바로 호스트가 진행하던 것, 가끔 보내 다운을 버티던 것, 쌓아 둔 프레임으로 경직·대시 쿨다운을 줄이던 것), 벽 모서리 틈으로 빠지던 화살, 가득 찬 드롭에 빈 가방, 지난 부활 시각, 오가기의 대시, 이단의 제단 자리를 화살 걸음마다 맵 전체에서 찾던 것, 빠진 시험(두 소생자, 던전 사망·부활 대기, 실제 세션 `fightlag`)과 README. [검토 반영 (M4-fix)](#검토-반영-m4-fix-2026-10-22).
+그 위에 **M6a "제작 · 조제대 · 물약 · 약제 투척 · 효과"**(혼자 할 때 먼저. 세션에서는 제작·마시기·던지기·효과가 아직 꺼져 있고 M4b 흐름 그대로, M6b에서 켠다)를 더했다: M7이 그대로 쓸 제작 틀(설치물마다 작업대 종류, 레시피 = 입력(아이템·수·등급) → 출력(아이템·수·등급)과 만들 수 있는 클래스, 모두 아니면 하나도 아님, 자리가 없으면 거부, 처음 얻은 재료로 레시피 해금 스위치), 조제대(04-env `alchemy_table_v05`, 3×1 자리, 막음, 디버그 아이템 `alchemy_table`을 횃불처럼 놓음), 작업대 옆에서 **Tab** = 제작 창(코드로 그린 작은 창, 마우스·키), 물약 셋(● 작물 하나에 하나: 회복·버프·독, 야생 약초 둘 → 하나, 등급은 입력을 따름, 상급과 독은 약초사만 ● §3.0), **마시기**(물약을 골라 좌클릭, 마법 동작을 빌려 씀: 회복은 HP, 버프는 걷기 속도, 독은 마신 사람을 중독), **약제 투척**(약초사가 **1**: 마우스 쪽으로 던지기 동작 `base_body_v02_throw`, 병이 벽에 막히며 날아가 터짐: 회복·버프는 그 둘레의 아군에게, 독은 이단에게, 아군 사격 끔), 효과 둘(버프 하나 = 걷기 속도, 상태이상 하나 = 독: 공유 시뮬레이션 `PlayerSim`과 `Arena` 안이라 혼자 = 호스트 = 예측, 쓰러지면 끝남, 독으로 죽은 이단은 다른 처치처럼 셈)과 머리 위·HUD 표시. [M6a: 제작 · 조제대 · 물약 · 약제 투척 · 효과](#m6a-제작--조제대--물약--약제-투척--효과).
 
-기준 문서: `docs/game-concept.md` §2 §3 §7 §9.3 §10 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §2.3 §2.4 §2.5 §2.6 §3.0 §3.1 §3.2 §3.4 §3.8 §5 (M4b: §2.1 실시간·에임형, §2.6 사망 흐름, §3.0 팔라딘 줄, §3.1 ○ "타일 동기화가 던전 안 인원끼리만", game-concept §13 호스트 권한), `docs/concept-art-brief.md` §4 §5.6 §5.7, `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작. M4a: 8차 피격·사망, 13차 이단과 "M4에 넘길 것"), `assets/concept/04-env/prompts.md`("본 제작", 채집물, M3a: 던전 바닥↔벽 타일, 광맥, 벽 금, 던전 입구, 이단의 제단, 소품).
+기준 문서: `docs/game-concept.md` §2 §3 §7 §9.3 §9.7 §10 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §2.2 §2.3 §2.4 §2.5 §2.6 §3.0 §3.1 §3.2 §3.4 §3.5 §3.8 §5 (M4b: §2.1 실시간·에임형, §2.6 사망 흐름, §3.0 팔라딘 줄, §3.1 ○ "타일 동기화가 던전 안 인원끼리만", game-concept §13 호스트 권한. M6a: §1 ○ "Tab 인벤토리·제작", §2.2 ? 스킬 킷과 ○ 약초사 정체성 스킬 = 약제 투척, §2.4 ○ 상태이상, §3.0 ● R11 약초사 줄, §3.4 ● 상급, §3.5 ○ 제작·해금, game-concept §9.7 ○ 조제대, §12 ● 작물 셋 R28), `docs/concept-art-brief.md` §4 §5.6 §5.7(M6a: ● R29 물약 색), `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작. M4a: 8차 피격·사망, 13차 이단과 "M4에 넘길 것"), `assets/concept/04-env/prompts.md`("본 제작", 채집물, M3a: 던전 바닥↔벽 타일, 광맥, 벽 금, 던전 입구, 이단의 제단, 소품. M6a: 조제대 v05, 작은 것 묶음 `items_v04_strip`의 물약).
 문서의 ●는 그대로 따르고, ○·?는 정하지 않고 [임시값](#임시값-사람-확인-필요)으로 둔다.
 
 ## 준비
@@ -44,7 +45,7 @@ timeout 300 "$GODOT" --headless --path game --import < /dev/null
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
 ```
 
-- 출력: 첫 줄 `EVENSONG_TESTS start: 17 file(s) in res://tests, ports 24621-24640`(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
+- 출력: 첫 줄 `EVENSONG_TESTS start: 19 file(s) in res://tests, ports 24621-24640`(M6a: 19)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
 - 종료 코드: 모두 통과 0, 하나라도 실패 1 (불러오기 실패·시간 초과·테스트 파일 없음·시작 중 오류·마지막 파일 뒤 오류도 1)
 - 통과하는 실행에도 오류 묶음이 **8개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
   - `ERROR: Character: unknown class 'wizard'` 1개: `test_actors.gd`가 모르는 클래스 이름을 거부하는지 확인
@@ -143,7 +144,7 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 - 경로는 `game/` 기준이다 → `game/build/evensong.exe`(+ `evensong.console.exe`), `game/build/arm64/evensong.exe`
 - ARM64는 `build/arm64` 폴더가 없으면 "주어진 내보내기 경로는 존재하지 않습니다"로 실패한다 (그래서 `mkdir`). 이 데스크탑(x86_64)에서는 실행해 볼 수 없다
 - `tests/`, `tools/`는 내보내기에서 뺀다. `build/`는 `.gdignore`가 있어 임포트하지 않고 커밋하지 않는다
-- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=319B items=26 actions=8 combat=30/3 spawn_tiles=678 ... combat_wire=25B net=v5 checks=291`을 찍고 0으로 끝나야 한다(M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b에서 항목이 늘었다). 아래 "스모크" 참조
+- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=319B items=30 actions=8 combat=30/3 spawn_tiles=678 potions=6/1 ... combat_wire=25B net=v5 checks=304`을 찍고 0으로 끝나야 한다(M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b·M6a에서 항목이 늘었다. 지상·던전 해시는 M6a에서 그대로). 아래 "스모크" 참조
 
 ### 실행
 
@@ -157,6 +158,8 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 "$GODOT" --path game -- --class=miner --give=pickaxe,torch:10 --start-map=dungeon   # M3a: 던전 도착점에서, 곡괭이(1번)와 횃불(2번)
 "$GODOT" --path game -- --class=archer --test-select=8                              # M4a: 아처, 활(핫바 8번)을 든 채로. 북쪽 오염 구역(약 27칸)으로 걸어가면 이단
 "$GODOT" --path game -- --class=paladin --test-at=72,26 --test-heretic=75,26 --test-select=8   # M4a: 오염 구역 옆, 이단 하나와 바로 붙어서
+"$GODOT" --path game -- --class=herbalist --give=alchemy_table,wild_healing:4,wild_buff:4,wild_poison:4   # M6a: 조제대(핫바 1번)를 들고. 남쪽을 조준하고 좌클릭 = 놓기, 그 옆에서 Tab
+"$GODOT" --path game -- --class=herbalist --give=potion_poison:3:fine,potion_healing:2,potion_buff:2 --test-at=63,53 --test-heretic=63,57   # M6a: 빛 남쪽 가장자리, 빛 밖에 이단 하나. 1번 칸(독)을 고른 채 이단을 조준하고 1
 ```
 
 - `main.tscn`(실행 장면): WASD 또는 방향키로 8방향 걷기, 카메라는 내 캐릭터 가운데(맵 밖은 안 보이게 가장자리에서 멈춤). 제단 둘레에 나머지 네 클래스가 제단을 보고 서 있다(움직이지 않는 더미, 표식 다섯 가지가 한 화면에 보이게)
@@ -168,6 +171,8 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 - M3a: F5 디버그 묶음에 횃불 10개가 들어갔다(핫바 7번). M3-fix: 묶음은 24칸 중 22칸만 채우고 2칸을 비워 둔다(오염 쪽 돌 둘 `stone_veined`·`stone_mould`를 뺐다, 지상의 재 구역에서 주울 수 있다). 그래서 F5 뒤에도 약초사가 처음 캔 상급 약초 두 종류, 또는 캔 광석 두 종류가 인벤토리에 들어간다(M3a에서는 24칸이 다 차서 둘 다 `inventory full`, 광석은 드롭이었다). 채굴만 해 보려면 여전히 `--give=pickaxe,torch:10`이 낫다
 - M4a (혼자 할 때, 키는 임시값): 클래스 무기가 **핫바 8번**에 있다(시작할 때 고른 칸은 1번 그대로라 **Q 한 번**으로 고른다). 무기를 들고 좌클릭 = 기본 공격(마우스 쪽, 누르고 있으면 반복), **Space** = 대시(스태미나), 다운되면 **F를 1초 누르고 있으면** 포기(바로 사망). 혼자서는 소생해 줄 사람이 없다(`--test-ally=<클래스>:down`으로 누운 동료를 옆에 두고 F를 누르고 있으면 소생을 볼 수 있다). 왼쪽 위에 HP(붉은)·스태미나(금빛, 대시 비용 밑이면 어두운 금빛) 막대. 이단은 지도에 들어간 뒤 8초마다 하나씩(지상 4, 던전 6까지) 오염 구역 둘레나 던전의 먼 방에 생긴다. 제단 빛 안으로 도망치면 이단은 빛 가장자리에서 멈춰 4초 지켜보다 돌아간다. M4-fix: 활·성광은 마우스 쪽으로, 그린 화살이 마우스 커서를 지나가게 쏜다(이단 그림 어디를 눌러도 맞는다). 콘솔에 `EVENSONG_COMBAT hit item=sword class=paladin hits=1 shrine_hp=0`, `EVENSONG_COMBAT hurt who=LocalPlayer amount=12 hp=88`, `EVENSONG_DEATH died who=LocalPlayer map=surface bag=66,58 items=17`, `EVENSONG_DEATH respawn who=LocalPlayer feet=962,768`, `EVENSONG_COMBAT shrine broken at=22,39`
 - M4b (세션, 키는 M4a 그대로): 세션에서도 같다. 접속하면(호스트도) 클래스 무기가 핫바 8번에 있다. 공격·대시·F 누르고 있기는 프레임으로 호스트에게 가고 호스트가 정한다. 자기 동작·대시는 바로 보이고, 맞음·다운·소생은 호스트 상태가 오면(왕복 뒤) 보인다. 이단은 호스트가 지도마다 돌리고 같은 지도의 사람에게만 보낸다. 콘솔(호스트)에 `EVENSONG_NET host hit slot=1 map=0 heretic=2 amount=12 hp=28`, `heretic_attack map=0 heretic=3 slot=1`, `hurt slot=1 map=0 amount=12 hp=0 DOWN`, `revived slot=1 map=0 hp=30`, `died slot=1 map=surface bag=66,58 items=17`, `respawn slot=1 feet=1070,768`
+- M6a (혼자 할 때, 키는 임시값: 임시값 "M6a 키"): 조제대는 디버그 아이템이다(`--give=alchemy_table`, F5 묶음에는 없다: 핫바에 빈 칸이 없어서). 고르고 좌클릭 = 목표 칸이 가운데인 3×1 자리에 놓는다(그 자리가 빈 바닥이고 아무도 서 있지 않을 때, 그래서 보통 위·아래를 조준). 조제대에서 2칸 안에 서서 **Tab** = 제작 창(오른쪽 위)과 인벤토리, 그동안 캐릭터는 서 있다. **W / S**(↑ / ↓) = 줄 고르기, **F** 또는 **Enter** = 만들기(마우스: 줄 위에 올리면 고르고 좌클릭 = 만들기), **Tab** 또는 **Esc** = 닫기. 멀어지거나 쓰러지면 닫힌다. 다른 곳의 Tab은 M2a 그대로 인벤토리. 레시피는 그 약초를 한 번이라도 얻어야 보인다(임시값 "M6a 레시피 해금"). 물약을 고르고 **좌클릭** = 마시기(누르고 있어도 한 번), **1** = 약초사가 고른 물약을 마우스 쪽으로 던짐(최대 6칸, 병이 날아가 터진 둘레 1.5칸). 머리 위와 HP 막대 밑에 버프(호박색 화살)·독(노란 방울) 표시. 콘솔에 `EVENSONG_CRAFT open station=alchemy at=59,48 recipes=6`, `EVENSONG_CRAFT made recipe=potion_healing_common item=potion_healing count=1 grade=common`, `EVENSONG_CRAFT refused recipe=potion_poison_common: herbalist only`, `EVENSONG_POTION drink item=potion_buff grade=common hp=100 buff=1200 poison=0`, `EVENSONG_POTION throw item=potion_poison grade=fine from=1016,858 to=1016,910`, `EVENSONG_POTION splash item=potion_poison at=1016,910 players=0 heretics=1`, `EVENSONG_POTION drink refused: full hp`
+- M6a 세션: 바뀐 것이 없다. Tab은 인벤토리, 1과 물약 좌클릭은 아무것도 하지 않고(보낸다 해도 호스트가 물약의 USE를 `not a tool`로 거부), 조제대 놓기는 `alchemy table offline only`로 거부(M6b에서 켠다). 호스트를 잃고 혼자 계속하면 그때부터 혼자 할 때와 같다
 - `world.tscn`: WASD 또는 방향키로 자유 카메라 이동 (제단·빛은 있고 캐릭터는 없다)
 - 창 기본 1920×1080(4배). `-- --scale=3`이면 1440×810
 - `--quit-after` 같은 Godot 인자는 `--` **앞에** 쓴다
@@ -360,6 +365,19 @@ timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --test-at=66,
 timeout 120 "$GODOT" --max-fps 60 --path game -- --start-map=dungeon --test-at=23,41 --test-shrine-hp=28 --give=torch:2 --bot="aim:-16,0;use:2;wait:4;select:8;aimat:23,40;use:80;aim:off;move:1,0,30;aimat:23,39;wait:600" --screenshot=shots/m4_shrine_broken.png --frames=200 < /dev/null
 ```
 
+- M6a 그림 4장 (모두 시드 1, 480×270, 창 960×540, 혼자 할 때 봇. 물약 아이콘·조제대는 04-env 그림, 병이 터지는 그림·머리 위 표시·제작 창은 코드 그림 임시):
+  - `shots/m6_crafting.png`: 저녁, 제단 서쪽 스폰 자리의 약초사가 남쪽에 조제대를 놓고(제단 빛 안) Tab으로 제작 창을 열었다. 오른쪽 위 창에 레시피 여섯 줄(회복·버프·독 × 일반·상급, 처음 얻은 약초로 해금), 입력 약초 2개 → 물약, 약초사 표시(금빛 = 이 클래스가 만들 수 있음), 만들 수 없는 줄은 어둡게(상급 버프 약초를 다 써서, 독 상급 약초가 없어서), 고른 줄(3, 일반 버프)은 금빛 테. 아래에 인벤토리가 같이 열리고 핫바에 만든 물약 셋(일반 회복, 상급 버프는 금빛 점, 일반 버프). 콘솔 `EVENSONG_CRAFT made ...` 세 줄
+  - `shots/m6_throw_poison.png`: 저녁, 약초사가 제단 빛 남쪽 가장자리 안에서 빛 밖의 이단(빛 안의 사람을 노리지 않아 제자리에 선다)에게 상급 독을 던졌다(1, 던지기 동작 중). 이단 둘레에 노란 방울과 녹 반점의 터짐(첫 프레임), 이단 머리 위에 독 표시가 생긴 순간. 콘솔 `throw ... to=1016,910`, `splash ... heretics=1`
+  - `shots/m6_poisoned_heretic.png`: 같은 장면을 저녁 끄고(`--no-evening`, 색이 보이게) 160프레임에: 독이 세 번 들어간 이단의 HP 막대와 머리 위 독 표시(막대 위). 이단은 맞아도 경직하지 않고 서 있다(독은 경직이 없다)
+  - `shots/m6_buff.png`: 저녁, 팔라딘이 버프 물약을 마시고(마법 동작을 빌려 씀) 동쪽으로 걸었다: 머리 위 호박색 화살, 왼쪽 위 HP·스태미나 막대 밑의 같은 표시와 남은 시간 1px 막대. 핫바 1번에 남은 버프 물약 하나
+
+```bash
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --give=alchemy_table,wild_healing:4,wild_buff:4,wild_poison:3,wild_healing:2:fine,wild_buff:2:fine --bot="aim:0,20;use:1;wait:10;aim:off;tab;wait:6;craft:1;wait:4;craft:4;wait:4;craft:3;wait:30" --screenshot=shots/m6_crafting.png --frames=70 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --test-at=63,53 --test-heretic=63,57 --give=potion_poison:3:fine --bot="aimfoe;wait:4;throw;wait:200" --screenshot=shots/m6_throw_poison.png --frames=40 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --test-at=63,53 --test-heretic=63,57 --give=potion_poison:3:fine --no-evening --bot="aimfoe;wait:4;throw;wait:200" --screenshot=shots/m6_poisoned_heretic.png --frames=160 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --give=potion_buff:2 --bot="use:1;wait:40;move:1,0,30;wait:10" --screenshot=shots/m6_buff.png --frames=90 < /dev/null
+```
+
 ### 그림 검사 (창, 렌더러 필요)
 
 헤드리스 테스트는 더미 렌더러라 화면을 못 본다. 빛·불꽃·캐릭터 레이어·y 정렬이 **실제로 그려진 픽셀**을 보는 검사는 따로 창을 띄워 돌린다 (창이 3초쯤 떴다 닫힌다).
@@ -377,6 +395,8 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 - 일부러 깨 본 것 (M2a): 캐릭터가 64칸 동작 칸의 (16, 16)을 빼먹고 32칸처럼 놓음 → `rig` FAIL(65화면 중 불일치 655,477픽셀)·종료 1
 - M4a: `rig`이 피격 6·사망 7프레임까지 78화면이 됐다(사망 프레임은 표식을 숨긴 합성과 비교). `heretic`: 이단 시트 다섯의 모든 프레임을 네 방향(한 화면에 32명: 줄 = 남·동·북·서, 칸 = 프레임)으로 세워 배경 + CPU 합성(그 줄의 시트 칸, 32칸은 (16, 32)·64칸은 (32, 48)을 발에, 서쪽은 동쪽 반전)과 픽셀까지 비교하고, 반쯤 다친 이단의 HP 막대(unshaded)를 그 픽셀까지. `bars`: HUD의 HP 60/100·스태미나 20(대시 비용 밑이라 어두운 금빛) 막대 396픽셀과 사망 뒤 카운트다운 숫자(3배) 81픽셀이 정한 색 그대로. 일부러 깨 본 것은 아래 "측정"의 M4a
 - `combat_net` (M4b): 세션 클라이언트가 그리는 호스트의 싸움. 이단 다섯(예고 중·피격 중 HP 막대와 깜빡임·죽는 중·쫓는 중·가장자리 대기), 화살과 빛 탄, 다운된 플레이어(다운·소생 막대)를 호스트의 `CombatView`가 자기 아레나로 그린 화면과, 클라이언트가 전송 형식(적 묶음, 화살 사건, vitals 블록이 있는 상태)을 풀어 `NetCombat`·Player로 그 틱에 그린 화면이 픽셀까지 같아야 한다(그리고 배경과 2,000픽셀 넘게 달라야: 실제로 그렸다). 일부러 깨 본 것: 클라이언트가 이단의 깜빡임을 버림 → 불일치 725, 남의 vitals를 안 그림 → 544, 화살 방향 1/16바퀴 어긋남 → 53. 셋 다 FAIL·종료 1
+- `crafting` (M6a): HUD의 제작 창을 약초사(여섯 줄 모두 만들 수 있게 약초를 줌)와 팔라딘(넷이 어둡게)으로 열어, 창이 그리는 불투명 픽셀(바깥·안쪽 테, 조제대 아이콘과 금빛 밑줄, 줄마다 입력·출력 칸의 테와 아이콘(수·상급 점 자리 빼고), 수 숫자 자리, 상급 점, 화살표, 약초사 표시, 고른 줄의 금빛 테) 3,818개가 그 자리 그 색인지, 어두운 줄의 밝은 픽셀(아이콘·화살표·숫자, 943개)이 모두 원래보다 어두운지. 반투명 바탕(`Hud.FILL`)은 섞기 반올림 때문에 보지 않는다(`bars`와 같은 이유)
+- `potions` (M6a): 저녁 끄고 한 화면에 세계 편집으로 놓은 조제대, 독 걸린 이단(시트 프레임 + 머리 위 독 표시), 반쯤 날아간 병(물약 아이콘, 포물선 높이), 터짐 둘(0·1프레임)을 그려 배경 + 각각의 CPU 합성과 픽셀까지 비교(조제대 자리는 `FixtureView.table_origin`을 쓰지 않고 그림의 마지막 불투명 줄을 재서 따로 계산). 그다음 버프·독이 걸린 성직자의 머리 위 표시 둘과 HUD의 효과 아이콘·남은 시간 막대 126픽셀이 그 자리 그 색인지. 일부러 깨 본 것: 화살표를 금빛으로(`crafting` 불일치 72), 터짐 1px(`potions` 135), 머리 위 표시 1px 아래(23 · 표시 35), 조제대 그림 1px 위(484). 넷 다 FAIL·종료 1. 조제대는 처음에 기대 그림을 같은 함수로 만들어 통과해 버렸고(M4a의 교훈과 같은 실수), 따로 계산하게 고쳤다
 - `items` (M2b): 채집물이 가장 많이 보이는 화면(시드 1: 9개)과 드롭 하나를 저녁 끈 채 찍어, 그것들을 숨긴 화면 + 각자의 그림(월드 그림 / 아이콘)을 그 칸에 놓은 것과 픽셀까지 비교. 일부러 깨 봄: 그림을 1px 내리면 FAIL(불일치 1,054픽셀)
 - `cave` (M3a): 시드 1 던전의 도착 방 둘레를 어둠 끄고(엔티티 숨김) 찍어, 그림 칸마다 `CaveView.drawn_at`의 절벽 타일 + 광맥·금 오버레이를 CPU로 합친 그림과 픽셀까지 비교. 그 전에 벽을 깎아 둔다(앞면이 있는 벽 셋에 금 1·2·3단계, 옆 벽 하나에 1단계, 앞면 벽 하나는 깨서 앞면이 한 칸 위로). 지상 월드는 그동안 숨긴다
 - `dark` (M3a): 같은 던전에 횃불 하나를 놓고(다른 빛은 끄고 다른 엔티티는 숨김) 어둠 켬·끔 두 번 찍어, 횃불 반경 밖 픽셀은 모두 어둡고(비율 ≤ 0.3) 첫 단계(반경의 45%) 안 픽셀은 모두 밝은지(≥ 0.75), 그 자리가 안전 반경이 아닌지(빛일 뿐)
@@ -405,6 +425,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--bot=<스크립트>` (혼자 할 때) | M3a: 세션이 아니어도 봇이 키·마우스 대신 내 캐릭터를 움직인다(`pick`은 F와 같아서 입구·계단에서는 지도를 옮긴다). 스크린샷·테스트용 | 동작 (M3a) |
 | `--bot=` `dash:<dx>,<dy>`, `hold:<틱>` | M4a: 이 틱에 Space(그 방향을 누른 채, 0,0이면 바라보는 쪽) / 그 틱 수만큼 F를 누르고 서 있음(소생, 다운 중이면 포기). M4b부터 세션에서도 | 동작 (M4a, 세션 M4b) |
 | `--bot=` `aimfoe`, `fight:<틱>[,<n>[,<px>]]`, `closein:<px>[,<틱>]`, `waitfoe:<n>[,<틱>]`, `waitlife:<alive\|down\|dead>[,<틱>]`, `waitdown:<n>[,<틱>]`, `walkdown[:<틱>]` | M4b(혼자 할 때도): 이 기기가 그리는 이단 기준. 가장 가까운 살아 있는 이단을 계속 조준 / 그 이단을 조준하고 좌클릭을 누르고 있음(살아 있는 이단이 n마리 이하가 되거나 틱이 다할 때까지, px를 주면 그보다 멀면 다가감 = 근접) / px 안까지 다가감 / 살아 있는 이단이 n마리 이하가 될 때까지 / 내 캐릭터가 그 상태가 될 때까지 / 이 지도에 다운된 사람이 n명 이상일 때까지 / 가장 가까운 다운된 사람 옆(12px)으로 걸어감 | 동작 (M4b, 세션 시험·스크린샷용) |
+| `--bot=` `tab`, `craft:<줄>`, `throw` | M6a(혼자 할 때만, 세션은 무시): 이 틱에 Tab(조제대 옆이면 제작 창, 아니면 인벤토리) / 열린 제작 창의 그 줄(1 = 맨 위) 만들기 / 이 틱에 스킬 키 1(약초사가 고른 물약을 지금 조준 쪽으로 던짐. `aimfoe`·`aim`·`aimat`과 같이) | 동작 (M6a, 스크린샷·시험용) |
 | `--test-at=<x>,<y>` | 혼자 할 때 시작 지도의 그 칸에 내 캐릭터(발은 칸 아래쪽, 도착점 규칙) | 동작 (스크린샷·시험용, M4a) |
 | `--test-heretic=<x>,<y>[/<x>,<y>...]` | 시작할 때 시작 지도의 그 칸들에 이단 | 동작 (스크린샷·시험용, M4a) |
 | `--test-down` | 내 캐릭터가 다운된 채(0 HP) 시작 | 동작 (스크린샷용, M4a) |
@@ -421,7 +442,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--net-lag=<ms>`, `--net-loss=<%>` | 클라이언트: 왕복 지연·손실 흉내 (unreliable 입력·상태만) | 동작 |
 | `--test-perturb-generator` | 이 프로세스의 생성기가 같은 시드로 다른 월드를 만든다(재 가장자리 노이즈 시드를 바꿈, `SurfaceGen.test_perturb`). 다른 아키텍처 흉내 | 동작 (테스트 전용, H1) |
 | `--test-snapshot-chunk-bytes=<1..1024>` | 호스트: 월드 스냅샷을 이 크기 조각으로 자른다(`WorldSnapshot.chunk_bytes`, 기본 1024). 작은 월드도 여러 조각·여러 틱으로 보내 보려고 | 동작 (테스트 전용, H1) |
-| `--give=<id>[:<수>[:<등급>]],...` | 디버그: 시작할 때 내 인벤토리에 아이템을 넣는다. id는 아래 "아이템 표", 등급 `common`/`fine`은 약초만. 예 `--give=pickaxe,stone_a:30,wild_healing:3:fine`. 게임 안에서는 F5가 디버그 묶음을 준다. M2b: 호스트는 자기 인벤토리에 바로, 클라이언트는 호스트에게 주기 요청을 보낸다(호스트가 디버그 빌드이거나 `--test-allow-give`일 때만 받아 준다). 요청 하나의 개수는 1바이트라 255개를 넘으면 여러 요청으로 나눈다(M2-fix: 전에는 300이 44로 잘렸다). 기다리는 요청은 `NET_LOCAL_OPS_MAX` 64개까지, 넘는 것은 `request_dropped` 줄을 찍고 버린다 | 동작 (M2a, M2b) |
+| `--give=<id>[:<수>[:<등급>]],...` | 디버그: 시작할 때 내 인벤토리에 아이템을 넣는다. id는 아래 "아이템 표", 등급 `common`/`fine`은 약초만(M6a: 물약도, 예 `potion_poison:3:fine`. 조제대는 `alchemy_table`). 예 `--give=pickaxe,stone_a:30,wild_healing:3:fine`. 게임 안에서는 F5가 디버그 묶음을 준다. M2b: 호스트는 자기 인벤토리에 바로, 클라이언트는 호스트에게 주기 요청을 보낸다(호스트가 디버그 빌드이거나 `--test-allow-give`일 때만 받아 준다). 요청 하나의 개수는 1바이트라 255개를 넘으면 여러 요청으로 나눈다(M2-fix: 전에는 300이 44로 잘렸다). 기다리는 요청은 `NET_LOCAL_OPS_MAX` 64개까지, 넘는 것은 `request_dropped` 줄을 찍고 버린다 | 동작 (M2a, M2b) |
 | `--test-allow-give` | 호스트: 내보낸(release) 빌드에서도 클라이언트의 디버그 주기·버리기(F7) 요청을 받아 준다 (세션 시험을 내보낸 exe로 돌릴 때, 사람이 두 기기로 해 볼 때) | 동작 (M2b, 버리기는 M2-fix) |
 | `--test-select=<1..8>` | 시작할 때 핫바 칸 고르기 | 동작 (스크린샷용, M2a) |
 | `--test-inventory` | 인벤토리 칸 전부 보기(Tab)를 연 채 시작 | 동작 (스크린샷용, M2a) |
@@ -446,6 +467,7 @@ M3a: 기본 월드의 던전 입구, 던전 타일셋(소스 2, 타일 30, 그�
 M3b: 시드 1~8 던전의 해시 묶음(`DungeonGen.SEEDS_GOLDEN`, 출력 `dungeon_seeds=acc0a9bc2359`(M3-fix): 다른 기기의 던전 생성기가 같은지 보는 값), 캔 던전(금·깸·횃불·드롭)을 지도 스냅샷 길로 보내 받은 것 = 원본이고 동굴 그림 = 데이터(`dungeon_map=319B`), 전송 형식 v4(지도가 든 상태, 지도를 적은 TRAVEL, 지도를 적은 편집, 지도 들어옴 메시지),
 M4a: 도구 7개(성광 더함)·입력 액션 `dash`, 피격·사망 시트와 이단 시트 다섯의 크기, 클래스 무기 다섯의 공격, 기본 월드의 지상 스폰 칸이 모두 빛 밖(출력 `spawn_tiles=678`), 시드 1 던전에서 짧은 싸움(이단이 예고 30틱 뒤 한 번 맞히고, 검 세 번에 죽고, 제단이 부서지면 던전 스폰이 멈춤, 출력 `combat=30/3`),
 M4b: 대시·F 누르고 있기·USE 조준이 든 프레임 왕복, vitals 블록이 든 상태 왕복, 진짜 아레나의 적 묶음을 클라이언트 `NetCombat`이 받아 호스트 자리·HP·예고 프레임 그대로 그림(출력 `combat_wire=25B`: 이단 하나 묶음 크기), 화살 사건 왕복, `net=v5`,
+M6a: 아이템 30개(물약 셋 아이콘은 띠의 16×16 칸, 조제대 아이콘은 코드), 입력 액션 `skill_1`, 레시피 여섯과 약초사 전용 규칙, 일반 회복 물약 만들기(약초 둘 → 하나), 조제대 그림 48×32와 시드 1 제단 남쪽에 놓기(편집 셋, 작업대로 찾힘), 회복 물약, 독 한 번에 다운, 던진 상급 독이 이단에 닿음(출력 `potions=6/1`: 레시피 수 / 닿은 이단),
 기본 월드의 안전 반경 hard 빛 텍스처 226×226 텍셀 전부 = `is_in_safe_zone()`, 불꽃 마스크 81픽셀,
 네트워크(G3): 물리 틱 60, ENet 호스트가 루프백 빈 포트에서 열리고 닫힘(방화벽 창이 뜨지 않게 127.0.0.1만), Steam 가용성 = GodotSteam 유무, 상태 묶음 왕복, 늦은 참가 월드 스냅샷 왕복(H1: 이 빌드의 zstd로 압축 → 조각 → 받기 → 같은 월드), 9명 뒤 열 번째 거부, `main.tscn`에 `Net` 노드.
 내보낸 exe에서 돌면 pck 안의 타일셋·그림까지 확인하는 셈이다. 월드 해시는 이 데스크탑(x86_64)에서 만든 값이라, 다른 기기(서피스 ARM64)에서 `--smoke`가 해시로 FAIL이면 그 기기는 같은 시드로 다른 월드를 만든다는 뜻이다. 늦은 참가는 이제 호스트의 월드를 받으므로 그래도 된다(H1). 다만 그 기기가 호스트가 되면 같은 시드라도 데스크탑과 다른 월드가 된다.
@@ -462,12 +484,13 @@ game/                           Godot 프로젝트 루트 (= res://)
   items/                        item_db.gd (아이템 표, M2a), item_stack.gd (한 칸의 묶음), inventory.gd (인벤토리 + 핫바),
                                 item_icons.gd (아이콘: 그림 불러오기 + 도구 임시 아이콘을 코드로), world_items.gd (M2b:
                                 채집물 표, 줍기·버리기·사용·주기 규칙과 거부 이유, 등급 규칙, M3a: 횃불 놓기·입구 거부),
-                                mining.gd (채굴 규칙, M3a)
+                                mining.gd (채굴 규칙, M3a), M6a: crafting.gd (작업대·레시피·해금·만들기 규칙), potions.gd
+                                (물약: 마시기·던지기 규칙, 효과 수치, 아이템 꺼내기)
   ui/                           hud.gd (핫바 줄 · Tab 인벤토리 칸 · 3×5 숫자, 자기 캔버스 레이어; M4a: HP·스태미나·다운 막대,
-                                부활 카운트다운)
+                                부활 카운트다운; M6a: 효과 아이콘), crafting_panel.gd (M6a: 제작 창)
   combat/                       (M4a) combat.gd (공격 표·조준 코드·근접 호·시야 선·곡괭이 규칙·적의 빛 규칙), heretic_sim.gd
                                 (이단 하나의 상태와 그림 시간), arena.gd (지도 하나의 전투: 이단·화살과 빛 탄·제단 HP·소생·스폰),
-                                combat_view.gd (그리기: 이단 노드, 날아가는 것, 제단·다운 막대)
+                                combat_view.gd (그리기: 이단 노드, 날아가는 것, 제단·다운 막대). M6a: arena.gd에 던진 병·터짐·이단의 독
   world/                        terrain.gd (지형·코너 키), world_data.gd (레이어 6장), tileset_builder.gd, wang_table.gd,
                                 surface_gen.gd (생성기), ground_view.gd (청크 dual grid), game_world.gd (world.tscn 루트),
                                 altar.gd (제단 그림 + 불꽃), debug_overlay.gd, target_marker.gd (조준 목표 칸 표시, M2a),
@@ -479,7 +502,8 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 rig_measure.gd (기준점 재기), movement.gd (이동 규칙), player.gd (+ M2a 조작: 조준·사용·동작
                                 시간, M2b: 프레임 만들기·진행), player_sim.gd (M2b: 프레임 하나를 진행하는 규칙, 호스트·예측·혼자 공통),
                                 aim.gd (조준 규칙과 창 늘이기 계산, M2a), player_camera.gd, free_camera.gd (world.tscn 맵 보기용),
-                                M4a: vitals.gd (HP·스태미나·대시·경직·다운/사망), heretic.gd (이단 그림 + HP 막대)
+                                M4a: vitals.gd (HP·스태미나·대시·경직·다운/사망; M6a: 버프·독), heretic.gd (이단 그림 + HP 막대),
+                                M6a: effect_marks.gd (머리 위 효과 표시와 그 아이콘)
   light/                        safe_zone.gd (안전 반경 규칙), light_gen.gd (빛 텍스처·불꽃 마스크), altar_light.gd, lighting.gd,
                                 torch_light.gd (횃불 빛 텍스처, M3a)
   net/                          session.gd (세션 노드 Net: 두 역할이 같이 쓰는 상태·RPC 표·틱 나누기), session_host.gd
@@ -499,7 +523,7 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 test_actions.gd (M2a), test_world_items.gd (M2b), test_dungeon.gd, test_mining.gd (M3a),
                                 test_net_maps.gd (M3b: 세션의 지도, 한 프로세스), test_combat.gd, test_heretic.gd (M4a),
                                 test_net_combat.gd (M4b: 세션의 전투, 한 프로세스), test_net_fight.gd (M4b: 실제 세션
-                                fight·fight4·fightlag, test_net_session.gd를 이어 씀),
+                                fight·fight4·fightlag, test_net_session.gd를 이어 씀), test_crafting.gd, test_potions.gd (M6a),
                                 fixtures/ (러너 자체 시험)
   tools/                        build_tileset.gd (타일셋 빌더), build_rig_anchors.gd (기준점 표), check_render.gd (창 그림 검사)
   shots/                        스크린샷 (.gdignore)
@@ -861,6 +885,63 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 - 바꾼 기존 시험(M4b가 규칙을 일부러 넓혀서): `test_net.gd` 프레임 코드 45 → 180개, USE 크기, RPC 표 18개(새 셋), vitals·적·화살 전송 형식 시험 추가. `test_net_maps.gd` 버전 5, 지도 들어옴 뒤 적 키프레임, 스폰 끔(M3b 검사라). `test_net_session.gd` pair의 늦은 약초사 인벤토리에 시작 무기(낫), 모든 세션 인스턴스에 `--test-no-spawns`(M2b·M3b 세션은 하던 것만)
 - 창 그림 검사 `combat_net`, 스모크 M4b 항목
 
+## M6a: 제작 · 조제대 · 물약 · 약제 투척 · 효과
+
+혼자 할 때 먼저(M6a 지시, M3a·M4a처럼). **세션(`--host`/`--join`)에서는 제작·마시기·던지기·효과가 꺼져 있고 M4b 그대로다**: 세션의 플레이어는 `Player.potions_on`이 꺼져 있어 물약 좌클릭과 1이 아무 프레임도 만들지 않고, 호스트는 물약의 USE를 `not a tool`(도구 아님, M2b 검사 그대로)로, 조제대 놓기를 `alchemy table offline only`로 거부하고(M3a의 "dungeon offline only"처럼), Tab은 늘 인벤토리다. 전송 형식은 v5 그대로이고 효과는 vitals 블록에 없다(M6b). 문서의 ●는 그대로 따랐다: 작물 셋 = 물약 셋(회복·버프·상태이상, ● game-concept §12 R28), 상급·상태이상 물약은 약초사만(● gameplay-design §3.0 R11 약초사 줄 "상급·최상급 약제, 상태이상 약제"), 약초사가 캔 약초가 상급(● §3.4, M2b 그대로), 물약 색 = 작물 색(● brief §5.7 R29: 회복 빨강, 버프 호박, 독 = 독초 노랑 + 녹 반점), 에임형(● §2.1). ○·?와 문서에 없는 것은 모두 [임시값](#임시값-사람-확인-필요) 표의 "M6a" 줄이다. 농사·씨앗·자라기·물주기·정화(M5), 작업대·모루·성물 제작대 레시피와 도구·무기 만들기(M7), 건설, 상인·상점 물약(M8), 다른 스킬·스킬 키, 클래스 자원, 기도, 효과 둘 밖의 것, 새 적, Steam, 저장은 M6a가 아니다.
+
+### 제작 틀 (`items/crafting.gd`, M7이 그대로 쓴다)
+
+- **작업대** = 놓는 설치물 하나(`Crafting.STATION_OF`: 설치물 값 → 작업대 종류). M6a는 조제대(`WorldData.PLACEABLE_ALCHEMY` → `alchemy`) 하나이고, M7은 작업대·모루·성물 제작대 값을 더하면 된다. 플레이어의 발 칸이 그 자리에서 `STATION_REACH_TILES`(2칸, 체비셰프) 안이면 그 작업대에 있다(`station_near`: 가장 가까운 것, `still_at`: 아직 거기인지)
+- **레시피** = 작업대, 입력(아이템·수·등급: 정확한 등급 또는 −1 = 아무 등급), 출력(아이템·수·등급), 만들 수 있는 클래스(비면 누구나). `Crafting.recipes()`가 순서대로(작업대마다, 회복·버프·독, 일반 → 상급)
+- **만들기** (`craft`, 모두 아니면 하나도 아님): 해금됐고, 클래스가 되고, 입력이 다 있고, 입력을 뺀 뒤에 출력이 들어가야 한다(`refusal`이 인벤토리 사본에서 해 봄). 그다음 입력을 **뒤 칸부터** 빼고(가방 칸이 핫바보다 먼저, 핫바의 묶음이 오래 남게. 구현 선택) 출력을 넣는다(M2a의 넣기 규칙: 같은 묶음 먼저, 그다음 앞쪽 빈 칸 = 핫바부터). 하나라도 안 되면 아무것도 바꾸지 않고 이유를 돌려준다: `locked`, `herbalist only`, `missing inputs`, `no room`(자리가 없으면 거부, 땅에 떨어뜨리지 않음: 임시값)
+- **해금** (○ §3.5 "레시피는 재료를 처음 획득했을 때 해금"): `RECIPES_UNLOCK_ON_FIRST_GET` 켬이면 그 레시피의 입력 아이템을 모두 한 번이라도 가져 본 플레이어에게만 보인다(아무 등급). 인벤토리가 넣은 적 있는 아이템을 기억한다(`Inventory.seen`, 없어져도 남음, 저장 없음). 기본값을 켬으로 둔 이유: 문서가 내놓은 유일한 규칙이고, 슬라이스에서는 입력이 야생 약초라 줍기가 고리의 첫걸음이어서 비용이 없다(사람이 해 보고 정하게). 끄면 모든 레시피가 처음부터 보인다
+
+### 조제대 (`WorldItems.place`, `world/fixture_view.gd`)
+
+- ○ game-concept §9.7 "조제는 연금술대 자리의 조제대에서 한다". 그림은 04-env `alchemy_table_v05.png`(4단계 1차 시험의 정렬형 c를 다듬고 44색 → 24색, 채택 후보)를 그대로 복사. 자리는 3×1(`ALCHEMY_FOOTPRINT`): 48×32 그림의 불투명 줄 3~27 중 다리·앞 판이 자리 칸에, 뒤 판과 병이 그 위 칸에 걸친다(이단의 제단·던전 입구처럼 그림이 자리보다 높다). 노드는 자리 아래 변(y 정렬), 월드 빛 레이어
+- **막는다**(다른 설치물처럼, `WorldData.placeable_blocks`): 걷기·대시·화살·던진 병·시야가 지나지 못한다
+- **얻는 길 (임시값 "M6a 조제대 얻기")**: 문서에 없다. 디버그 아이템 `alchemy_table`(종류 "놓는 것", 아이콘은 코드로 그린 작은 탁자)을 `--give=alchemy_table`로 받아 횃불처럼 좌클릭으로 놓는다. 고른 길과 이유: 생성기에 넣지 않았다(지상 해시·세션 시험의 봇 길·렌더 검사·스폰 자리 둘레가 모두 흔들리고, 놓을 자리를 정하는 것 자체가 설계라서). F5 묶음에도 넣지 않았다(핫바 8칸이 도구 6·횃불·시작 무기로 차서 가방 칸에 들어가면 놓을 수 없다). 다른 길: 제단 둘레에 하나를 생성(지상 해시 갱신), 상인(M8), 작업대에서 만들기(M7)
+- **놓기 규칙** (`WorldItems.place` + `place_rect`): 목표 칸이 자리 아래 줄의 가운데다(그래서 보통 위·아래를 조준). 자리 세 칸이 모두 맵 안의 빈 바닥(벽·앞면·설치물·채집물·드롭 없음), 놓는 사람의 발 상자와 다른 몸(같은 지도의 다른 플레이어·이단의 발)이 자리에 겹치지 않음(`someone stands there`), 다른 조제대에 한 칸도 닿지 않음(`too close to another`: 붙으면 `WorldData.footprint_at`이 둘을 한 자리로 읽는다). 편집은 칸마다 하나(세 개)라 스냅샷·해시·편집 기록을 그대로 지난다. 횃불 규칙은 그대로
+
+### 물약 셋 (`ItemDB`, `items/potions.gd`)
+
+- `potion_healing`·`potion_buff`·`potion_poison`: 새 종류 `POTION`, 등급 있음(일반·상급), 묶음 `STACK_POTION`(10). 아이콘은 04-env 작은 것 묶음 `items_v04_strip.png`(16칸 18개, 파일을 그대로 복사)의 4·5·6번째 칸(빨강·호박·독 노랑 + 녹 마개)을 잘라 쓴다(`ItemDB.STRIP_POTIONS`, 시험이 픽셀까지 비교). 표 끝에 더해서 아이템 번호(전송 형식)는 그대로다(아이템 30개)
+- 레시피 여섯 = 물약 셋 × 등급 둘: 야생 약초(`wild_healing`·`wild_buff`·`wild_poison`, M2b 채집물) `POTION_HERBS`(2)개 → 물약 하나, **등급은 입력을 따른다**(일반 약초 → 일반 물약, 상급 → 상급. 섞이지 않음: 레시피의 입력 등급이 정확함). 만들 수 있는 클래스: 상급 셋과 독 둘은 약초사만(●), 일반 회복·버프는 누구나(`COMMON_POTIONS_ANYONE`, 임시값: §3.0 표의 "공용 수행" 칸은 동사가 아니라 등급을 막는다고 읽음). 다른 클래스는 상급 약초를 캘 수 없지만(M2b) 받거나 주울 수는 있어서 클래스 검사가 따로 있다
+
+### 마시기 (`Player.make_frame`, `Main.potion_impact`)
+
+- 핫바에서 물약을 고르고 **좌클릭**(누르고 있어도 한 번) = 마시기. 마시는 그림이 없어서(03-pixel에 없다) **마법 동작을 빌려 쓴다**(`DRINK_ANIM`, brief §5.6 표의 "성직자 기도·치료" 동작, 0.6초). 물약은 4번째 프레임(`DRINK_EFFECT_FRAME`, 18틱째)에 쓰인다: 그 전에 맞아 동작이 끊기면 아무것도 쓰지 않는다. 쓰이는 순간 한 번 더 검사한다(그 사이 HP가 가득 찼으면 거부, 쓰지 않음)
+- 효과(값은 등급별): 회복 `POTION_HEAL_HP` 30 / 50(최대를 넘지 않음), 버프 = 걷기 속도 `BUFF_SPEED_PCT` 125% / 140%를 `BUFF_TICKS` 20초 / 30초, 독 물약 = 마신 사람이 중독(`DRINK_POISON_HARMS` 켬: M6a에서 플레이어가 독에 걸리는 유일한 길, 아군 사격이 꺼져 있으므로). 거부: HP가 가득일 때의 회복(`DRINK_AT_FULL_HP` 끔, 쓰지 않음), 다운·사망 중(동작이 시작되지 않음). 콘솔 `EVENSONG_POTION drink ...` / `drink refused: full hp`
+
+### 약제 투척 (○ gameplay-design §2.2 약초사의 정체성 스킬, `Arena.throw_potion`)
+
+- **1**(임시값 "M6a 키": §1 키 초안에서 1 2 3이 스킬이고 §2.2 추천의 1번 칸이 정체성 스킬이라. 우클릭은 §1이 클래스 보조 동작에 준 키라 쓰지 않았다) = 고른 물약을 마우스 쪽으로 던진다. 약초사만(`THROW_HERBALIST_ONLY`, 임시값: §3.0이 약제를 약초사에게 두고 §2.2가 투척을 약초사의 정체성 스킬로 둠. 다른 클래스는 `herbalist only` 로그). 던지기 동작(03-pixel `base_body_v02_throw`, 7프레임 0.7초)으로 마우스 쪽을 보고, 4번째 프레임(`THROW_RELEASE_FRAME`)에 병이 손을 떠난다(그 순간 물약 하나를 쓴다. 그 전에 맞으면 아무것도 안 던짐)
+- 병: 몸 점에서 마우스 점(커서가 떨어지는 자리)을 향해 땅 위로 `THROW_SPEED`(192px/s), 최대 `THROW_RANGE_PX`(96px = 6칸, 더 멀면 그 방향의 96px). **몸 위로 넘어가고**(던져 올림: 사이의 이단·플레이어에 멈추지 않음) **벽에 막힌다**(화살과 같은 칸 검사: 벽·앞면·막는 설치물·맵 밖, 두 걸음 사이의 칸도 모두. 막히면 그 앞에서 터진다). 그림은 그 물약의 아이콘을 화살 높이(12px) + 포물선(가운데에서 10px 더, `THROW_ARC_PX`)에 그린다(임시 그림)
+- **터짐**: 떨어진(또는 막힌) 점에서 `THROW_SPLASH_RADIUS_PX`(24px = 1.5칸) 안, 몸 점까지 벽 없이 닿는 모두에게: **회복·버프는 서 있는 플레이어**(던진 사람 자신도, 다운된 사람은 아님: 소생은 F), **독은 살아 있는 이단**(플레이어는 아군 사격이 꺼져 있어 안 걸림. `FRIENDLY_FIRE`를 켜면 플레이어도). 터짐 그림은 그 색 방울(독은 녹 반점)이 반경까지 퍼지는 코드 그림 3프레임(18틱, unshaded). 콘솔 `EVENSONG_POTION throw ...`, `splash ... players=n heretics=n`
+
+### 효과 둘 (`Vitals`, `PlayerSim._tick_effects`, `Arena._tick_poison`)
+
+- **버프 하나 = 걷기 속도**(임시값: 고른 이유는 혼자서도 바로 보이고, 공유 시뮬레이션의 한 곳(`PlayerSim.walk_speed`)이라 혼자·호스트·예측이 같다. 대시는 그대로). **상태이상 하나 = 독**(○ §2.4 약초사 상태이상 넷 중 첫째): `POISON_INTERVAL_TICKS`(30틱)마다 `POISON_DAMAGE` 2 / 3, `POISON_TICKS` 5초(10번). 첫 피해는 한 간격 뒤. 독 피해는 HP만 깎는다: 경직·무적이 없고 무적(대시·피격 뒤)에 막히지 않고 방어가 없고, 하던 동작(플레이어)·공격(이단)을 끊지 않는다(맞은 깜빡임은 있음)
+- 이미 걸린 사람에게 또: 남은 시간은 긴 쪽, 세기는 큰 쪽(`EFFECT_REFRESH_KEEPS_STRONGER`, 겹치지 않음). 독은 박자를 이어 간다
+- **플레이어**: `Vitals`에 버프(퍼센트·남은 틱)와 독(피해·남은 틱·다음 피해까지)을 더하고 `PlayerSim.step`이 서 있는 플레이어의 효과를 맨 먼저 센다. 그래서 혼자(`Player.step_frame`)·호스트(`SessionHost.run_frame`)·예측(`Prediction.step_frame`)이 같다(시험: 2,400틱 무작위 걷기·대시·물약 셋·피해·소생에 매 틱 `same_all`). 독으로 0이 되면 다운(그 뒤는 M4 흐름: 30초 뒤 사망). **다운·사망하면 효과가 끝나고**(`EFFECTS_END_ON_DOWN`) 부활에도 없다. 독 피해는 `hurt` 시그널(로그·HUD)로도 알린다
+- **이단**: `HereticSim`에 독(피해·남은 틱·다음까지·던진 사람)을 더하고 `Arena`가 살아 있는 이단의 독을 맨 먼저 센다. 독으로 죽으면 **다른 처치처럼 센다**(`killed` + `poison_kills`, 기록 켬이면 던진 사람의 `Hit`(KILLED): 호스트가 그 사람의 처치로 센다 = M6b). 죽은 이단의 독은 끝난다. 사람이 떠난 지도를 비울 때(M4-fix) 날던 병과 터짐은 없애고 이단의 독은 남긴다(그 지도가 다시 돌 때 이어 셈)
+- **표시** (코드 그림 임시, `actors/effect_marks.gd`): 머리 위(발에서 44px 위, 성직자 후광·이단 HP 막대 위) 7×7 표시: 버프 = 호박색 위 화살, 독 = 독초 노랑 방울 + 녹 점(unshaded). HUD에서는 HP·스태미나 막대 밑에 같은 표시와 남은 시간 1px 막대
+
+### 제작 창 (`ui/crafting_panel.gd`)
+
+- 코드로 그린 60px 너비 창, 화면 오른쪽 위(480×270에서 여섯 줄이면 높이 142px). 맨 위에 조제대 아이콘과 금빛 밑줄, 줄마다 입력 칸(아이콘·수·상급 점) → 화살표 → 출력 칸, 약초사 전용 줄에 3×5 주머니 표시(금빛 = 이 클래스가 만들 수 있음, 녹빛 = 아님), 지금 만들 수 없는 줄(입력 부족·클래스·자리)은 어둡게, 고른 줄에 금빛 테. 글꼴 없음(HUD의 3×5 숫자). 인벤토리가 바뀌면 다시 읽는다(해금·어두운 줄)
+- 열려 있는 동안 캐릭터는 서 있다(`Player.ui_locked`: 걷기·대시·사용·F·1 없음, Q/E는 됨). 마우스: 줄 위에 올리면 고르고 좌클릭 = 만들기, 창 밖 클릭은 아무것도 안 함
+
+### 시험 (M6a)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=crafting,potions < /dev/null   # 약 2초
+```
+
+- `test_crafting.gd`: 레시피 여섯(작업대, 입력 약초·수·등급, 출력 등급 = 입력 등급, 클래스 다섯마다 만들 수 있는지: 상급·독은 약초사만), 만들기(약초 둘 → 물약 하나, 뒤 칸부터 뺌, 출력은 핫바 첫 빈 칸, 입력 부족 = 아무것도 안 바뀜, 등급이 다른 약초는 안 됨, 상급 약초를 든 성직자도 `herbalist only`, 독은 팔라딘이 못 만듦, 일반 버프는 아처도, 묶음 10), 자리 없음(가득 찬 인벤토리에서 거부·아무것도 안 바뀜, 입력이 빠진 칸에 출력이 들어가는 경우는 됨, 자리 있는 물약 묶음), 해금(빈 인벤토리 0줄 → 버프 약초 하나로 버프 둘, 없어져도 남음, 잠긴 레시피 거부, 여섯 줄 순서), 작업대 손 닿음(17×13칸 전부 2칸 안/밖, 둘 중 가까운 것, 멀어짐·없어짐), 조제대 놓기(자리 = 아래 줄 가운데, 놓는 사람 발·남의 발·손 닿지 않음·맵 밖·벽·채집물·드롭·조제대 위 거부, 붙음·대각선 붙음 거부, 한 칸 띄우면 됨, 횃불은 그대로), 막음(세 칸이 걷기·화살을 막고 뒤 칸은 안 막음, 남쪽으로 걸으면 딱 붙어 섬, 화살이 멈춤), 그림(제단 남쪽에 놓으면 FixtureView 노드가 자리 아래 변에, 그림 가운데 맞춤, 불투명 맨 아래 줄이 자리의 마지막 픽셀 줄, `verify` 0), `main.tscn`(Tab = 인벤토리, 좌클릭으로 조제대 놓기, 그 옆 Tab = 제작 창 + 서 있음, 약초를 얻으면 넷 해금, 열린 동안 걷기·대시·사용 없음, S·W·F로 만들기, 독은 팔라딘이 못 만듦, 클릭으로 만들기, 창 밖 클릭 없음, Tab으로 닫힘, 멀어지면 닫힘, 다운되면 닫힘), 세션(호스트가 조제대를 `alchemy table offline only`, 물약 USE를 `not a tool`로 거부)
+- `test_potions.gd`: 마시기 규칙(가득 찬 HP 거부, 다운 거부, 등급별 회복·최대 넘지 않음·다운된 사람 안 됨, 버프 퍼센트·시간이 정확히 `BUFF_TICKS`, 더 센 쪽 유지, 독 물약), 마시기 조작(가득 찬 HP 클릭 = 프레임 없음 + 거부 로그, 클릭 = 마법 동작, 칸·등급 기억, 누르고 있어도 한 번, 효과 프레임 한 번, 세션처럼 꺼짐, 다운 중 없음, 물약 꺼내기), 버프 속도(2초에 144px → 125%, 대시는 그대로), 플레이어 독(30틱마다 열 번, 걸으며, 경직·무적 없음, 무적 통과, 휘두르기 안 끊김, 두 번째 독 틱에 다운 + 효과 끝 → 30초 뒤 사망, 맞아서 다운돼도 끝, 다운 중 안 걸림, 부활에 없음, `hurt` 시그널), 이단 독(열 번, 경직 없음, 무기 맞음으로 안 셈, `Hit` 기록·던진 사람, 독 죽음 = 처치·독 처치·던진 사람의 KILLED, 공격 안 끊김, 더 센 쪽), 병(사거리 자르기, 날아가는 틱 = 거리 / 속도, 벽 바로 앞에서 터짐·벽 뒤 이단 안 걸림, 가까운 이단 위로 넘어가 먼 이단에), 터짐(반경 안·밖, 던진 사람, 다운된 사람, 버프, 독은 이단만·벽 뒤 안 됨·플레이어 안 됨, 18틱 보임), 던지기 조작(약초사 1 = 던지기 동작·목표 자르기·마우스 쪽, 팔라딘 거부, 검은 못 던짐), 표시(머리 위 둘·자리·unshaded, 다운되면 사라짐, 이단 독 표시, HUD 남은 시간 막대), 공유 시뮬레이션 2,400틱(혼자 = 호스트 = 예측, 효과 포함), `main.tscn`(가득 찬 HP 거부·쓰지 않음, 효과 프레임 전에는 안 쓰임·그 프레임에 하나, 맞아 끊기면 안 쓰임, 효과 프레임에 HP 가득이면 거부, 빛 안에서 빛 밖 이단에게 1로 상급 독 → 독 표시·터짐 그림 → 독으로 죽음 = 처치 + 독 처치, 버프 마시기 → 머리 위·HUD)
+- 바꾼 기존 시험: `test_items.gd` 아이템 수·종류별 수(놓는 것 2, 물약 3)와 물약 아이콘 = 띠의 칸(픽셀), `test_actors.gd` 그림 출처에 새 파일 둘. 스모크 M6a 항목, 창 그림 검사 `crafting`·`potions`
+
 ## 빛과 제단 (G2)
 
 - **규칙은 하나**: `SafeZone.is_in_safe_zone(pos)` = 제단 가운데에서 반경(임시 7타일 = 112px) 안 (경계 포함). 게임 로직은 `GameWorld.is_in_safe_zone()`로 이것을 부르고, 빛 텍스처는 같은 함수를 텍셀 가운데마다 불러 만든다
@@ -974,7 +1055,7 @@ func run() -> Array[String]:
 | 같은 클래스 둘 | `NET_UNIQUE_CLASSES` | 허용 (false). true면 호스트가 `class_taken`으로 거부 | ? 정해지지 않음 (gameplay-design §5 ○ 파티 UI 3×3은 클래스당 한 명 같지만 M1은 5클래스라 9인을 막게 된다) |
 | 스폰 (혼자·호스트·참가자) | `SPAWN_FACING`, `Roster`, `SPAWN_SLOTS`(자리 9곳은 아래 구현 표) | 제단 둘레 자리 중 가장 작은 빈 자리, 남쪽(`SPAWN_FACING`)을 보고 선다 | 접속 스폰은 문서에 없음. 가까운 것은 "부활 지점: 제단" (gameplay-design §2.6, §5 ○) |
 | 디버그 월드 편집 | 봇 `edit:<x>,<y>,<grass\|soil>` | 호스트만, 바닥 풀 ↔ 흙(괭이질)만 | 문서에 없음 (M1에 게임 편집이 없어 늦은 참가 길을 시험하려고. 키는 만들지 않았다) |
-| M2a 키 | `project.godot` 입력 `use_item`, `hotbar_prev`·`hotbar_next`, `toggle_inventory`, `debug_give`, `debug_action` | 좌클릭 = 들고 있는 도구 사용, Q / E = 핫바 왼쪽 / 오른쪽, Tab = 인벤토리(보기만). 숫자 키는 핫바에 안 씀(초안에서 1 2 3은 스킬), F 상호작용은 아직 안 묶음(할 것이 없음). F5 디버그 아이템 묶음, F6 다음 몸 동작 | ○ gameplay-design §1 키 배치 초안 (F5·F6은 개발용, 초안에 없음) |
+| M2a 키 | `project.godot` 입력 `use_item`, `hotbar_prev`·`hotbar_next`, `toggle_inventory`, `debug_give`, `debug_action` | 좌클릭 = 들고 있는 도구 사용, Q / E = 핫바 왼쪽 / 오른쪽, Tab = 인벤토리(보기만). 숫자 키는 핫바에 안 씀(초안에서 1 2 3은 스킬), F 상호작용은 아직 안 묶음(할 것이 없음). F5 디버그 아이템 묶음, F6 다음 몸 동작. **M6a에서 더함** (이 줄의 값은 그대로): 작업대 옆의 Tab은 제작 창, 1 = 약제 투척, 물약 좌클릭 = 마시기(아래 "M6a 키") | ○ gameplay-design §1 키 배치 초안 (F5·F6은 개발용, 초안에 없음) |
 | 핫바·인벤토리 크기 | `HOTBAR_SLOTS`, `INVENTORY_SLOTS` | 핫바 8칸 = 인벤토리 24칸의 앞 8칸 | 문서에 없음 (gameplay-design §1 ○ "무기와 도구는 핫바로 전환"에 칸 수 없음) |
 | 묶음 크기 | `STACK_TOOL`, `STACK_MATERIAL`, `STACK_GATHERABLE` | 도구 1, 재료 99, 채집물 99. M3a: 광석 둘은 재료(99), 횃불도 `STACK_MATERIAL`(99, 아래 "M3a 횃불") | 문서에 없음 |
 | 조준 중 (마우스 쪽 보기) | `AIM_HOLD_SEC`, `Player.tick_controls` | 마우스가 1초 안에 움직였거나, 사용 버튼을 누르고 있거나, 동작 중이면 마우스 쪽을 봄. 아니면 M1 그대로 걷는 방향 | 문서에 없음 (● gameplay-design §2.1 R12는 "에임형 (마우스 방향 스킬샷)"까지) |
@@ -984,7 +1065,7 @@ func run() -> Array[String]:
 | 동작 중 이동 | `ACTION_LOCKS_MOVEMENT` | 동작이 끝날 때까지 걷지 않고 바라보기·목표 칸도 시작 때 것 | 문서에 없음 |
 | 누르고 있기 | `ACTION_REPEAT_WHILE_HELD` | 누르고 있으면 동작이 끝나는 틱에 다시 시작 | ○ gameplay-design §3.2 "홀드하면 연속" (채굴에 쓴 말) |
 | 도구 아이콘 | `items/item_icons.gd` `MAPS` | 16×16 코드 그림 6개 (brief §4 갈흑 외곽선·신앙 금빛·나무색, 04-env 철·구리 색) | 그림 없음 (assets/에 도구 아이콘이 없다. 사람이 그림을 정하면 바꾼다) |
-| 마법·던지기를 부르는 아이템 | `ItemDB` (없음) | 아이템 없음. F6·`--test-action`으로만 본다. **M4a에서 바뀜**: 마법은 성직자의 기본 공격 `holy_light`가 부른다(아래 "M4a 기본 공격"). 던지기는 그대로 없음 | 문서에 없음 (마법 = 성직자 기도·치료, 던지기 = 약초사 약제 투척, brief §5.6 표. 스킬 ? gameplay-design §2.2, 약제 ○ game-concept §12. 둘 다 M2 밖) |
+| 마법·던지기를 부르는 아이템 | `ItemDB` (없음) | 아이템 없음. F6·`--test-action`으로만 본다. **M4a에서 바뀜**: 마법은 성직자의 기본 공격 `holy_light`가 부른다(아래 "M4a 기본 공격"). 던지기는 그대로 없음. **M6a에서 바뀜**: 던지기는 약초사의 약제 투척(스킬 키 1)이, 마법은 마시기도 빌려 쓴다(아래 "M6a 투척"·"M6a 마시기"). 두 동작을 아이템의 `action`으로 부르는 것은 여전히 없다(물약은 `Potions`가 부름) | 문서에 없음 (마법 = 성직자 기도·치료, 던지기 = 약초사 약제 투척, brief §5.6 표. 스킬 ? gameplay-design §2.2, 약제 ○ game-concept §12. 둘 다 M2 밖) |
 | 등급이 있는 아이템 | `ItemDef.graded` | 약초 4개만 일반·상급. 버섯·돌·도구는 등급 없음 | 약초는 ● gameplay-design §3.4 원칙, 나머지는 문서에 없음 |
 | 재료 아이콘 시점 | `stone_block` = `item_stone_block_v02.png` | 3/4 아이콘 v02 | ○ brief §5.7 "떨어진 재료 아이콘을 정면 정렬(v03)로 할지 3/4(v02)로 둘지" |
 | 채집물·재료 그림 | `art/items/` | 04-env 본 제작 손질판 v02 19장 (아래 "그림 출처") | ○ 채택 후보, 사람 확인 전 (brief §5.7 "결과 (R32)", 04-env/prompts.md "본 제작") |
@@ -1061,6 +1142,21 @@ func run() -> Array[String]:
 | M4b 던전에서 죽으면 | `SessionHost._respawn` | 지상의 자기 스폰 자리에서 부활하고 클라이언트는 지상을 받는다(지도 들어옴). 그 클라이언트에게 앞 지도를 보내는 중이면 끝날 때까지 기다림. 가방은 던전에 | ● §2.6 "부활 지점: 제단" (M4a "부활" 줄과 같음) |
 | M2b 디버그 주기·버리기 | `NetSession.gives_allowed` | 클라이언트의 주기 요청(F5, `--give`)과 버리기 요청(F7, M2-fix)은 호스트가 디버그 빌드(에디터 실행)이거나 `--test-allow-give`일 때만 | 문서에 없음 (M2b 지시 "debug give in test builds only". 버리기도 디버그 키라 같이 묶었다) |
 | M2b 다시 참가 | `SessionHost` | 다시 참가해도 인벤토리가 이어지지 않는다(새 참가자는 빈 인벤토리, 나간 사람의 인벤토리는 사라짐) | 문서에 없음 (M1에 다시 참가 기억이 없음, 저장은 M2 밖) |
+| M6a 키 | `project.godot` 입력 `skill_1`(새), `toggle_inventory`·`move_up`/`move_down`·`interact`·`ui_cancel`(제작 창이 열린 동안, `Main._crafting_input`), `Player.make_frame` | Tab = 작업대 2칸 안이면 제작 창(+ 인벤토리), 아니면 M2a 그대로 인벤토리. 창이 열린 동안 W / S(↑ / ↓) = 줄 고르기, F 또는 Enter = 만들기, 마우스 올리기 = 고르기·좌클릭 = 만들기, Tab 또는 Esc = 닫기, 캐릭터는 서 있음(Q/E는 됨). 물약을 고르고 좌클릭 = 마시기(누르고 있어도 한 번). **1 = 약제 투척**(고른 물약을 마우스 쪽으로). 우클릭은 쓰지 않음 | ○ gameplay-design §1 키 초안("Tab 인벤토리·제작", "1 2 3 스킬", "우클릭 보조 동작 (클래스별)", "F 상호작용 (… 작업대 …)"), ○ §2.2 추천 "1. 정체성 스킬 — 약초사 약제 투척". 1을 던지기에 쓴 것은 초안의 "1 = 스킬"과 맞추고, 우클릭(클래스 보조 동작)은 비워 둠. 창이 열린 동안 W/S·F를 창이 가져가는 것과 Enter·Esc는 초안에 없음 |
+| M6a 작업대 손 닿음 | `STATION_REACH_TILES`, `Crafting.station_near` | 발 칸에서 작업대 자리까지 2칸(체비셰프) 안, 가장 가까운 작업대. 멀어지거나 다운되거나 지도를 옮기면 창이 닫힘 | ○ gameplay-design §3.5 "작업대 근처에서 Tab" (거리 없음) |
+| M6a 레시피 해금 | `RECIPES_UNLOCK_ON_FIRST_GET`, `Inventory.seen` | **켬**: 입력 아이템을 모두 한 번이라도 인벤토리에 넣어 본 플레이어에게 그 레시피가 보인다(아무 등급, 없어져도 남음, 저장 없음). 끄면 처음부터 모두 보임. 기본값 이유: 문서가 내놓은 유일한 규칙이고, 슬라이스의 입력은 야생 약초라 줍기가 고리의 첫걸음이어서 비용이 없다(해 보고 사람이 정하게) | ○ gameplay-design §3.5 "레시피는 재료를 처음 획득했을 때 해금 (그라운디드 분석기 방식)" |
+| M6a 자리가 없을 때 | `Crafting.refusal`, `craft` | 입력을 뺀 뒤에도 출력이 들어갈 자리가 없으면 거부하고 아무것도 바꾸지 않음(땅에 떨어뜨리지 않음). 입력은 뒤 칸부터 뺌 | 문서에 없음 |
+| M6a 조제대 | `ALCHEMY_FOOTPRINT`, `WorldData.PLACEABLE_ALCHEMY`, `WorldItems.place`·`place_rect`, `FixtureView` | 3×1 자리, 막음, 04-env `alchemy_table_v05` 그림(불투명 맨 아래 줄이 자리 아래 변, 뒤 판·병이 위 칸에 걸침). 목표 칸 = 자리 아래 줄 가운데, 세 칸 모두 빈 바닥·드롭 없음, 몸(놓는 사람·다른 플레이어·이단의 발)과 겹치지 않음, 다른 조제대에 닿지 않음 | ○ game-concept §9.7 "조제는 연금술대 자리의 조제대", ○ brief §5.7 범위 표 "약초사 조제대" (크기·놓는 규칙은 문서에 없음) |
+| M6a 조제대 얻기 | `ItemDB` `alchemy_table`(종류 "놓는 것", 묶음 99, 아이콘 코드), `--give` | 디버그 아이템을 `--give=alchemy_table`로 받아 횃불처럼 놓는다. 생성기·F5 묶음에는 없음(지상 해시 그대로). 세션에서는 호스트가 `alchemy table offline only`로 거부(M6b) | 문서에 없음. 다른 길: 제단 둘레에 하나 생성(지상 해시 갱신), 상인(M8), 작업대에서 만들기(M7) |
+| M6a 물약과 레시피 | `POTION_HERBS`, `STACK_POTION`, `Crafting.recipes` | 물약 셋(회복·버프·독), 야생 약초 2개 → 물약 1개, 등급은 입력을 따름(일반 → 일반, 상급 → 상급, 섞지 않음), 묶음 10 | ● 물약 = 작물 하나에 하나(game-concept §12 R28), ○ "약제 2~3종"(§12). 수·묶음은 문서에 없음. 야생 약초를 쓴 것은 M6 지시(농사 작물은 M5) |
+| M6a 누가 만드나 | `COMMON_POTIONS_ANYONE`, `Crafting.herbalist_only` | 상급 셋과 독(일반·상급)은 약초사만(●). 일반 회복·버프는 **누구나**(켬) | ● gameplay-design §3.0 R11 약초사 줄 "상급·최상급 약제, 상태이상 약제"는 클래스 전용. 일반 물약을 다른 클래스가 만들 수 있는지는 문서에 없다: 같은 줄의 "공용 수행 … 일반 등급 약초만"을 동사가 아니라 등급을 막는 것으로 읽음. 끄면 모두 약초사만 |
+| M6a 마시기 | `DRINK_ANIM`, `DRINK_EFFECT_FRAME`, `DRINK_AT_FULL_HP`, `DRINK_POISON_HARMS`, `Potions.drink_refusal` | 좌클릭(한 번), **마법 동작을 빌려 씀**(마시는 그림 없음), 4번째 프레임에 쓰임(그 전에 맞으면 안 쓰임), 가득 찬 HP의 회복은 거부(쓰지 않음, 효과 프레임에서도 다시 봄), 다운·사망 중 안 됨, 독 물약은 마신 사람을 중독(끄면 거부) | 문서에 없음 (gameplay-design §3.8 "마시거나 던진다"까지. 마시는 동작은 brief §5.6 슬라이스 몸 동작 11개에 없다) |
+| M6a 회복·버프 수치 | `POTION_HEAL_HP`, `BUFF_SPEED_PCT`, `BUFF_TICKS` | 회복 30 / 50 HP(일반 / 상급, 최대를 넘지 않음). 버프 = **걷기 속도**(대시는 그대로) 125% / 140%, 20초 / 30초 | 문서에 없음 (버프 하나를 고르라는 M6 지시: 걷기 속도를 고른 이유는 혼자서도 바로 보이고 공유 시뮬레이션의 한 곳이라서) |
+| M6a 독 | `POISON_DAMAGE`, `POISON_INTERVAL_TICKS`, `POISON_TICKS` | 30틱(0.5초)마다 2 / 3, 5초(10번, 합 20 / 30. 이단 HP 40), 첫 피해는 한 간격 뒤. 독 피해는 HP만: 경직·무적·방어 없음, 무적에 막히지 않음, 동작·공격을 끊지 않음 | ○ gameplay-design §2.4 "상태이상: 약초사 담당. 중독·둔화·취약·출혈 4종으로 시작" (수치 없음. M6a는 독 하나) |
+| M6a 효과 겹침·끝남 | `EFFECT_REFRESH_KEEPS_STRONGER`, `EFFECTS_END_ON_DOWN` | 다시 걸리면 남은 시간은 긴 쪽, 세기는 큰 쪽(겹치지 않음, 독은 박자 이어 감). 플레이어는 다운(따라서 사망)에 효과가 끝나고 부활에도 없음, 이단의 독은 죽으면 끝. 다운·사망 중에는 걸리지 않음 | 문서에 없음 |
+| M6a 투척 | `THROW_HERBALIST_ONLY`, `THROW_RANGE_PX`, `THROW_SPEED`, `THROW_SPLASH_RADIUS_PX`, `THROW_RELEASE_FRAME`, `Arena.throw_potion`·`_step_flask`·`_splash` | 약초사만, 고른 물약을 마우스 쪽으로 최대 96px(6칸), 192px/s로 몸 위를 넘어 날고 벽(화살이 멈추는 칸)에 막힘, 던지기 동작 4번째 프레임에 손을 떠남(그때 하나 씀), 터지면 반경 24px(1.5칸) 안 벽 없이 닿는 몸: 회복·버프는 서 있는 플레이어(던진 사람도), 독은 이단(아군 사격 끔이라 플레이어 안 됨) | ○ gameplay-design §2.2 추천 "정체성 스킬 — 약초사 약제 투척", ● §2.1 에임형, M4a "아군 사격" 줄 그대로. 사거리·속도·반경·누가 던지는지는 문서에 없음 |
+| M6a 세션 | `Player.potions_on`, `SessionHost._place`, `WorldItems.use_action` | 세션에서는 제작·마시기·던지기·효과 없음(Tab은 인벤토리, 1·물약 좌클릭은 프레임을 만들지 않음, 호스트는 물약 USE를 `not a tool`, 조제대를 `alchemy table offline only`로 거부). 전송 형식 v5 그대로(효과는 vitals 블록에 없음). M6b에서 켠다 | M6a 지시 "local / offline first" (M3a·M4a 세션 줄과 같음) → ● 호스트 권한 game-concept §13 (M6b) |
+| M6a 그림 자리 표시 | `ItemIcons.MAPS["alchemy_table"]`, `CombatView` 병·터짐, `EffectMarks`, `CraftingPanel`, `ItemDB.STRIP_POTIONS` | 조제대 아이콘(작은 탁자 + 물약 셋), 날아가는 병(그 물약 아이콘을 포물선에), 터짐(색 방울 3프레임), 머리 위·HUD의 버프·독 표시(7×7), 제작 창 = 코드 그림. 물약 아이콘은 04-env 작은 것 묶음 v04 띠에서 자름 | 그림 없음 (assets/에 날아가는 병·터짐·효과 표시·UI가 없다. 마시는 동작도 없다. 사람이 그림을 정하면 바꾼다) |
 
 ### 구현에서 고른 값 (설계 결정 아님)
 
@@ -1181,10 +1277,21 @@ func run() -> Array[String]:
 | 봇이 이단을 겨누는 곳 | `NetBot` `aimfoe`·`fight` (`Combat.body_centre`) | 이단 그림 가운데(발 14px 위) | 사람이 그림을 누르듯이. 발을 겨누면 조준 단계 때문에 그림 아래 끝을 반쯤 빗나간다 (M4-fix) |
 | 시험 플래그·봇 명령 | `CliOptions`, `NetBot`, `SessionBots` | `--test-start-hp`·`--test-no-spawns`·`--test-dungeon-heretic`, 호스트의 `--test-heretic`·`--test-shrine-hp`, 봇 `aimfoe`·`fight`·`closein`·`waitfoe`·`waitlife`·`waitdown`·`walkdown` | 실제 세션의 싸움을 스크립트로 (M4b) |
 | 시험 결과용 기록 상한 | `NET_STREAM_RECORDS_MAX` | 호스트 `streams_done`, 클라이언트 `left_maps` 마지막 64개 | 결과 JSON에만 쓰는 목록인데 release에도 있고 TRAVEL에 쿨다운이 없어 한 클라이언트가 초당 약 9개씩 끝없이 늘릴 수 있었다(검토 탐침: 13.8초에 121번 오감) (M3-fix) |
+| 효과를 Vitals에 | `Vitals.buff_*`·`poison_*`, `same_as`·`copy`·`reset`, `PlayerSim._tick_effects`·`walk_speed`·`heal`·`add_buff`·`add_poison` | 플레이어의 효과는 Vitals의 필드이고 `PlayerSim.step`이 서 있는 플레이어의 효과를 맨 먼저 센다. `same_as`(따라서 `same_all`)에 들어감. `idle()`·`at_rest()`·vitals 블록(전송 형식)에는 아직 없음 | M4가 vitals를 둔 공유 시뮬레이션이라 혼자·호스트·예측이 같은 규칙 하나(시험 2,400틱). 세션에서는 효과가 생기지 않으므로 전송은 M6b가 더한다 (M6a) |
+| 이단의 독 | `HereticSim.poison_*`, `Arena.poison_heretic`·`_tick_poison`·`_poison_damage` | 이단의 상태에 독, 아레나가 살아 있는 이단의 독을 맨 먼저 셈, 독 죽음은 `killed`·`poison_kills`와 `Hit`(던진 사람)로 | 무기 맞음과 같은 처치 셈·호스트 로그 길을 그대로 지나게 (M6a) |
+| 던진 병 = 아레나의 날아가는 것 | `Arena.Flask`·`Splash`, `flasks`·`splashes`, `on_emptied` | 화살처럼 아레나가 틱마다 움직이고(같은 걸음·칸 검사), 터짐은 18틱 보이는 기록. 빈 지도를 비울 때 같이 없앰 | 혼자·호스트가 같은 아레나 규칙. M6b는 화살처럼 사건으로 보내면 된다 (M6a) |
+| 병이 닿는 틱 | `Arena.FLASK_ARRIVE_PX` | 남은 거리가 한 틱 비행 + 0.001px 안이면 이번 틱에 목표 점에 떨어짐 | float 누적 때문에 0.00001px 남아 한 틱 늦던 것을 막으려고 (M6a) |
+| 터짐 그림 | `CombatView.SPLASH_HALF`·`SPLASH_FRAMES`·`SPLASH_DROPS`·`SPLASH_COLOURS`, `SPLASH_SHOW_TICKS`, `THROW_ARC_PX` | 55×55 그림 3장(바깥 고리 방울 10개, 둘째부터 가운데 고리 5개, 첫 장에 유리 조각), 18틱, unshaded. 병은 화살 높이 + 가운데 10px 포물선 | 저녁·던전 어둠에서도 읽히게. 그림 검사가 CPU로 같은 그림을 만든다 (M6a) |
+| 효과 표시 자리 | `EffectMarks.MARK_Y`·`SIZE`·`GAP`, `Hud.effect_icon_at`·`effect_fill` | 머리 위 44px, 7×7, 1px 간격으로 가운데. HUD는 스태미나 막대 3px 밑에 왼쪽부터, 남은 시간 1px 막대(등급 중 가장 긴 시간 기준) | 성직자 후광(발 위 33~37px)·이단 HP 막대(발 위 32~35px)와 겹치지 않게 (M6a) |
+| 제작 창 배치 | `CraftingPanel.PAD`·`HEADER`·`ROW`·`ROW_GAP`·`WIDTH`·`MARGIN`·`DIM` | 오른쪽 위 4px, 60px 너비, 줄 18px + 2px, 만들 수 없는 줄은 #1a1714 62% 덮기 | 480×270에서 가운데 캐릭터·조제대와 아래 인벤토리를 가리지 않게 (M6a) |
+| 제작 창이 열린 동안 | `Player.ui_locked`, `Main._crafting_input`, `Main._check_crafting` | 캐릭터의 입력 프레임이 빈 프레임(걷기·대시·사용·F·1 없음), 키는 창이 받음, 매 틱 작업대에 아직 있는지 봄 | W/S·F가 창과 캐릭터에 같이 가지 않게. 열린 동안 움직일 수 없으니 멀어짐은 맞음·지도 옮김·테스트 순간이동뿐 (M6a) |
+| 효과·마시기를 켜는 스위치 | `Player.potions_on` | 혼자 할 때 Main이 켬(호스트를 잃고 혼자 계속할 때도), 세션의 플레이어는 꺼짐 | 세션에서 클라이언트가 예측할 수 없는 프레임(마시기·던지기)을 만들지 않게. M6b가 세션에서 켠다 (M6a) |
+| 물약 아이콘 자르기 | `ItemDef.icon_region`, `ItemIcons.texture_for` | 띠 그림을 불러 그 16×16 칸을 새 `ImageTexture`로 | 04-env에 물약 파일이 따로 없어서 띠 파일을 바이트 그대로 복사하고(그림 출처 시험) 코드로 자름 (M6a) |
+| 조제대 아이템 칸 | `ItemDB` 표 끝 | 물약 셋 다음에 `alchemy_table`(아이템 번호 26~29) | 전송 형식이 아이템을 번호로 보내서 늘 끝에 더함 (M6a) |
 
 ## 그림 출처
 
-`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 77개 전부 md5 비교, M3a에서 19개, M4a에서 9개 더함). 도구 아이콘 6개는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
+`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 79개 전부 md5 비교, M3a에서 19개, M4a에서 9개, M6a에서 2개 더함). 도구 아이콘 6개는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
 
 | 파일 | 원본 |
 |---|---|
@@ -1211,8 +1318,25 @@ func run() -> Array[String]:
 | `enemies/heretic_v02_{walk,idle,attack,hurt,death}.png` (M4a) | `03-pixel/` (이단 13차 + "검토 뒤 고침", 채택 후보. 걷기 6·idle 4·피격 6·사망 7은 32칸, 공격 8은 64칸 9열) |
 | `env/prop_sack_small_v03.png` (M4a) | `04-env/` (작은 자루. 사망 가방의 임시 그림) |
 | `env/prop_bone_pile_a_v02.png` (M4a) | `04-env/` (뼈 더미. 부서진 이단의 제단 임시 그림에 얹음) |
+| `env/alchemy_table_v05.png` (M6a) | `04-env/` (조제대 48×32, 4단계 1차 시험 정렬형 c를 다듬고 물약 색을 작물에 맞춘 v04를 44색 → 24색으로 줄인 마지막 손질판. 채택 후보) |
+| `items/items_v04_strip.png` (M6a) | `04-env/` (작은 것 묶음 16×16 18칸 띠, 1차 시험 마지막 손질판. 4·5·6번째 칸 = 회복·버프·독 물약(#21·#22·#23)을 물약 아이콘으로 잘라 씀(`ItemDB.STRIP_POTIONS`), 나머지 칸은 쓰지 않음. 채택 후보) |
 
 ## 측정 (이 데스크탑, `.godot/`을 지운 상태에서)
+
+M6a (2026-10-22):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 4.8초, 종료 0, 오류 줄 0. 새 그림 2장(`.import`)과 새 스크립트 7개(`.uid`: crafting·potions·effect_marks·crafting_panel·시험 둘)를 커밋. 처음 `.import`가 없을 때 한 번은 새 그림을 미리 부르는 `FixtureView`가 그림보다 먼저 읽혀 오류 줄이 났다(M4a와 같음, 커밋된 `.import`가 있으면 0) |
+| 전체 테스트, 두 번 (마지막 코드, `.godot/`을 지우고 다시 임포트한 뒤) | 두 번 모두 19파일 통과 24,516 checks, 215.6 / 207.2초, 종료 0, 오류 묶음 8개(알린 것 그대로). 새 파일 crafting 448 (0.3초) · potions 154 (0.6초), items 1,612(새 물약·조제대 항목과 물약 아이콘 픽셀 비교), actors 1,681 → 1,683(그림 출처 77 → 79개), core 284(새 스크립트 여섯도 모두 불러 봄). 나머지는 M4-fix와 같은 수 |
+| 세션·싸움 시험을 내보낸 exe 자식으로 (`--net-exe`) | `net_session` 561 checks 81.0초, `net_fight` 270 checks 61.5초 통과, 자식 로그 687 + 211줄에 `ERROR:` 0 (세션 흐름은 M6a에서 바뀌지 않았다: 조제대 거부 한 줄뿐) |
+| 내보내기 | x86_64 3.6초 `evensong.exe` 109,953,904 B, ARM64 3.6초 92,347,760 B, 둘 다 종료 0, 오류 줄 0 |
+| 내보낸 exe `--smoke` / 400프레임 | 304 checks ok(`items=30 ... combat=30/3 spawn_tiles=678 potions=6/1 ... net=v5`, 지상·던전 해시 그대로), 1.1초 / 약초사가 빛 안에서 빛 밖 이단에게 상급 독을 던지고(터짐 `heretics=1`) 버프를 마시고 조제대를 놓아 Tab으로 열고 회복 물약을 만드는 400프레임 3.5초, 둘 다 종료 0 오류 줄 0 |
+| 창 그림 검사 `check_render.gd` | 3.4초, 14부분 모두 ok (`crafting` 픽셀 3,818 · 어두운 줄 밝은 픽셀 943 모두 어두움 · 불일치 0, `potions` 화면 불일치 0 · 그린 픽셀 1,306 · 표시 126 불일치 0) |
+| 스크린샷 4장 | `shots/m6_*.png` (위 "스크린샷"), 모든 실행 오류 줄 0 |
+| 일부러 깨 보기 (스크래치 `r4m6/mutate.sh`, `mutate_render.sh`: 작업 트리의 파일 하나를 sed로 바꾸고 해당 시험을 돌리고 되돌림) | 헤드리스 25개 모두 FAIL·종료 1, 창 그림 검사 4개 모두 FAIL·종료 1 (아래) |
+
+일부러 깨 보기 (M6a): 상급 물약을 누구나(`crafting` 13), 만들기의 자리 검사 없앰(assert), 입력을 앞 칸부터(1), 모든 레시피 해금(7), 작업대 손 닿음 한 칸 더(1), 조제대가 몸 위에도(7), 조제대끼리 붙음(4), 조제대가 막지 않음(13), 세션이 조제대를 받음(2), 가득 찬 HP에도 마심(`potions` 6), 최대를 넘는 회복(2), 독 첫 피해가 바로(7), 독이 플레이어를 경직(1), 다운에도 효과가 남음(3), 버프가 속도를 안 올림(2), 독 죽음을 처치로 안 셈(2), 독 터짐이 플레이어에게(1), 벽이 병을 안 막음(3), 던지는 거리 안 자름(4), 벽 너머로 터짐(2), 누구나 던짐(2), 효과 프레임에서 가득 찬 HP를 다시 안 봄(1. 처음엔 시험이 없어 이 검사를 밟지 않았다: 99 HP에서 마시기 시작해 그 사이 가득 차는 경우를 `main.tscn` 시험에 더함), 이단의 독이 경직(2), 혼자 할 때 물약이 두 번 듦(3), 물약 아이콘이 한 칸 밀림(`items` 6). 창 그림: 위 "그림 검사"의 넷(화살표 색 72, 터짐 1px 135, 표시 1px 23·35, 조제대 1px 484). 처음 넷째가 통과했다: 기대 그림을 `FixtureView.table_origin`으로 만들어 같은 함수를 비교했다(M4a에서 한 실수). 그림에서 마지막 불투명 줄을 재서 따로 계산하게 고쳤다
 
 M4-fix (2026-10-22):
 
@@ -1560,6 +1684,7 @@ M3a = 혼자 할 때의 지도 둘(지상 + 첫 던전), 던전 생성·그림, 
 M3b = M3a가 더한 것을 호스트 권한 세션으로(지도 번호, 오가기, 지도 보내기, 지도별 편집·상태·그리기, 채굴·횃불 검사, 늦은 참가). 전투·HP·적·적 생성(M4), 이단의 제단 파괴(M4), 농사, 제작, 건설·벽 놓기, 상인, 스킬, 기도, Steam, 저장, 나무는 M3b가 아니다.
 M4b = M4a가 더한 것을 호스트 권한 세션으로(입력·검사·공격 판정·적·화살·소생·사망·가방·부활·제단·늦은 참가·지도 들어옴). 스킬(1·2·3), 시그니처(R), 우클릭 보조(? §2.2), 클래스 자원, "가장 가까운"을 넘는 어그로(M9), 방어구·방어 수치·내구도(M7), 상태이상·포션·약제 던지기(M6), 오염 게이지, 정화·농사(M5), 제작·건설·상인·기도·컬렉션, 보스(M12), 새 적, Steam, 저장은 M4b가 아니다.
 M4a = 혼자 할 때의 HP·스태미나·대시(공유 시뮬레이션), 클래스마다 기본 공격 하나(핫바 무기), 경직·다운·소생·사망·부활, 사망 가방(일부 드롭), 이단 한 종(근접)과 그 스폰(빛 밖), 이단의 제단 파괴, 최소 HUD. 세션의 전투(M4b), 1·2·3 스킬, R 시그니처, 우클릭 보조(? §2.2), 클래스 자원, "가장 가까운"을 넘는 어그로(M9), 방어구·방어 수치·내구도(M7), 상태이상·포션·약제 던지기(M6), 오염 게이지·정화·농사(M5), 제작·건설·상인·기도·컬렉션, 보스(M12), 다른 적, Steam, 저장은 M4a가 아니다.
+M6a = 혼자 할 때의 제작 틀(작업대·레시피·해금·만들기), 조제대(놓기·막기·그림), Tab 제작 창, 물약 셋(야생 약초로, 등급 = 입력), 마시기, 약초사의 약제 투척, 효과 둘(버프 = 걷기 속도, 독)과 그 표시. 세션의 제작·마시기·던지기·효과(M6b), 농사·씨앗·자라기·물주기·정화(M5), 작업대·모루·성물 제작대 레시피와 도구·무기 만들기(M7), 건설, 상인·상점 물약(M8), 다른 스킬·스킬 키, 클래스 자원, 기도, 효과 둘 밖의 것, 새 적, Steam, 저장은 M6a가 아니다.
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
@@ -1574,6 +1699,7 @@ M4a = 혼자 할 때의 HP·스태미나·대시(공유 시뮬레이션), 클래
 | M3b 세션의 지도 | 플레이어마다 지도 번호(호스트 상태), TRAVEL 요청과 호스트 검사, 지도 보내기(스냅샷 길 + 지도 들어옴 + 그동안 편집, 클라이언트는 자기 지도만), 지도별 편집 기록·편집의 지도, 상태의 지도와 지도별 그리기·보간, 요청의 지도(`wrong map`), 지도 전환 예측, 늦은 참가에 지도, 채굴·횃불·드롭을 지도의 편집으로, 전송 형식 v4, 봇 `waitmap`·표시 파일 JSON, 단위 시험 1파일 + 세션 `cave`·`four` 던전 경주 + 지도별 일치 검사, 창 그림 검사 `cave_net`, 스모크 M3b, 두 창 캡처 | **끝** (사람 확인: 아래 "두 기기에서 M3 해 보기", 임시값 줄) |
 | M4b 세션의 전투 | 호스트가 지도마다 아레나를 돌림(맞음·소생·사망·가방·부활·스폰·제단을 호스트가), 시작 무기, 다운 중 요청 거부, 조용한 클라이언트를 호스트가 진행, 전송 형식 v5(프레임의 대시·F·USE 조준, 상태의 vitals 블록, 지도별 적 묶음과 키프레임, 화살 사건), 공격 시작 바로 보내기, 클라이언트 `NetCombat`(트랙·거울 아레나·예고는 바로·자기 화살 바로), 예측의 vitals·부활·호스트 사건, 늦은 참가·지도 들어옴의 적 키프레임, 시험(한 프로세스: 악의 요청·싸움 흐름 여덟·예고 대 지연·조용한 클라이언트, 실제 세션 fight·fight4), 창 검사 `combat_net`, 스모크, 두 창 그림 | **끝** (두 기기 확인은 사람) |
 | M4-fix 검토 반영 | 소생은 가장 빠른 사람(성직자 즉시, 자리 순서 무관), 화살 조준 점·그린 몸 상자, 빛 가장자리 4초는 맞아도 이어 셈, 빈 지도(공격 취소·화살 없앰·스폰 시계), 클라이언트 시계를 호스트 시간에 묶음(앞서지 못함·30틱 넘게 뒤처지지 못함·쉬면 0), 화살 칸 걷기, `MAX_DROPS` 빈 가방, 부활 알림, 오가기의 대시, 이단의 제단 자리 기억, `--test-shrine-hp` 상한, 이름 붙인 상수, 시험(두 소생자·서 있다 맞기·가끔 보내기·몰아 보내기·예고 중 떠나기·던전 사망·부활 대기·빈 지도·빛 가장자리 쏘기·화살 조준 360발·모서리 벽 1,625발·대시 오가기·가방·리플레이 비교, 실제 세션 `fightlag`), README, 두 창 그림과 M4a 그림 다시 | **끝** (사람 확인: 새 임시값 줄 셋, 특히 "M4-fix 빛 안에서 쏘인 이단", 예고 읽힘) |
+| M6a 제작 · 조제대 · 물약 · 약제 투척 · 효과 | 제작 틀(작업대 = 설치물 종류, 레시피 입력·출력·등급·클래스, 모두 아니면 하나도 아님, 자리 없음 거부, 처음 얻은 재료로 해금 스위치, M7이 그대로 씀), 조제대(04-env 그림, 3×1, 막음, 디버그 아이템을 횃불처럼 놓기: 몸·붙음 검사), Tab 제작 창(코드 그림, 마우스·키, 열린 동안 서 있음, 멀어지면 닫힘), 물약 셋(띠에서 자른 아이콘, 야생 약초 둘 → 하나, 등급 = 입력, 상급·독은 약초사만 ●), 마시기(마법 동작 빌림, 효과 프레임, 가득 찬 HP 거부), 약초사의 약제 투척(1, 던지기 동작, 사거리·벽·반경, 아군 회복·버프와 이단 독, 아군 사격 끔), 효과 둘(버프 = 걷기 속도, 독: 공유 시뮬레이션과 아레나, 다운에 끝남, 독 처치 셈), 머리 위·HUD 표시, 세션은 그대로(꺼짐·거부), 시험 2파일 + 기존 둘 고침 + 창 검사 `crafting`·`potions` + 스모크, 스크린샷 4장, 일부러 깨 보기 25 + 창 4개 | **끝** (사람 확인: 아래 "M6a에서 확인하지 않은 것", 임시값 "M6a" 줄 15개. 세션은 M6b) |
 | M4a 체력 · 대시 · 기본 공격 · 사망 · 이단 | 공유 시뮬레이션의 Vitals(HP·스태미나·대시·경직·다운·사망 시간), Space 대시(걷기 충돌), 클래스 무기 다섯(근접 호 셋·화살·빛 탄, 새 아이템 성광, 핫바 8번 시작 무기, 곡괭이 채굴/공격 규칙, 아군 사격 끔), 피격·사망 자세(기준점 표·창 검사), 다운·소생(성직자 즉시)·포기·사망·제단 부활, 사망 가방(절반/3종 규칙, 설치물 칸 + 드롭 = 월드 기계 그대로, F로 되찾기), 이단(시트 다섯, 쫓기·예고·맞는 열·끈·빛 가장자리, 지상·던전 스폰, 지도별 아레나), 이단의 제단 HP와 부서진 그림·스폰 멈춤, HUD 막대·카운트다운, 시험 2파일 + 창 검사 `heretic`·`bars` + 스모크, 스크린샷 5장, 일부러 깨 보기 23개 | **끝** (사람 확인: 아래 "M4a에서 확인하지 않은 것", 임시값 "M4a" 줄. 세션은 M4b) |
 | M3-fix 검토 반영 | 광부 3×3은 친 칸을 깰 수 있을 때만(계단 둘레), 벽 횃불 자리 고르기(도착 방은 늘 밝음, 출구·광맥 순서), F5 묶음 2칸 비움, 호스트를 잃은 클라이언트(빈 던전 거부, 채굴·횃불 잇기), 디버그 드롭은 벽·앞면 거부, 맨 윗줄 그림 = 충돌, 결과용 기록 상한, 줄 잇기 넷·`_on_local_map_changed` null, 시험(계단의 광부, 방마다 벽 횃불, 횃불 요청 예산, 지도 들어옴의 보임, 묶음 빈 칸, 호스트 잃은 뒤 혼자), README 고침, 두 창 캡처 다시 | **끝** (사람 확인: "두 기기에서 M3 해 보기", 새로 적은 임시값 문구) |
 | M2-fix 검토 반영 | 발 칸 = 발 상자 가운데(타일 선 위의 발), 사용의 바라보기를 호스트가 목표 칸에서, 동작 중 표시는 동작의 칸, 고르기는 예산 밖 + 거부되면 인벤토리로 바로잡기, 클라이언트 F7도 주기처럼, 거부 로그 줄이기, 클라이언트 `--give` 255씩 나누기 + 줄 64개·버린 것 로그, 시험(서서 조준, 인벤토리 다시 얹기, `tick` 순서, `MAX_DROPS`, M1 바라보기를 따로 적은 600틱, 발 칸, 표시, 주기 나누기, 버리기 끔), README 고침, 스크린샷 5장 다시 | **끝** (사람 확인: 두 기기, 새 임시값 표 문구) |
@@ -1670,6 +1796,14 @@ H1 검토 에이전트들의 지적 14개와 처리. 하나씩 직접 재현하�
 - 그대로 둠: 해시 고정값이 옳음을 증명하지 않는다는 지적은 맞지만 고정값의 일은 변화 감지다(옳음은 40시드 규칙 검사). 설명만 고쳤다
 
 알려진 문제·남은 일:
+- (M6a) 세션에서는 제작·마시기·던지기·효과가 꺼져 있다(M6b). 효과는 `Vitals`·`HereticSim`에 있지만 전송 형식(vitals 블록, 적 묶음)과 `Vitals.idle`·`at_rest`에 아직 없다: M6b가 세션에서 켜면 블록에 효과 다섯 필드, 적 묶음에 이단의 독, 던진 병의 사건(화살처럼), 효과가 도는 동안 `idle` 거짓(호스트 시계)을 같이 더해야 한다(지금 세션에서 효과가 생기면 클라이언트는 그것을 받지 못해 예측이 어긋난다)
+- (M6a) 조제대는 디버그로만 생긴다(`--give=alchemy_table`, 임시값 "M6a 조제대 얻기"). F5 묶음에도 없어 사람이 해 볼 때는 위 "실행"의 명령을 쓴다
+- (M6a) 조제대 자리는 3×1이라 뒤 판·병이 걸친 위 칸에 서면 캐릭터가 탁자 뒤에 그려진다(이단의 제단·입구와 같은 3/4 규칙). 그 칸을 지나는 화살은 탁자 그림을 지나 날아간다(막는 것은 자리 칸뿐)
+- (M6a) 놓은 조제대는 다시 줍거나 부술 수 없다(횃불처럼, 문서에 없음). 디버그로 잘못 놓으면 새 월드에서 다시
+- (M6a) 마시기는 마법 동작을 빌려 쓴다(마시는 그림 없음): 성직자의 성광과 같은 몸짓이라 마시는 것으로 잘 안 읽힐 수 있다. 그림이 생기면 `Config.DRINK_ANIM`과 시트를 바꾼다
+- (M6a) 독은 HP만 깎아 경직이 없어서, 독에 걸린 이단은 맞은 깜빡임만 보인다. 머리 위 독 표시는 이단 HP 막대 위라 맞붙은 플레이어의 머리와 겹쳐 보일 수 있다
+- (M6a) 제작 창은 오른쪽 위에 고정이라 화면 오른쪽 끝의 조제대(카메라 가장자리)에서는 탁자를 가릴 수 있다. 줄이 많아지면(M7) 스크롤이 필요하다(여섯 줄에 142px)
+- (M6a) 레시피 해금은 플레이어의 인벤토리에 붙어 있고 저장되지 않는다(다시 시작하면 다시 잠김). 세션의 클라이언트 인벤토리는 호스트가 보낸 사본이라 해금 기억이 없다(M6b)
 
 - (M4b) 판정은 호스트 시간이다(되감기 없음): 예고를 보고 피할 시간이 왕복 지연만큼 준다(한 방향 100ms면 300ms, 150ms면 200ms, 위 "판정"). 화면의 이단은 위치가 100ms + 한 방향 지연 뒤라 걷는 이단을 노린 근접은 그만큼(3틱 지연에서 최대 6.9px) 어긋날 수 있다
 - (M4b) 자기 화살·빛 탄은 예측하지 않는다: 쏘는 동작은 바로 보이지만 화살은 호스트의 사건이 와야(왕복 뒤) 출발점에서 나타난다. localhost에서는 한두 프레임
@@ -1747,6 +1881,8 @@ H1 검토 에이전트들의 지적 14개와 처리. 하나씩 직접 재현하�
 - `--test-perturb-generator`, `--test-snapshot-chunk-bytes`, 봇 `stall:`은 테스트 전용인데 내보낸 빌드에도 들어 있다(사람이 쓸 일은 없다)
 - 테스트 포트: 러너끼리는 잠금으로 겹치지 않지만, 러너가 아닌 프로그램이 확인 뒤에 묶음 안 포트를 잡는 것은 막지 못한다 (위 "테스트 포트"). 확인 전부터 잡고 있는 프로그램은 IPv4만 잡았어도 이제 찾는다(H-fix)
 - 임시값 표의 모든 줄(특히 카메라 가장자리, 스폰, 같은 클래스 둘, 오염 구역 수, M2a의 키·조준·동작 줄, M3a·M3b 줄, M4a·M4b·M4-fix 줄 전부)은 사람이 확인해야 한다. M4-fix도 임시값 값을 하나도 바꾸지 않았다: 줄 셋을 더하고("M4-fix 화살 조준·맞는 상자": 구현 표의 8px·12px를 값 그대로 옮기고 28px를 더함, "M4-fix 빈 지도", "M4-fix 빛 안에서 쏘인 이단"), 표에 없던 M4a 동작 하나를 올리고("M4a 소생 뒤 무적"), "M4a 다운·소생·사망 시간"·"M4a 빛 가장자리"·"M4a 스폰"·"M4a 가방 자리"·"M4b 세션의 싸우는 지도"에 고친 동작과 문장을 적었다(값 그대로). M4a는 기존 임시값의 값을 하나도 바꾸지 않았다: "시작 인벤토리"(혼자 할 때 시작 무기), "마법·던지기를 부르는 아이템"(성광), "M3a 이단의 제단 자리"(부술 수 있음)는 줄의 값을 두고 M4a 줄이 대신한다고 적었고, 구현 표 "디버그 묶음"에 이끼 돌을 뺀 것을 적었다. M3-fix도 임시값을 하나도 바꾸지 않았다: 도착점의 4px에 이름(`ARRIVAL_FEET_INSET_PX`)을 붙였고, "M3a 벽 횃불 장식"·"출구 계단과 도착점"은 같은 값으로 적힌 규칙을 지키게 고쳤고(생성기가 바뀌어 던전 해시 둘이 바뀜, 시드 1은 벽 횃불만 8 → 10), "M3a 경도·타격"에 곡괭이 등급이 없다는 것과 문서 줄의 표시를, "M3a 횃불"·"묶음 크기"에 횃불 묶음·종류·벽 횃불이 떨어지는 것을 적었다. M3b도 있던 임시값은 바꾸지 않았다: "M3a 세션" 줄을 끝났다고 적고 줄 셋(지도 오가기, 다른 지도의 플레이어, 다시 참가할 때의 지도)을 더했다. M3a도 있던 임시값은 바꾸지 않고 줄만 더했다(F5 디버그 묶음은 구현 값이라 횃불을 넣었다). H1과 H-fix는 임시값을 하나도 바꾸지 않았다(새 값은 모두 "구현에서 고른 값"). M2a도 있던 임시값은 바꾸지 않고 줄만 더했다. M2-fix도 값은 바꾸지 않았다: "조준 기준" 줄의 발 칸을 그려진 발에 맞게 고쳤고(검토 지적, 사람이 볼 것), "채집물 자리"에 `GATHER_EDGE_TILES`(값 2 그대로)를 옮겨 적고, "디버그 주기"를 "주기·버리기"로 넓히고, "채집물 수"에 돌의 출처를 바로 적었다
+
+M6a에서 확인하지 않은 것: 사람이 키보드·마우스로 조제대를 놓고 Tab·W/S·F·Enter·클릭으로 만들어 보기(시험은 함수·입력 이벤트·`click_at`와 봇, 진짜 마우스의 줄 고르기는 창에서 보지 않았다), 1배 화면에서 제작 창·머리 위 표시·터짐이 읽히는지(스크린샷은 에이전트가 2~4배로 확대해 봤다. 저녁 빛 밖의 터짐 첫 프레임은 작고 어둡다), 버프 125%·독 5초의 손맛과 균형(이단 HP 40에 상급 독 30), 던지는 거리 6칸·반경 1.5칸이 마우스 조준으로 맞히기 쉬운지, 마법 동작을 빌린 마시기가 마시는 것으로 읽히는지, 세션(바꾸지 않았다. 세션 시험만 다시 돌림), 두 기기, 내보낸 exe의 창 스크린샷(헤드리스 스모크와 120프레임만).
 
 M4-fix에서 확인하지 않은 것: 사람이 마우스로 이단 그림을 눌러 쏘아 보기(시험은 `make_frame`에 마우스 점을 넣어 360발), 빛 안에서 쏘인 이단이 4초 뒤 돌아가는 것이 "빛 = 안전"을 어떻게 읽히게 하는지(사람이 정할 임시값), 한 방향 200ms를 넘는 회선에서 서 있다 맞을 때(`fightlag`는 왕복 120ms), 두 기기, 9인에서 클라이언트 시계 규칙의 비용(멤버마다 틱당 정수 몇 개).
 

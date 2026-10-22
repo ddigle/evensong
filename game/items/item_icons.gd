@@ -2,7 +2,7 @@ class_name ItemIcons
 extends RefCounted
 ## Inventory icons. Items with art load their PNG (art/items/, 04-env candidates). Tools (and, M3a, the
 ## torch, drawn as a small lit lantern like the ground lantern it is placed as; M4a, the cleric's holy
-## light, a gold sunburst) have no icon art
+## light, a gold sunburst; M6a, the alchemy table) have no icon art
 ## anywhere in assets/ yet, so their icons are PROVISIONAL placeholders drawn here from 16x16
 ## character maps (README "임시값"): the brief §4 palette's ash black outline and faith golds, the
 ## warm iron greys and copper of the 04-env items, no cool greys. Replace them when tool icons exist.
@@ -21,6 +21,13 @@ const PALETTE: Dictionary[String, Color] = {
 	"c": Color8(0xc0, 0x6a, 0x2e),  # copper (04-env copper)
 	"C": Color8(0xdf, 0x90, 0x3f),  # copper light (04-env copper)
 	"s": Color8(0xef, 0xe3, 0xc6),  # bow string (§4 faith ivory)
+	# M6a: the potion colours (● brief §5.7 R29: healing red, buff amber / orange, poison = the poison herb's
+	# yellow with rust spots; the "지금 그림" values there: buff #e0861a, rust #c4421c, poison #d5ce40, #a5a132).
+	"r": Color8(0xb8, 0x2e, 0x24),  # healing red
+	"a": Color8(0xe0, 0x86, 0x1a),  # buff amber
+	"y": Color8(0xd5, 0xce, 0x40),  # poison yellow
+	"Y": Color8(0xa5, 0xa1, 0x32),  # poison yellow dark
+	"u": Color8(0xc4, 0x42, 0x1c),  # rust spot
 }
 
 ## Plain Arrays on purpose: in Godot 4.7.2 a const Dictionary[..., PackedStringArray] built from
@@ -171,6 +178,26 @@ const MAPS: Dictionary[StringName, Array] = {
 		".......kgk......",
 		".......kk.......",
 	],
+	# M6a: the alchemy table (no item art; the placed table is 04-env alchemy_table_v05): a small wooden table
+	# with the three potions on it (red, amber, yellow with a rust spot).
+	&"alchemy_table": [
+		"................",
+		"................",
+		"..kk...kk...kk..",
+		".krrk.kaak.kyyk.",
+		".krrk.kaak.kyyk.",
+		".krrk.kaak.kyuk.",
+		"kkkkkkkkkkkkkkkk",
+		"kllllllllllllllk",
+		"kwwwwwwwwwwwwwwk",
+		"kkkkkkkkkkkkkkkk",
+		".kdk........kdk.",
+		".kdk........kdk.",
+		".kdk........kdk.",
+		".kdk........kdk.",
+		".kkk........kkk.",
+		"................",
+	],
 }
 
 static var _cache: Dictionary[StringName, Texture2D] = {}
@@ -189,6 +216,10 @@ static func texture_for(id: StringName) -> Texture2D:
 				tex = ImageTexture.create_from_image(img)
 		elif ResourceLoader.exists(def.icon_path):
 			tex = load(def.icon_path) as Texture2D
+			if tex != null and def.icon_region.has_area():
+				# M6a: an icon cut from a strip (the potions, ItemDB.STRIP_POTIONS) becomes its own 16x16 image.
+				var strip: Image = LightGen.to_rgba8(tex.get_image())
+				tex = ImageTexture.create_from_image(strip.get_region(def.icon_region))
 	_cache[id] = tex
 	return tex
 

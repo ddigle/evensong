@@ -42,8 +42,10 @@ const PLACEABLE_WALL_TORCH: int = 6
 ## not block), and the heretic shrine once broken by combat (Config.SHRINE_HP; it still blocks).
 const PLACEABLE_BAG: int = 7
 const PLACEABLE_SHRINE_BROKEN: int = 8
+## M6a: the alchemy table (Config.ALCHEMY_FOOTPRINT, a crafting station, items/crafting.gd; it blocks).
+const PLACEABLE_ALCHEMY: int = 9
 const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch", "bag",
-	"shrine_broken"]
+	"shrine_broken", "alchemy"]
 
 var size: Vector2i = Vector2i.ZERO
 var world_seed: int = 0
@@ -184,7 +186,8 @@ func soil_ash_contacts() -> int:
 
 ## Whether placeable value `p` blocks walking (M3a: everything but a torch; a wall torch sits on a
 ## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block"). M4a: a
-## death bag does not block; the broken shrine does (PROVISIONAL, README "임시값" M4a).
+## death bag does not block; the broken shrine does (PROVISIONAL, README "임시값" M4a). M6a: the alchemy table
+## blocks, like the other fixtures.
 static func placeable_blocks(p: int) -> bool:
 	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH and p != PLACEABLE_BAG
 

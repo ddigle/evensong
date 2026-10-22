@@ -384,6 +384,75 @@ const BODY_HIT_HEIGHT_PX: float = 28.0
 ## (net/net_combat.gd). false = the attack waits for the delay like the rest.
 const NET_ENEMY_WINDUP_FRESH: bool = true
 
+# --- PROVISIONAL, M6a (crafting, the alchemy table, potions, drinking, the potion throw, effects) ---
+# Offline first (M6a); in a session crafting, drinking, throwing and effects stay off until M6b (as M3a and
+# M4a did). README "임시값" M6a.
+
+## PROVISIONAL (○ gameplay-design §3.5 "작업대 근처에서 Tab"; how near is not in the docs): Tab opens the
+## crafting panel while the feet tile is within this many tiles (Chebyshev) of a station's footprint
+## (items/crafting.gd). Farther, Tab shows the inventory as before (M2a).
+const STATION_REACH_TILES: int = 2
+## PROVISIONAL (○ gameplay-design §3.5 "레시피는 재료를 처음 획득했을 때 해금 (그라운디드 분석기 방식)"): true = a
+## recipe shows in the panel once its player has had every one of its input items (any grade) in the
+## inventory; false = every recipe of the station shows from the start. Default true: it is the one rule the
+## docs propose, and in the slice it costs nothing (the inputs are the wild herbs, and picking them is the
+## loop's first step), so the human can judge it in play; false is there for testing.
+const RECIPES_UNLOCK_ON_FIRST_GET: bool = true
+## PROVISIONAL (○ game-concept §9.7 "조제는 연금술대 자리의 조제대에서 한다"; its size is not in the docs): the
+## alchemy table's footprint in tiles. The 48x32 04-env art (alchemy_table_v05) stands on it with its back
+## half over the tile behind, like the shrine and the entrance arch (art taller than the footprint).
+const ALCHEMY_FOOTPRINT: Vector2i = Vector2i(3, 1)
+## PROVISIONAL (not in docs): a potion stack's size.
+const STACK_POTION: int = 10
+## PROVISIONAL (● game-concept §12 R28: one potion per crop, healing / buff / status; the amounts are not in
+## the docs): wild herbs of a kind per potion (one potion out). The potion's grade is the herbs' grade.
+const POTION_HERBS: int = 2
+## PROVISIONAL (● gameplay-design §3.0 R11 herbalist row: FINE (상급) potions and status potions are the
+## herbalist's; whether anyone else may brew the COMMON healing and buff potions is not written): true =
+## anyone may (the row's "공용 수행" column limits the grade, not the verb), false = only the herbalist brews.
+const COMMON_POTIONS_ANYONE: bool = true
+## PROVISIONAL (not in docs): a healing potion's HP by grade [none, COMMON, FINE] (drunk or splashed).
+const POTION_HEAL_HP: PackedInt32Array = [0, 30, 50]
+## PROVISIONAL (not in docs; the one buff of M6a): the buff potion raises walking speed (not the dash) to this
+## percent for this many ticks, by grade [none, COMMON, FINE].
+const BUFF_SPEED_PCT: PackedInt32Array = [100, 125, 140]
+const BUFF_TICKS: PackedInt32Array = [0, 20 * 60, 30 * 60]
+## PROVISIONAL (○ gameplay-design §2.4 "상태이상: 약초사 담당. 중독·둔화·취약·출혈"; the one status effect of
+## M6a is poison, the poison potion's; numbers not in docs): damage per poison tick by grade, ticks between
+## two, and how long it lasts by grade (300 ticks = 10 poison ticks). It hits the HP without a stagger, an
+## invulnerability or a defence, and does not cut off an action (a player's) or an attack (a heretic's).
+const POISON_DAMAGE: PackedInt32Array = [0, 2, 3]
+const POISON_INTERVAL_TICKS: int = 30
+const POISON_TICKS: PackedInt32Array = [0, 300, 300]
+## PROVISIONAL (not in docs): a buff or poison on someone who already has one: the time left becomes the
+## longer of the two and the strength the larger (no stacking).
+const EFFECT_REFRESH_KEEPS_STRONGER: bool = true
+## PROVISIONAL (not in docs): a player's buff and poison end when it goes down (and so when it dies); a
+## heretic's poison ends when it dies.
+const EFFECTS_END_ON_DOWN: bool = true
+## PROVISIONAL (not in docs; no drink art exists, 03-pixel has no drink action): drinking plays this body
+## action (the cleric's magic action, "기도·치료" in brief §5.6) and the potion works on DRINK_EFFECT_FRAME
+## (0-based); a hit before that cuts the drink off and nothing is used.
+const DRINK_ANIM: int = RigData.Anim.MAGIC
+const DRINK_EFFECT_FRAME: int = 3
+## PROVISIONAL (not in docs): drinking a healing potion at full HP is refused (nothing used); false = it is
+## drunk and wasted.
+const DRINK_AT_FULL_HP: bool = false
+## PROVISIONAL (not in docs): drinking the poison potion poisons the drinker (true; the one way a player gets
+## the status in M6a, friendly fire being off); false = it is refused.
+const DRINK_POISON_HARMS: bool = true
+## PROVISIONAL (○ gameplay-design §2.2: the herbalist's identity skill is the potion throw; §3.0 puts potions
+## with the herbalist): only the herbalist throws (true); false = anyone throws.
+const THROW_HERBALIST_ONLY: bool = true
+## PROVISIONAL (not in docs): the thrown bottle flies from the thrower's body point toward the mouse, at
+## most THROW_RANGE_PX, at THROW_SPEED px/s over bodies (lobbed), stopped by what stops a shot (walls,
+## blocking placeables); where it lands it splashes everyone within THROW_SPLASH_RADIUS_PX of the splash
+## point with no wall between. It leaves the hand on THROW_RELEASE_FRAME (0-based) of the throw action.
+const THROW_RANGE_PX: float = 96.0
+const THROW_SPEED: float = 192.0
+const THROW_SPLASH_RADIUS_PX: float = 24.0
+const THROW_RELEASE_FRAME: int = 3
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -547,6 +616,10 @@ const NET_ENEMY_SEND_ON_ATTACK: bool = true
 ## 0 whenever the member is idle, so a client that stood still and is hit only owes the ticks until it
 ## hears of the hit (about a round trip): 30 ticks covers a one-way delay of about 200 ms with no host step.
 const NET_HOST_STEPS_AFTER_TICKS: int = 30
+## IMPL (M6a): a splash shows this many ticks (code-drawn frames, combat/combat_view.gd); the thrown bottle
+## is drawn this many px higher at the middle of its flight (an arc on top of SHOT_DRAW_LIFT_PX).
+const SPLASH_SHOW_TICKS: int = 18
+const THROW_ARC_PX: float = 10.0
 
 
 static func safe_radius_px() -> float:

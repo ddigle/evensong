@@ -153,6 +153,9 @@ class InputFrame:
 	## Resolved, not sent: the body action a USE starts (-1 = none) and the item playing it.
 	var anim: int = -1
 	var item: StringName = &""
+	## M6a, resolved, not sent (offline only until M6b): a potion throw's landing point (world px, clamped to
+	## Config.THROW_RANGE_PX, Potions.throw_target).
+	var throw_to: Vector2 = Vector2.ZERO
 	## M4a, on the wire since M4b: Space this frame (a dash), F held (revive someone / give up while down),
 	## and a USE's aim (Combat.aim_code, -1 = toward the tile; on the wire a USE always carries one: -1 is
 	## sent as 0, and the game always sets it, Player.make_frame).
