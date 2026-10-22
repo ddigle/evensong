@@ -43,6 +43,13 @@ extends SceneTree
 ##   bars     (M4a) the HUD's HP and stamina bars and the respawn countdown digits for set vitals: their
 ##            exact pixels (frame, filled part, the rest). The rig part above covers the players' hurt
 ##            and death poses (shown like actions, the signature hidden on the death frames).
+##   combat_net (M4b) what a session client draws of the host's combat: heretics in every state (a wind-up,
+##            a hurt one with its HP bar and hit flash, a dying one, a walking one), an arrow and a bolt in the
+##            air and a downed player with its bleed-out and revive bars, drawn by the host's CombatView from
+##            its arena, then by a client's from what the wire carries (an enemy batch, shot events, the
+##            player's state with its vitals block, decoded into a NetCombat and a Player, sampled at the
+##            batch's tick): both screens must be the same pixels, and the heretics, shots and bars must be
+##            there (the screen differs from the background).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -96,6 +103,7 @@ func _run() -> void:
 		await _check_rig()
 		await _check_heretic()
 		await _check_bars()
+		await _check_combat_net()
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
@@ -537,6 +545,120 @@ func _check_bars() -> void:
 		_fail("bars", line)
 		_save(got, "bars_got.png")
 		_save(dead, "bars_dead_got.png")
+
+
+## M4b: the host's combat as the host draws it and as a client draws it from the wire (see the header).
+func _check_combat_net() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var tick: int = 1000
+	var host_a: Arena = Arena.mirror(world.data)
+	var poses: Array[Array] = [  # [state, state ticks, hp, flash, walking, facing]
+		[HereticSim.State.ATTACK, 12, Config.HERETIC_HP, 0, false, RigData.Dir.EAST],
+		[HereticSim.State.HURT, 7, 22, 4, false, RigData.Dir.WEST],
+		[HereticSim.State.DEAD, 9, 0, 2, false, RigData.Dir.SOUTH],
+		[HereticSim.State.CHASE, 0, 30, 0, true, RigData.Dir.NORTH],
+		[HereticSim.State.EDGE, 40, 14, 0, false, RigData.Dir.SOUTH],
+	]
+	for i: int in poses.size():
+		var pose: Array = poses[i]
+		var h: HereticSim = host_a.spawn_heretic(Vector2(origin + Vector2i(60 + i * 80, 120)) + Vector2(0.25, 0.25))
+		h.state = pose[0]
+		h.state_ticks = pose[1]
+		h.hp = pose[2]
+		h.flash_ticks = pose[3]
+		h.walking = pose[4]
+		h.facing = pose[5]
+		h.clock = tick
+	var shots: Array[Array] = [[&"bow", 20, Vector2(origin + Vector2i(120, 200)) + Vector2(0.3, 0.2)],
+		[&"holy_light", 150, Vector2(origin + Vector2i(300, 210)) + Vector2(0.2, 0.3)]]
+	var events: Array[NetProtocol.ShotEvent] = []
+	for s: Array in shots:
+		var item: StringName = s[0]
+		var aim: int = s[1]
+		var at: Vector2 = s[2]
+		var a: Combat.Attack = Combat.attack_for(item)
+		var shot: Arena.Shot = Arena.Shot.new()
+		shot.id = host_a.next_id
+		host_a.next_id += 1
+		shot.kind = a.kind
+		shot.dir = Combat.aim_vector(aim)
+		shot.aim = aim
+		shot.item = item
+		shot.pos = at
+		host_a.shots.append(shot)
+		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+		e.id = shot.id
+		e.item = item
+		e.aim = aim
+		e.owner = 3
+		e.tick = tick
+		e.pos = at - shot.dir * (a.speed / Config.NET_TICK_RATE)  # let go this tick: one step flown
+		events.append(e)
+	var down_feet: Vector2 = Vector2(origin + Vector2i(380, 200))
+	var host_p: Player = Player.new()
+	host_p.local_input = false
+	host_p.setup(world.data, "archer", down_feet, RigData.Dir.EAST)
+	host_p.take_hit(Config.PLAYER_HP_MAX)
+	host_p.vitals.life_ticks = 200
+	host_p.vitals.revive_ticks = 120
+	host_p.vitals.flash_ticks = 0
+	host_p.teleport(down_feet)  # its own vitals, drawn as the host has them
+	world.entities.add_child(host_p)
+	var host_v: CombatView = CombatView.new()
+	host_v.name = &"HostCombat"
+	world.add_child(host_v)
+	host_v.setup(host_a, world.entities)
+	host_v.sync([host_p] as Array[Player])
+	var host_img: Image = await _capture()
+	host_v.clear()
+	world.remove_child(host_v)
+	host_v.free()
+	world.entities.remove_child(host_p)
+	# The client: the wire, decoded.
+	var payload: PackedByteArray = NetProtocol.encode_enemies(tick, Config.MAP_SURFACE, 0, host_a.enemy_states(tick))
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, world.data)
+	nc.local_slot = 1
+	nc.on_batch(NetProtocol.decode_enemies(payload), payload, true)
+	nc.on_shots(NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_SURFACE, events)))
+	nc.sample(float(tick), 0.0)
+	for h: HereticSim in nc.arena.heretics:
+		h.clock = tick  # the walk cycle is the client's own clock; the same frame here
+	var st: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	st.pos = down_feet
+	st.facing = host_p.facing
+	st.vitals = host_p.vitals.copy()
+	var wire: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(tick, [st] as Array[NetProtocol.PlayerState]))
+	var client_p: Player = Player.new()
+	client_p.local_input = false
+	client_p.setup(world.data, "archer", down_feet, RigData.Dir.EAST)
+	client_p.show_state(wire.states[0].pos, wire.states[0].facing, false, false, -1, 0, wire.states[0].vitals)
+	world.entities.add_child(client_p)
+	var client_v: CombatView = CombatView.new()
+	client_v.name = &"ClientCombat"
+	world.add_child(client_v)
+	client_v.setup(nc.arena, world.entities)
+	client_v.sync([client_p] as Array[Player])
+	var client_img: Image = await _capture()
+	client_v.clear()
+	world.remove_child(client_v)
+	client_v.free()
+	world.entities.remove_child(client_p)
+	client_p.free()
+	host_p.free()
+	var n: int = count_diff(client_img, host_img)
+	var drawn: int = count_diff(host_img, bg)
+	var line: String = "heretics=%d shots=%d downed=1 client_vs_host=%d pixels_drawn=%d" % [nc.arena.heretics.size(),
+		nc.arena.shots.size(), n, drawn]
+	if n > 0 or save_all:
+		_save(host_img, "combat_net_host.png")
+		_save(client_img, "combat_net_client.png")
+	if n == 0 and drawn > 2000 and nc.arena.heretics.size() == poses.size() and nc.arena.shots.size() == shots.size():
+		print("EVENSONG_RENDER combat_net ok %s" % line)
+	else:
+		_fail("combat_net", line)
 
 
 ## M2b: gatherables (ItemView, world pictures) and a drop (its icon) drawn exactly on their tiles.

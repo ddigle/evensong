@@ -51,8 +51,8 @@ func copy() -> PlayerSim:
 	return c
 
 
-## Same replicated state (the target tile is not replicated; nor, in M4a, the vitals: sessions have no
-## damage or dash yet, M4b adds them to the state).
+## Same replicated position, facing and action (the target tile is not replicated). M4b: the vitals
+## travel too (same_all, NetProtocol's vitals block).
 func same_as(o: PlayerSim) -> bool:
 	return o != null and pos == o.pos and facing == o.facing and walking == o.walking and action == o.action \
 		and action_tick == o.action_tick
@@ -181,10 +181,14 @@ func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, 
 	return events
 
 
-## One dash tick: Config.DASH_SPEED along dash_dir with walking's collision (Movement.step).
+## One dash tick: Config.DASH_SPEED along dash_dir with walking's collision (Movement.step). M4b: the
+## direction is cleared when the dash ends (it is only read while one lasts), so the vitals come back to
+## rest (Vitals.at_rest) and a state batch stops carrying them.
 func _dash_move(data: WorldData, delta: float) -> void:
 	pos = Movement.step(data, pos, vit.dash_dir, delta, Config.DASH_SPEED)
 	vit.dash_ticks -= 1
+	if vit.dash_ticks == 0:
+		vit.dash_dir = Vector2i.ZERO
 	walking = true
 
 
@@ -200,6 +204,7 @@ func hurt(amount: int) -> int:
 	action = -1
 	action_tick = 0
 	vit.dash_ticks = 0
+	vit.dash_dir = Vector2i.ZERO
 	walking = false
 	if vit.hp == 0:
 		vit.life = Vitals.Life.DOWN
@@ -212,6 +217,17 @@ func hurt(amount: int) -> int:
 	vit.hurt_ticks = Config.HURT_TICKS
 	vit.invuln_ticks = Config.HURT_INVULN_TICKS
 	return HURT
+
+
+## M4b: the respawn (shared by the offline game, the host and a client's prediction, so they land on the
+## same state): at feet `feet` facing Config.SPAWN_FACING, no action, full vitals (Config.RESPAWN_HP).
+func respawn(feet: Vector2) -> void:
+	pos = feet
+	facing = Config.SPAWN_FACING
+	walking = false
+	action = -1
+	action_tick = 0
+	vit.reset()
 
 
 ## A downed player gets up (a revive) with `hp`.

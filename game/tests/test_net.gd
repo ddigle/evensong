@@ -18,10 +18,11 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_keyframe": NetProtocol.CH_CONTROL, "_rpc_go": NetProtocol.CH_CONTROL,
 	"_rpc_done": NetProtocol.CH_CONTROL, "_rpc_finish": NetProtocol.CH_CONTROL,
 	"_rpc_input": NetProtocol.CH_INPUT, "_rpc_state": NetProtocol.CH_STATE,
+	"_rpc_enemies": NetProtocol.CH_ENEMY, "_rpc_enemy_keyframe": NetProtocol.CH_CONTROL, "_rpc_shots": NetProtocol.CH_CONTROL,
 }
 ## Only these may be called by clients; everything else only by the host (authority).
 const CLIENT_CALLABLE: PackedStringArray = ["_rpc_hello", "_rpc_input", "_rpc_done"]
-const UNRELIABLE: PackedStringArray = ["_rpc_input", "_rpc_state"]
+const UNRELIABLE: PackedStringArray = ["_rpc_input", "_rpc_state", "_rpc_enemies"]
 
 
 func run() -> Array[String]:
@@ -52,24 +53,29 @@ func run() -> Array[String]:
 
 func _check_frame_codes() -> void:
 	var seen: Dictionary[int, bool] = {}
-	for look: int in range(-1, 4):
-		for dy: int in range(-1, 2):
-			for dx: int in range(-1, 2):
-				var code: int = NetProtocol.frame_code(Vector2i(dx, dy), look)
-				seen[code] = true
-				var f: NetProtocol.InputFrame = NetProtocol.frame_from_code(code, 7)
-				check(f != null and f.dir == Vector2i(dx, dy) and f.look == look and f.seq == 7, "code %d round trip" % code)
-	check_eq(seen.size(), NetProtocol.CODE_COUNT, "45 distinct codes (9 directions x (no look + 4 looks))")
-	check_eq(NetProtocol.CODE_COUNT, 45, "a frame code is still one byte: direction + look (M2b)")
+	for flags: int in 4:
+		for look: int in range(-1, 4):
+			for dy: int in range(-1, 2):
+				for dx: int in range(-1, 2):
+					var dash: bool = flags & 1 != 0
+					var held: bool = flags & 2 != 0
+					var code: int = NetProtocol.frame_code(Vector2i(dx, dy), look, dash, held)
+					seen[code] = true
+					var f: NetProtocol.InputFrame = NetProtocol.frame_from_code(code, 7)
+					check(f != null and f.dir == Vector2i(dx, dy) and f.look == look and f.seq == 7 and f.dash == dash
+						and f.interact == held, "code %d round trip" % code)
+	check_eq(seen.size(), NetProtocol.CODE_COUNT, "180 distinct codes (9 directions x (no look + 4 looks) x dash x F held)")
+	check_eq(NetProtocol.CODE_COUNT, 180, "a frame code is still one byte: direction + look (M2b) + dash + F held (M4b)")
 	for dy: int in range(-1, 2):
 		for dx: int in range(-1, 2):
 			check(NetProtocol.frame_code(Vector2i(dx, dy)) < 9, "without a look a frame is an M1 code (0..8)")
+			check(NetProtocol.frame_code(Vector2i(dx, dy), RigData.Dir.NORTH) < 45, "without a dash or F an M2b code (0..44)")
 	check(not ("facing" in NetProtocol.InputFrame.new()), "input frames carry no facing of their own (look = aim, or -1)")
 	var accepted: int = 0
 	for code: int in range(NetProtocol.CODE_COUNT, 256):
 		if NetProtocol.frame_from_code(code, 1) != null:
 			accepted += 1
-	check_eq(accepted, 0, "codes 45..255 are not frames")
+	check_eq(accepted, 0, "codes 180..255 are not frames")
 	check_eq(NetProtocol.frame_code(Vector2i(5, -9)), NetProtocol.frame_code(Vector2i(1, -1)),
 		"a longer direction is clamped to -1..1")
 
@@ -108,6 +114,9 @@ func _check_request_codec() -> void:
 	for i: int in 8:
 		frames.append(NetProtocol.InputFrame.new(50 + i, Vector2i(i % 3 - 1, 0)))
 	frames[1].look = RigData.Dir.WEST
+	frames[1].dash = true
+	frames[1].aim = 201
+	frames[3].interact = true
 	frames[1].op = NetProtocol.Op.USE
 	frames[1].map = Config.MAP_DUNGEON  # M3b: tile requests name their map
 	frames[1].slot = 3
@@ -128,13 +137,17 @@ func _check_request_codec() -> void:
 	frames[7].count = 9
 	frames[7].grade = ItemDB.Grade.FINE
 	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
-	var ops_bytes: int = 1 + (2 + 6) + (2 + 5) + (2 + 1) + (2 + 7) + (2 + 5) + (2 + 3)
-	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 8 + ops_bytes, "8 frames + 6 requests = header + 8 B + %d B (M3b: + map)" % ops_bytes)
+	var ops_bytes: int = 1 + (2 + 7) + (2 + 5) + (2 + 1) + (2 + 7) + (2 + 5) + (2 + 3)
+	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 8 + ops_bytes,
+		"8 frames + 6 requests = header + 8 B + %d B (M3b: + map; M4b: + a USE's aim)" % ops_bytes)
 	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
 	var same: bool = p.ok and p.frames.size() == 8
 	for i: int in mini(p.frames.size(), 8):
-		same = same and p.frames[i].same_request(frames[i]) and p.frames[i].look == frames[i].look and p.frames[i].dir == frames[i].dir
-	check(same, "every request round trips with its frame")
+		same = same and p.frames[i].same_request(frames[i]) and p.frames[i].look == frames[i].look and p.frames[i].dir == frames[i].dir \
+			and p.frames[i].dash == frames[i].dash and p.frames[i].interact == frames[i].interact
+	check(same, "every request round trips with its frame (M4b: dash and F held too)")
+	check(p.ok and p.frames[1].aim == 201 and p.frames[1].dash and p.frames[3].interact and not p.frames[2].dash,
+		"M4b: a USE's aim, the dash and F held round trip")
 	check(p.ok and p.frames[1].map == Config.MAP_DUNGEON and p.frames[6].map == Config.MAP_DUNGEON and p.frames[2].map == Config.MAP_SURFACE
 		and p.frames[6].op == NetProtocol.Op.TRAVEL and p.frames[6].cell == Vector2i(37, 14), "M3b: maps and TRAVEL round trip")
 	var plain: Array[NetProtocol.InputFrame] = [NetProtocol.InputFrame.new(1, Vector2i(1, 0))]
@@ -172,6 +185,9 @@ func _check_request_codec() -> void:
 	b[bytes.size() - (2 + 3) - (2 + 5) + 2] = 200  # M3b: travel (the request before the give) from map 200
 	cases["travel from an unknown map"] = b
 	b = bytes.duplicate()
+	b.remove_at(at + 1 + 2 + 6)  # M4b: a USE without its aim byte (the M3b size) is refused
+	cases["a USE of the old size"] = b
+	b = bytes.duplicate()
 	b.append(0)
 	cases["trailing byte"] = b
 	var give_at: int = bytes.size() - 3
@@ -208,7 +224,7 @@ func _check_states_codec() -> void:
 		states.append(s)
 	var bytes: PackedByteArray = NetProtocol.encode_states(123456, states)
 	check_eq(bytes.size(), NetProtocol.STATE_HEADER + NetProtocol.STATE_SIZE * Config.MAX_PLAYERS,
-		"9-player batch = 5 + 9 x 17 B (M2b: + action frames, held item; M3b: + map)")
+		"9-player batch = 5 + 9 x 17 B (M2b: + action frames, held item; M3b: + map; M4b: no vitals block at rest)")
 	check_eq(NetProtocol.STATE_SIZE, 17, "a state is 17 B (M3b)")
 	var b: NetProtocol.StateBatch = NetProtocol.decode_states(bytes)
 	check(b.ok and b.tick == 123456 and b.states.size() == Config.MAX_PLAYERS, "state batch decodes")
@@ -243,6 +259,7 @@ func _check_states_codec() -> void:
 	check(b.ok and b.states[1].map == Config.MAP_DUNGEON and b.states[2].map == Config.MAP_SURFACE, "M3b: the map round trips")
 	check(NetProtocol.decode_states(NetProtocol.encode_states(9, [] as Array[NetProtocol.PlayerState])).ok,
 		"an empty batch is valid")
+	_check_vitals_codec(states)
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 4
 	info.state = states[3]
@@ -259,6 +276,205 @@ func _check_states_codec() -> void:
 		check_eq(NetProtocol.decode_refusal(NetProtocol.encode_refusal(r as NetProtocol.Refusal)),
 			NetProtocol.REFUSAL_NAMES[r], "refusal %d" % r)
 	check_eq(NetProtocol.decode_refusal(PackedByteArray([99])), "bad_refusal", "unknown refusal")
+
+
+## M4b: the vitals block (flag bit 7, 16 B): only when the vitals are not at rest, every field round trips,
+## every field out of its range, an at-rest block and every truncation are refused; a batch, an info, a
+## welcome and a map entry carry it; the enemy batch and the shot events round trip and refuse garbage.
+func _check_vitals_codec(states: Array[NetProtocol.PlayerState]) -> void:
+	var v: Vitals = Vitals.new()
+	v.hp = 37
+	v.stamina = 12
+	v.stamina_wait = 9
+	v.regen_tick = 1
+	v.dash_ticks = 4
+	v.dash_dir = Vector2i(-1, 1)
+	v.dash_cooldown = 33
+	v.hurt_ticks = 7
+	v.invuln_ticks = 21
+	v.flash_ticks = 2
+	v.life = Vitals.Life.DOWN
+	v.life_ticks = 1799
+	v.revive_ticks = 299
+	v.give_up_ticks = 59
+	states[2].vitals = v
+	states[5].vitals = Vitals.new()  # at rest: sent without a block
+	var bytes: PackedByteArray = NetProtocol.encode_states(77, states)
+	check_eq(bytes.size(), NetProtocol.STATE_HEADER + NetProtocol.STATE_SIZE * Config.MAX_PLAYERS + NetProtocol.VITALS_SIZE,
+		"one player's vitals = one 16 B block more (an at-rest one sends none)")
+	var b: NetProtocol.StateBatch = NetProtocol.decode_states(bytes)
+	check(b.ok and b.states.size() == Config.MAX_PLAYERS and b.states[2].vitals != null and b.states[2].vitals.same_wire(v)
+		and b.states[5].vitals == null and b.states[3].vitals == null, "the vitals block round trips, field for field")
+	check(b.ok and b.states[2].same_as(states[2]) and b.states[5].same_as(states[5]), "same_as counts the vitals (at rest = none)")
+	var at: int = NetProtocol.STATE_HEADER + 2 * NetProtocol.STATE_SIZE + NetProtocol.STATE_SIZE
+	var limits: Dictionary[int, int] = {0: Config.PLAYER_HP_MAX + 1, 1: Config.STAMINA_MAX + 1, 2: 3,
+		3: Config.STAMINA_REGEN_DELAY_TICKS + 1, 4: Config.STAMINA_REGEN_TICKS, 5: Config.DASH_TICKS + 1, 6: 9,
+		7: Config.DASH_COOLDOWN_TICKS + Config.DASH_TICKS + 1, 8: Config.HURT_TICKS + 1, 9: Config.HURT_INVULN_TICKS + 1,
+		10: Config.HIT_FLASH_TICKS + 1, 11: Config.GIVE_UP_HOLD_TICKS + 1}
+	var refused: int = 0
+	for field: int in limits:
+		var bad: PackedByteArray = bytes.duplicate()
+		bad[at + field] = limits[field]
+		if not NetProtocol.decode_states(bad).ok:
+			refused += 1
+	check_eq(refused, limits.size(), "every vitals field past its Config limit is refused (%d fields)" % limits.size())
+	var rest: PackedByteArray = bytes.duplicate()
+	for i: int in NetProtocol.VITALS_SIZE:
+		rest[at + i] = 0
+	rest[at] = Config.PLAYER_HP_MAX
+	rest[at + 1] = Config.STAMINA_MAX
+	rest[at + 6] = 4  # no dash direction
+	check(not NetProtocol.decode_states(rest).ok, "an at-rest vitals block (never sent) is refused")
+	var short_ok: int = 0
+	for n: int in range(NetProtocol.STATE_HEADER, bytes.size()):
+		if NetProtocol.decode_states(bytes.slice(0, n)).ok:
+			short_ok += 1
+	check_eq(short_ok, 0, "every truncated batch with a vitals block is refused")
+	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
+	info.class_index = 1
+	info.state = states[2]
+	var ib: PackedByteArray = NetProtocol.encode_info(info)
+	var back: NetProtocol.PlayerInfo = NetProtocol.decode_info(ib)
+	check(ib.size() == NetProtocol.INFO_SIZE + NetProtocol.VITALS_SIZE and back != null and back.state.same_as(states[2])
+		and NetProtocol.info_size_at(ib, 0) == ib.size(), "an info with vitals is 34 B and round trips")
+	var e: NetProtocol.MapEntry = NetProtocol.MapEntry.new()
+	e.map = Config.MAP_DUNGEON
+	e.packed_size = 300
+	e.chunk_count = 1
+	e.state = states[2]
+	e.state.map = Config.MAP_DUNGEON
+	var eb: PackedByteArray = NetProtocol.encode_map_entry(e)
+	var eback: NetProtocol.MapEntry = NetProtocol.decode_map_entry(eb)
+	check(eb.size() == NetProtocol.MAP_ENTRY_SIZE + NetProtocol.VITALS_SIZE and eback.ok and eback.state.same_as(e.state),
+		"a map entry carries the entering player's vitals")
+	check(not NetProtocol.decode_map_entry(eb.slice(0, eb.size() - 1)).ok, "a map entry one byte short is refused")
+	states[2].vitals = null
+	states[5].vitals = null
+	states[2].map = 2 % Config.MAP_COUNT
+	# Constants that must fit the block's fields (a PROVISIONAL change past them needs a wider field).
+	check(Config.PLAYER_HP_MAX <= 255 and Config.STAMINA_MAX <= 255 and Config.DASH_COOLDOWN_TICKS + Config.DASH_TICKS <= 255
+		and Config.HURT_INVULN_TICKS <= 255 and Config.STAMINA_REGEN_DELAY_TICKS <= 255 and Config.GIVE_UP_HOLD_TICKS <= 255
+		and Config.DOWN_TICKS <= 65535 and Config.REVIVE_TICKS <= 65535 and Config.HERETIC_HP <= 255
+		and Config.SHRINE_HP <= 65535, "the vitals, enemy and shrine values fit their wire fields")
+	_check_enemy_codec()
+	_check_shot_codec()
+
+
+func _check_enemy_codec() -> void:
+	var list: Array[NetProtocol.EnemyState] = []
+	for i: int in 6:
+		var h: HereticSim = HereticSim.new()
+		h.id = 1000000 + i * 7
+		h.pos = Vector2(100.37 + i, 200.000366 - i)
+		h.facing = i % 4
+		h.walking = i % 2 == 0
+		h.state = i % HereticSim.STATE_NAMES.size()
+		h.state_ticks = 5 + i if NetProtocol.timed_state(h.state) else 0
+		h.hp = Config.HERETIC_HP - i
+		h.flash_ticks = i % (Config.HIT_FLASH_TICKS + 1)
+		list.append(NetProtocol.enemy_of(h, 70000 + i))
+	var bytes: PackedByteArray = NetProtocol.encode_enemies(70005, Config.MAP_DUNGEON, 77, list)
+	check_eq(bytes.size(), NetProtocol.ENEMY_HEADER + NetProtocol.ENEMY_SIZE * 6, "enemy batch = 8 B + 17 B per heretic")
+	var b: NetProtocol.EnemyBatch = NetProtocol.decode_enemies(bytes)
+	var same: bool = b.ok and b.enemies.size() == 6 and b.tick == 70005 and b.map == Config.MAP_DUNGEON and b.shrine_hp == 77
+	for i: int in mini(b.enemies.size(), 6):
+		same = same and b.enemies[i].same_as(list[i])
+	check(same, "an enemy batch round trips exactly (float32 positions, the state start's low 16 bits)")
+	check(list[2].since == (70002 - 7) & 0xFFFF and list[0].since == 0, "a timed state sends when it started, an untimed one 0")
+	var cases: Dictionary[String, PackedByteArray] = {}
+	var c: PackedByteArray = bytes.duplicate()
+	c[4] = Config.MAP_COUNT
+	cases["unknown map"] = c
+	c = bytes.duplicate()
+	c.encode_u16(5, Config.SHRINE_HP + 1)
+	cases["shrine HP past its maximum"] = c
+	c = bytes.duplicate()
+	c[NetProtocol.ENEMY_HEADER + 12] = 7 << 3
+	cases["unknown state"] = c
+	c = bytes.duplicate()
+	c[NetProtocol.ENEMY_HEADER + 12] = 0x40
+	cases["unknown flag bits"] = c
+	c = bytes.duplicate()
+	c[NetProtocol.ENEMY_HEADER + 15] = Config.HERETIC_HP + 1
+	cases["HP past its maximum"] = c
+	c = bytes.duplicate()
+	c[NetProtocol.ENEMY_HEADER + 16] = Config.HIT_FLASH_TICKS + 1
+	cases["flash past its length"] = c
+	c = bytes.duplicate()
+	c.encode_float(NetProtocol.ENEMY_HEADER + 4, NAN)
+	cases["a NaN position"] = c
+	c = bytes.duplicate()
+	c.encode_u32(NetProtocol.ENEMY_HEADER + NetProtocol.ENEMY_SIZE, list[0].id)
+	cases["one id twice"] = c
+	c = bytes.duplicate()
+	c.encode_u16(NetProtocol.ENEMY_HEADER + 13, 9)  # an idle heretic (untimed) with a state start
+	cases["a state start on an untimed state"] = c
+	c = bytes.duplicate()
+	c[7] = 7
+	cases["count past the bytes"] = c
+	for label: String in cases:
+		check(not NetProtocol.decode_enemies(cases[label]).ok, "enemy batch refused: %s" % label)
+	var short_ok: int = 0
+	for n: int in bytes.size():
+		if NetProtocol.decode_enemies(bytes.slice(0, n)).ok:
+			short_ok += 1
+	check_eq(short_ok, 0, "every truncated enemy batch is refused")
+	check(NetProtocol.decode_enemies(NetProtocol.encode_enemies(1, 0, 0, [] as Array[NetProtocol.EnemyState])).ok,
+		"an empty enemy batch (none left) is valid")
+
+
+func _check_shot_codec() -> void:
+	var events: Array[NetProtocol.ShotEvent] = []
+	var s: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	s.kind = NetProtocol.ShotEvent.Kind.SPAWN
+	s.id = 4000000001
+	s.item = &"bow"
+	s.owner = 3
+	s.aim = 200
+	s.tick = 123456
+	s.pos = Vector2(512.37, 300.000366)
+	events.append(s)
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.END
+	e.id = 4000000001
+	e.tick = 123470
+	e.pos = Vector2(600.5, 280.25)
+	e.why = NetProtocol.SHOT_STOPS.find("heretic")
+	events.append(e)
+	var bytes: PackedByteArray = NetProtocol.encode_shots(Config.MAP_DUNGEON, events)
+	check_eq(bytes.size(), 2 + NetProtocol.SHOT_SPAWN_SIZE + NetProtocol.SHOT_END_SIZE, "shot events = 2 B + 20 B let go + 18 B stopped")
+	var back: NetProtocol.ShotEvents = NetProtocol.decode_shots(bytes)
+	check(back.ok and back.map == Config.MAP_DUNGEON and back.events.size() == 2 and back.events[0].same_as(s)
+		and back.events[1].same_as(e), "shot events round trip exactly")
+	var cases: Dictionary[String, PackedByteArray] = {}
+	var c: PackedByteArray = bytes.duplicate()
+	c[0] = Config.MAP_COUNT
+	cases["unknown map"] = c
+	c = bytes.duplicate()
+	c[2] = 2
+	cases["unknown kind"] = c
+	c = bytes.duplicate()
+	c[2 + 5] = ItemDB.index_of(&"sword")
+	cases["a melee weapon shoots nothing"] = c
+	c = bytes.duplicate()
+	c[2 + 5] = ItemDB.count()
+	cases["unknown item"] = c
+	c = bytes.duplicate()
+	c[bytes.size() - 1] = NetProtocol.SHOT_STOPS.size()
+	cases["unknown stop reason"] = c
+	c = bytes.duplicate()
+	c.encode_float(2 + 11, NAN)
+	cases["a NaN position"] = c
+	c = bytes.duplicate()
+	c.append(0)
+	cases["trailing byte"] = c
+	for label: String in cases:
+		check(not NetProtocol.decode_shots(cases[label]).ok, "shot events refused: %s" % label)
+	var short_ok: int = 0
+	for n: int in bytes.size():
+		if NetProtocol.decode_shots(bytes.slice(0, n)).ok:
+			short_ok += 1
+	check_eq(short_ok, 0, "every truncated shot message is refused")
 
 
 func _welcome_sample() -> NetProtocol.Welcome:

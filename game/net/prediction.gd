@@ -27,6 +27,18 @@ extends RefCounted
 ## and replays the frames the host has not handled yet there. Host states for this player on another
 ## map than `map` (sent before the entry arrived) are skipped (`other_map`). A use aimed on another
 ## map (frame.map) is refused by the host ("wrong map"), so a replay does not start its action either.
+##
+## M4b, vitals: the state is PlayerSim's whole state, its Vitals included (HP, stamina, dash, stagger,
+## down / dead; a host state carries them, NetProtocol's vitals block), so a dash, a stagger running out
+## and the down and respawn timers are predicted like the movement. A frame is also recorded while F is
+## held (and on its release: the host revives with it), on a dash, and on every tick a vitals timer runs
+## (Vitals.idle false before or after the step): those frames are the host's clock for this player. A
+## respawn (PlayerSim.RESPAWN) puts the prediction at its spawn slot (`spawn_feet`) like the host, when it
+## is on the surface; from the dungeon the host sends the surface (switch_map). Damage, a revive and the
+## revive's progress are the host's alone: a host state whose HP, life or revive progress differ from the
+## prediction is a host event (`event_corrections`, its error in `max_event_error_px`), not a prediction
+## error; the other counters stay for what the prediction itself got wrong (`vitals_corrections` for the
+## timers, which the host and the prediction step alike).
 
 class Pending:
 	extends RefCounted
@@ -57,8 +69,18 @@ var dropped_unsent: int = 0
 ## M3b: map switches, and host states skipped because they were on another map.
 var switches: int = 0
 var other_map: int = 0
+## M4b: where this player respawns (its spawn slot on the surface), host events taken (a hit, a revive,
+## the host's own steps) and their largest position error, timer mismatches without one, respawns.
+var spawn_feet: Vector2 = Vector2.ZERO
+var event_corrections: int = 0
+var max_event_error_px: float = 0.0
+var vitals_corrections: int = 0
+var respawns: int = 0
+## The last vitals mismatch without a host event (logged by the client: it should never happen).
+var last_vitals_mismatch: String = ""
 
 var _last_dir: Vector2i = Vector2i.ZERO
+var _last_interact: bool = false
 
 var pos: Vector2:
 	get:
@@ -93,10 +115,14 @@ func step(dir: Vector2i) -> NetProtocol.InputFrame:
 func step_frame(frame: NetProtocol.InputFrame) -> NetProtocol.InputFrame:
 	var was_acting: bool = sim.action >= 0
 	var facing_before: int = sim.facing
-	sim.step(data, frame.dir, frame.look, frame.anim, frame.cell, Config.NET_TICK, frame.dash, frame.interact, frame.aim)
+	var idle_before: bool = sim.vit.idle()
+	_after_step(sim.step(data, frame.dir, frame.look, frame.anim, frame.cell, Config.NET_TICK, frame.dash, frame.interact,
+		frame.aim))
 	var recorded: bool = frame.dir != Vector2i.ZERO or _last_dir != Vector2i.ZERO or frame.op != NetProtocol.Op.NONE \
-		or was_acting or sim.action >= 0 or sim.facing != facing_before
+		or was_acting or sim.action >= 0 or sim.facing != facing_before or frame.dash or frame.interact or _last_interact \
+		or not idle_before or not sim.vit.idle()
 	_last_dir = frame.dir
+	_last_interact = frame.interact
 	if not recorded:
 		return null
 	frame.seq = next_seq
@@ -155,12 +181,26 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 				break
 	var error: float = predicted.pos.distance_to(state.pos)
 	reconciles += 1
-	if error > 0.0:
-		corrections += 1
-	if predicted.facing != state.facing:
-		facing_corrections += 1
-	if predicted.action != state.action or predicted.action_tick != state.action_tick:
-		action_corrections += 1
+	# M4b: a hit, a revive (or its progress) or the host stepping this player itself is the host's event.
+	var event: bool = predicted.vit.hp != host.vit.hp or predicted.vit.life != host.vit.life \
+		or predicted.vit.revive_ticks != host.vit.revive_ticks
+	if event:
+		if error > 0.0 or predicted.facing != state.facing or predicted.action != state.action \
+				or predicted.action_tick != state.action_tick or not predicted.vit.same_wire(host.vit):
+			event_corrections += 1
+		max_event_error_px = maxf(max_event_error_px, error)
+		error = 0.0
+	else:
+		if error > 0.0:
+			corrections += 1
+		if predicted.facing != state.facing:
+			facing_corrections += 1
+		if predicted.action != state.action or predicted.action_tick != state.action_tick:
+			action_corrections += 1
+		if not predicted.vit.same_wire(host.vit):
+			vitals_corrections += 1
+			last_vitals_mismatch = "ack %d: predicted %s flash %d / host %s flash %d" % [state.ack, predicted.vit.describe(),
+				predicted.vit.flash_ticks, host.vit.describe(), host.vit.flash_ticks]
 	# The target tile is not replicated: keep the predicted one for the same action.
 	host.action_cell = predicted.action_cell if predicted.action == host.action else sim.action_cell
 	max_error_px = maxf(max_error_px, error)
@@ -195,9 +235,18 @@ func switch_map(p_data: WorldData, p_map: int, state: NetProtocol.PlayerState) -
 func _replay(from: PlayerSim) -> void:
 	sim = from.copy()
 	for p: Pending in pending:
-		sim.step(data, p.frame.dir, p.frame.look, anim_on_map(p.frame), p.frame.cell, Config.NET_TICK, p.frame.dash,
-			p.frame.interact, p.frame.aim)
+		_after_step(sim.step(data, p.frame.dir, p.frame.look, anim_on_map(p.frame), p.frame.cell, Config.NET_TICK,
+			p.frame.dash, p.frame.interact, p.frame.aim), false)
 		p.after = sim.copy()
+
+
+## M4b: what the host does after a step that the prediction does too: the respawn at the spawn slot (on
+## the surface; from another map the host sends the surface and switch_map takes over).
+func _after_step(events: int, count: bool = true) -> void:
+	if events & PlayerSim.RESPAWN and map == Config.MAP_SURFACE:
+		sim.respawn(spawn_feet)
+		if count:
+			respawns += 1
 
 
 ## The action frame `f` starts on this map: its own, unless it is a request aimed on another map.
@@ -214,6 +263,7 @@ static func _sim_of(state: NetProtocol.PlayerState) -> PlayerSim:
 	host.walking = state.walking
 	host.action = state.action
 	host.action_tick = state.action_tick
+	host.vit = state.vitals_or_full()
 	return host
 
 
@@ -223,4 +273,6 @@ func to_dict() -> Dictionary:
 		"facing_corrections": facing_corrections, "action_corrections": action_corrections,
 		"stale": stale, "pending": pending.size(), "dropped_unsent": dropped_unsent, "next_seq": next_seq,
 		"map": map, "switches": switches, "other_map": other_map,
+		"event_corrections": event_corrections, "max_event_error_px": max_event_error_px,
+		"vitals_corrections": vitals_corrections, "respawns": respawns,
 	}

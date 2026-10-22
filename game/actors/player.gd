@@ -184,13 +184,14 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
 	f.dash = dash
 	f.interact = interact
+	f.aim = Combat.aim_code(mouse - sim_position)
 	if data != null:
 		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
 	var to_mouse: Vector2 = mouse - sim_position
 	aim_sector = Aim.sector(to_mouse, aim_sector)
 	aim_cell = Aim.target_cell(sim_position, aim_sector)
-	var free: bool = not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
+	var free: bool = vitals.alive() and not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
 	if free and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
 		var anim: int = WorldItems.use_action(sim_position, inventory, inventory.selected, aim_cell)
 		if anim >= 0:
@@ -199,7 +200,6 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.cell = aim_cell
 			f.anim = anim
 			f.item = inventory.selected_stack().id
-			f.aim = Combat.aim_code(to_mouse)
 		elif use_pressed and WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
 				and WorldItems.in_reach(sim_position, aim_cell):
 			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
@@ -214,8 +214,9 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 
 
 ## Runs one input frame with PlayerSim.step (the frame's `anim` = the use it starts, -1 for none)
-## and shows the result. Emits action_finished, then action_started.
-func step_frame(frame: NetProtocol.InputFrame, delta: float) -> void:
+## and shows the result. Emits action_finished, then action_started. Returns the step's event bits
+## (PlayerSim.STARTED, DIED, RESPAWN ...; M4b: the host handles a death and a respawn with them).
+func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 	last_input = frame.dir
 	interact_held = frame.interact
 	var before: int = action_anim
@@ -237,6 +238,7 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> void:
 		died.emit()
 	if events & PlayerSim.RESPAWN:
 		respawn_due.emit()
+	return events
 
 
 ## The simulation state (a copy).
@@ -293,6 +295,17 @@ func respawn_vitals() -> void:
 	action_anim = -1
 	action_tick = 0
 	walking = false
+	_sync_view()
+
+
+## M4b: the respawn (PlayerSim.respawn, the rule the host and a client's prediction share): on `p_data`
+## (the surface) at feet `feet`, facing Config.SPAWN_FACING, full; drawn there at once.
+func respawn_at(p_data: WorldData, feet: Vector2) -> void:
+	data = p_data
+	var st: PlayerSim = to_sim()
+	st.respawn(feet)
+	load_sim(st)
+	tick_from = feet
 	_sync_view()
 
 
@@ -378,8 +391,9 @@ func apply_input(input: Vector2i, delta: float) -> void:
 ## correction, another player's interpolated state) the drawing keeps its offset to sim_position, so
 ## a correction moves the whole step and an unchanged state changes nothing.
 ## `p_action` / `p_action_tick` (M2b): the body action shown (-1 = none) and its frames so far.
+## `p_vitals` (M4b): the vitals shown (a copy is kept; null = at rest: full and up).
 func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false, p_action: int = -1,
-		p_action_tick: int = 0) -> void:
+		p_action_tick: int = 0, p_vitals: Vitals = null) -> void:
 	if not tick:
 		tick_from += pos - sim_position
 	sim_position = pos
@@ -387,6 +401,7 @@ func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false
 	walking = p_walking
 	action_anim = p_action if RigData.is_action(p_action) else -1
 	action_tick = p_action_tick if action_anim >= 0 else 0
+	vitals = p_vitals.copy() if p_vitals != null else Vitals.new()
 	_sync_view()
 
 

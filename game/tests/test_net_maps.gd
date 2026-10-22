@@ -61,6 +61,15 @@ class CaptureSession:
 	func send_keyframe(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "keyframe", payload])
 
+	func send_enemies(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "enemies", payload])
+
+	func send_enemy_keyframe(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "enemy_key", payload])
+
+	func send_shots(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "shots", payload])
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -163,7 +172,7 @@ func _check_map_entry_codec() -> void:
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "more chunks than packed bytes: refused")
 	e.chunk_count = 0
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "no chunks: refused")
-	check_eq(NetProtocol.VERSION, 4, "protocol version 4 (M3b)")
+	check_eq(NetProtocol.VERSION, 5, "protocol version 5 (M3b: 4; M4b: 5)")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 1
 	info.state.map = Config.MAP_DUNGEON
@@ -285,6 +294,7 @@ func _host_rig() -> HostRig:
 	r.s.world = r.surface
 	r.s.worlds = {Config.MAP_SURFACE: r.surface, Config.MAP_DUNGEON: r.dungeon}
 	r.s.options = CliOptions.new()
+	r.s.options.test_no_spawns = true  # M4b: these are M3b's map checks; no heretic walks in
 	r.s.role = NetSession.Role.HOST
 	r.s.give_allowed = true
 	r.s.transport = OpenTransport.new()
@@ -368,6 +378,12 @@ func _deliver(r: HostRig, c: ClientRig) -> void:
 				c.s.client.on_inventory(payload)
 			"state", "keyframe":
 				c.s.client._apply_states(payload)
+			"enemies":
+				c.s.client._apply_enemies(payload, false)
+			"enemy_key":
+				c.s.client._apply_enemies(payload, true)
+			"shots":
+				c.s.client.on_shots(payload)
 
 
 ## One host tick with the host's own player idle: frames, streams, a state batch every 3rd tick.
@@ -431,7 +447,10 @@ func _check_travel_requests() -> void:
 	var kinds: PackedStringArray = []
 	for m: Array in msgs:
 		kinds.append(str(m[1]))
-	check(kinds.size() >= 2 and kinds[kinds.size() - 1] == "map" and kinds[0] == "world", "chunks, then the map entry (%s)" % ", ".join(kinds))
+	# M4b: after the map entry come that map's enemies (a keyframe) and nothing else of another kind.
+	var entry_at: int = kinds.find("map")
+	check(kinds.size() >= 2 and entry_at > 0 and kinds[0] == "world" and kinds.slice(entry_at + 1) == PackedStringArray(["enemy_key"]),
+		"chunks, then the map entry, then its enemies (%s)" % ", ".join(kinds))
 	for t: int in Config.NET_OP_INTERVAL_TICKS:
 		near.refill_ops()
 	r.host.run_frame(near, _op(NetProtocol.Op.TRAVEL, Config.MAP_DUNGEON, DungeonGen.exit_rect(r.dungeon.data).position))

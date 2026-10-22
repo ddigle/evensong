@@ -11,6 +11,12 @@ extends RefCounted
 ## or the shrine), corpses gone, then the spawner. World changes (the shrine breaking) come back as edits
 ## (net/edit_log.gd) for the caller to apply, like the other world rules, so M4b can send them.
 ## Values PROVISIONAL (Config "M4a"); the rules: combat/combat.gd.
+##
+## M4b (sessions): the host keeps one arena per map (net/session_host.gd) and steps the ones with players
+## on them; `now` is the host tick (set by the host each tick) and, with `logging` on, every shot let go or
+## stopped and every hit on a heretic is recorded (shot_events, hits) for the host to send and log. A client
+## draws a mirror arena (Arena.mirror: data only, never stepped) filled from the host's enemy batches and
+## shot events (net/net_combat.gd).
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -28,6 +34,24 @@ class Shot:
 	var done: bool = false
 	## What stopped it: "", "wall", "heretic", "shrine", "player", "spent".
 	var stopped_by: String = ""
+	## M4b: the aim code it flies along, its weapon and the shooter's session slot (255 = none / offline),
+	## the tick it was let go and where (a late client gets it as a let-go event).
+	var born: int = 0
+	var origin: Vector2 = Vector2.ZERO
+	var aim: int = 0
+	var item: StringName = &""
+	var owner_slot: int = 255
+
+
+## M4b: a hit on a heretic (logging on): which, how much, its HP after, who (the attacker's node instance
+## id, 0 = unknown) and whether it died.
+class Hit:
+	extends RefCounted
+	var heretic_id: int = 0
+	var amount: int = 0
+	var hp_after: int = 0
+	var by_id: int = 0
+	var killed: bool = false
 
 var data: WorldData
 var safe: SafeZone
@@ -46,6 +70,25 @@ var spawn_cells: Array[Vector2i] = []
 var stats: Dictionary[String, int] = {}
 ## Spawning on / off (tests; the offline game keeps it on).
 var spawning: bool = true
+## M4b: the host tick (the session sets it), recording on, the records since the session last took them,
+## and how many heretics started an attack in the last step (the host sends that map's batch at once).
+var now: int = 0
+var logging: bool = false
+var shot_events: Array[NetProtocol.ShotEvent] = []
+var hits: Array[Hit] = []
+var attacks_started: int = 0
+
+
+## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
+## session fills its heretics, shots and shrine HP from what the host sends.
+static func mirror(p_data: WorldData) -> Arena:
+	var a: Arena = Arena.new()
+	a.data = p_data
+	a.map_id = p_data.map_id
+	a.safe = SafeZone.for_world(p_data)
+	a.spawning = false
+	a.shrine_hp = Config.SHRINE_HP if a.shrine_rect().has_area() else 0
+	return a
 
 
 ## For `p_data` (its map id says which spawn rule). `world_seed` makes the spawns repeatable.
@@ -62,6 +105,12 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	shrine_hp = Config.SHRINE_HP if shrine_rect().has_area() else 0
 	shrine_flash = 0
 	spawn_cells = surface_spawn_cells(data, safe) if map_id == Config.MAP_SURFACE else dungeon_spawn_cells(data)
+
+
+## Counter `key` (0 when it never counted).
+func stat(key: String) -> int:
+	var v: int = stats.get(key, 0)
+	return v
 
 
 func count(key: String, n: int = 1) -> void:
@@ -98,6 +147,7 @@ func in_light(pos: Vector2) -> bool:
 ## edits it made (the caller applies them before anything else reads the world).
 func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
+	attacks_started = 0
 	if shrine_flash > 0:
 		shrine_flash -= 1
 	_revive(players)
@@ -238,6 +288,7 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 			h.state_ticks = 0
 			h.attack_dir = d.normalized() if d != Vector2.ZERO else Vector2(PlayerSim.facing_vector(h.facing))
 			count("attacks")
+			attacks_started += 1
 		return
 	_move_toward(h, t.sim_position)
 
@@ -342,13 +393,21 @@ func _go_home(h: HereticSim) -> void:
 
 
 ## Damage on heretic `h`: staggered (an attack it started goes on unless
-## Config.HERETIC_HURT_INTERRUPTS_ATTACK), or dead at 0.
-func hit_heretic(h: HereticSim, amount: int) -> void:
+## Config.HERETIC_HURT_INTERRUPTS_ATTACK), or dead at 0. `by` (M4b): the attacker's node instance id.
+func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 	if not h.alive():
 		return
 	h.hp = maxi(h.hp - amount, 0)
 	h.flash_ticks = Config.HIT_FLASH_TICKS
 	count("heretic_hits")
+	if logging:
+		var r: Hit = Hit.new()
+		r.heretic_id = h.id
+		r.amount = amount
+		r.hp_after = h.hp
+		r.by_id = by
+		r.killed = h.hp == 0
+		hits.append(r)
 	if h.hp == 0:
 		h.state = HereticSim.State.DEAD
 		h.state_ticks = 0
@@ -373,8 +432,8 @@ func heretic_at(point: Vector2) -> HereticSim:
 
 ## Player `p`'s weapon `item` lands (its hit frame) along aim code `aim`: a melee arc hits every heretic
 ## (and the standing shrine) in it, a bow or holy light lets a shot go. Returns world edits (the shrine
-## breaking).
-func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = []) -> Array[EditLog.WorldEdit]:
+## breaking). `owner_slot` (M4b): the attacker's session slot, for the shot events.
+func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = [], owner_slot: int = 255) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
 	var a: Combat.Attack = Combat.attack_for(item)
 	if a == null:
@@ -384,7 +443,7 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	if a.kind == Combat.Kind.MELEE:
 		for h: HereticSim in heretics:
 			if h.alive() and Combat.melee_hits(data, p.sim_position, dir, h.pos, a.reach, a.arc_deg):
-				hit_heretic(h, a.damage)
+				hit_heretic(h, a.damage, p.get_instance_id())
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
 				if o != p and Combat.melee_hits(data, p.sim_position, dir, o.sim_position, a.reach, a.arc_deg):
@@ -403,8 +462,23 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	s.left = a.life_ticks()
 	s.damage = a.damage
 	s.owner_id = p.get_instance_id()
+	s.aim = posmod(aim, Combat.AIM_STEPS)
+	s.item = item
+	s.owner_slot = owner_slot
+	s.born = now
+	s.origin = s.pos
 	shots.append(s)
 	count("shots")
+	if logging:
+		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+		e.kind = NetProtocol.ShotEvent.Kind.SPAWN
+		e.id = s.id
+		e.item = item
+		e.owner = owner_slot
+		e.aim = s.aim
+		e.tick = now
+		e.pos = s.pos
+		shot_events.append(e)
 	return edits
 
 
@@ -427,7 +501,7 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 			return edits
 		var h: HereticSim = heretic_at(s.pos)
 		if h != null:
-			hit_heretic(h, s.damage)
+			hit_heretic(h, s.damage, s.owner_id)
 			_stop(s, "heretic")
 			return edits
 		if Config.FRIENDLY_FIRE:
@@ -447,6 +521,39 @@ func _stop(s: Shot, why: String) -> void:
 	s.done = true
 	s.stopped_by = why
 	count("shot_" + why)
+	if logging:
+		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+		e.kind = NetProtocol.ShotEvent.Kind.END
+		e.id = s.id
+		e.tick = now
+		e.pos = s.pos
+		e.why = maxi(NetProtocol.SHOT_STOPS.find(why), 0)
+		shot_events.append(e)
+
+
+## M4b: the heretics as the host sends them at tick `tick` (lowest id first, NetProtocol.enemy_of).
+func enemy_states(tick: int) -> Array[NetProtocol.EnemyState]:
+	var out: Array[NetProtocol.EnemyState] = []
+	for h: HereticSim in heretics:
+		out.append(NetProtocol.enemy_of(h, tick))
+	out.sort_custom(func(a: NetProtocol.EnemyState, b: NetProtocol.EnemyState) -> bool: return a.id < b.id)
+	return out
+
+
+## M4b: the standing shrine's hit points as sent (0 when none stands).
+func shrine_hp_now() -> int:
+	return shrine_hp if shrine_rect().has_area() else 0
+
+
+## M4b: anything fighting on this map (a heretic not idle at home, a shot in flight): the traffic counts
+## it as a fight.
+func fighting() -> bool:
+	if not shots.is_empty():
+		return true
+	for h: HereticSim in heretics:
+		if h.state != HereticSim.State.IDLE or h.walking:
+			return true
+	return false
 
 
 # --- the shrine ----------------------------------------------------------------------------------

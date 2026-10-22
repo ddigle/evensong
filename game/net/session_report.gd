@@ -78,12 +78,14 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		var entry: Dictionary = {"slot": slot, "class": m.class_id, "x": m.player.sim_position.x,
 			"y": m.player.sim_position.y, "facing": m.player.facing, "walking": m.player.walking,
 			"held": String(m.player.held_id()), "action": m.player.action_anim, "actions": m.actions_seen,
-			"map": m.map_id, "drawn": drawn(m)}
+			"map": m.map_id, "drawn": drawn(m), "hp": m.player.vitals.hp, "life": m.player.vitals.life,
+			"vitals": m.player.vitals.describe()}
 		# Inventories: the host has everyone's, a client only its own.
 		if s.host != null or m == s.local:
 			entry["inventory"] = m.player.inventory.describe()
 		if s.host != null:
-			ops[str(slot)] = {"done": m.ops_done, "refused": m.ops_refused, "swings_missed": m.swings_missed}
+			ops[str(slot)] = {"done": m.ops_done, "refused": m.ops_refused, "swings_missed": m.swings_missed,
+				"combat": m.combat, "host_steps": m.host_steps}
 		players.append(entry)
 		if m.gate != null:
 			gates[str(slot)] = m.gate.to_dict()
@@ -129,6 +131,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["pickups"] = s.host.pickups
 		out["map_entries"] = s.host.map_entries
 		out["travels"] = s.host.travels
+		out["combat"] = s.host.combat_result()
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
@@ -149,6 +152,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["left_maps"] = c.left_maps
 		out["others_on_welcome"] = c.others_on_welcome
 		out["wrong_map_edits"] = c.wrong_map_edits
+		out["combat"] = c.combat_result()
 	return out
 
 

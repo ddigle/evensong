@@ -8,6 +8,9 @@ extends RefCounted
 ## M3b: every member is on one map (`map_id`). On the host that is the truth (its Player lives in that
 ## map's world and steps on its data); a client knows its own map (the one it has loaded) and the
 ## others' from their states, and draws only the players on its own map.
+## M4b: the host owns every member's vitals (its Player's PlayerSim), and the state carries them. It counts
+## the ticks a member with a running timer sent no frame (and steps it itself after
+## Config.NET_HOST_STEPS_AFTER_TICKS: host_steps), and what the member's player went through (combat).
 
 var slot: int = -1
 ## Peer id on the host (1 = the host itself); 0 on clients, which only know slots.
@@ -32,6 +35,13 @@ var swings_missed: Dictionary[String, int] = {}
 ## Actions this member's player started (host: simulated; client: seen), by action name.
 var actions_seen: Dictionary[String, int] = {}
 const OP_BUDGET_MAX: int = Config.NET_OP_BURST * Config.NET_OP_INTERVAL_TICKS
+## Host (M4b): ticks since this member's last frame, ticks the host stepped it itself, a respawn waiting
+## for a map stream to end, and combat counts (hurt, downed, died, revived, hits and kills on heretics).
+var no_frame_ticks: int = 0
+var host_steps: int = 0
+var host_stepping: bool = false
+var respawn_pending: bool = false
+var combat: Dictionary[String, int] = {}
 var _last_action: int = -1
 var _last_action_start: float = -1.0
 
@@ -70,6 +80,7 @@ func state() -> NetProtocol.PlayerState:
 	s.action_tick = player.action_tick
 	s.held = player.held_id()
 	s.map = map_id
+	s.vitals = player.vitals.copy() if not player.vitals.at_rest() else null
 	return s
 
 
@@ -98,6 +109,24 @@ func count_action(action: int) -> void:
 	var name: String = RigData.ANIM_NAMES[action]
 	var n: int = actions_seen.get(name, 0)
 	actions_seen[name] = n + 1
+
+
+## Host (M4b): how many of combat event `what` this member's player went through.
+func combat_count(what: String) -> int:
+	var n: int = combat.get(what, 0)
+	return n
+
+
+## Host: how many requests were refused for `why`.
+func refused(why: String) -> int:
+	var n: int = ops_refused.get(why, 0)
+	return n
+
+
+## Host (M4b): one more of combat event `what` ("hurt", "downed", "died", "revived", "hits", "kills").
+func count_combat(what: String, n: int = 1) -> void:
+	var v: int = combat.get(what, 0)
+	combat[what] = v + n
 
 
 func count_done(op_name: String) -> void:

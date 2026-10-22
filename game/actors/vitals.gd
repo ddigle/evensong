@@ -3,8 +3,9 @@ extends RefCounted
 ## A player's health, stamina, dash, stagger and life (M4a). Part of the simulation state
 ## (actors/player_sim.gd): the one frame rule (PlayerSim.step) advances it for the offline player, the
 ## host and a client's prediction alike; damage comes from outside (PlayerSim.hurt, the combat rules).
-## Values are PROVISIONAL (core/config.gd "M4a", README "임시값"). In a session nothing hurts anyone and
-## nobody dashes yet (M4b), so these stay full there.
+## Values are PROVISIONAL (core/config.gd "M4a", README "임시값"). M4b: in a session the host owns them
+## (its PlayerSim per member); every state batch carries them (NetProtocol's vitals block, unless they are
+## at rest), and a client's prediction replays its frames from the host's.
 ##
 ## Life: ALIVE -> (0 HP) DOWN -> (Config.DOWN_TICKS, or holding F GIVE_UP_HOLD_TICKS) DEAD ->
 ## (Config.RESPAWN_TICKS) the caller respawns it at the altar. A revive (another player holding F,
@@ -61,6 +62,24 @@ func same_as(o: Vitals) -> bool:
 		and dash_cooldown == o.dash_cooldown and hurt_ticks == o.hurt_ticks and invuln_ticks == o.invuln_ticks \
 		and life == o.life and life_ticks == o.life_ticks and revive_ticks == o.revive_ticks \
 		and give_up_ticks == o.give_up_ticks
+
+
+## M4b: every field the wire carries (NetProtocol.put_vitals), the hit flash included.
+func same_wire(o: Vitals) -> bool:
+	return same_as(o) and flash_ticks == o.flash_ticks
+
+
+## M4b: no timer runs (stamina full, no dash, cooldown, stagger, invulnerability or flash) and the player
+## is up. A client records a frame every tick while this is false, so the host steps it tick by tick.
+func idle() -> bool:
+	return life == Life.ALIVE and stamina == Config.STAMINA_MAX and stamina_wait == 0 and regen_tick == 0 \
+		and dash_ticks == 0 and dash_dir == Vector2i.ZERO and dash_cooldown == 0 and hurt_ticks == 0 \
+		and invuln_ticks == 0 and flash_ticks == 0 and life_ticks == 0 and revive_ticks == 0 and give_up_ticks == 0
+
+
+## M4b: idle and at full HP: what a fresh player has. A state batch sends no vitals block for it.
+func at_rest() -> bool:
+	return hp == Config.PLAYER_HP_MAX and idle()
 
 
 func alive() -> bool:

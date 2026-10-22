@@ -44,6 +44,9 @@ func local_action() -> NetBot.Action:
 	if bot != null:
 		if bots_started:
 			bot.map_counts = map_counts()
+			bot.foes = foe_positions()
+			bot.life = p.vitals.life if p != null else Vitals.Life.ALIVE
+			bot.downed = downed_here()
 			return bot.step(feet)
 		var idle: NetBot.Action = NetBot.Action.new()
 		idle.mouse = feet
@@ -56,7 +59,29 @@ func local_action() -> NetBot.Action:
 		a.aiming = p.mouse_aiming()
 		a.use_pressed = Input.is_action_just_pressed(&"use_item")
 		a.use_held = Input.is_action_pressed(&"use_item")
+		a.dash = Input.is_action_just_pressed(&"dash")  # M4b: Space and F held in sessions too
+		a.interact = Input.is_action_pressed(&"interact")
 	return a
+
+
+## M4b: where the players on the local player's map that are down lie, as this machine shows them.
+func downed_here() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for slot: int in s.members:
+		var m: NetMember = s.members[slot]
+		if m.map_id == s.local_map() and m.player != null and m.player.vitals.life == Vitals.Life.DOWN:
+			out.append(m.player.sim_position)
+	return out
+
+
+## M4b: the live heretics of the local player's map as this machine has them (the host: its arena; a
+## client: as it draws them).
+func foe_positions() -> Array[Vector2]:
+	if s.host != null:
+		return s.host.foe_positions()
+	if s.client != null and s.client.combat != null:
+		return s.client.combat.foe_positions()
+	return [] as Array[Vector2]
 
 
 func start_bots() -> void:
@@ -98,7 +123,7 @@ func host_after_tick(now: int) -> void:
 
 
 func _ready_to_finish() -> bool:
-	if s.options.net_expect < 0 or not bots_started or s.host.broadcast.dirty:
+	if s.options.net_expect < 0 or not bots_started or s.host.broadcast.dirty or not s.host.combat_quiet():
 		return false
 	if bot != null and not bot.finished:
 		return false

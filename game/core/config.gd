@@ -216,7 +216,7 @@ const WALL_TORCH_LIGHT_RADIUS_PX: int = 48
 const WALL_TORCH_LIGHT_ENERGY: float = 0.8
 
 # --- PROVISIONAL, M4a (health, stamina, dash, basic attacks, death, the heretic, spawning) -----
-# Offline first: in a session there is no damage, no enemy and no dash yet (M4b). README "임시값" M4a.
+# Offline first (M4a); M4b brings all of it to sessions, the host deciding. README "임시값" M4a.
 
 ## PROVISIONAL (○ gameplay-design §2.4 "HP + 방어력 … 스태미나(대시·방패)"; no numbers in the docs): a
 ## player's hit points and stamina. No armour or defence stat (equipment is M7): damage is taken whole
@@ -287,7 +287,7 @@ const CLASS_WEAPONS: Dictionary[String, StringName] = {
 }
 ## PROVISIONAL (not in docs; supersedes M2a's empty start offline): the offline local player starts with
 ## its class weapon in this hotbar slot (0-based; the last, so the debug kit and --give keep their M2 /
-## M3 slots). In a session nobody gets it yet (M4b).
+## M3 slots). M4b: in a session the host gives every player its class weapon there when it joins.
 const START_WEAPON_SLOT: int = 7
 ## PROVISIONAL (not in docs): attacks by weapon item: [kind (Combat.Kind: 0 melee, 1 arrow, 2 bolt),
 ## damage, reach px (melee: feet to feet; shots: travel), arc degrees (melee), hit frame (0-based frame
@@ -362,6 +362,15 @@ const HERETIC_SPAWN_ARRIVAL_MIN_TILES: int = 14
 ## corruption source, game-concept §12; what breaking it does is not written).
 const SHRINE_HP: int = 150
 const SHRINE_STOPS_SPAWNS: bool = true
+
+# --- PROVISIONAL, M4b (combat in sessions: the host decides, README "임시값" M4b) ----------------
+
+## PROVISIONAL (not in docs; ● host authority, game-concept §13): how a client draws the host's enemies.
+## Positions, HP, hurt and death are drawn NET_INTERP_DELAY_MS behind the newest host state like the
+## other players; true = a heretic's attack (the wind-up, the knife raised: the telegraph) is drawn from
+## the newest state at once, without that delay, so a player sees it as early as the wire allows
+## (net/net_combat.gd). false = the attack waits for the delay like the rest.
+const NET_ENEMY_WINDUP_FRESH: bool = true
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -504,6 +513,16 @@ const HIT_FLASH_TICKS: int = 6
 const BODY_HIT_RADIUS_PX: float = 8.0
 const SHOT_DRAW_LIFT_PX: int = 12
 const SHOT_STEP_PX: float = 2.0
+## IMPL (M4b): a map's enemy batch goes out at once on a tick a heretic starts an attack (not on the next
+## 20 Hz batch tick: up to 2 ticks earlier on the telegraph's clock).
+const NET_ENEMY_SEND_ON_ATTACK: bool = true
+## IMPL (M4b): a member whose vitals run a timer (Vitals.idle false: stagger, invulnerability, dash, down,
+## dead, stamina coming back) and whose client sent no frame for this many ticks is stepped by the host
+## itself with an empty frame each tick until its frames come again: its down time, its respawn and the
+## end of its invulnerability run on the host's clock even when a client stops sending. 30 ticks: well
+## past the input jitter of a working link (frames go every 2 ticks), so a normal client is never stepped
+## twice (that would cost it a correction).
+const NET_HOST_STEPS_AFTER_TICKS: int = 30
 
 
 static func safe_radius_px() -> float:

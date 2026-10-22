@@ -44,6 +44,10 @@ extends Node2D
 ## (Combat.is_mining_swing); dying drops the death bag (WorldItems.death_drop); the respawn puts the
 ## player back at the altar (spawn slot 0, the surface). Test flags (--test-at, --test-heretic,
 ## --test-down, --test-ally, --test-shrine-hp) set scenes up for screenshots and tests.
+## M4b (sessions): the session owns the combat (net/session_host.gd: an arena and a view per map on the
+## host; net/net_combat.gd on a client) and the death, bag and respawn of every player; Main draws the
+## HUD of the local player as before. A client that loses its host and plays on alone gets offline
+## arenas from then on (the host's heretics are gone with the host).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -180,6 +184,16 @@ func _physics_process(delta: float) -> void:
 
 
 func _bot_tick(delta: float) -> void:
+	bot.foes.clear()
+	if ensure_combat(current_map):
+		for h: HereticSim in arenas[current_map].heretics:
+			if h.alive():
+				bot.foes.append(h.pos)
+	bot.life = player.vitals.life
+	bot.downed.clear()
+	for p: Player in players_on(current_map):
+		if p.vitals.life == Vitals.Life.DOWN:
+			bot.downed.append(p.sim_position)
 	var a: NetBot.Action = bot.step(player.sim_position)
 	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact)
 	if a.op == null:
@@ -477,6 +491,7 @@ func ensure_combat(id: int) -> bool:
 		v.free()
 	var a: Arena = Arena.new()
 	a.setup(w.data, CliOptions.current().world_seed)
+	a.spawning = not CliOptions.current().test_no_spawns
 	arenas[id] = a
 	v = CombatView.new()
 	v.name = &"Combat"
@@ -573,9 +588,7 @@ func _on_respawn_due(p: Player) -> void:
 	if p.get_parent() != world.entities:
 		p.get_parent().remove_child(p)
 		world.entities.add_child(p)
-	p.set_world(world.data, world.spawn_point(slot))
-	p.facing = Config.SPAWN_FACING
-	p.respawn_vitals()
+	p.respawn_at(world.data, world.spawn_point(slot))  # M4b: the rule the host and a prediction share
 	if p == player:
 		_follow(p)
 		marker.refresh()
@@ -587,6 +600,17 @@ func _world_of(p: Player) -> GameWorld:
 		if worlds[id].data == p.data:
 			return worlds[id]
 	return null
+
+
+## M4b: after continue_offline the local player fights offline: its death, bag and respawn are Main's
+## again and every map gets an offline arena (the host's heretics went with the host).
+func _go_offline_combat() -> void:
+	for pair: Array in [[player.died, _on_died.bind(player)], [player.respawn_due, _on_respawn_due.bind(player)],
+			[player.hurt, _on_hurt.bind(player)]]:
+		var sig: Signal = pair[0]
+		var handler: Callable = pair[1]
+		sig.connect(handler)
+	setup_combat()
 
 
 ## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
@@ -649,6 +673,10 @@ func _apply_test_options(options: CliOptions) -> void:
 		for c: Vector2i in options.test_heretics:
 			arenas[current_map].spawn_heretic(Arena.spawn_feet(c))
 		combat_views[current_map].sync(players_on(current_map))
+	if arenas.has(Config.MAP_DUNGEON):
+		for c: Vector2i in options.test_dungeon_heretics:
+			arenas[Config.MAP_DUNGEON].spawn_heretic(Arena.spawn_feet(c))
+		combat_views[Config.MAP_DUNGEON].sync(players_on(Config.MAP_DUNGEON))
 	marker.refresh()
 
 
@@ -684,5 +712,6 @@ func _on_net_ended(reason: String, code: int) -> void:
 	var options: CliOptions = CliOptions.current()
 	if options.net_out.is_empty() and code == NetSession.EXIT_FAILED and reason == "lost the host" and player != null:
 		net.continue_offline()  # alone now: the keys drive the player as offline, its inventory is its own
+		_go_offline_combat()
 		return
 	get_tree().quit(code)

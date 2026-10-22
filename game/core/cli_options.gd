@@ -58,6 +58,13 @@ extends RefCounted
 ##   --test-down                  the local player starts downed (0 HP)
 ##   --test-ally=<class>[:down]   a second player (no input) beside the local one, downed with :down
 ##   --test-shrine-hp=<n>         the dungeon shrine starts with n hit points (with --start-map=dungeon)
+## M4b (also in sessions: the host applies them to its arenas and members):
+##   --test-heretic=...           a host puts them on the surface
+##   --test-dungeon-heretic=<x>,<y>[/...]   heretics on those dungeon tiles at the start (offline, host)
+##   --test-shrine-hp=<n>         a host's dungeon shrine starts with n hit points
+##   --test-no-spawns             no heretic spawns (offline and host; the test heretics still come)
+##   --test-start-hp=<class>:<hp>[,...]   host: members of that class start with that HP (tests: one hit
+##                                downs them)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -110,6 +117,10 @@ var test_down: bool = false
 var test_ally: String = ""
 var test_ally_down: bool = false
 var test_shrine_hp: int = 0
+## M4b test flags: dungeon heretic tiles, spawns off, start HP by class (host).
+var test_dungeon_heretics: Array[Vector2i] = []
+var test_no_spawns: bool = false
+var test_start_hp: Dictionary[String, int] = {}
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -274,6 +285,18 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.test_ally_down = ally.size() == 2
 			"test-shrine-hp":
 				o.test_shrine_hp = _parse_positive(value, raw, o.errors, 0)
+			"test-dungeon-heretic":
+				o.test_dungeon_heretics = _parse_tiles(value, raw, o.errors)
+			"test-no-spawns":
+				o.test_no_spawns = true
+			"test-start-hp":
+				for part: String in value.split(",", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not Config.CLASSES.has(kv[0]) or not kv[1].is_valid_int() or kv[1].to_int() < 1 \
+							or kv[1].to_int() > Config.PLAYER_HP_MAX:
+						o.errors.append("%s: expected --test-start-hp=<class>:<1..%d>[,...]" % [raw, Config.PLAYER_HP_MAX])
+						break
+					o.test_start_hp[kv[0]] = kv[1].to_int()
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:

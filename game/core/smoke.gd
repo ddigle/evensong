@@ -426,4 +426,58 @@ static func _check_net(r: Report) -> void:
 			if state.get_node_name(i) == &"Net":
 				has_net = true
 	r.expect(has_net, "main.tscn has no Net node")
+	_check_net_combat(r, s)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
+
+
+## M4b: combat on the wire: a frame's dash, F held and a USE's aim, a state's vitals block, a map's enemy
+## batch from a real arena drawn by a client's NetCombat where the host has it, shot events.
+static func _check_net_combat(r: Report, s: NetProtocol.PlayerState) -> void:
+	var use: NetProtocol.InputFrame = NetProtocol.InputFrame.new(11, Vector2i(-1, 0))
+	use.dash = true
+	use.interact = true
+	use.op = NetProtocol.Op.USE
+	use.slot = Config.START_WEAPON_SLOT
+	use.cell = Vector2i(40, 30)
+	use.aim = 173
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([use] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames[0].same_request(use) and up.frames[0].dash and up.frames[0].interact and up.frames[0].aim == 173,
+		"a frame's dash, F held and a USE's aim round trip (M4b)")
+	var v: Vitals = Vitals.new()
+	v.hp = 30
+	v.life = Vitals.Life.DOWN
+	v.life_ticks = 77
+	v.revive_ticks = 12
+	s.vitals = v
+	var vb: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(79, [s] as Array[NetProtocol.PlayerState]))
+	r.expect(vb.ok and vb.states[0].same_as(s) and vb.states[0].vitals != null and vb.states[0].vitals.life == Vitals.Life.DOWN,
+		"a state's vitals block round trip (M4b)")
+	s.vitals = null
+	var d: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var arena: Arena = Arena.new()
+	arena.setup(d, Config.DEFAULT_SEED)
+	var feet: Vector2 = DungeonGen.arrival_point(d) + Vector2(40, 16)
+	var h: HereticSim = arena.spawn_heretic(feet)
+	h.state = HereticSim.State.ATTACK
+	h.state_ticks = 12
+	h.hp = 26
+	var payload: PackedByteArray = NetProtocol.encode_enemies(500, Config.MAP_DUNGEON, arena.shrine_hp_now(), arena.enemy_states(500))
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_DUNGEON, d)
+	var b: NetProtocol.EnemyBatch = NetProtocol.decode_enemies(payload)
+	nc.on_batch(b, payload, true)
+	nc.sample(500.0, 6.0)
+	var shown: HereticSim = nc.arena.heretics[0] if nc.arena.heretics.size() == 1 else null
+	r.expect(b.ok and shown != null and shown.pos == feet and shown.hp == 26 and shown.state == HereticSim.State.ATTACK
+		and shown.state_ticks == 12 and nc.arena.shrine_hp == Config.SHRINE_HP,
+		"an enemy batch drawn by a client where the host has it, its wind-up at once (M4b)")
+	var shot: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	shot.id = 9
+	shot.item = &"bow"
+	shot.owner = 1
+	shot.tick = 499
+	shot.pos = feet
+	shot.aim = 0
+	var se: NetProtocol.ShotEvents = NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_DUNGEON, [shot] as Array[NetProtocol.ShotEvent]))
+	r.expect(se.ok and se.events.size() == 1 and se.events[0].same_as(shot), "shot events round trip (M4b)")
+	r.fields.append("combat_wire=%dB" % payload.size())
