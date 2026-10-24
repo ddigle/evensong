@@ -102,6 +102,8 @@ static func check(data: WorldData, edit: WorldEdit) -> String:
 		return "no change"
 	if not data.can_set_terrain(edit.cell, edit.value):
 		return "terrain rules (soil next to ash)"
+	if edit.value != Terrain.SOIL and Farming.field_at(data, edit.cell) != null:
+		return "a field lies there"  # M5a: a crop or wet soil stays on soil (no untilling)
 	return ""
 
 

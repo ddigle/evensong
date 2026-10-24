@@ -17,6 +17,9 @@ extends RefCounted
 ## M6b: wire v6: a THROW and a CRAFT on frames, a state with its effects block, a host arena's thrown potion as
 ## its thrown / broke events flown by a client's NetCombat on the host's points, the heretic's poison flag drawn
 ## on the client. Printed as potion_wire=<a state with effects>B/<a throw's two events>B.
+## M5a: the seed items, the crops sheet and the watered soil art, and a crop on the seed-1 world's first lit soil tile:
+## planted by the herbalist, kept wet, ripe after four stages at the herbalist's speed, harvested for FINE herbs and a
+## seed. Printed as farm=<ticks to ripe>/<herbs>.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -71,6 +74,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_items(r)
 	_check_combat(r)
 	_check_potions(r)
+	_check_farm(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -385,6 +389,52 @@ static func _check_potions(r: Report) -> void:
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
 ## and the flame mask has the 81 lamp pixels.
+## M5a: the farming art and one crop from seed to harvest (see the header).
+static func _check_farm(r: Report) -> void:
+	for id: StringName in Farming.SEEDS.slice(1):
+		var def: ItemDB.ItemDef = ItemDB.get_def(id)
+		r.expect(def != null and def.kind == ItemDB.Kind.SEED, "seed item %s" % id)
+	var sheet: Texture2D = FieldView.crop_sheet(false)
+	r.expect(sheet != null and Vector2i(sheet.get_size()) == Vector2i(112, 48), "crops sheet 112x48")
+	for source: int in FieldView.WET_PATHS:
+		r.expect(FieldView.wet_texture(source) != null, "watered soil art for ground source %d" % source)
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var farm: Farm = Farm.new(data)
+	var c: Vector2i = Vector2i(-1, -1)
+	for i: int in data.layers[WorldData.Layer.FLOOR].size():
+		var t: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
+		if data.terrain_at(t) == Terrain.SOIL and Farming.in_light(data, t):
+			c = t
+			break
+	if not r.expect(c.x >= 0, "a lit soil tile in the seed-1 world"):
+		return
+	var feet: Vector2 = Arena.spawn_feet(c + Vector2i(0, 1))
+	var inv: Inventory = Inventory.new()
+	inv.add(&"seed_healing", 1)
+	var ripe_at: int = -1
+	var edits: Array[EditLog.WorldEdit] = farm.plant(feet, "herbalist", inv, 0, c).edits
+	for tick: int in range(1, 6 * Config.CROP_STAGE_TICKS):
+		# Every result's edits go into the data before the next call reads it (as GameWorld.apply_edit does).
+		for e: EditLog.WorldEdit in edits:
+			EditLog.apply_to_data(data, e)
+		for e: EditLog.WorldEdit in farm.water(feet, c).edits:
+			EditLog.apply_to_data(data, e)
+		edits = farm.step()
+		for e: EditLog.WorldEdit in edits:
+			EditLog.apply_to_data(data, e)
+		edits = []
+		var f: Farming.Field = Farming.field_at(data, c)
+		if f != null and f.ripe():
+			ripe_at = tick
+			break
+	# Written out (not Farming.stage_ticks): four stages at the herbalist's percent of the common speed.
+	r.expect_eq(ripe_at, 4 * Config.CROP_STAGE_TICKS * 100 / Config.CROP_HERBALIST_GROWTH_PCT, "the herbalist's crop ripe after four stages")
+	var got: Farm.Result = farm.harvest(feet, "herbalist", inv, c)
+	r.expect(got.ok() and inv.count_of(&"wild_healing", ItemDB.Grade.FINE) == Config.CROP_HARVEST_HERBS
+		and inv.count_of(&"seed_healing") == Config.CROP_HARVEST_SEEDS, "harvest: FINE herbs and a seed (%s)" % got.why)
+	r.fields.append("farm=%d/%d" % [ripe_at, got.count])
+
+
 static func _check_light(r: Report) -> void:
 	var zone: SafeZone = SafeZone.for_world(SurfaceGen.generate(Config.DEFAULT_SEED))
 	var img: Image = LightGen.zone_light_image(zone, LightGen.Edge.HARD, 0)

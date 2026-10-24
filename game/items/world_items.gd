@@ -7,6 +7,8 @@ extends RefCounted
 ##
 ## Gatherables live in the VEGETATION layer: value = 1 + index in GATHERABLES (0 = nothing). Picking
 ## one up clears the cell (an ordinary layer edit). There is no regrowth (not in the docs).
+## M5a: a field's crop or wet soil is a VEGETATION value from Config.FIELD_BASE on (items/farming.gd): no gatherable
+## (gatherable_for gives &""), but "something grows here" for every rule below that reads VEGETATION != 0.
 ## Drops are WorldData.drops: any player may pick up any drop and it is theirs (PROVISIONAL, ○
 ## gameplay-design §5 "드롭은 주운 사람 것"); a drop that does not fit the inventory whole is taken in
 ## part and the rest stays.
@@ -88,6 +90,8 @@ class Outcome:
 	var item: StringName = &""
 	var count: int = 0
 	var grade: int = 0
+	## M5a: the pick up took a gatherable (it grew there), not a drop (offline, a wild herb then gives a seed).
+	var gathered: bool = false
 
 	func ok() -> bool:
 		return why.is_empty()
@@ -160,6 +164,7 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		o.item = plant
 		o.count = 1
 		o.grade = grade
+		o.gathered = true
 		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, 0))
 		return o
 	var here: Array[WorldData.Drop] = data.drops_at(c)

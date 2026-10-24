@@ -67,6 +67,14 @@ extends SceneTree
 ##            state with its effects block) sampled at the host's tick: the same pixels, with the bottle, the splash
 ##            and the marks there. Then the crafting panel a client opens at a table that came in a world snapshot,
 ##            for the inventory that came in an inventory message: the same pixels as the panel opened offline.
+##   fields   (M5a) evening off, around the altar: lit grass tilled (floor edits) next to the M1 soil patches, the entities
+##            hidden: the ground equals a CPU composite of the tile each display cell shows, read from the PNG files
+##            (soil drawn as soil). Then crops of the three kinds at stages 0..4 and withered, some wet, and wet bare
+##            soil: the screen equals that ground plus the wet quarters (each wet tile = the four quarters around its
+##            vertex of the watered copies of the tiles those display cells show, read from the watered PNGs) and the
+##            crops (their sheet cell on the tile, the mound recoloured to the dry / watered soil by a table written out
+##            here), pixel for pixel. Then with the evening on: the wet and crop pixels well inside the light stay lit
+##            (the wet patches on the ground's light layer, the crops on the actors').
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -124,6 +132,7 @@ func _run() -> void:
 		await _check_crafting()
 		await _check_potions()
 		await _check_potions_net()
+		await _check_fields()
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
@@ -1155,6 +1164,169 @@ func _check_items() -> void:
 		print("EVENSONG_RENDER items ok %s" % line)
 	else:
 		_fail("items", line)
+
+
+## M5a: the ground's PNG per TilesetBuilder source id, and the watered copies of the soil ones (written out here).
+const GROUND_FILES: Dictionary[int, String] = {
+	0: "tiles_grass-soil_v03.png", 1: "tiles_grass-corruption_v05.png",
+	10: "tiles_grass_var_1_v02.png", 11: "tiles_grass_var_2_v02.png", 12: "tiles_grass_var_3_v02.png",
+	13: "tiles_grass_var_4_v02.png", 20: "tiles_soil_var_1_v01.png", 21: "tiles_soil_var_2_v01.png",
+	30: "tiles_ash_var_1_v02.png", 31: "tiles_ash_var_2_v02.png", 32: "tiles_ash_var_3_v02.png",
+}
+const WET_FILES: Dictionary[int, String] = {
+	0: "tiles_grass-soil_v03_watered.png", 20: "tiles_soil_var_1_v01_watered.png", 21: "tiles_soil_var_2_v01_watered.png",
+}
+## The crops sheet's mound browns -> the dry / watered soil's (04-env prompts.md: the mound takes the soil's colours),
+## the seed mound's two lighter browns only in column 0, the harvest column (5) never.
+const MOUND_TO_DRY: Dictionary[int, int] = {0x5b2e15: 0x56321b, 0x723f0e: 0x6a4528, 0x83501c: 0x7f5531}
+const MOUND_TO_WET: Dictionary[int, int] = {0x5b2e15: 0x331f16, 0x723f0e: 0x4b3021, 0x83501c: 0x5c3c27}
+const SEED_TO_DRY: Dictionary[int, int] = {0x8c5a2c: 0x6a4528, 0xb0814e: 0x7f5531}
+const SEED_TO_WET: Dictionary[int, int] = {0x8c5a2c: 0x4b3021, 0xb0814e: 0x84603f}
+
+
+static func _png(file: String) -> Image:
+	var img: Image = Image.load_from_file(ProjectSettings.globalize_path("res://art/" + file))
+	img.convert(Image.FORMAT_RGBA8)
+	return img
+
+
+## The crop sheet cell (col, row) with its mound in the dry or the watered soil's colours.
+static func _crop_cell(sheet: Image, col: int, row: int, is_wet: bool) -> Image:
+	var cell: Image = sheet.get_region(Rect2i(col * 16, row * 16, 16, 16))
+	var mound: Dictionary[int, int] = MOUND_TO_WET if is_wet else MOUND_TO_DRY
+	var seed_mound: Dictionary[int, int] = SEED_TO_WET if is_wet else SEED_TO_DRY
+	for y: int in 16:
+		for x: int in 16:
+			var c: Color = cell.get_pixel(x, y)
+			var rgb: int = (c.r8 << 16) | (c.g8 << 8) | c.b8
+			var to: int = mound.get(rgb, -1)
+			if to < 0 and col == 0:
+				to = seed_mound.get(rgb, -1)
+			if c.a8 > 0 and to >= 0 and col != 5:
+				cell.set_pixel(x, y, Color8((to >> 16) & 0xff, (to >> 8) & 0xff, to & 0xff, c.a8))
+	return cell
+
+
+## M5a: tilled and watered soil and the crops (see the header).
+func _check_fields() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var centre: Vector2 = data.altar_center_px()
+	var origin: Vector2i = _look_at(Vector2i(centre) + Vector2i(0, 8))
+	var screen: Rect2i = Rect2i(origin, Config.VIEW_SIZE)
+	# Field tiles: wholly lit, on the screen, nothing on them, soil allowed; grass ones get tilled first.
+	var cells: Array[Vector2i] = []
+	var tilled: Array[Vector2i] = []
+	for y: int in range(data.altar_rect.position.y - 8, data.altar_rect.end.y + 8):
+		for x: int in range(data.altar_rect.position.x - 8, data.altar_rect.end.x + 8):
+			var c: Vector2i = Vector2i(x, y)
+			if not screen.encloses(Rect2i(c * 16, Vector2i(16, 16))) or not Farming.in_light(data, c) \
+					or data.get_value(WorldData.Layer.PLACEABLE, c) != 0 or data.get_value(WorldData.Layer.VEGETATION, c) != 0 \
+					or not data.can_set_terrain(c, Terrain.SOIL):
+				continue
+			cells.append(c)
+			if data.terrain_at(c) == Terrain.GRASS:
+				tilled.append(c)
+	for c: Vector2i in tilled:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c, Terrain.SOIL))
+	var hidden: Array[CanvasItem] = []
+	for n: Node in world.entities.get_children():
+		var ci: CanvasItem = n as CanvasItem
+		if ci != null and ci.visible:
+			ci.visible = false
+			hidden.append(ci)
+	world.decals.visible = false
+	var ground_got: Image = await _capture()
+	# The ground from the PNG files: every display cell on the screen, the tile it shows.
+	var ground_want: Image = Image.create_empty(Config.VIEW_SIZE.x, Config.VIEW_SIZE.y, false, Image.FORMAT_RGBA8)
+	var files: Dictionary[int, Image] = {}
+	var unknown: int = 0
+	for dy: int in range(origin.y / 16 - 2, (origin.y + Config.VIEW_SIZE.y) / 16 + 2):
+		for dx: int in range(origin.x / 16 - 2, (origin.x + Config.VIEW_SIZE.x) / 16 + 2):
+			var drawn: Vector3i = world.ground.drawn_at(Vector2i(dx, dy))
+			if not GROUND_FILES.has(drawn.x):
+				unknown += 1
+				continue
+			if not files.has(drawn.x):
+				files[drawn.x] = _png("tiles/" + GROUND_FILES[drawn.x])
+			ground_want.blit_rect(files[drawn.x], Rect2i(drawn.y * 16, drawn.z * 16, 16, 16), Vector2i(dx * 16 + 8, dy * 16 + 8) - origin)
+	var ground_bad: int = count_diff(ground_got, ground_want)
+	# The fields: 3 kinds x (stages 0..4, withered), every 4th wet; then wet bare soil; the rest dry bare soil.
+	var sheet: Image = _png("env/crops_v03_sheet.png")
+	var want: Image = ground_got.duplicate() as Image
+	var wet_cells: Array[Vector2i] = []
+	var crop_cells: Array[Vector2i] = []
+	var crop_images: Array[Image] = []
+	for i: int in cells.size():
+		var c: Vector2i = cells[i]
+		var f: Farming.Field = null
+		if i < 18:
+			f = Farming.Field.new(1 + i / 6, mini(i % 6, Farming.RIPE_STAGE), i % 4 == 0, false, i % 6 == 5)
+		elif i < 24:
+			f = Farming.Field.new(Farming.KIND_NONE, 0, true)
+		if f == null:
+			continue
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, f.value()))
+		if f.wet:
+			wet_cells.append(c)
+		if f.kind != Farming.KIND_NONE:
+			crop_cells.append(c)
+			crop_images.append(_crop_cell(sheet, 6 if f.withered else f.stage, f.kind - 1, f.wet))
+	for c: Vector2i in wet_cells:
+		for k: int in 4:
+			var q: Vector2i = Vector2i(k % 2, k / 2)
+			var drawn2: Vector3i = world.ground.drawn_at(c + q - Vector2i.ONE)
+			if not WET_FILES.has(drawn2.x):
+				unknown += 1
+				continue
+			if not files.has(100 + drawn2.x):
+				files[100 + drawn2.x] = _png("tiles/" + WET_FILES[drawn2.x])
+			want.blit_rect(files[100 + drawn2.x], Rect2i(drawn2.y * 16 + (1 - q.x) * 8, drawn2.z * 16 + (1 - q.y) * 8, 8, 8),
+				c * 16 + q * 8 - origin)
+	for i2: int in crop_cells.size():
+		_paste_at(want, crop_images[i2], crop_cells[i2] * 16 - origin)
+	var got: Image = await _capture()
+	var fields_bad: int = count_diff(got, want)
+	var drawn_px: int = count_diff(got, ground_got)
+	# The evening on: wet and crop pixels well inside the light stay lit.
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var checked: int = 0
+	var dark: int = 0
+	for y2: int in Config.VIEW_SIZE.y:
+		for x2: int in Config.VIEW_SIZE.x:
+			var p: Vector2i = Vector2i(x2, y2)
+			if want.get_pixelv(p) == ground_got.get_pixelv(p):
+				continue  # not a field pixel (or one equal to the ground)
+			if Vector2(origin + p).distance_to(centre) > Config.safe_radius_px() - Config.SAFE_EDGE_BAND_PX - 4:
+				continue
+			if _brightness(got.get_pixelv(p)) < MIN_BRIGHTNESS:
+				continue
+			checked += 1
+			if _brightness(eve.get_pixelv(p)) < _brightness(got.get_pixelv(p)) * LIT_RATIO:
+				dark += 1
+	if ground_bad > 0 or fields_bad > 0 or dark > 0 or save_all:
+		_save(ground_got, "fields_ground_got.png")
+		_save(ground_want, "fields_ground_expected.png")
+		_save(got, "fields_got.png")
+		_save(want, "fields_expected.png")
+		_save(eve, "fields_evening_got.png")
+	# Back to the world as it was (the later parts use it).
+	for c2: Vector2i in cells:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c2, 0))
+	for c3: Vector2i in tilled:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c3, Terrain.GRASS))
+	for ci2: CanvasItem in hidden:
+		ci2.visible = true
+	world.decals.visible = true
+	var line: String = "tiles=%d tilled=%d crops=%d wet=%d ground_mismatches=%d mismatches=%d drawn=%d unknown=%d lit_checked=%d dark=%d" % [
+		cells.size(), tilled.size(), crop_cells.size(), wet_cells.size(), ground_bad, fields_bad, drawn_px, unknown, checked, dark]
+	if ground_bad == 0 and fields_bad == 0 and unknown == 0 and dark == 0 and crop_cells.size() == 18 and wet_cells.size() >= 8 \
+			and tilled.size() > 0 and drawn_px > 1000 and checked > 500:
+		print("EVENSONG_RENDER fields ok %s" % line)
+	else:
+		_fail("fields", line)
 
 
 static func _blend(dst: Image, tex: Texture2D, at: Vector2i) -> void:

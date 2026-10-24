@@ -74,6 +74,11 @@ extends RefCounted
 ## owner gets its inventory. The alchemy table is placed like a torch (WorldItems.place with the bodies on that map). The
 ## effects travel in the vitals block (players) and the enemy batches (a heretic's poison); a late client and a
 ## map entry get the bottles in the air and the splashes being shown as events after the enemy keyframe.
+##
+## M5a (farming offline first; M5c brings it here): a session runs no farm. A seed's USE is refused ("farming offline
+## only": a session's players make no such frame, Player.farming_on); the hoe and the watering can play their actions
+## and change nothing (M2b), the sickle stays the herbalist's weapon (a session has no crop to cut), a wild herb picked
+## gives no seed. The M1 soil patches are there as before.
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -389,6 +394,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and _potion_in(p, frame.slot):
 		_drink(m, frame)
+	elif frame.op == NetProtocol.Op.USE and Farming.seed_kind_in(p.inventory, frame.slot) != Farming.KIND_NONE:
+		_refuse_op(m, frame, Farming.WHY_OFFLINE)  # M5a: offline only until M5c (no session player makes this frame)
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)

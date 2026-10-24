@@ -461,6 +461,56 @@ const THROW_RELEASE_FRAME: int = 3
 ## potion that revives from 6 tiles away would make the cleric's instant revive (● §2.6) one of two.
 const THROW_HEAL_REVIVES: bool = false
 
+# --- PROVISIONAL, M5a (fields, seeds, watering, growth, harvest, withering) -------------------------------
+# Offline first (M5a); in a session farming stays off until M5c (as M3a, M4a and M6a did). README "임시값" M5a.
+# ● decided and followed as written: the three crops (game-concept §12 R28) and who plants what (§12 R37: the
+# healing and buff herbs anyone at COMMON grade, poison-herb seeds the herbalist only). Everything below is ○ or
+# not in the docs.
+
+## PROVISIONAL (○ game-concept §9.7 / gameplay-design §3.8 "밭은 제단 빛(반경) 안에서만 일군다"): true = the hoe tills a
+## grass tile only while the whole tile (its four corners) lies inside the altar's safe radius, the rule SurfaceGen
+## used for the M1 soil patches (Farming.in_light); false = any grass tile of the surface (soil still never next to
+## ash: no soil + ash tile art, WorldData.can_set_terrain).
+const TILL_ONLY_IN_LIGHT: bool = true
+## PROVISIONAL (not in docs): a seed stack's size.
+const STACK_SEED: int = 99
+## PROVISIONAL (not in docs; no merchant until M8): picking a wild herb (a gatherable, not a drop) also gives this many
+## seeds of its crop (offline in M5a; a session's pickup is M2b's until M5c). The wild herb is the crop's wild plant.
+const SEEDS_PER_WILD_HERB: int = 1
+## PROVISIONAL (○ §9.7 "물주기 → 성장 단계"; how long water lasts is not in the docs): a watered tile stays wet this
+## many ticks (watering again starts the count over), then dries.
+const WATER_TICKS: int = 60 * 60
+## PROVISIONAL (○ §9.7 "씨앗 → 성장 4~6단계 → 수확물"; the 04-env crops_v03 sheet draws stages 0..4): ticks of growth a
+## crop needs per stage (0 seed -> 1 -> 2 -> 3 -> 4 ripe). A crop grows only while its tile is wet and it has not
+## withered.
+const CROP_STAGE_TICKS: int = 40 * 60
+## PROVISIONAL (○ §9.7 / gameplay-design §3.8 "약초사는 성장이 빠르고"): a crop the herbalist planted grows at this
+## percent of the common speed (200 = each stage takes half as long).
+const CROP_HERBALIST_GROWTH_PCT: int = 200
+## PROVISIONAL (○ §9.7 "약초사는 … 상급 등급을 거두며"; ● gameplay-design §3.4 lets the picker decide a wild herb's grade):
+## true = the harvester decides (the herbalist's harvest is FINE, anyone else's COMMON), false = the planter (a crop the
+## herbalist planted gives FINE to whoever harvests it).
+const CROP_GRADE_BY_HARVESTER: bool = true
+## PROVISIONAL (not in docs): what one ripe crop gives: herbs of its kind (the wild herbs' items, so the M6 potions
+## brew from them) and seeds of its kind. What does not fit the inventory lies on the tile (like mining, M3a).
+const CROP_HARVEST_HERBS: int = 2
+const CROP_HARVEST_SEEDS: int = 1
+## PROVISIONAL (○ §9.7 / gameplay-design §3.8 "오염에 닿은 작물은 시든다"; "닿은" is not defined): a crop withers while a
+## corrupted tile (CORRUPTION layer) lies within this many tiles of it (Chebyshev, its own tile included). 2 is the
+## nearest a field can lie to the ash: no tile art has soil and ash corners, so soil stays a tile away from ash.
+const CROP_CORRUPTION_REACH_TILES: int = 2
+## PROVISIONAL (not in docs): seeds go only where the crop would grow (true: not outside the light, not next to
+## corruption, see Farming.withers_at); false = on any tilled soil (and it withers at once there).
+const PLANT_ONLY_WHERE_IT_GROWS: bool = true
+## PROVISIONAL (not in docs): crops grow, dry and wither on every map every tick, whether or not a player is on it
+## (true); false = only on maps with a player (like the heretics, M4a).
+const FARM_RUNS_WITHOUT_PLAYERS: bool = true
+## PROVISIONAL (not in docs): the action frame (0-based) on which the hoe tills and the one on which the watering can
+## waters (read off the 03-pixel sheets: the blade hits the soil on the hoe's 4th frame, like the pickaxe; the water
+## reaches the ground on the can's 6th).
+const HOE_IMPACT_FRAME: int = 3
+const WATER_IMPACT_FRAME: int = 5
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -628,6 +678,12 @@ const NET_HOST_STEPS_AFTER_TICKS: int = 30
 ## is drawn this many px higher at the middle of its flight (an arc on top of SHOT_DRAW_LIFT_PX).
 const SPLASH_SHOW_TICKS: int = 18
 const THROW_ARC_PX: float = 10.0
+## IMPL (M5a): a field tile's VEGETATION value (items/farming.gd): FIELD_BASE + crop kind * FIELD_KIND_STEP + stage *
+## FIELD_STAGE_STEP + flags (withered 4, wet 2, planted by the herbalist 1). Gatherables use 1..15, so 64.. is free and
+## every field value (64..223) fits a byte.
+const FIELD_BASE: int = 64
+const FIELD_KIND_STEP: int = 40
+const FIELD_STAGE_STEP: int = 8
 
 
 static func safe_radius_px() -> float:

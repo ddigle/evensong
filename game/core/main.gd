@@ -61,6 +61,12 @@ extends Node2D
 ## predicted: the host's inventory comes back), drinking and throwing are frames the session sends (the
 ## client predicts the action, the host decides the effect); the alchemy table is placed like a torch, by the
 ## host. A bot's tab / craft in a session come here through NetSession.bot_ui.
+## M5a (offline; a session keeps M6b's behaviour until M5c): each map has a Farm (world/farm.gd), stepped every physics
+## tick after the players (Config.FARM_RUNS_WITHOUT_PLAYERS: every map, the local player's or not); its edits go into
+## the world. The hoe's landing frame tills the target tile, the watering can's waters it, the sickle aimed at a crop
+## harvests it (Farming.is_harvest_swing; elsewhere it attacks as before), a click with seeds plants them (Player.
+## place_requested, like the torch), a wild herb picked gives a seed (Config.SEEDS_PER_WILD_HERB). --test-field puts
+## fields down at the start (screenshots, tests).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -82,6 +88,9 @@ var combat_views: Dictionary[int, CombatView] = {}
 var allies: Array[Player] = []
 var deaths: int = 0
 var combat_on: bool = false
+## M5a (offline): a farm per map.
+var farms: Dictionary[int, Farm] = {}
+var farming_on: bool = false
 var _gave: bool = false
 var _debug_action: int = 0
 
@@ -118,6 +127,7 @@ func _ready() -> void:
 	add_dungeon()
 	spawn(options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS)
 	setup_combat()
+	setup_farming()
 	_apply_test_options(options)
 	if not options.bot.is_empty():
 		bot = NetBot.new()
@@ -198,6 +208,7 @@ func _physics_process(delta: float) -> void:
 	if bot != null:
 		_bot_tick(delta)
 	step_combat(delta)
+	step_farms()
 
 
 func _bot_tick(delta: float) -> void:
@@ -247,6 +258,7 @@ func spawn(local_class: String) -> void:
 	player.name = &"LocalPlayer"
 	player.controls = true
 	player.potions_on = true  # M6a: offline only until M6b
+	player.farming_on = true  # M5a: offline only until M5c
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
 	player.action_started.connect(_on_action_started)
@@ -408,8 +420,23 @@ func pick_up() -> void:
 	if to >= 0:
 		travel(to)  # refused (and logged) for a map never received; F on a way is never a pick up
 		return
-	_apply_offline(WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell),
-		"pickup", cell)
+	var o: WorldItems.Outcome = WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell)
+	_apply_offline(o, "pickup", cell)
+	if o.ok() and o.gathered and farming_on:
+		seed_from_wild(player.inventory, o.item)
+
+
+## M5a (offline): a wild herb picked where it grew gives Config.SEEDS_PER_WILD_HERB seeds of its crop (PROVISIONAL: the
+## one way to seeds before the merchant, M8; the harvest gives seeds back). What does not fit is not given. Returns how
+## many went in.
+static func seed_from_wild(inv: Inventory, herb: StringName) -> int:
+	var kind: int = Farming.herb_kind(herb)
+	if kind == Farming.KIND_NONE or Config.SEEDS_PER_WILD_HERB <= 0:
+		return 0
+	var n: int = Config.SEEDS_PER_WILD_HERB - inv.add(Farming.SEEDS[kind], Config.SEEDS_PER_WILD_HERB)
+	print("EVENSONG_FARM seed from=%s item=%s count=%d%s" % [herb, Farming.SEEDS[kind], n,
+		"" if n == Config.SEEDS_PER_WILD_HERB else " (inventory full)"])
+	return n
 
 
 ## F7 (debug): drop the selected stack on the target tile (M4a: not while down or dead).
@@ -467,6 +494,9 @@ func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 		potion_impact(player, item, anim)  # M6a
 		return
 	var w: GameWorld = current_world()
+	if farming_on and (item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(w.data, item, target)):
+		farm_impact(player, item, target)  # M5a: the sickle aimed at a crop harvests instead of attacking
+		return
 	if Combat.attack_for(item) != null and not Combat.is_mining_swing(w.data, item, target):
 		_attack(player, item)
 		return
@@ -661,6 +691,9 @@ func _go_offline_combat() -> void:
 	if not player.potion_refused.is_connected(_on_potion_refused):
 		player.potion_refused.connect(_on_potion_refused)
 	setup_combat()
+	# M5a: and farming (the fields the host's world had, with fresh timers: Farm.setup).
+	player.farming_on = true
+	setup_farming()
 
 
 ## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
@@ -681,9 +714,15 @@ func add_ally(class_id: String, down: bool) -> Player:
 
 
 ## M3a, offline: a click with a torch selected puts it on the target tile. M6a: the same for the alchemy table
-## (its footprint may not cover anyone: the other players and the heretics on the map are passed along).
+## (its footprint may not cover anyone: the other players and the heretics on the map are passed along). M5a: seeds
+## are planted (Farm.plant).
 func _on_place_requested(slot: int, cell: Vector2i) -> void:
 	if _in_session() or player == null:
+		return
+	if farming_on and Farming.seed_kind_in(player.inventory, slot) != Farming.KIND_NONE:
+		if ensure_farm(current_map):
+			_apply_farm(farms[current_map], farms[current_map].plant(player.sim_position, player.class_id(), player.inventory,
+				slot, cell), "plant", cell, player)
 		return
 	var bodies: Array[Vector2] = []
 	for p: Player in players_on(current_map):
@@ -822,6 +861,110 @@ func _on_potion_refused(what: String, why: String) -> void:
 	print("EVENSONG_POTION %s refused: %s" % [what, why])
 
 
+# --- M5a: farming (offline) -------------------------------------------------------------------------------
+
+## A farm for every map (offline only, like the arenas; a session gets none until M5c).
+func setup_farming() -> void:
+	farming_on = true
+	for id: int in worlds:
+		ensure_farm(id)
+
+
+## Map `id`'s farm, (re)made when missing or when its world got other data (tests swap worlds).
+func ensure_farm(id: int) -> bool:
+	var w: GameWorld = _live_world(id)
+	if not farming_on or w == null or w.data == null:
+		return false
+	if not farms.has(id) or farms[id].data != w.data:
+		farms[id] = Farm.new(w.data)
+	return true
+
+
+## One farm tick on every map (Config.FARM_RUNS_WITHOUT_PLAYERS; false: only where a player is), in map order; the
+## edits go into each map's world.
+func step_farms() -> void:
+	if not farming_on:
+		return
+	var ids: Array[int] = []
+	ids.assign(worlds.keys())
+	ids.sort()
+	for id: int in ids:
+		if not ensure_farm(id):
+			continue
+		if not Config.FARM_RUNS_WITHOUT_PLAYERS and players_on(id).is_empty():
+			continue
+		var w: GameWorld = worlds[id]
+		for e: EditLog.WorldEdit in farms[id].step():
+			var was: Farming.Field = Farming.field_at(w.data, e.cell)
+			w.apply_edit(e)
+			_log_field_change(was, Farming.Field.of(e.value), e.cell)
+
+
+func _log_field_change(was: Farming.Field, now: Farming.Field, c: Vector2i) -> void:
+	if was == null or now == null or now.kind == Farming.KIND_NONE:
+		return
+	if now.stage != was.stage:
+		print("EVENSONG_FARM grew at=%d,%d crop=%s stage=%d" % [c.x, c.y, Farming.CROP_NAMES[now.kind], now.stage])
+	if now.withered != was.withered:
+		print("EVENSONG_FARM %s at=%d,%d crop=%s stage=%d" % ["withered" if now.withered else "revived", c.x, c.y,
+			Farming.CROP_NAMES[now.kind], now.stage])
+
+
+## The hoe's / the watering can's landing frame, or the sickle's on a crop (Farming.is_harvest_swing), for player `p`
+## on the local player's map.
+func farm_impact(p: Player, item: StringName, target: Vector2i) -> void:
+	if not ensure_farm(current_map):
+		return
+	var farm: Farm = farms[current_map]
+	if item == Farming.HOE:
+		_apply_farm(farm, farm.till(p.sim_position, target), "till", target, p)
+	elif item == Farming.WATERING_CAN:
+		_apply_farm(farm, farm.water(p.sim_position, target), "water", target, p)
+	else:
+		_apply_farm(farm, farm.harvest(p.sim_position, p.class_id(), p.inventory, target), "harvest", target, p)
+
+
+func _apply_farm(farm: Farm, r: Farm.Result, what: String, cell: Vector2i, p: Player) -> void:
+	var w: GameWorld = _world_of(p)
+	if w == null:
+		w = current_world()
+	if not r.ok():
+		print("EVENSONG_FARM %s refused at=%d,%d class=%s: %s" % [what, cell.x, cell.y, p.class_id(), r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		w.apply_edit(e)
+	var f: Farming.Field = Farming.field_at(farm.data, cell)
+	var line: String = "EVENSONG_FARM %s at=%d,%d class=%s" % [what, cell.x, cell.y, p.class_id()]
+	if what == "harvest":
+		line += " item=%s count=%d grade=%s seeds=%d dropped=%d lost=%d" % [r.item, r.count, ItemDB.GRADE_NAMES[r.grade],
+			r.seeds, r.dropped, r.lost]
+	elif what == "plant":
+		line += " item=%s" % r.item
+	print(line + (" field=%s" % f.describe() if f != null else " field=none"))
+
+
+## --test-field (screenshots, tests): fields put down on the start map at the start, past the farming rules (outside the
+## light too) but never next to ash (the terrain rule). The farm takes them as they are; one there withers on its first
+## tick if it is outside the light or next to corruption.
+func apply_test_fields(entries: Array[Array]) -> void:
+	if not ensure_farm(current_map):
+		return
+	var w: GameWorld = current_world()
+	for entry: Array in entries:
+		var c: Vector2i = entry[0]
+		var kind: int = entry[1]
+		var stage: int = entry[2]
+		var is_wet: bool = entry[3]
+		var fast: bool = entry[4]
+		if not w.data.in_bounds(c) or (w.data.terrain_at(c) != Terrain.SOIL and not w.data.can_set_terrain(c, Terrain.SOIL)):
+			print("EVENSONG_FARM test field refused at=%d,%d: not soil, cannot be (ash next to it)" % [c.x, c.y])
+			continue
+		w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c, Terrain.SOIL))
+		var f: Farming.Field = Farming.Field.new(kind, stage, is_wet, fast)
+		w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, f.value()))
+		farms[current_map].sync_cell(c)
+
+
 func _on_action_started(item: StringName, anim: int, target: Vector2i) -> void:
 	if _in_session():
 		return  # the session logs actions itself
@@ -858,6 +1001,8 @@ func _apply_test_options(options: CliOptions) -> void:
 		for c: Vector2i in options.test_heretics:
 			arenas[current_map].spawn_heretic(Arena.spawn_feet(c))
 		combat_views[current_map].sync(players_on(current_map))
+	if not options.test_fields.is_empty():
+		apply_test_fields(options.test_fields)  # M5a
 	if arenas.has(Config.MAP_DUNGEON):
 		for c: Vector2i in options.test_dungeon_heretics:
 			arenas[Config.MAP_DUNGEON].spawn_heretic(Arena.spawn_feet(c))

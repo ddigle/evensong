@@ -47,6 +47,9 @@ extends Node2D
 ## grade and landing point kept in action_slot / action_grade / action_target; Main applies it. The Vitals
 ## carry the effects (buff, poison: PlayerSim); EffectMarks shows them over the head. `ui_locked` (the
 ## crafting panel open) turns every tick's input into an empty frame.
+##
+## M5a (`farming_on`, offline): a click with seeds selected is a USE without an action like a torch's (Main plants);
+## the hoe and the watering can land on their own frames (Farming.impact_tick), the sickle on its hit frame.
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -103,6 +106,9 @@ var interact_held: bool = false
 ## SessionBots.local_action). The
 ## playing action's hotbar slot, the grade of the item it plays and a throw's landing point.
 var potions_on: bool = false
+## M5a: a click with seeds selected plants them (offline only until M5c: Main turns it on for the offline player;
+## off, the click makes no frame, as potions_on did for sessions in M6a).
+var farming_on: bool = false
 var ui_locked: bool = false
 var action_slot: int = 0
 var action_grade: int = ItemDB.Grade.NONE
@@ -261,8 +267,10 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.cell = aim_cell
 			f.anim = anim
 			f.item = inventory.selected_stack().id
-		elif use_pressed and WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
+		elif use_pressed and (WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
+				or (farming_on and Farming.seed_kind_in(inventory, inventory.selected) != Farming.KIND_NONE)) \
 				and WorldItems.in_reach(sim_position, aim_cell):
+			# M5a: seeds go down the same way (a click, offline Main plants them: place_requested).
 			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
 			# action: the host (or offline Main) places it; nothing is predicted.
 			f.op = NetProtocol.Op.USE
@@ -315,6 +323,9 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 static func impact_tick_of(item: StringName, anim: int) -> int:
 	if Potions.is_potion(item):
 		return Potions.impact_tick(anim)
+	var farm_tick: int = Farming.impact_tick(item)  # M5a: the hoe tills, the watering can waters on their own frame
+	if farm_tick >= 0:
+		return farm_tick
 	return Combat.impact_tick(item)
 
 

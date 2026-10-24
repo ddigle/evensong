@@ -93,6 +93,11 @@ const ART_SOURCES: Dictionary[String, String] = {
 	# M6a: the alchemy table and the items strip (its potion icons).
 	"res://art/env/alchemy_table_v05.png": "assets/concept/04-env/alchemy_table_v05.png",
 	"res://art/items/items_v04_strip.png": "assets/concept/04-env/items_v04_strip.png",
+	# M5a: the watered soil (the soil tiles' watered copies) and the crops sheet.
+	"res://art/tiles/tiles_grass-soil_v03_watered.png": "assets/concept/04-env/tiles_grass-soil_v03_watered.png",
+	"res://art/tiles/tiles_soil_var_1_v01_watered.png": "assets/concept/04-env/tiles_soil_var_1_v01_watered.png",
+	"res://art/tiles/tiles_soil_var_2_v01_watered.png": "assets/concept/04-env/tiles_soil_var_2_v01_watered.png",
+	"res://art/env/crops_v03_sheet.png": "assets/concept/04-env/crops_v03_sheet.png",
 }
 const SIZES: Dictionary[String, Vector2i] = {
 	"res://art/chars/base_body_v02_walk.png": Vector2i(192, 96),

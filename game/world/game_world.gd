@@ -18,6 +18,7 @@ extends Node2D
 ## (Config.DUNGEON_DARK_COLOR) and has no altar. Both draw their other placeables with a FixtureView
 ## (entrance, exit stairs, shrine, torches; ground decals in Decals, between the ground and the
 ## entities) and their gatherables and drops with an ItemView.
+## M5a: the fields (watered soil right above the ground, crops among the entities) with a FieldView (Fields).
 
 signal generated
 
@@ -38,6 +39,8 @@ var items: ItemView
 var cave: CaveView
 var fixtures: FixtureView
 var decals: Node2D
+## M5a: the fields (watered soil over the ground, crops among the entities; world/field_view.gd).
+var fields: FieldView
 var generation_ms: float = 0.0
 var view_ms: float = 0.0
 
@@ -96,6 +99,12 @@ func load_data(p_data: WorldData) -> void:
 		decals.name = &"Decals"
 		add_child(decals)
 		move_child(decals, entities.get_index())
+	if fields == null:
+		fields = FieldView.new()
+		fields.name = &"Fields"
+		add_child(fields)
+		move_child(fields, decals.get_index())  # right above the ground, below the decals and the entities
+	fields.setup(data, ground, entities)
 	if fixtures == null:
 		fixtures = FixtureView.new()
 		fixtures.name = &"Fixtures"
@@ -160,8 +169,10 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 			if edit.layer == WorldData.Layer.FLOOR:
 				if cave == null:
 					ground.redraw_vertex(edit.cell)
+					fields.update_floor(edit.cell)  # M5a: wet tiles take their quadrants from the redrawn cells
 			elif edit.layer == WorldData.Layer.VEGETATION:
 				items.update_cell(edit.cell)
+				fields.update_cell(edit.cell)  # M5a: crops and wet soil
 			elif edit.layer == WorldData.Layer.WALL or edit.layer == WorldData.Layer.ORE:
 				if cave != null:
 					cave.redraw_wall(edit.cell)
