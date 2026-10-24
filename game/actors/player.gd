@@ -135,6 +135,9 @@ var channel_tick: int = 0
 var channel_cell: Vector2i = Vector2i.ZERO
 var carrying_altar: bool = false
 var altar_hold_ticks: int = 0
+## M5-fix: this carrier went down and no place allowed the altar (AltarMove.set_down_fallback); it keeps it and nobody
+## searches again until it is up (Main.check_carriers, SessionHost._check_carriers).
+var altar_set_down_failed: bool = false
 var altar_mark: AltarMark
 var _channel_pending: bool = false
 var ui_locked: bool = false
@@ -185,6 +188,7 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	channel_tick = 0
 	carrying_altar = false
 	altar_hold_ticks = 0
+	altar_set_down_failed = false
 	_sync_view()
 
 
@@ -257,6 +261,7 @@ func request_channel() -> void:
 func set_carrying_altar(on: bool) -> void:
 	carrying_altar = on
 	altar_hold_ticks = 0
+	altar_set_down_failed = false
 	_sync_view()
 
 

@@ -38,6 +38,10 @@ signal altar_moved
 var data: WorldData
 var safe_zone: SafeZone
 var altar: Altar
+## M5-fix: the footprint the altar last stood on (it stays while the altar is carried; empty when this world never had
+## one, e.g. a joiner's world received while it was carried). The set-downs' last fallback (AltarMove.set_down_fallback)
+## and where a client playing on after losing the host puts it back (Main.restore_altar).
+var last_altar_rect: Rect2i = Rect2i()
 ## Gatherables and drops (M2b, world/item_view.gd).
 var items: ItemView
 ## M3a: the dungeon's walls (null on the surface), the placeables other than the altar, ground decals.
@@ -97,6 +101,7 @@ func load_data(p_data: WorldData) -> void:
 		ground.setup(data)
 	view_ms = (Time.get_ticks_usec() - t1) / 1000.0
 	safe_zone = SafeZone.for_world(data)
+	last_altar_rect = data.altar_rect  # M5-fix (empty when it is carried in the world received)
 	_place_altar()
 	if items == null:
 		items = ItemView.new(entities)
@@ -188,6 +193,8 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 	if not EditLog.apply_to_data(data, edit):
 		return false
 	if data.altar_rect != altar_before:
+		# M5-fix: where it stood (picked up: the place it left; put down: the new one).
+		last_altar_rect = data.altar_rect if data.altar_rect.has_area() else altar_before
 		_altar_moved()  # M5b: picked up (no altar now) or put down (a whole footprint again)
 	match edit.kind:
 		EditLog.Kind.DROP_PUT, EditLog.Kind.DROP_REMOVE:

@@ -7,10 +7,11 @@ extends RefCounted
 ##
 ## ● decided (followed as written):
 ##   - three crops, healing herb / buff herb / poison herb (game-concept §12 R28), one potion each (M6);
-##   - who plants what (game-concept §12 R37, gameplay-design §3.8): the healing and buff herbs anyone (COMMON grade),
-##     the poison herb's seeds the herbalist only;
-##   - the tools and their order (gameplay-design §3.8 ○ wording, §1 "좌클릭 = 들고 있는 도구 사용"): the hoe tills, a
-##     seed is planted, the watering can waters, the crop grows in stages, the sickle harvests.
+##   - who plants what (game-concept §12 R37, gameplay-design §3.8's ● R37 slice line): the healing and buff herbs anyone
+##     (COMMON grade), the poison herb's seeds the herbalist only.
+## ○ implemented as the default (M5-fix: was listed above as ●; game-concept §9.7, gameplay-design §3.8 and the §1 key
+## table are ○): the tools and their order: the hoe tills, a seed is planted, the watering can waters, the crop grows in
+## stages, the sickle harvests (README "임시값" M5a rows); the fields stay where they are when the altar moves.
 ## ○ / not in the docs (PROVISIONAL, core/config.gd "M5a", README "임시값" M5a): fields only inside the altar light
 ## (TILL_ONLY_IN_LIGHT), what can be tilled (grass; the M1 soil patches already are tilled), no untilling or decay, seeds
 ## from wild herbs and from the harvest, water lasting WATER_TICKS, CROP_STAGE_TICKS per stage, the herbalist's

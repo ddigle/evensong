@@ -198,11 +198,9 @@ func on_peer_disconnected(peer_id: int) -> void:
 		return
 	var leaving: NetMember = s.members.get(roster.slot_of(peer_id), null)
 	if leaving != null and leaving.player != null and leaving.player.carrying_altar:
-		# M5c: the altar does not leave with its carrier (PROVISIONAL Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES).
-		if Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES:
-			_set_altar_down(leaving, true)
-		else:
-			_put_altar(leaving, altar_home, "set_down")
+		# M5c: the altar does not leave with its carrier (PROVISIONAL Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES: around its
+		# feet, or false: where it was picked up first; M5-fix: either way by the placing rules, never over anything).
+		_set_altar_down(leaving, true)
 	var slot: int = roster.release(peer_id)
 	broadcast.note_activity(s.tick)
 	s.bots.note_gone(peer_id)  # a player who left will not finish a bot any more
@@ -415,7 +413,10 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if frame.op != NetProtocol.Op.NONE:
 		s.request_ticks = 3
 	# M5c: F held while up, frame after frame (the altar is picked up after Config.ALTAR_PICKUP_HOLD_TICKS of them).
-	m.altar_hold = m.altar_hold + 1 if frame.interact and p.vitals.alive() else 0
+	# M5-fix: by the shared rule (AltarMove.hold_counts: no action, no channel, no downed player in revive reach) and only
+	# with an altar tile in reach of this frame's feet, so F held anywhere else (or while reviving) never counts.
+	m.altar_hold = m.altar_hold + 1 if frame.interact and AltarMove.hold_counts(p, players_on(m.map_id)) \
+		and AltarMove.altar_in_reach(p.data, p.sim_position) else 0
 	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
 		_refuse_op(m, frame, WorldItems.WHY_WRONG_MAP)
 	elif NetProtocol.op_has_map(frame.op) and not p.vitals.alive():
@@ -456,9 +457,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_craft(m, frame)
 	elif frame.op != NetProtocol.Op.NONE:
 		_run_op(m, frame)
-	var was_channel: bool = p.channel_tick > 0
 	var events: int = p.step_frame(frame, Config.NET_TICK)
-	_channel_events(m, events, was_channel)  # M5c
+	_channel_events(m, events)  # M5c
 	if frame.anim >= 0 and events & PlayerSim.STARTED:
 		# M6-fix: a use, a drink or a throw counts as done when its action started (a dash pressed in the same frame
 		# wins over it: nothing starts, no potion is used).
@@ -636,7 +636,10 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if a != null:
 		for h: HereticSim in a.heretics:
 			bodies.append(h.pos)
-	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies)
+	var extra: Array[Vector2] = []
+	if m.map_id == Config.MAP_SURFACE:
+		extra = carried_reserved_feet()
+	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies, extra)
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return
@@ -852,7 +855,7 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 ## counts toward ALTAR_LIFT (hold_altar), and F with nothing to pick up next to corruption is the paladin's CHANNEL
 ## (wants_channel).
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
-	hold_altar(p, f)  # M5c: may put ALTAR_LIFT on this frame
+	hold_altar(p, f, players_with(session, p))  # M5c: may put ALTAR_LIFT on this frame
 	var q: NetProtocol.InputFrame = null
 	if action.op != null:
 		if f.op != NetProtocol.Op.NONE:
@@ -889,19 +892,34 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 
 
 ## M5c: F aimed at tile `c` would start player `p`'s purification channel (as offline: nothing to pick up there, the
-## paladin with corruption on or next to its feet tile, not carrying the altar, not channelling already).
+## paladin with corruption on or next to its feet tile, not carrying the altar, not channelling already). M5-fix: not F
+## aimed at an altar tile (Main.pick_up's rule: that F is the altar's).
 static func wants_channel(p: Player, c: Vector2i) -> bool:
 	return p.data != null and p.purify_on and not p.carrying_altar and p.channel_tick == 0 and p.vitals.alive() \
+		and not AltarMove.is_altar_cell(p.data, c) \
 		and WorldItems.pickup_check(p.data, p.sim_position, c) == WorldItems.WHY_NOTHING \
 		and Purify.channel_refusal(p.data, p.class_id(), p.sim_position).is_empty()
+
+
+## M5-fix: the players on player `p`'s map as `session` has them (a client: the others as drawn, their vitals from the
+## states), `p` included; AltarMove.hold_counts reads who lies downed near it.
+static func players_with(session: NetSession, p: Player) -> Array[Player]:
+	var out: Array[Player] = []
+	var map: int = p.data.map_id if p.data != null else Config.MAP_SURFACE
+	for slot: int in session.slots():
+		var m: NetMember = session.members[slot]
+		if m.player != null and is_instance_valid(m.player) and m.map_id == map:
+			out.append(m.player)
+	return out
 
 
 ## M5c: F held aimed at an altar tile counts on player `p` (the local one: its keys or bot); after
 ## Config.ALTAR_PICKUP_HOLD_TICKS frames of it frame `f` carries the ALTAR_LIFT request (the host counts the F-held frames
 ## itself before it lifts). Letting go, aiming away, an action, going down or carrying start the count over (offline
-## Main.step_altar_hold's rule).
-static func hold_altar(p: Player, f: NetProtocol.InputFrame) -> void:
-	if p.data == null or not p.purify_on or p.carrying_altar or not f.interact or not p.vitals.alive() or p.action_anim >= 0 \
+## Main.step_altar_hold's rule). M5-fix: so do a running channel and a downed player within revive reach (`players`,
+## AltarMove.hold_counts), as on the host.
+static func hold_altar(p: Player, f: NetProtocol.InputFrame, players: Array[Player] = []) -> void:
+	if p.data == null or not p.purify_on or not f.interact or not AltarMove.hold_counts(p, players) \
 			or not AltarMove.pickup_refusal(p.data, p.class_id(), p.sim_position, p.aim_cell).is_empty():
 		p.altar_hold_ticks = 0
 		return
@@ -1112,6 +1130,7 @@ func _equip(m: NetMember) -> void:
 		m.player.vitals.hp = clampi(s.options.test_start_hp[m.class_id], 1, Config.PLAYER_HP_MAX)
 	m.player.hurt.connect(_on_member_hurt.bind(m))
 	m.player.revived.connect(_on_member_revived.bind(m))
+	m.player.channel_broken.connect(_on_member_channel_broken.bind(m))  # M5-fix: every break, a hit's too
 
 
 func _on_member_hurt(amount: int, downed: bool, m: NetMember) -> void:
@@ -1505,18 +1524,22 @@ func _channel(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	frame.channel = true
 
 
-## What member `m`'s frame did to its channel: started (counted), ran its time (purify around its tile), broken by the
-## frame (moved, a dash, a use) or by a poison tick taking it down.
-func _channel_events(m: NetMember, events: int, was_channel: bool) -> void:
+## What member `m`'s frame did to its channel: started (counted), ran its time (purify around its tile). A break is
+## counted by _on_member_channel_broken (M5-fix: Player.channel_broken, so a heretic's hit between frames counts too).
+func _channel_events(m: NetMember, events: int) -> void:
 	var p: Player = m.player
 	if events & PlayerSim.CHANNEL_STARTED:
 		m.count_done("channel")
 		s.log_event("channel", "slot=%d map=%d start at=%d,%d" % [m.slot, m.map_id, p.channel_cell.x, p.channel_cell.y])
 	if events & PlayerSim.CHANNEL_DONE:
 		_purified(m, Purify.channel_done(p.data, p.channel_cell), "channel", p.channel_cell)
-	elif was_channel and p.channel_tick == 0:
-		m.count_combat("channel_broken")
-		s.log_event("channel", "slot=%d map=%d broken" % [m.slot, m.map_id])
+
+
+## M5-fix: member `m`'s channel broke (Player.channel_broken: in its frame by moving, a dash, a use or a poison tick's
+## down, or outside it by a heretic's hit in the arena's step): counted and logged, whatever broke it.
+func _on_member_channel_broken(why: String, m: NetMember) -> void:
+	m.count_combat("channel_broken")
+	s.log_event("channel", "slot=%d map=%d broken: %s" % [m.slot, m.map_id, why])
 
 
 ## A pour or a finished channel of member `m` on its map: the edits out, the purified tiles flash on the host's screen,
@@ -1552,7 +1575,10 @@ static func _blocked_while_carrying(op: int) -> bool:
 
 ## Where member slot `slot` appears: its spawn slot around the altar (GameWorld.spawn_point); while the altar is carried,
 ## around the place it was picked up (or around its carrier: PROVISIONAL Config.ALTAR_CARRIED_JOIN_AT_HOME, README "M5c 들고
-## 있는 동안 참가").
+## 있는 동안 참가"). M5-fix: while it is carried those spots are no spawn slots of a standing altar, so a slot something
+## now blocks (the carrier's own surroundings) is skipped for the next standable one in slot order, and with none
+## standable the map's arrival point (south of the entrance). The home slots are kept clear while it is carried
+## (carried_reserved_feet), so this is the rare case.
 func spawn_feet(slot: int) -> Vector2:
 	if s.world.data.altar_rect.has_area() or not altar_home.has_area():
 		return s.world.spawn_point(slot)
@@ -1562,7 +1588,21 @@ func spawn_feet(slot: int) -> Vector2:
 			if m.player != null and m.player.carrying_altar:
 				around = Rect2i(Aim.feet_cell(m.player.sim_position) - Config.ALTAR_FOOTPRINT / 2, Config.ALTAR_FOOTPRINT)
 	var feet: Array[Vector2] = AltarMove.slot_feet(around)
-	return feet[slot % feet.size()]
+	for i: int in feet.size():
+		var at: Vector2 = feet[(slot + i) % feet.size()]
+		if Movement.can_stand(s.world.data, at):
+			return at
+	return s.world.arrival_point()
+
+
+## M5-fix: while the altar is carried with Config.ALTAR_CARRIED_JOIN_AT_HOME, the spawn slots around where it was picked
+## up are where joiners appear (spawn_feet), so a blocking placeable may not cover them (WorldItems.place's
+## "where players appear", as for a standing altar's slots, M6-fix); none otherwise.
+func carried_reserved_feet() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if not s.world.data.altar_rect.has_area() and altar_home.has_area() and Config.ALTAR_CARRIED_JOIN_AT_HOME:
+		out = AltarMove.slot_feet(altar_home)
+	return out
 
 
 ## ALTAR_LIFT: request rate, F held Config.ALTAR_PICKUP_HOLD_TICKS frames as the host counted them (NetMember.altar_hold),
@@ -1633,27 +1673,38 @@ func _put_altar(m: NetMember, rect: Rect2i, what: String) -> void:
 
 
 ## Carrier `m` went down (or leaves: `leaving`, its own feet no body any more): the altar comes down at the nearest place
-## the placing rules allow around its feet (AltarMove.set_down_rect; then ignoring the heretics; then where it was picked
-## up), M5b's offline rule.
-func _set_altar_down(m: NetMember, leaving: bool = false) -> void:
+## the placing rules allow around its feet (M5b's offline rule; M5-fix: AltarMove.set_down_fallback, then ignoring the
+## heretics, then around where it was picked up, never over anything). A carrier leaving with
+## Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES off tries where it was picked up first. When nothing allows it, a carrier who
+## went down keeps it (tried again once it is up) and one who leaves takes it along (logged; README "알려진 문제 (M5-fix)").
+## Returns whether it came down.
+func _set_altar_down(m: NetMember, leaving: bool = false) -> bool:
 	var p: Player = m.player
 	var bodies: Array[Vector2] = []
 	for q: Player in players_on(m.map_id):
 		if not (leaving and q == p):
 			bodies.append(q.sim_position)
-	var rect: Rect2i = AltarMove.set_down_rect(p.data, p.sim_position, bodies, heretic_feet(m.map_id))
+	var rect: Rect2i = AltarMove.set_down_fallback(p.data, p.sim_position, altar_home, bodies, heretic_feet(m.map_id),
+		leaving and not Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES)
 	if not rect.has_area():
-		rect = AltarMove.set_down_rect(p.data, p.sim_position, bodies)
-	if not rect.has_area():
-		rect = altar_home
+		p.altar_set_down_failed = true
+		s.log_event("altar", "slot=%d map=%d set_down failed: no place allows it%s" % [m.slot, m.map_id,
+			" (it leaves with its carrier)" if leaving else ", still carried"])
+		return false
 	_put_altar(m, rect, "set_down")
+	return true
 
 
 ## Every carrier that is down or dead now sets the altar down (once a tick, after the arenas: a knife or a poison tick).
+## M5-fix: one for whom no place was found tries again once it is up (Player.altar_set_down_failed).
 func _check_carriers() -> void:
 	for slot: int in s.slots():
 		var m: NetMember = s.members[slot]
-		if m.player.carrying_altar and not m.player.vitals.alive():
+		if not m.player.carrying_altar:
+			continue
+		if m.player.vitals.alive():
+			m.player.altar_set_down_failed = false
+		elif not m.player.altar_set_down_failed:
 			_set_altar_down(m)
 
 

@@ -445,8 +445,10 @@ static func reserved_feet(data: WorldData) -> Array[Vector2]:
 ## walking (WorldData.placeable_blocks) may not cover the placer's feet box nor any of `bodies` (other feet:
 ## players, heretics) and may not touch another of its kind (WorldData.footprint_at would merge them).
 ## M6-fix: nor a feet box at a point where players appear (reserved_feet: arrivals and the altar's spawn slots).
+## M5-fix: `reserved_extra` = more such points the caller knows of (the host: the spawn slots around where a carried
+## altar was picked up, where joiners appear meanwhile: SessionHost.carried_reserved_feet).
 static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
-		bodies: Array[Vector2] = []) -> Outcome:
+		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = []) -> Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
 		return Outcome.refused(WHY_BAD_SLOT)
 	var stack: ItemStack = inv.stack_at(slot)
@@ -476,7 +478,9 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		for b: Vector2 in all:
 			if px.intersects(Movement.feet_box(b)):
 				return Outcome.refused(WHY_BODY)
-		for r: Vector2 in reserved_feet(data):
+		var spots: Array[Vector2] = reserved_feet(data)
+		spots.append_array(reserved_extra)
+		for r: Vector2 in spots:
 			if px.intersects(Movement.feet_box(r)):
 				return Outcome.refused(WHY_RESERVED)
 		for y2: int in range(rect.position.y - 1, rect.end.y + 1):

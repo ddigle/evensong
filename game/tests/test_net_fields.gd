@@ -28,6 +28,8 @@ const HOST_FARM_FEET: Vector2i = Vector2i(59, 48)
 const ALTAR_FEET: Vector2i = Vector2i(50, 48)
 const ALTAR_AIM: Vector2i = Vector2i(50, 47)
 const ALTAR_NEW: Vector2i = Vector2i(49, 45)
+## M5-fix: the place by a zone (AltarTest.by_zone).
+const AltarTest := preload("res://tests/test_altar_move.gd")
 
 
 func run() -> Array[String]:
@@ -35,6 +37,9 @@ func run() -> Array[String]:
 	await _check_farm_requests()
 	await _check_purify_requests()
 	await _check_altar_requests()
+	await _check_hold_rules()
+	await _check_channel_hold()
+	await _check_join_while_carried()
 	await _check_farming_flow()
 	await _check_channel_flow()
 	await _check_altar_flow()
@@ -426,10 +431,14 @@ func _check_altar_requests() -> void:
 	refill(m)
 	run_one(r, m, lift_frame(at))
 	check(m.refused(AltarMove.WHY_HOLD) == 1 and data.altar_rect == home, "an ALTAR_LIFT after one frame of F: refused")
-	# From two tiles: F held long enough, the tile out of reach.
+	# From two tiles: M5-fix, F held where no altar tile is in reach counts nothing; in reach of one, a request aimed at
+	# another (the top row) is out of reach.
 	m.player.teleport(feet_in(below + Vector2i(0, 1)))
 	lift_altar(r, m, at)
-	check(m.refused(WorldItems.WHY_REACH) == 1 and data.altar_rect == home, "from two tiles away: out of reach")
+	check(m.refused(AltarMove.WHY_HOLD) == 2 and data.altar_rect == home, "from two tiles away: F held there counts nothing")
+	m.player.teleport(feet_in(below))
+	lift_altar(r, m, Vector2i(below.x, home.position.y))
+	check(m.refused(WorldItems.WHY_REACH) == 1 and data.altar_rect == home, "aimed at a tile out of reach: refused")
 	# Putting it down without carrying it.
 	run_one(r, m, place_frame(below + Vector2i(0, 2)))
 	check_eq(m.refused(AltarMove.WHY_NOT_CARRYING), 1, "an ALTAR_PLACE without the altar: refused")
@@ -443,7 +452,8 @@ func _check_altar_requests() -> void:
 		run_one(r, md, held_frame())
 	refill(md)
 	run_one(r, md, dl)
-	check_eq(md.refused(AltarMove.WHY_SURFACE), 1, "an ALTAR_LIFT in the dungeon: the altar stays on the surface")
+	check(md.refused(AltarMove.WHY_HOLD) == 1 and md.altar_hold == 0 and data.altar_rect == home,
+		"an ALTAR_LIFT in the dungeon: refused (M5-fix: no altar in reach there, F held counts nothing)")
 	# Lifted properly.
 	m.player.teleport(feet_in(below))
 	var edits: int = r.s.log_for(Config.MAP_SURFACE).size()
@@ -508,6 +518,198 @@ func _check_altar_requests() -> void:
 	check(ml.player.carrying_altar, "a miner carries it")
 	r.host.on_peer_disconnected(104)
 	check(data.altar_rect.has_area() and not r.s.members.has(ml.slot), "the carrier left: the altar came down (%s)" % data.altar_rect)
+	_free_rig(r)
+
+
+## M5-fix: what counts toward a lift on the host (NetMember.altar_hold) and on the client (SessionHost.hold_altar): F held
+## far from the altar never counts (a client cannot hold F anywhere and lift on its first frame in reach), nor F held
+## beside a downed ally (that is a revive), nor during a channel; a carrier's F next to the ash is no CHANNEL.
+func _check_hold_rules() -> void:
+	var r: Rig = _rig(HERB)
+	await await_frames(1)
+	var data: WorldData = r.surface.data
+	var home: Rect2i = data.altar_rect
+	var below: Vector2i = Vector2i(home.position.x + 1, home.end.y)
+	var at: Vector2i = below + Vector2i(0, -1)
+	var c: Client = await _join_quiet(r, 101, "miner", feet_in(below + Vector2i(0, 8)))
+	var m: NetMember = hm(r, c)
+	for i: int in Config.ALTAR_PICKUP_HOLD_TICKS + 10:
+		run_one(r, m, held_frame())
+	check_eq(m.altar_hold, 0, "F held 8 tiles from the altar: the host counts nothing")
+	m.player.teleport(feet_in(below))
+	refill(m)
+	run_one(r, m, lift_frame(at))
+	check(m.refused(AltarMove.WHY_HOLD) == 1 and data.altar_rect == home and not m.player.carrying_altar,
+		"then one ALTAR_LIFT in reach: refused (the 2 s are counted in reach)")
+	# A downed archer beside the miner: F held there revives it; no count until it is up.
+	var d: Client = await _join_quiet(r, 102, "archer", feet_in(below) + Vector2(18, 0))
+	var md: NetMember = hm(r, d)
+	md.player.take_hit(Config.PLAYER_HP_MAX)
+	check_eq(md.player.vitals.life, Vitals.Life.DOWN, "the archer is down beside the miner")
+	for i2: int in Config.ALTAR_PICKUP_HOLD_TICKS + 10:
+		run_one(r, m, held_frame())
+	check_eq(m.altar_hold, 0, "F held beside a downed ally: the host counts nothing (a revive)")
+	refill(m)
+	run_one(r, m, lift_frame(at))
+	check(m.refused(AltarMove.WHY_HOLD) == 2 and data.altar_rect == home, "its ALTAR_LIFT: refused")
+	# The client's own count, by the same rule (a Player of its own, as the client has it).
+	var q: Player = Player.new()
+	q.setup(data, "miner", feet_in(below))
+	q.purify_on = true
+	q.aim_cell = at
+	var alone: Array[Player] = [q]
+	var with_down: Array[Player] = [q, md.player]
+	SessionHost.hold_altar(q, held_frame(), alone)
+	check_eq(q.altar_hold_ticks, 1, "the client counts F held on the altar")
+	SessionHost.hold_altar(q, held_frame(), with_down)
+	check_eq(q.altar_hold_ticks, 0, "not beside a downed ally (starts over)")
+	q.channel_tick = 5
+	SessionHost.hold_altar(q, held_frame(), alone)
+	check_eq(q.altar_hold_ticks, 0, "not while its channel runs")
+	q.channel_tick = 0
+	q.free()
+	# A carrying paladin's F next to the ash is no CHANNEL (wants_channel), and neither is F aimed at the altar.
+	var pal: Player = Player.new()
+	pal.setup(data, "paladin", feet_in(ZONE_EDGE))
+	pal.purify_on = true
+	check(SessionHost.wants_channel(pal, ZONE_EDGE + Vector2i(-1, 0)), "the paladin's F next to the ash: CHANNEL")
+	pal.set_carrying_altar(true)
+	check(not SessionHost.wants_channel(pal, ZONE_EDGE + Vector2i(-1, 0)), "carrying the altar: no CHANNEL")
+	pal.free()
+	var copy: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(data))
+	var spot: Array = AltarTest.by_zone(copy)
+	if check(not spot.is_empty(), "a place by a zone"):
+		var zr: Rect2i = spot[0]
+		var zt: Vector2i = spot[1]
+		var za: Vector2i = spot[2]
+		var zg: Vector2i = spot[3]
+		AltarTest.apply(copy, AltarMove.pickup_edits(copy))
+		AltarTest.apply(copy, AltarMove.place_edits(zr))
+		var by: Player = Player.new()
+		by.setup(copy, "paladin", feet_in(zt))
+		by.purify_on = true
+		check(not SessionHost.wants_channel(by, za) and SessionHost.wants_channel(by, zg),
+			"by the moved altar: F aimed at it is no CHANNEL, F aimed beside it is")
+		by.free()
+	_free_rig(r)
+
+
+## M5-fix: with the altar moved beside a zone, a paladin client's channel (a hit breaks one: counted and logged on the
+## host) and F held on the altar through another: the host counts nothing until it ends, refuses a lift meanwhile, and
+## lifts after the hold.
+func _check_channel_hold() -> void:
+	var r: Rig = _rig(HERB)
+	await await_frames(1)
+	var data: WorldData = r.surface.data
+	# A hit between two frames (the arena's knife) breaks a channel: counted and logged like any break.
+	var hit_pal: Client = await _join_quiet(r, 101, "paladin", feet_in(ZONE_EDGE))
+	var mh: NetMember = hm(r, hit_pal)
+	run_one(r, mh, channel_frame())
+	run_empty(r, mh, 5)
+	check(mh.player.channel_tick > 0, "a paladin channels at the zone's edge")
+	mh.player.take_hit(1)
+	run_empty(r, mh, 3)
+	check(mh.player.channel_tick == 0 and mh.combat_count("channel_broken") == 1,
+		"a hit broke it: the host counted it (%d)" % mh.combat_count("channel_broken"))
+	var spot: Array = AltarTest.by_zone(data)
+	if not check(not spot.is_empty(), "a place by a zone"):
+		_free_rig(r)
+		return
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		r.host.apply_world_edit(e)
+	var zr: Rect2i = spot[0]
+	var zt: Vector2i = spot[1]
+	var za: Vector2i = spot[2]
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(zr):
+		r.host.apply_world_edit(e2)
+	check_eq(data.altar_rect, zr, "the altar by the zone")
+	var c: Client = await _join_quiet(r, 102, "paladin", feet_in(zt))
+	var m: NetMember = hm(r, c)
+	run_one(r, m, channel_frame())
+	check_eq(m.player.channel_tick, 1, "the paladin beside the moved altar channels")
+	var most: int = 0
+	var frames: int = 1
+	while m.player.channel_tick > 0 and frames < Config.PURIFY_CHANNEL_TICKS + 10:
+		run_one(r, m, held_frame())
+		most = maxi(most, m.altar_hold)
+		frames += 1
+		if frames == Config.ALTAR_PICKUP_HOLD_TICKS + 5:
+			refill(m)
+			run_one(r, m, lift_frame(za))
+			frames += 1
+	check(most <= 1 and not m.player.carrying_altar and data.altar_rect == zr and r.host.purified > 0,
+		"F held through the channel: the host counted at most %d, nothing lifted, the channel purified (%d)" % [most,
+		r.host.purified])
+	check_eq(m.refused(AltarMove.WHY_HOLD), 1, "an ALTAR_LIFT during the channel: refused")
+	lift_altar(r, m, za)
+	check(m.player.carrying_altar and not data.altar_rect.has_area(), "after the channel, held on: lifted")
+	_free_rig(r)
+
+
+## M5-fix: while the altar is carried, the spots where joiners appear (its spawn slots where it was picked up) are kept
+## clear like a standing altar's: a table over one is refused "where players appear"; a joiner stands; a slot blocked
+## past the rules is skipped. A client's world keeps where it stood and puts it back there (Main.restore_altar_at, a
+## client that lost the host while someone else carried it).
+func _check_join_while_carried() -> void:
+	var r: Rig = _rig(HERB)
+	await await_frames(1)
+	var data: WorldData = r.surface.data
+	var home: Rect2i = data.altar_rect
+	var watcher: Client = _join(r, 101, "archer", feet_in(Vector2i(home.position.x + 1, home.end.y + 4)), false)
+	var hp: Player = r.s.local.player
+	hp.teleport(feet_in(Vector2i(home.position.x - 1, home.position.y + 1)))
+	lift_altar(r, r.s.local, Vector2i(home.position.x, home.position.y + 1))
+	_tick(r, 3)
+	check(hp.carrying_altar and not data.altar_rect.has_area(), "the host carries the altar")
+	var slots: Array[Vector2] = AltarMove.slot_feet(home)
+	check_eq(r.host.carried_reserved_feet(), slots, "its spawn slots where it was picked up are kept clear meanwhile")
+	# A table over one of them: the world's own rule would allow it; the host refuses it.
+	var found: Array = []
+	for s: int in slots.size():
+		var sc: Vector2i = Aim.feet_cell(slots[s])
+		for dy: int in range(-1, 2):
+			for dx: int in range(-1, 2):
+				var cell: Vector2i = sc + Vector2i(dx, dy)
+				for n: Vector2i in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+					var f: Vector2i = cell + n
+					if not found.is_empty() or not Movement.can_stand(data, feet_in(f)):
+						continue
+					var inv: Inventory = Inventory.new()
+					inv.add(&"alchemy_table", 1)
+					if not WorldItems.place(data, feet_in(f), inv, 0, cell).ok():
+						continue
+					inv.add(&"alchemy_table", 1)
+					if WorldItems.place(data, feet_in(f), inv, 0, cell, [] as Array[Vector2], slots).why == WorldItems.WHY_RESERVED:
+						found = [f, cell, s]
+	if check(not found.is_empty(), "a table spot over a home slot that the world alone would allow"):
+		var ft: Vector2i = found[0]
+		var fc: Vector2i = found[1]
+		var mc: Client = await _join_quiet(r, 102, "miner", feet_in(ft))
+		var mm: NetMember = hm(r, mc)
+		mm.player.teleport(feet_in(ft))
+		give(mm, &"alchemy_table", 1)
+		refill(mm)
+		run_one(r, mm, _use(Config.MAP_SURFACE, fc, slot_of(mm.player.inventory, &"alchemy_table"), 0))
+		check(mm.refused(WorldItems.WHY_RESERVED) == 1 and data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_ALCHEMY) == 0,
+			"a table over a spot where joiners appear while it is carried: refused")
+		# Past the rules (put straight into the data), the joiner's slot is skipped for a standable one.
+		var k: int = found[2]
+		var blocked: Vector2i = Aim.feet_cell(slots[k])
+		data.put_placeable(Rect2i(blocked - Vector2i(1, 0), Vector2i(3, 1)), WorldData.PLACEABLE_ALCHEMY)
+		check(not Movement.can_stand(data, slots[k]), "slot %d blocked past the rules" % k)
+		var sf: Vector2 = r.host.spawn_feet(k)
+		check(sf != slots[k] and Movement.can_stand(data, sf), "spawn_feet skips it for a standable spot (%s)" % sf)
+		var joiner: Client = _join(r, 103, "cleric", null, false)
+		var jm: NetMember = hm(r, joiner)
+		check(Movement.can_stand(data, jm.player.sim_position), "a joiner while it is carried stands where it appears (%s)" % jm.player.sim_position)
+		data.put_placeable(Rect2i(blocked - Vector2i(1, 0), Vector2i(3, 1)), WorldData.PLACEABLE_NONE)
+	# The client's world: no altar, but where it stood is kept; put back there when it plays on alone.
+	check(not watcher.surface.data.altar_rect.has_area() and watcher.surface.last_altar_rect == home,
+		"the client's world has no altar and keeps where it stood")
+	var none: Array[Vector2] = []
+	var got: Rect2i = Main.restore_altar_at(watcher.surface, watcher.s.local.player.sim_position, none)
+	check(got == home and watcher.surface.data.altar_rect == home and watcher.surface.is_in_safe_zone(AltarMove.centre_px(home)),
+		"playing on alone: the altar back where it stood (its light, its safe zone)")
 	_free_rig(r)
 
 
@@ -902,7 +1104,21 @@ func _measure_fields_traffic() -> void:
 				soil.append(Vector2i(x, y))
 	for i: int in soil.size():
 		entries.append([soil[i], 1 + i % 3, 0, true, i % 2 == 0])
-	Main.put_test_fields(r.surface, r.host.farm_of(Config.MAP_SURFACE), entries)
+	# M5-fix: through the host's edit log (the clients get the planted crops), not past it like --test-field, so the
+	# clients' worlds are the host's throughout and the end checks it.
+	var farm: Farm = r.host.farm_of(Config.MAP_SURFACE)
+	for entry: Array in entries:
+		var at: Vector2i = entry[0]
+		var kind: int = entry[1]
+		var stage: int = entry[2]
+		var is_wet: bool = entry[3]
+		var fast: bool = entry[4]
+		r.host.apply_world_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, at,
+			Farming.Field.new(kind, stage, is_wet, fast).value()))
+		farm.sync_cell(at)
+	_tick(r, 3)
+	check(a.surface.data.content_hash() == data.content_hash() and b.surface.data.content_hash() == data.content_hash(),
+		"the planted field reached both clients")
 	before = r.bytes_by_kind.duplicate()
 	var ticks: int = Config.WATER_TICKS + Config.WATER_TICKS / 4
 	var peak: int = 0
@@ -927,6 +1143,9 @@ func _measure_fields_traffic() -> void:
 	_tick(r, Config.PURIFY_CHANNEL_TICKS + 10)
 	var channel: float = _rate_since(r, before, Config.PURIFY_CHANNEL_TICKS + 11, lines, "a channel (3 s, %d tiles)" % r.host.purified)
 	check(rest == 0.0 and r.host.purified > 0 and channel > growing, "at rest nothing; a channel sends its state at 20 Hz and its edits")
+	_tick(r, 5)
+	check(a.surface.data.content_hash() == data.content_hash() and b.surface.data.content_hash() == data.content_hash(),
+		"after the growing field and the channel both clients' worlds = the host's")
 	note("fields traffic, one process, ENet payload bytes host -> 2 clients: %s" % "; ".join(lines))
 	b.ticking = false
 	_free_rig(r)

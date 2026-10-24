@@ -110,8 +110,6 @@ var ghost: AltarGhost
 var purified: int = 0
 var altar_moves: int = 0
 var _respawn_waiting: Dictionary[int, bool] = {}
-## Where the altar was picked up (the last fallback for setting it down).
-var _altar_home: Rect2i = Rect2i()
 var _gave: bool = false
 var _debug_action: int = 0
 
@@ -240,6 +238,7 @@ func _physics_process(delta: float) -> void:
 		_bot_tick(delta)
 	step_altar_hold(player)
 	step_combat(delta)
+	check_carriers()  # M5-fix: after the combat, like the host (SessionHost.tick: arenas, then _check_carriers)
 	step_farms()
 	_show_purify()
 
@@ -460,8 +459,11 @@ func pick_up() -> void:
 		return
 	var o: WorldItems.Outcome = WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell)
 	if not o.ok() and o.why == WorldItems.WHY_NOTHING and purify_on and not player.carrying_altar \
+			and not AltarMove.is_altar_cell(data, cell) \
 			and Purify.channel_refusal(data, player.class_id(), player.sim_position).is_empty():
-		player.request_channel()  # M5b: F with nothing to pick up, on or next to corruption: the paladin's channel
+		# M5b: F with nothing to pick up, on or next to corruption: the paladin's channel. M5-fix: not F aimed at the altar
+		# (that F is the altar's: holding it lifts the altar, PROVISIONAL README "M5b 키").
+		player.request_channel()
 		return
 	_apply_offline(o, "pickup", cell)
 	if o.ok() and o.gathered and farming_on:
@@ -690,8 +692,8 @@ func _log_edit(e: EditLog.WorldEdit) -> void:
 
 func _on_hurt(amount: int, downed: bool, p: Player) -> void:
 	print("EVENSONG_COMBAT hurt who=%s amount=%d hp=%d%s" % [p.name, amount, p.vitals.hp, " DOWN" if downed else ""])
-	if downed and p.carrying_altar:
-		set_altar_down(p)  # M5b: the carrier went down: the altar comes down nearby
+	# M5b: a carrier that went down sets the altar down nearby. M5-fix: not here in the middle of the arena's step (its
+	# heretics half moved) but once the tick's combat is over (check_carriers), in the host's order.
 
 
 ## M4a: player `p` died (down time over, or gave up): part of its materials and consumables fall in a
@@ -752,6 +754,11 @@ func _go_offline_combat() -> void:
 	player.potions_on = true
 	if not player.potion_refused.is_connected(_on_potion_refused):
 		player.potion_refused.connect(_on_potion_refused)
+	# M5-fix: the host went while someone else carried the altar (the host itself, or another client): this world has no
+	# altar and nobody here to put it down. It comes back where it last stood (GameWorld.last_altar_rect), or the nearest
+	# allowed place around it (PROVISIONAL README "M5c 호스트를 잃었을 때 제단"), before the offline arena takes its light.
+	if not world.data.altar_rect.has_area() and not player.carrying_altar:
+		restore_altar(world, bodies_on(Config.MAP_SURFACE))
 	setup_combat()
 	# M5a: and farming (the fields the host's world had, with fresh timers: Farm.setup).
 	player.farming_on = true
@@ -1096,6 +1103,8 @@ func _on_purify_refused(what: String, why: String) -> void:
 
 ## F held aimed at an altar tile (Config.ALTAR_PICKUP_HOLD_TICKS, AltarMove.pickup_refusal) picks the altar up; letting go
 ## or aiming away starts the count over. Then, while `p` carries it, the ghost shows where a click would put it.
+## M5-fix: a frame counts only by AltarMove.hold_counts (no action, no channel running, no downed player in revive reach:
+## the host's rule, so a channel can never finish while its paladin carries the altar, and a revive never lifts it).
 func step_altar_hold(p: Player) -> void:
 	if not purify_on or p == null or not is_instance_valid(p):
 		return
@@ -1103,7 +1112,7 @@ func step_altar_hold(p: Player) -> void:
 	if w == null:
 		return
 	if not p.carrying_altar:
-		if p.vitals.alive() and p.interact_held and p.action_anim < 0 \
+		if p.interact_held and AltarMove.hold_counts(p, players_on(w.map_id)) \
 				and AltarMove.pickup_refusal(w.data, p.class_id(), p.sim_position, p.aim_cell).is_empty():
 			p.altar_hold_ticks += 1
 			if p.altar_hold_ticks >= Config.ALTAR_PICKUP_HOLD_TICKS:
@@ -1133,10 +1142,9 @@ func pick_up_altar(p: Player) -> void:
 		return
 	var from: Rect2i = w.data.altar_rect
 	for e: EditLog.WorldEdit in AltarMove.pickup_edits(w.data):
-		w.apply_edit(e)
+		w.apply_edit(e)  # the world keeps where it stood (GameWorld.last_altar_rect: the set-down's last fallback)
 	p.altar_hold_ticks = 0
 	p.set_carrying_altar(true)
-	_altar_home = from
 	print("EVENSONG_ALTAR picked up who=%s class=%s from=%d,%d" % [p.name, p.class_id(), from.position.x, from.position.y])
 
 
@@ -1178,18 +1186,65 @@ func place_altar(p: Player, cell: Vector2i) -> String:
 	return ""
 
 
-## The carrier `p` went down: the altar comes down at the nearest allowed place around it (AltarMove.set_down_rect; if
-## none, ignoring the heretics; if none still, where it was picked up).
-func set_altar_down(p: Player) -> void:
+## The carrier `p` went down: the altar comes down at the nearest allowed place around it (AltarMove.set_down_fallback:
+## then ignoring the heretics, then around where it last stood, GameWorld.last_altar_rect). M5-fix: never over anything,
+## and when nothing allows it (no place within Config.ALTAR_SET_DOWN_SEARCH_TILES of either) `p` keeps it (logged once;
+## README "알려진 문제 (M5-fix)"). Returns whether it came down.
+func set_altar_down(p: Player) -> bool:
 	var w: GameWorld = _world_of(p)
 	if w == null:
-		return
-	var rect: Rect2i = AltarMove.set_down_rect(w.data, p.sim_position, bodies_on(w.map_id), heretics_on(w.map_id))
+		return false
+	var rect: Rect2i = AltarMove.set_down_fallback(w.data, p.sim_position, w.last_altar_rect, bodies_on(w.map_id),
+		heretics_on(w.map_id))
 	if not rect.has_area():
-		rect = AltarMove.set_down_rect(w.data, p.sim_position, bodies_on(w.map_id))
-	if not rect.has_area():
-		rect = _altar_home
+		p.altar_set_down_failed = true
+		print("EVENSONG_ALTAR set down failed who=%s: no place allows it, still carried" % p.name)
+		return false
 	_put_altar(w, p, rect, "set down")
+	return true
+
+
+## M5-fix: every carrier that is down or dead now sets the altar down, once a tick after the combat (offline
+## _physics_process; the host's SessionHost._check_carriers). A carrier for whom no place was found tries again once it
+## is up again (Player.altar_set_down_failed).
+func check_carriers() -> void:
+	if not purify_on:
+		return
+	var all: Array[Player] = [player]
+	all.append_array(allies)
+	for p: Player in all:
+		if p == null or not is_instance_valid(p) or not p.carrying_altar:
+			continue
+		if p.vitals.alive():
+			p.altar_set_down_failed = false
+		elif not p.altar_set_down_failed:
+			set_altar_down(p)
+
+
+## M5-fix: world `w` has no altar and nobody here carries it (a client playing on after it lost the host while the host
+## or another client carried it): it comes back where it last stood (`w.last_altar_rect`), or at the nearest place the
+## placing rules allow around that (with `bodies`, ignoring heretics: the offline arena is not set up yet), or, with no
+## place known (joined while it was carried), around the local player. Returns the footprint, empty when none allowed
+## it (then a respawn waits as while it is carried; logged).
+func restore_altar(w: GameWorld, bodies: Array[Vector2]) -> Rect2i:
+	var from: Vector2 = player.sim_position if player != null and is_instance_valid(player) and player.data == w.data \
+		else Vector2(w.data.size * Config.TILE) / 2.0
+	return restore_altar_at(w, from, bodies)
+
+
+## restore_altar's work: where it last stood if the placing rules allow (with `bodies`), else the nearest allowed place
+## around that, else around `from` (AltarMove.set_down_fallback, home first); the edits go into `w`.
+static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2]) -> Rect2i:
+	var none: Array[Vector2] = []
+	var rect: Rect2i = AltarMove.set_down_fallback(w.data, from, w.last_altar_rect, bodies, none, true)
+	if not rect.has_area():
+		print("EVENSONG_ALTAR restore failed: no place allows it (last stood %s)" % w.last_altar_rect)
+		return rect
+	for e: EditLog.WorldEdit in AltarMove.place_edits(rect):
+		w.apply_edit(e)
+	print("EVENSONG_ALTAR restored at=%d,%d (the host went while it was carried) light=%d,%d" % [rect.position.x,
+		rect.position.y, roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
+	return rect
 
 
 func _put_altar(w: GameWorld, p: Player, rect: Rect2i, what: String) -> void:

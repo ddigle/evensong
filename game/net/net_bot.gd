@@ -278,7 +278,9 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.count = Vitals.LIFE_NAMES.find(args[0])
 			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
 		"waitfield":
-			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not (args[2] == "soil" or (_whole(args[2], 0) and args[2].to_int() < Farming.STAGES)) 					or (args.size() == 4 and not _whole(args[3], 1)):
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or not (args[2] == "soil" or (_whole(args[2], 0) and args[2].to_int() < Farming.STAGES)) \
+					or (args.size() == 4 and not _whole(args[3], 1)):
 				return "expected waitfield:<x>,<y>,<soil|0..%d>[,<ticks>]" % (Farming.STAGES - 1)
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.count = -1 if args[2] == "soil" else args[2].to_int()

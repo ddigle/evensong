@@ -55,6 +55,16 @@ var stats: Dictionary[String, int] = {}
 ## M5c, tests only (--test-crop-ticks): ticks per stage in place of Config.CROP_STAGE_TICKS (0 = the Config value;
 ## Farming.stage_ticks), so a session sees a crop grow in seconds.
 var stage_ticks_base: int = 0
+## M5-fix (cost per tick): whether each field tile withers (Farming.withers_at, by tile index), kept while what it reads
+## stays the same: the altar's footprint (the light) and the CORRUPTION layer (its hash, so a tile cleared and another
+## corrupted between two ticks is seen too). Moving the altar or purifying works the causes out again on the next step.
+var _withers: Dictionary[int, bool] = {}
+var _withers_altar: Rect2i = Rect2i()
+var _withers_corruption: int = 0
+var _withers_valid: bool = false
+## M5-fix: the plots' tile indices in row order, sorted again only after a plot came or went.
+var _keys: Array[int] = []
+var _keys_dirty: bool = true
 
 
 func _init(p_data: WorldData = null) -> void:
@@ -67,6 +77,8 @@ func _init(p_data: WorldData = null) -> void:
 func setup(p_data: WorldData) -> void:
 	data = p_data
 	plots.clear()
+	_keys_dirty = true
+	_withers_valid = false
 	ticks = 0
 	stats.clear()
 	for c: Vector2i in Farming.field_cells(data):
@@ -79,12 +91,14 @@ func sync_cell(c: Vector2i) -> void:
 	var i: int = data.index_of(c)
 	var f: Farming.Field = Farming.field_at(data, c)
 	if f == null:
-		plots.erase(i)
+		if plots.erase(i):
+			_keys_dirty = true
 		return
 	if not plots.has(i):
 		var p: Plot = Plot.new()
 		p.water_left = Config.WATER_TICKS if f.wet else 0
 		plots[i] = p
+		_keys_dirty = true
 
 
 func stat(name: String) -> int:
@@ -102,24 +116,43 @@ func step() -> Array[EditLog.WorldEdit]:
 	var out: Array[EditLog.WorldEdit] = []
 	if plots.is_empty():
 		return out
+	var corruption: int = hash(data.layers[WorldData.Layer.CORRUPTION])
+	if not _withers_valid or data.altar_rect != _withers_altar or corruption != _withers_corruption:
+		_withers.clear()
+		_withers_altar = data.altar_rect
+		_withers_corruption = corruption
+		_withers_valid = true
 	var zone: SafeZone = SafeZone.for_world(data)
-	var keys: Array[int] = []
-	keys.assign(plots.keys())
-	keys.sort()
-	for i: int in keys:
+	if _keys_dirty:
+		_keys.assign(plots.keys())
+		_keys.sort()
+		_keys_dirty = false
+	var veg: PackedByteArray = data.layers[WorldData.Layer.VEGETATION]
+	for i: int in _keys:
+		# M5-fix: a dry crop whose withered flag already matches its (kept) causes changes nothing this tick: it does not
+		# grow (dry) and has no water to run down. Read off the raw value, no Field made (most of a big farm's cost).
+		var v: int = veg[i]
+		if v >= Config.FIELD_BASE + Config.FIELD_KIND_STEP and v < Config.FIELD_BASE + Farming.KIND_COUNT * Config.FIELD_KIND_STEP \
+				and _withers.has(i):
+			var flags: int = (v - Config.FIELD_BASE) % Config.FIELD_STAGE_STEP
+			if flags & Farming.FLAG_WET == 0 and _withers[i] == (flags & Farming.FLAG_WITHERED != 0):
+				continue
 		var c: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
 		var f: Farming.Field = Farming.field_at(data, c)
 		if f == null:
 			plots.erase(i)
+			_keys_dirty = true
 			continue
 		var plot: Plot = plots[i]
 		var before: int = f.value()
 		if f.kind != Farming.KIND_NONE:
-			var cause: String = Farming.withers_at(data, c, zone)
-			if not cause.is_empty() and not f.withered:
+			if not _withers.has(i):
+				_withers[i] = not Farming.withers_at(data, c, zone).is_empty()
+			var withers: bool = _withers[i]
+			if withers and not f.withered:
 				f.withered = true
 				_count("withered")
-			elif cause.is_empty() and f.withered:
+			elif not withers and f.withered:
 				f.withered = false
 				_count("revived")
 			if f.wet and not f.withered and not f.ripe():
@@ -139,6 +172,7 @@ func step() -> Array[EditLog.WorldEdit]:
 			out.append(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, after))
 		if after == 0:
 			plots.erase(i)
+			_keys_dirty = true
 	return out
 
 
@@ -176,6 +210,7 @@ func plant(feet: Vector2, class_id: String, inv: Inventory, slot: int, c: Vector
 	if plot == null:
 		plot = Plot.new()
 		plots[i] = plot
+		_keys_dirty = true
 	plot.progress = 0
 	_count("planted")
 	return r
@@ -199,6 +234,7 @@ func water(feet: Vector2, c: Vector2i) -> Result:
 	if plot == null:
 		plot = Plot.new()
 		plots[i] = plot
+		_keys_dirty = true
 	plot.water_left = Config.WATER_TICKS
 	_count("watered")
 	return r
@@ -239,6 +275,7 @@ func harvest(feet: Vector2, class_id: String, inv: Inventory, c: Vector2i) -> Re
 	var i: int = data.index_of(c)
 	if rest.value() == 0:
 		plots.erase(i)
+		_keys_dirty = true
 	elif plots.has(i):
 		plots[i].progress = 0
 	_count("harvested")

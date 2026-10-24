@@ -20,7 +20,10 @@ extends RefCounted
 ##     it, not over a spot where players appear (the entrance's arrival point), and no live heretic inside its new light
 ##     (heretics never stand in the light, M4a);
 ##   - the carrier can not travel, channel, use items or throw (the click is the altar's); when it goes down the altar is
-##     set down at the nearest allowed place around it (set_down_rect).
+##     set down at the nearest allowed place around it (set_down_rect; M5-fix: set_down_fallback, never over anything);
+##   - M5-fix: its light may cover corruption (Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION; false: light_corruption_refusal);
+##     F held counts toward lifting only while the player is up, plays no action, does not channel and no downed player
+##     lies within revive reach (hold_counts: F held there is a revive).
 
 const WHY_NO_ALTAR: String = "no altar there"
 const WHY_SURFACE: String = "the altar stays on the surface"
@@ -31,6 +34,8 @@ const WHY_CORRUPTED: String = "corrupted ground"
 const WHY_GROWING: String = "something grows there"
 const WHY_SLOTS: String = "no room around it"
 const WHY_HERETIC: String = "a heretic is in the light"
+## M5-fix, only with Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION off: a corrupted tile within its light (+ the M1 margin).
+const WHY_LIGHT_CORRUPTED: String = "corruption in its light"
 ## M5c: the host counted fewer than Config.ALTAR_PICKUP_HOLD_TICKS frames of F held before an ALTAR_LIFT; an ALTAR_PLACE
 ## from a player who carries nothing.
 const WHY_HOLD: String = "F not held long enough"
@@ -107,6 +112,13 @@ static func slot_feet(rect: Rect2i) -> Array[Vector2]:
 static func place_refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2] = [], heretics: Array[Vector2] = []) -> String:
 	if data.map_id != Config.MAP_SURFACE:
 		return WHY_SURFACE
+	return _refusal(data, rect, bodies, heretics, WorldItems.reserved_feet(data))
+
+
+## place_refusal with the spots where players appear given (`reserved`, WorldItems.reserved_feet: M5-fix, a search
+## reads them once, not once a footprint; the reserved spots never depend on the footprint tried). Surface only.
+static func _refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2], heretics: Array[Vector2],
+		reserved: Array[Vector2]) -> String:
 	if not rect.has_area() or not Rect2i(Vector2i.ZERO, data.size).encloses(rect):
 		return WorldItems.WHY_OUTSIDE
 	for y: int in range(rect.position.y, rect.end.y):
@@ -123,16 +135,33 @@ static func place_refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2] 
 	for b: Vector2 in bodies:
 		if px.intersects(Movement.feet_box(b)):
 			return WorldItems.WHY_BODY
-	for r: Vector2 in WorldItems.reserved_feet(data):
+	for r: Vector2 in reserved:
 		if px.intersects(Movement.feet_box(r)):
 			return WorldItems.WHY_RESERVED
 	for s: Vector2 in slot_feet(rect):
 		if not Movement.can_stand(data, s) or px.intersects(Movement.feet_box(s)):
 			return WHY_SLOTS
-	var zone: SafeZone = SafeZone.new(centre_px(rect), Config.safe_radius_px())
-	for h: Vector2 in heretics:
-		if not Combat.box_outside_light(data, zone, h):
-			return WHY_HERETIC
+	if _lights_a_heretic(data, rect, heretics):
+		return WHY_HERETIC
+	if not Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION:
+		return light_corruption_refusal(data, rect)
+	return ""
+
+
+## M5-fix (used only with Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION off; tests call it either way): WHY_LIGHT_CORRUPTED
+## when a corrupted tile's centre lies within the safe radius + Config.ASH_CLEARANCE_TILES of footprint `rect`'s centre
+## (the margin the M1 generator keeps between the light and the ash), else "".
+static func light_corruption_refusal(data: WorldData, rect: Rect2i) -> String:
+	var centre: Vector2 = centre_px(rect)
+	var reach: float = Config.safe_radius_px() + Config.ASH_CLEARANCE_TILES * Config.TILE
+	var lo: Vector2i = Vector2i(floori((centre.x - reach) / Config.TILE), floori((centre.y - reach) / Config.TILE))
+	var hi: Vector2i = Vector2i(floori((centre.x + reach) / Config.TILE), floori((centre.y + reach) / Config.TILE))
+	var layer: PackedByteArray = data.layers[WorldData.Layer.CORRUPTION]
+	for y: int in range(maxi(lo.y, 0), mini(hi.y, data.size.y - 1) + 1):
+		for x: int in range(maxi(lo.x, 0), mini(hi.x, data.size.x - 1) + 1):
+			if layer[y * data.size.x + x] != 0 \
+					and ((Vector2(x, y) + Vector2(0.5, 0.5)) * Config.TILE).distance_squared_to(centre) <= reach * reach:
+				return WHY_LIGHT_CORRUPTED
 	return ""
 
 
@@ -150,6 +179,9 @@ static func place_edits(rect: Rect2i) -> Array[EditLog.WorldEdit]:
 ## Config.ALTAR_SET_DOWN_SEARCH_TILES. An empty rect when there is none.
 static func set_down_rect(data: WorldData, feet: Vector2, bodies: Array[Vector2] = [],
 		heretics: Array[Vector2] = []) -> Rect2i:
+	if data.map_id != Config.MAP_SURFACE:
+		return Rect2i()
+	var reserved: Array[Vector2] = WorldItems.reserved_feet(data)  # M5-fix: once a search, not once a footprint
 	var f: Vector2i = Aim.feet_cell(feet)
 	var half: Vector2i = Config.ALTAR_FOOTPRINT / 2
 	for d: int in Config.ALTAR_SET_DOWN_SEARCH_TILES + 1:
@@ -158,6 +190,66 @@ static func set_down_rect(data: WorldData, feet: Vector2, bodies: Array[Vector2]
 				if maxi(absi(x - f.x), absi(y - f.y)) != d:
 					continue
 				var rect: Rect2i = Rect2i(Vector2i(x, y) - half, Config.ALTAR_FOOTPRINT)
-				if place_refusal(data, rect, bodies, heretics).is_empty():
+				if not heretics.is_empty() and _lights_a_heretic(data, rect, heretics):
+					continue  # M5-fix: the cheap check first (only allowed or not matters in a search)
+				if _refusal(data, rect, bodies, heretics, reserved).is_empty():
 					return rect
 	return Rect2i()
+
+
+## Whether an altar on `rect` would light one of `heretics` (place_refusal's WHY_HERETIC test alone).
+static func _lights_a_heretic(data: WorldData, rect: Rect2i, heretics: Array[Vector2]) -> bool:
+	var zone: SafeZone = SafeZone.new(centre_px(rect), Config.safe_radius_px())
+	for h: Vector2 in heretics:
+		if not Combat.box_outside_light(data, zone, h):
+			return true
+	return false
+
+
+## M5-fix: where a carried altar comes down when it must (its carrier went down or left): set_down_rect around `feet`,
+## then the same ignoring the heretics, then around `home` (where it was picked up: its own footprint first when it is
+## still allowed) with and without them; `home_first` (a carrier leaving with Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES
+## off) tries around `home` first. Every footprint returned passes place_refusal with `bodies` (and, unless that try
+## ignores them, `heretics`), so nothing lying, standing or placed there is ever covered. An empty rect when none of
+## them finds a place (the callers then keep the altar carried; with no home known, only `feet` is searched).
+static func set_down_fallback(data: WorldData, feet: Vector2, home: Rect2i, bodies: Array[Vector2] = [],
+		heretics: Array[Vector2] = [], home_first: bool = false) -> Rect2i:
+	var around: Array[Vector2] = [feet]
+	if home.has_area():
+		var at_home: Vector2 = Arena.spawn_feet(home.get_center())  # its feet tile = the home's centre tile: ring 0 = home
+		if home_first:
+			around.push_front(at_home)
+		else:
+			around.append(at_home)
+	var none: Array[Vector2] = []
+	for point: Vector2 in around:
+		for attempt: int in 2:
+			var rect: Rect2i = set_down_rect(data, point, bodies, heretics if attempt == 0 else none)
+			if rect.has_area():
+				return rect
+	return Rect2i()
+
+
+## M5-fix: whether F held this frame by player `p` counts toward lifting the altar (offline Main.step_altar_hold, a
+## session client's SessionHost.hold_altar, the host's own count NetMember.altar_hold): up, not carrying it, no body
+## action playing, no purification channel running (the host refuses a lift while one runs, M5c), and no downed player
+## among `players` (the players on its map) within Config.REVIVE_REACH_PX of its feet (F held there revives,
+## Arena.reviver_for: PROVISIONAL README "M5b 키"). The aim (an altar tile in reach) is the caller's.
+static func hold_counts(p: Player, players: Array[Player]) -> bool:
+	if not p.vitals.alive() or p.carrying_altar or p.action_anim >= 0 or p.channel_tick > 0:
+		return false
+	for q: Player in players:
+		if q != p and q.vitals.life == Vitals.Life.DOWN and q.sim_position.distance_to(p.sim_position) <= Config.REVIVE_REACH_PX:
+			return false
+	return true
+
+
+## M5-fix (the host, which has the feet of every frame but not its aim): whether any altar tile is in reach of feet
+## `feet` (WorldItems.in_reach). F held anywhere else does not count toward a lift.
+static func altar_in_reach(data: WorldData, feet: Vector2) -> bool:
+	var r: Rect2i = data.altar_rect
+	for y: int in range(r.position.y, r.end.y):
+		for x: int in range(r.position.x, r.end.x):
+			if WorldItems.in_reach(feet, Vector2i(x, y)):
+				return true
+	return false

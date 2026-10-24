@@ -20,8 +20,12 @@ func run() -> Array[String]:
 	await _check_world_follows()
 	_check_fields_follow()
 	_check_arena_follows()
+	_check_light_over_corruption()
+	_check_set_down_fallback()
+	await _check_restore()
 	_check_determinism()
 	await _check_main()
+	await _check_main_holds()
 	await _check_session()
 	return failures
 
@@ -62,6 +66,51 @@ static func west_rect(data: WorldData, was: Rect2i) -> Rect2i:
 
 static func centre_of(c: Vector2i) -> Vector2:
 	return Vector2(c * 16) + Vector2(8, 8)
+
+
+## M5-fix: a footprint by a corruption zone that the placing rules allow (its light covers part of the zone) and a feet
+## tile beside it where a paladin may channel (corruption on or next to it) and stand once the altar is there, with a
+## footprint tile and a free tile (nothing to pick up) it can aim at: [rect, feet tile, altar tile, free tile], or [].
+## `data` keeps its altar where it is (a footprint away from it is searched; the caller moves the altar).
+static func by_zone(data: WorldData) -> Array:
+	var dirs: Array[Vector2i] = [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]
+	var corruption: PackedByteArray = data.layers[WorldData.Layer.CORRUPTION]
+	var tried: Dictionary[Rect2i, bool] = {}
+	for i: int in corruption.size():
+		if corruption[i] == 0:
+			continue
+		var c: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
+		for d: Vector2i in dirs:
+			if not data.in_bounds(c + d * 4) or data.get_value(WorldData.Layer.CORRUPTION, c + d) != 0:
+				continue
+			var r: Rect2i = AltarMove.set_down_rect(data, feet_in(c + d * 3))
+			if not r.has_area() or tried.has(r) or r.intersects(data.altar_rect.grow(4)):
+				continue
+			tried[r] = true
+			var after: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(data))
+			apply(after, AltarMove.pickup_edits(after))
+			apply(after, AltarMove.place_edits(r))
+			for y: int in range(r.position.y - 1, r.end.y + 1):
+				for x: int in range(r.position.x - 1, r.end.x + 1):
+					var t: Vector2i = Vector2i(x, y)
+					var feet: Vector2 = feet_in(t)
+					if r.has_point(t) or not Movement.can_stand(after, feet) \
+							or not Purify.channel_refusal(after, "paladin", feet).is_empty():
+						continue
+					var a: Vector2i = Vector2i(-1, -1)
+					var g: Vector2i = Vector2i(-1, -1)
+					for n: Vector2i in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+						var cell: Vector2i = t + n
+						if Aim.target_cell(feet, Aim.sector(centre_of(cell) - feet, Aim.Sector.SOUTH)) != cell:
+							continue
+						if r.has_point(cell):
+							a = cell
+						elif WorldItems.pickup_check(after, feet, cell) == WorldItems.WHY_NOTHING \
+								and not WorldItems.is_portal(after, cell):
+							g = cell
+					if a.x >= 0 and g.x >= 0:
+						return [r, t, a, g]
+	return []
 
 
 # --- picking it up ---------------------------------------------------------------------------------------------
@@ -240,7 +289,7 @@ func _check_world_follows() -> void:
 	var t0: int = Time.get_ticks_usec()
 	for e2: EditLog.WorldEdit in AltarMove.place_edits(r):
 		w.apply_edit(e2)
-	note("put down at a new place (nine edits, the altar's node, two new light textures): %.1f ms" % [
+	note("put down at a new place (nine edits, the altar's node, its light from the cache): %.1f ms" % [
 		(Time.get_ticks_usec() - t0) / 1000.0])
 	check_eq(moved[0], 2, "and once when it came down")
 	var centre: Vector2 = AltarMove.centre_px(r)
@@ -251,7 +300,9 @@ func _check_world_follows() -> void:
 	check(light.position == centre and light.ground_light.enabled and light.actor_light.enabled, "the light at the new centre, on")
 	check(light.ground_light.texture == AltarLight.texture_for(w.safe_zone, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX)
 		and light.actor_light.texture == AltarLight.texture_for(w.safe_zone, LightGen.Edge.HARD, 0), "its textures for the new zone")
-	check_eq(AltarLight.cached_texture_count(), tex_count + 2, "a new place: two new cached textures")
+	check_eq(AltarLight.cached_texture_count(), tex_count, "a new place: no new textures (M5-fix: the same pair everywhere)")
+	check(light.ground_light.texture == AltarLight.texture_for(SafeZone.new(old_centre, Config.safe_radius_px()),
+		LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX), "the pair it had at home")
 	for i: int in Config.SPAWN_SLOTS.size():
 		if w.spawn_point(i) != centre + Vector2(Config.SPAWN_SLOTS[i]):
 			fail("spawn slot %d did not follow" % i)
@@ -275,7 +326,7 @@ func _check_world_follows() -> void:
 	check(not light.ground_light.enabled, "back home with the evening off: the light stays off")
 	w.lighting.set_evening(true)
 	check(light.ground_light.enabled and light.position == old_centre, "evening on: lit at home")
-	check_eq(AltarLight.cached_texture_count(), tex_count + 2, "home again: its old textures, none new")
+	check_eq(AltarLight.cached_texture_count(), tex_count, "home again: none new")
 	check_eq(w.ground.verify()["mismatches"], 0, "the ground untouched")
 
 
@@ -291,15 +342,19 @@ func _check_fields_follow() -> void:
 	for c2: Vector2i in soil.slice(0, 4):
 		data.set_value(WorldData.Layer.VEGETATION, c2, Farming.Field.new(Farming.KIND_HEALING, 1, true).value())
 		farm.sync_cell(c2)
+	# M5-fix: and a dry one (Farm.step skips a dry crop only while its withered flag matches its kept causes).
+	var dry: Vector2i = soil[4]
+	data.set_value(WorldData.Layer.VEGETATION, dry, Farming.Field.new(Farming.KIND_BUFF, 2).value())
+	farm.sync_cell(dry)
 	apply(data, farm.step())
-	check(not Farming.field_at(data, soil[0]).withered, "lit: growing")
+	check(not Farming.field_at(data, soil[0]).withered and not Farming.field_at(data, dry).withered, "lit: growing (and the dry one)")
 	var was: Rect2i = data.altar_rect
 	apply(data, AltarMove.pickup_edits(data))
 	apply(data, farm.step())
 	var all_withered: bool = true
 	for c3: Vector2i in soil.slice(0, 4):
 		all_withered = all_withered and Farming.field_at(data, c3).withered
-	check(all_withered, "carried away (no light): they wither the next tick")
+	check(all_withered and Farming.field_at(data, dry).withered, "carried away (no light): they wither the next tick, the dry one too")
 	var r: Rect2i = west_rect(data, was)
 	apply(data, AltarMove.place_edits(r))
 	apply(data, farm.step())
@@ -307,7 +362,13 @@ func _check_fields_follow() -> void:
 	for c4: Vector2i in soil.slice(0, 4):
 		var f: Farming.Field = Farming.field_at(data, c4)
 		still = still and f.withered and data.terrain_at(c4) == Terrain.SOIL and f.kind == Farming.KIND_HEALING
-	check(still, "put down far away: still withered, the fields stay (● §9.7)")
+	check(still, "put down far away: still withered, the fields stay (○ §9.7, the default)")
+	# M5-fix: a fresh dry crop put on that dark tile from outside (a test field, an edit) while the farm keeps its causes is
+	# judged all the same: withered on the next tick.
+	data.set_value(WorldData.Layer.VEGETATION, dry, Farming.Field.new(Farming.KIND_HEALING, 3).value())
+	farm.sync_cell(dry)
+	apply(data, farm.step())
+	check(Farming.field_at(data, dry).withered, "a dry crop put on a dark field from outside withers on the next tick")
 	# A new field in the new light grows.
 	var g: Vector2i = Vector2i(-1, -1)
 	for y: int in range(r.position.y - 6, r.end.y + 6):
@@ -334,9 +395,9 @@ func _check_fields_follow() -> void:
 	apply(data, AltarMove.place_edits(was))
 	apply(data, farm.step())
 	var revived: bool = true
-	for c5: Vector2i in soil.slice(0, 4):
+	for c5: Vector2i in soil.slice(0, 5):
 		revived = revived and not Farming.field_at(data, c5).withered
-	check(revived, "the altar back: the old fields revive")
+	check(revived, "the altar back: the old fields revive (the dry one too)")
 
 
 # --- the arena follows ---------------------------------------------------------------------------------------------
@@ -392,6 +453,115 @@ func _check_arena_follows() -> void:
 	check(waited, "it waited at the edge")
 	check_eq(p.vitals.hp, Config.PLAYER_HP_MAX, "the player in the new light was not hit")
 	p.free()
+
+
+# --- M5-fix: a light over corruption, the set-down's fallbacks, the altar restored ------------------------------------
+
+## PROVISIONAL Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION (README "M5-fix 빛 아래 오염"): by a zone the altar may go down and
+## its light covers corrupted tiles; they stay, no spawn tile is in its light, a lit crop beside them withers. The other
+## rule (false: AltarMove.light_corruption_refusal) would refuse exactly such a place and not the open grass.
+func _check_light_over_corruption() -> void:
+	var pair: Array = carried()
+	var data: WorldData = pair[0]
+	var was: Rect2i = pair[1]
+	apply(data, AltarMove.place_edits(was))
+	var spot: Array = by_zone(data)
+	if not check(not spot.is_empty(), "a footprint by a zone, with a paladin's spot beside it"):
+		return
+	var r: Rect2i = spot[0]
+	apply(data, AltarMove.pickup_edits(data))
+	check(Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION, "the default: its light may cover corruption")
+	check_eq(AltarMove.place_refusal(data, r), "", "by a zone: allowed")
+	check_eq(AltarMove.light_corruption_refusal(data, r), AltarMove.WHY_LIGHT_CORRUPTED, "the other rule would refuse it")
+	check_eq(AltarMove.light_corruption_refusal(data, west_rect(data, was)), "", "but not the open grass west")
+	check_eq(AltarMove.light_corruption_refusal(data, was), "", "nor home (the generator keeps ASH_CLEARANCE_TILES of grass)")
+	var corrupted: int = Purify.corrupted_count(data)
+	apply(data, AltarMove.place_edits(r))
+	var zone: SafeZone = SafeZone.for_world(data)
+	var lit_ash: int = 0
+	var wither_by_ash: int = 0
+	for i: int in data.layers[WorldData.Layer.CORRUPTION].size():
+		var c: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
+		if data.layers[WorldData.Layer.CORRUPTION][i] != 0 and zone.is_in_safe_zone(centre_of(c)):
+			lit_ash += 1
+		if Farming.in_light(data, c, zone) and Farming.withers_at(data, c, zone) == Farming.WHY_ASH_NEAR:
+			wither_by_ash += 1
+	check(lit_ash > 0 and Purify.corrupted_count(data) == corrupted,
+		"%d corrupted tiles under its light stay (nothing pushes them back; only purification clears them)" % lit_ash)
+	check(wither_by_ash > 0, "lit tiles where a crop would wither by the ash: %d" % wither_by_ash)
+	var arena: Arena = Arena.new()
+	arena.setup(data, Config.DEFAULT_SEED)
+	var lit_spawn: int = 0
+	var edge_spawn: int = 0
+	for c2: Vector2i in arena.spawn_cells:
+		var f: Vector2 = Arena.spawn_feet(c2)
+		if not Combat.box_outside_light(data, zone, f):
+			lit_spawn += 1
+		elif f.distance_to(zone.center) < zone.radius + 1.5 * Config.TILE:
+			edge_spawn += 1
+	check_eq(lit_spawn, 0, "no heretic spawns in its light (M4a)")
+	note("altar by a zone at %s: %d corrupted tiles lit, %d spawn tiles within 1.5 tiles of the light's edge" % [r.position,
+		lit_ash, edge_spawn])
+
+
+## AltarMove.set_down_fallback: around the feet, then where it was picked up (itself when still allowed, else the nearest
+## allowed place around it), never over anything; nothing known and nothing near: empty (the caller keeps it carried).
+func _check_set_down_fallback() -> void:
+	var pair: Array = carried()
+	var data: WorldData = pair[0]
+	var was: Rect2i = pair[1]
+	var far: Vector2 = Vector2(-4000, -4000)  # no footprint on the map within ALTAR_SET_DOWN_SEARCH_TILES of it
+	check_eq(AltarMove.set_down_rect(data, far), Rect2i(), "nothing near a point far off the map")
+	check_eq(AltarMove.set_down_fallback(data, far, was), was, "then where it was picked up, still allowed")
+	check_eq(AltarMove.set_down_fallback(data, far, Rect2i()), Rect2i(), "no place known and none near: none (never an empty footprint put down)")
+	var t: Vector2i = was.position + Vector2i(1, 1)
+	data.set_value(WorldData.Layer.PLACEABLE, t, WorldData.PLACEABLE_TORCH)
+	var got: Rect2i = AltarMove.set_down_fallback(data, far, was)
+	check(got.has_area() and not got.has_point(t) and AltarMove.place_refusal(data, got).is_empty(),
+		"a torch put on the old place meanwhile: never over it, the nearest allowed place (%s)" % got)
+	data.set_value(WorldData.Layer.PLACEABLE, t, WorldData.PLACEABLE_NONE)
+	var body: Array[Vector2] = [AltarMove.centre_px(was)]
+	got = AltarMove.set_down_fallback(data, far, was, body)
+	check(got != was and AltarMove.place_refusal(data, got, body).is_empty(), "someone standing there: beside it (%s)" % got)
+	var west: Rect2i = west_rect(data, was)
+	var west_feet: Vector2 = feet_in(west.get_center())
+	check_eq(AltarMove.set_down_fallback(data, west_feet, was), west, "around the feet first")
+	check_eq(AltarMove.set_down_fallback(data, west_feet, was, [] as Array[Vector2], [] as Array[Vector2], true), was,
+		"home first (a leaving carrier with ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES off): where it was picked up")
+	# Heretics in every light near the feet: further out with them; ignoring them only when nothing is.
+	var foe: Array[Vector2] = [AltarMove.centre_px(west)]
+	var with_foe: Rect2i = AltarMove.set_down_fallback(data, west_feet, was, [] as Array[Vector2], foe)
+	check(with_foe.has_area() and AltarMove.place_refusal(data, with_foe, [] as Array[Vector2], foe).is_empty(),
+		"a heretic there: the nearest place whose light it is not in (%s)" % with_foe)
+
+
+## Main.restore_altar_at (a client playing on after losing the host while someone else carried the altar): its world
+## kept where it last stood (GameWorld.last_altar_rect); it comes back there, or beside a table put there meanwhile.
+func _check_restore() -> void:
+	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
+	w.auto_generate = false
+	w.free_camera = false
+	add_node(w)
+	w.generate(Config.DEFAULT_SEED)
+	await await_frames(1)
+	var home: Rect2i = w.data.altar_rect
+	check_eq(w.last_altar_rect, home, "a generated world: where its altar stands")
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(w.data):
+		w.apply_edit(e)
+	check(not w.data.altar_rect.has_area() and w.last_altar_rect == home, "picked up: the world keeps where it stood")
+	var none: Array[Vector2] = []
+	var got: Rect2i = Main.restore_altar_at(w, feet_in(Vector2i(10, 10)), none)
+	check(got == home and w.data.altar_rect == home and w.altar != null and w.is_in_safe_zone(AltarMove.centre_px(home)),
+		"restored where it stood: the altar, its light, its safe zone")
+	for e2: EditLog.WorldEdit in AltarMove.pickup_edits(w.data):
+		w.apply_edit(e2)
+	var table: Rect2i = Rect2i(home.position + Vector2i(0, 1), Vector2i(3, 1))
+	w.data.put_placeable(table, WorldData.PLACEABLE_ALCHEMY)
+	got = Main.restore_altar_at(w, feet_in(Vector2i(10, 10)), none)
+	check(got.has_area() and got != home and not got.intersects(table) and w.data.altar_rect == got
+		and w.data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_ALCHEMY) == 3,
+		"a table put on its place meanwhile stays; the altar comes back beside it (%s)" % got)
+	w.queue_free()
 
 
 # --- determinism and the world's records --------------------------------------------------------------------------
@@ -528,6 +698,9 @@ func _check_main() -> void:
 	var feet_cell: Vector2i = Aim.feet_cell(p.sim_position)
 	p.teleport(feet_in(feet_cell + Vector2i(0, 6)))
 	p.take_hit(Config.PLAYER_HP_MAX)
+	check(p.carrying_altar and not data.altar_rect.has_area(),
+		"M5-fix: not in the middle of the hit (the arena's step): once the tick's combat is over")
+	main.check_carriers()
 	var down_rect: Rect2i = data.altar_rect
 	check(down_rect.has_area() and not p.carrying_altar, "down: the altar came down")
 	var dc: Vector2i = Aim.feet_cell(p.sim_position)
@@ -535,6 +708,88 @@ func _check_main() -> void:
 	check(not Rect2(Vector2(down_rect.position * 16), Vector2(down_rect.size * 16)).intersects(Movement.feet_box(p.sim_position)),
 		"not on the carrier")
 	check_eq(main.altar_moves, 2, "two moves")
+
+
+## M5-fix (offline, the host's rule: AltarMove.hold_counts): with the altar moved beside a zone, the paladin's F aimed at
+## the altar starts no channel; one started beside it runs to its end while F is held on the altar (no count, no lift),
+## and the lift comes after. F held aimed at the altar beside a downed ally revives it first and lifts only after.
+func _check_main_holds() -> void:
+	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
+	add_node(main)
+	await await_frames(2)
+	main.spawn("paladin")
+	var p: Player = main.player
+	p.local_input = false
+	main.arenas[Config.MAP_SURFACE].spawning = false
+	var data: WorldData = main.world.data
+	var spot: Array = by_zone(data)
+	if not check(not spot.is_empty(), "main: a place by a zone"):
+		main.queue_free()
+		return
+	var r: Rect2i = spot[0]
+	var t: Vector2i = spot[1]
+	var a: Vector2i = spot[2]
+	var g: Vector2i = spot[3]
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		main.world.apply_edit(e)
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(r):
+		main.world.apply_edit(e2)
+	p.teleport(feet_in(t))
+	check(data.altar_rect == r and Movement.can_stand(data, p.sim_position), "the altar by the zone, the paladin beside it")
+	# F aimed at the altar: no channel (that F is the altar's).
+	_tick(main, p, centre_of(a), 1, false)
+	main.pick_up()
+	_tick(main, p, centre_of(a), 1, false, true)
+	check_eq(p.channel_tick, 0, "F aimed at the altar (next to the ash) starts no channel")
+	_tick(main, p, centre_of(a), 1, false)
+	# F aimed at the free tile beside it: the channel.
+	_tick(main, p, centre_of(g), 1, false)
+	main.pick_up()
+	_tick(main, p, centre_of(g), 1, false, true)
+	check_eq(p.channel_tick, 1, "F aimed beside it: the channel starts")
+	var purified: int = main.purified
+	var most: int = 0
+	var ticks: int = 1
+	while p.channel_tick > 0 and ticks < Config.PURIFY_CHANNEL_TICKS + 10:
+		_tick(main, p, centre_of(a), 1, false, true)
+		most = maxi(most, p.altar_hold_ticks)
+		ticks += 1
+		if p.carrying_altar:
+			break
+	check(not p.carrying_altar and data.altar_rect == r and most <= 1 and main.purified > purified,
+		"F held on the altar through the channel: no lift (count at most %d), the channel ran its %d ticks and purified %d" % [
+		most, ticks, main.purified - purified])
+	_tick(main, p, centre_of(a), Config.ALTAR_PICKUP_HOLD_TICKS, false, true)
+	check(p.carrying_altar and not data.altar_rect.has_area(), "held on after it: lifted")
+	main.place_altar(p, a)
+	if not data.altar_rect.has_area():
+		for e3: EditLog.WorldEdit in AltarMove.place_edits(r):
+			main.world.apply_edit(e3)
+		p.set_carrying_altar(false)
+	# A downed ally within revive reach: F held there is the revive; the altar only after it.
+	var home: Rect2i = data.altar_rect
+	var stand: Vector2i = Vector2i(home.position.x + 1, home.end.y)
+	p.teleport(feet_in(stand))
+	var ally: Player = main.add_ally("archer", true)
+	for off: Vector2 in [Vector2(18, 0), Vector2(-18, 0), Vector2(0, 18)]:
+		if Movement.can_stand(data, p.sim_position + off):
+			ally.teleport(p.sim_position + off)
+			break
+	check(ally.vitals.life == Vitals.Life.DOWN and ally.sim_position.distance_to(p.sim_position) <= Config.REVIVE_REACH_PX,
+		"an archer downed beside the paladin")
+	var revived_at: int = -1
+	var lifted_at: int = -1
+	for i: int in Config.REVIVE_TICKS + Config.ALTAR_PICKUP_HOLD_TICKS + 20:
+		_tick(main, p, centre_of(stand + Vector2i(0, -1)), 1, false, true)
+		main.step_combat(TICK)
+		if revived_at < 0 and ally.vitals.alive():
+			revived_at = i
+		if lifted_at < 0 and p.carrying_altar:
+			lifted_at = i
+	check(revived_at >= Config.REVIVE_TICKS - 2 and lifted_at > revived_at + Config.ALTAR_PICKUP_HOLD_TICKS - 3,
+		"F held aimed at the altar beside a downed ally: revived first (tick %d), the altar lifted only after (tick %d)" % [
+		revived_at, lifted_at])
+	main.queue_free()
 
 
 # --- a session (M5c: the host moves it; tests/test_net_fields.gd has the whole session) ------------------------------

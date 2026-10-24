@@ -177,13 +177,31 @@ func _check_world_nodes() -> void:
 	check(light.ground_light.texture == ground_tex and light.actor_light.texture == actor_tex, "textures kept across regenerate / toggle")
 	check_eq(AltarLight.cached_texture_count(), count, "no new light textures")
 	# A different seed moves nothing here (the altar is always at the map centre), so the same
-	# textures are reused; a smaller map moves the zone and adds one cached pair.
+	# textures are reused. M5-fix: a smaller map moves the zone, but its centre has the same 4x4 phase
+	# (an altar's centre is always 16n + 8) and the same radius: the same texels, so the same pair.
 	world.generate(Config.DEFAULT_SEED, Vector2i(64, 48))
-	check_eq(AltarLight.cached_texture_count(), count + 2, "a new zone adds its two textures once")
+	check(world.safe_zone.center != zone.center, "a smaller map moves the zone")
+	check_eq(AltarLight.cached_texture_count(), count, "the moved zone reuses the cached pair (M5-fix: keyed by phase)")
+	check(light.ground_light.texture == ground_tex and light.actor_light.texture == actor_tex, "the same textures")
+	check(LightGen.zone_light_image(world.safe_zone, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX).get_data()
+		== ground_tex.get_image().get_data(), "the moved zone's own dither image = the shared one, byte for byte")
 	check_eq(world.lighting.altar_light.global_position, world.safe_zone.center, "light follows the new zone")
 	world.generate(Config.DEFAULT_SEED)
 	check(light.ground_light.texture == ground_tex, "back to the first zone: the first texture again")
-	check_eq(AltarLight.cached_texture_count(), count + 2, "still no rebuild")
+	check_eq(AltarLight.cached_texture_count(), count, "still no rebuild")
+	# A centre one pixel off the phase, or a fraction of a pixel off, is another image: its own key.
+	for off: Vector2 in [Vector2(1, 0), Vector2(0, 3), Vector2(0.5, 0)]:
+		var other: SafeZone = SafeZone.new(zone.center + off, zone.radius)
+		var same: bool = LightGen.zone_light_image(other, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX).get_data() \
+			== ground_tex.get_image().get_data()
+		check(not same and AltarLight.cache_key(other, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX)
+			!= AltarLight.cache_key(zone, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX),
+			"a centre %s off: other texels, another key" % off)
+	var four: SafeZone = SafeZone.new(zone.center + Vector2(-52, 36), zone.radius)
+	check(AltarLight.cache_key(four, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX)
+		== AltarLight.cache_key(zone, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX)
+		and LightGen.zone_light_image(four, LightGen.Edge.DITHER, Config.SAFE_EDGE_BAND_PX).get_data()
+		== ground_tex.get_image().get_data(), "a centre moved by whole multiples of 4 px: the same key, the same texels")
 
 	# Evening.
 	var evening: CanvasModulate = world.lighting.evening

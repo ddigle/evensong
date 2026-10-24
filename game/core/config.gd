@@ -546,8 +546,18 @@ const ALTAR_PICKUP_HOLD_TICKS: int = 2 * 60
 const ALTAR_MOVE_ANYONE: bool = true
 ## PROVISIONAL (not in docs): when the carrier goes down, the altar is set down at the nearest place the placing rules
 ## allow (reach aside), searched in rings of growing distance (tiles, Chebyshev, of the footprint centre) around the
-## carrier's feet tile up to this far.
+## carrier's feet tile up to this far. M5-fix: then the same ignoring the heretics, then around where it was picked up
+## (AltarMove.set_down_fallback); never over anything (a footprint place_refusal refuses is never used).
 const ALTAR_SET_DOWN_SEARCH_TILES: int = 64
+## PROVISIONAL (M5-fix; ○ game-concept §5 "제단(코어)의 안전 반경은 오염을 밀어낸다", §9.3 "안전 반경(빛, 스폰 억제, 오염 저항)";
+## what a moved light does to the corruption it lands on is not in the docs): true = the altar may go down wherever its
+## footprint is clean, so its light may cover corrupted tiles. That corruption stays (nothing pushes it back and nothing
+## spreads in the slice: only purification clears it), heretics may spawn on the zone's ring right at the light's edge
+## (never inside it, M4a) and lit crops within CROP_CORRUPTION_REACH_TILES of it wither. §9.7's slice line ("고정 오염
+## 구역 옆 밭으로 시험한다") needs a light beside a zone, and the generated altar keeps ASH_CLEARANCE_TILES of grass.
+## false = a footprint is refused while a corrupted tile's centre lies within the safe radius + ASH_CLEARANCE_TILES of
+## its centre (the M1 generator's margin, AltarMove.light_corruption_refusal).
+const ALTAR_LIGHT_MAY_COVER_CORRUPTION: bool = true
 
 # --- PROVISIONAL, M5c (farming, purification and the altar in sessions: the host decides, README "임시값" M5c) -----------
 # Everything M5a / M5b decided offline holds on the host as it is (one rule set: items/farming.gd, items/purify.gd,
