@@ -52,6 +52,7 @@ func local_action() -> NetBot.Action:
 		bot.foes = foe_positions()
 		bot.life = p.vitals.life if p != null else Vitals.Life.ALIVE
 		bot.downed = downed_here()
+		bot.world = p.data if p != null else null  # M5c: waitfield
 		a = bot.step(feet)
 		if a.tab or a.craft_row >= 0:
 			s.bot_ui.emit(a.tab, a.craft_row)

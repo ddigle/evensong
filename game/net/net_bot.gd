@@ -46,11 +46,14 @@ extends RefCounted
 ##   craft:<row>                  craft row <row> (1 = the top) of the open crafting panel
 ##   throw                        press the skill key 1 this tick (the herbalist throws the selected potion
 ##                                toward the aim)
+## M5c (the fields as this machine's world has them, `world`, set by the session or Main before each step):
+##   waitfield:<x>,<y>,<soil|0..4>[,<ticks>]   stand until tile x,y is tilled soil (soil) or holds a crop at that
+##                                stage or later, not withered (default 1800 ticks)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
-	"walkdown", "tab", "craft", "throw"]
+	"walkdown", "tab", "craft", "throw", "waitfield"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -111,6 +114,8 @@ var foes: Array[Vector2] = []
 var life: int = Vitals.Life.ALIVE
 ## M4b: where the players on this map that are down lie, as this machine knows it.
 var downed: Array[Vector2] = []
+## M5c: the local player's map's world as this machine has it (waitfield).
+var world: WorldData
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -272,6 +277,12 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				return "expected waitlife:<alive|down|dead>[,<ticks>]"
 			c.count = Vitals.LIFE_NAMES.find(args[0])
 			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
+		"waitfield":
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not (args[2] == "soil" or (_whole(args[2], 0) and args[2].to_int() < Farming.STAGES)) 					or (args.size() == 4 and not _whole(args[3], 1)):
+				return "expected waitfield:<x>,<y>,<soil|0..%d>[,<ticks>]" % (Farming.STAGES - 1)
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.count = -1 if args[2] == "soil" else args[2].to_int()
+			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
 		"waitmap":
 			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitmap:<players>,<map>[,<ticks>]"
@@ -408,6 +419,13 @@ func _advance(a: Action, feet: Vector2) -> void:
 						_next()
 					return
 				_next()
+			"waitfield":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if field_ready(world, c.cell, c.count) or _left <= 0:
+					_next()
+				return
 			"waitmap":
 				if _left < 0:
 					_left = c.ticks
@@ -517,6 +535,16 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 				a.mouse = feet
 		_:
 			a.mouse = feet
+
+
+## M5c: tile `c` of `data` is tilled soil (`stage` -1) or holds a crop at `stage` or later, not withered.
+static func field_ready(data: WorldData, c: Vector2i, stage: int) -> bool:
+	if data == null or not data.in_bounds(c) or not Farming.is_tilled(data, c):
+		return false
+	if stage < 0:
+		return true
+	var f: Farming.Field = Farming.field_at(data, c)
+	return f != null and f.kind != Farming.KIND_NONE and not f.withered and f.stage >= stage
 
 
 ## M4b: the nearest live heretic's feet to `feet` (Vector2), or null when none is there.

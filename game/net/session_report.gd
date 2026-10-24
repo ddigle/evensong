@@ -66,7 +66,32 @@ static func map_result(s: NetSession, map: int) -> Dictionary:
 	return {"hash": w.data.content_hash(), "view_hash": w.view_hash(), "view": w.view_check(),
 		"items_view": w.items.verify(), "fixtures": w.fixtures.verify(), "gatherables": WorldItems.gatherable_cells(w.data).size(),
 		"drops": drops, "edits": s.log_for(map).size(), "walls": walls.size(), "cracked": cracked,
-		"torches": w.data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH)}
+		"torches": w.data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH),
+		# M5c: where the altar is ("none" while carried), the fields and the corruption left.
+		"altar": "%d,%d" % [w.data.altar_rect.position.x, w.data.altar_rect.position.y] if w.data.altar_rect.has_area() else "none",
+		"fields": fields_of(w.data), "corrupted": Purify.corrupted_count(w.data)}
+
+
+## M5c: the fields of `data`: tilled tiles, crops (and of them withered, ripe), wet tiles, and the crops by tile
+## ("x,y" -> Farming.Field.describe()).
+static func fields_of(data: WorldData) -> Dictionary:
+	var crops: Dictionary = {}
+	var withered: int = 0
+	var ripe: int = 0
+	var wet: int = 0
+	for c: Vector2i in Farming.field_cells(data):
+		var f: Farming.Field = Farming.field_at(data, c)
+		if f.wet:
+			wet += 1
+		if f.kind == Farming.KIND_NONE:
+			continue
+		crops["%d,%d" % [c.x, c.y]] = f.describe()
+		if f.withered:
+			withered += 1
+		if f.ripe():
+			ripe += 1
+	return {"tilled": data.count_value(WorldData.Layer.FLOOR, Terrain.SOIL), "crops": crops, "withered": withered,
+		"ripe": ripe, "wet": wet}
 
 
 static func build(s: NetSession, reason: String) -> Dictionary:
@@ -79,7 +104,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 			"y": m.player.sim_position.y, "facing": m.player.facing, "walking": m.player.walking,
 			"held": String(m.player.held_id()), "action": m.player.action_anim, "actions": m.actions_seen,
 			"map": m.map_id, "drawn": drawn(m), "hp": m.player.vitals.hp, "life": m.player.vitals.life,
-			"vitals": m.player.vitals.describe()}
+			"vitals": m.player.vitals.describe(), "carrying": m.player.carrying_altar, "channel": m.player.channel_tick}
 		# Inventories: the host has everyone's, a client only its own.
 		if s.host != null or m == s.local:
 			entry["inventory"] = m.player.inventory.describe()
@@ -132,6 +157,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["map_entries"] = s.host.map_entries
 		out["travels"] = s.host.travels
 		out["combat"] = s.host.combat_result()
+		out["fields"] = s.host.fields_result()  # M5c
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
@@ -154,6 +180,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["wrong_map_edits"] = c.wrong_map_edits
 		out["combat"] = c.combat_result()
 		out["effects_on_welcome"] = c.effects_on_welcome
+		out["purify_flashes"] = c.purify_flashes  # M5c
 	return out
 
 

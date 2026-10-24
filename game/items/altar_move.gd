@@ -1,7 +1,8 @@
 class_name AltarMove
 extends RefCounted
 ## Picking the altar up and putting it down (M5b, offline first). Pure functions on WorldData like items/farming.gd;
-## the caller applies the edits (offline core/main.gd; the host in M5c) and keeps who carries it (Player.carrying_altar).
+## the caller applies the edits (offline core/main.gd; M5c: the host, net/session_host.gd) and keeps who carries it
+## (Player.carrying_altar; M5c: in the player's state).
 ##
 ## ● decided: the altar's position is free and so is moving it (game-concept §9.3); respawning is at the altar
 ## (gameplay-design §2.6; §5 ○ "제단을 옮기면 부활 지점도 옮겨진다"). Everything that follows the altar reads it from the
@@ -30,8 +31,10 @@ const WHY_CORRUPTED: String = "corrupted ground"
 const WHY_GROWING: String = "something grows there"
 const WHY_SLOTS: String = "no room around it"
 const WHY_HERETIC: String = "a heretic is in the light"
-## M5b: a session (moving the altar offline only until M5c).
-const WHY_OFFLINE: String = "moving the altar offline only"
+## M5c: the host counted fewer than Config.ALTAR_PICKUP_HOLD_TICKS frames of F held before an ALTAR_LIFT; an ALTAR_PLACE
+## from a player who carries nothing.
+const WHY_HOLD: String = "F not held long enough"
+const WHY_NOT_CARRYING: String = "not carrying the altar"
 ## The class that may move it when Config.ALTAR_MOVE_ANYONE is off.
 const PALADIN: String = "paladin"
 

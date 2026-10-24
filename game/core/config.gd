@@ -462,7 +462,7 @@ const THROW_RELEASE_FRAME: int = 3
 const THROW_HEAL_REVIVES: bool = false
 
 # --- PROVISIONAL, M5a (fields, seeds, watering, growth, harvest, withering) -------------------------------
-# Offline first (M5a); in a session farming stays off until M5c (as M3a, M4a and M6a did). README "임시값" M5a.
+# Offline first (M5a); M5c brings the same rules to sessions (the host's farm, net/session_host.gd). README "임시값" M5a.
 # ● decided and followed as written: the three crops (game-concept §12 R28) and who plants what (§12 R37: the
 # healing and buff herbs anyone at COMMON grade, poison-herb seeds the herbalist only). Everything below is ○ or
 # not in the docs.
@@ -475,7 +475,8 @@ const TILL_ONLY_IN_LIGHT: bool = true
 ## PROVISIONAL (not in docs): a seed stack's size.
 const STACK_SEED: int = 99
 ## PROVISIONAL (not in docs; no merchant until M8): picking a wild herb (a gatherable, not a drop) also gives this many
-## seeds of its crop (offline in M5a; a session's pickup is M2b's until M5c). The wild herb is the crop's wild plant.
+## seeds of its crop (offline in M5a; M5c: the host's pickup too, Farming.seeds_from_wild). The wild herb is the crop's wild
+## plant.
 const SEEDS_PER_WILD_HERB: int = 1
 ## PROVISIONAL (○ §9.7 "물주기 → 성장 단계"; how long water lasts is not in the docs): a watered tile stays wet this
 ## many ticks (watering again starts the count over), then dries.
@@ -512,7 +513,7 @@ const HOE_IMPACT_FRAME: int = 3
 const WATER_IMPACT_FRAME: int = 5
 
 # --- PROVISIONAL, M5b (purification: holy water and the paladin's channel; placing and moving the altar) -----------
-# Offline first (M5b); in a session these stay off until M5c (as M5a). README "임시값" M5b.
+# Offline first (M5b); M5c brings the same rules to sessions (the host decides). README "임시값" M5b.
 # ● decided and followed as written: anyone purifies a few tiles with holy water, the paladin channels a wide
 # purification (gameplay-design §3.0 R11 paladin row); the altar's position and moving are free (game-concept §9.3);
 # respawning is at the altar (gameplay-design §2.6). Everything below is ○ or not in the docs.
@@ -547,6 +548,19 @@ const ALTAR_MOVE_ANYONE: bool = true
 ## allow (reach aside), searched in rings of growing distance (tiles, Chebyshev, of the footprint centre) around the
 ## carrier's feet tile up to this far.
 const ALTAR_SET_DOWN_SEARCH_TILES: int = 64
+
+# --- PROVISIONAL, M5c (farming, purification and the altar in sessions: the host decides, README "임시값" M5c) -----------
+# Everything M5a / M5b decided offline holds on the host as it is (one rule set: items/farming.gd, items/purify.gd,
+# items/altar_move.gd, world/farm.gd). Only what a session adds that offline never meets is below; not in the docs.
+
+## PROVISIONAL (not in docs; ● gameplay-design §2.6 puts players at the altar, and a carried altar has no spawn slots, M5b):
+## a player who joins while the altar is carried appears at the spawn slots around the place it was picked up (true) or
+## around the carrier's feet (false).
+const ALTAR_CARRIED_JOIN_AT_HOME: bool = true
+## PROVISIONAL (not in docs): a carrier who leaves the session (disconnects) sets the altar down at the nearest place the
+## placing rules allow around its feet, like a carrier going down (true, M5b's set-down rule); false = it goes back to
+## where it was picked up.
+const ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES: bool = true
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 

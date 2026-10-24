@@ -3,7 +3,7 @@ extends RefCounted
 ## Farming (M5a, offline first): the rules for the hoe, the seeds, the watering can and the sickle, and how a field
 ## tile is stored. Pure functions on WorldData + Inventory like items/mining.gd and items/world_items.gd; the timers
 ## (growth, water) and the actions that change the world are world/farm.gd's (one Farm per map, stepped every tick),
-## and the caller applies the edits (offline core/main.gd; the host in M5c).
+## and the caller applies the edits (offline core/main.gd; M5c: the host, net/session_host.gd).
 ##
 ## ● decided (followed as written):
 ##   - three crops, healing herb / buff herb / poison herb (game-concept §12 R28), one potion each (M6);
@@ -67,8 +67,6 @@ const WHY_HERBALIST: String = "herbalist only"
 const WHY_NO_CROP: String = "no crop"
 const WHY_NOT_RIPE: String = "not ripe"
 const WHY_WITHERED: String = "withered"
-## A session in M5a: farming is offline only until M5c (the host refuses a seed's USE).
-const WHY_OFFLINE: String = "farming offline only"
 
 
 ## A field tile's state (its VEGETATION value, decoded).
@@ -167,11 +165,23 @@ static func withers_at(data: WorldData, c: Vector2i, zone: SafeZone = null) -> S
 	return ""
 
 
-## Ticks of growth per stage for a crop (the herbalist's: Config.CROP_HERBALIST_GROWTH_PCT faster).
-static func stage_ticks(fast: bool) -> int:
+## Ticks of growth per stage for a crop (the herbalist's: Config.CROP_HERBALIST_GROWTH_PCT faster). M5c: `base` > 0 stands
+## for Config.CROP_STAGE_TICKS (the test flag --test-crop-ticks, Farm.stage_ticks_base: sessions see growth in seconds).
+static func stage_ticks(fast: bool, base: int = 0) -> int:
+	var common: int = base if base > 0 else Config.CROP_STAGE_TICKS
 	if not fast:
-		return Config.CROP_STAGE_TICKS
-	return maxi(1, Config.CROP_STAGE_TICKS * 100 / maxi(1, Config.CROP_HERBALIST_GROWTH_PCT))
+		return common
+	return maxi(1, common * 100 / maxi(1, Config.CROP_HERBALIST_GROWTH_PCT))
+
+
+## M5c (the rule of M5a's Main.seed_from_wild, now shared with the host): a wild herb picked where it grew gives
+## Config.SEEDS_PER_WILD_HERB seeds of its crop into `inv` (PROVISIONAL README "M5a 씨앗 얻기"). Returns how many went in
+## (what does not fit is not given).
+static func seeds_from_wild(inv: Inventory, herb: StringName) -> int:
+	var kind: int = herb_kind(herb)
+	if kind == KIND_NONE or Config.SEEDS_PER_WILD_HERB <= 0:
+		return 0
+	return Config.SEEDS_PER_WILD_HERB - inv.add(SEEDS[kind], Config.SEEDS_PER_WILD_HERB)
 
 
 ## The crop kind of seed item `id` (KIND_NONE: not a seed).

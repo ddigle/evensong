@@ -1,7 +1,7 @@
 class_name Purify
 extends RefCounted
 ## Purification (M5b, offline first): taking corrupted ground back. Pure functions on WorldData + Inventory like
-## items/farming.gd; the caller applies the edits (offline core/main.gd; the host in M5c).
+## items/farming.gd; the caller applies the edits (offline core/main.gd; M5c: the host, net/session_host.gd).
 ##
 ## ● decided (gameplay-design §3.0 R11, paladin row): anyone purifies a few tiles with holy water (공용 수행); the wide
 ## purification channel is the paladin's (클래스 전용 "광역 정화 채널링"). The shop's holy water (대체 수단) is the merchant's,
@@ -29,8 +29,6 @@ const WHY_NOTHING: String = "nothing to purify"
 const WHY_PALADIN: String = "paladin only"
 const WHY_NOT_HOLY: String = "not holy water"
 const WHY_GONE: String = "the holy water is gone"
-## M5b: a session (purification offline only until M5c; the host refuses a holy water USE).
-const WHY_OFFLINE: String = "purification offline only"
 
 
 ## What a pour or a finished channel did: ok or why not, the tiles purified (row order of the area) and their edits.

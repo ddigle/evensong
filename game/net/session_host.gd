@@ -75,10 +75,22 @@ extends RefCounted
 ## effects travel in the vitals block (players) and the enemy batches (a heretic's poison); a late client and a
 ## map entry get the bottles in the air and the splashes being shown as events after the enemy keyframe.
 ##
-## M5a (farming offline first; M5c brings it here): a session runs no farm. A seed's USE is refused ("farming offline
-## only": a session's players make no such frame, Player.farming_on); the hoe and the watering can play their actions
-## and change nothing (M2b), the sickle stays the herbalist's weapon (a session has no crop to cut), a wild herb picked
-## gives no seed. The M1 soil patches are there as before.
+## M5c (farming, purification and moving the altar: M5a / M5b offline first, here the host decides): one Farm per map
+## (world/farm.gd, farm_of), stepped every tick after the arenas (Config.FARM_RUNS_WITHOUT_PLAYERS: every map); its
+## edits (a stage, a crop withering or reviving, a tile drying) go out like any other world edit of that map. A seed's
+## USE plants (request rate like a torch, Farm.plant: ● R37 the poison herb for the herbalist only, tilled soil in the
+## light); the hoe's and the watering can's landing frames till and water, the sickle's on a crop harvests (Farming.
+## is_harvest_swing, the grade by who cuts it), all on the host's state of the player then. A wild herb picked gives its
+## seed (Farming.seeds_from_wild). Holy water's USE (Purify.holy_water_refusal: in reach, something corrupted there; not
+## busy) plays its action and purifies on its effect frame (Purify.pour); CHANNEL starts the paladin's channel when
+## Purify.channel_refusal allows (the class, corruption on or next to the feet tile) and PlayerSim runs it from the
+## member's frames like an action; on CHANNEL_DONE the host purifies around its tile (Purify.channel_done). Purified
+## tiles are edits; the map's arena follows (Arena.sync_world: its spawn tiles). ALTAR_LIFT picks the altar up when the
+## host counted Config.ALTAR_PICKUP_HOLD_TICKS frames of F held itself (NetMember.altar_hold) and AltarMove.pickup_refusal
+## allows; the carrier is the host's state (Player.carrying_altar, in its state's held byte); ALTAR_PLACE puts it down
+## where AltarMove.place_refusal allows with the host's bodies and heretics. A carrier going down (or leaving) sets it down
+## near it (AltarMove.set_down_rect); while it is carried nobody respawns (they wait), joiners appear at the spawn slots
+## of where it was picked up, and the carrier may not travel, channel, use or throw.
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -142,6 +154,13 @@ var enemy_batches_sent: int = 0
 var enemy_keyframes_sent: int = 0
 var enemy_urgent_sends: int = 0
 var shot_messages_sent: int = 0
+## M5c: the farms by map; where the altar was last picked up (joiners appear around it while it is carried; the last
+## place a set-down falls back to); counters: tiles purified, altar lifts and puts.
+var farms: Dictionary[int, Farm] = {}
+var altar_home: Rect2i = Rect2i()
+var purified: int = 0
+var altar_lifts: int = 0
+var altar_puts: int = 0
 
 
 func _init(p_session: NetSession) -> void:
@@ -151,10 +170,13 @@ func _init(p_session: NetSession) -> void:
 
 func on_opened() -> void:
 	var slot: int = roster.admit(1, s.local_class())
-	s.local = s.add_member(slot, 1, s.local_class(), s.world.spawn_point(slot), Config.SPAWN_FACING)
+	s.local = s.add_member(slot, 1, s.local_class(), spawn_feet(slot), Config.SPAWN_FACING)
 	s.local.player.potions_on = true  # M6b: the host's own player drinks and throws (its frames go through run_frame)
+	s.local.player.farming_on = true  # M5c: and farms, purifies, carries the altar
+	s.local.player.purify_on = true
 	_equip(s.local)
 	_setup_combat()
+	_setup_farms()
 	s.active = true
 	_last_take_usec = Time.get_ticks_usec()
 	s.log_event("hosting", "port=%d slot=%d class=%s" % [s.options.port, slot, s.local.class_id])
@@ -174,6 +196,13 @@ func on_peer_disconnected(peer_id: int) -> void:
 	streams.erase(peer_id)
 	if not roster.has(peer_id):
 		return
+	var leaving: NetMember = s.members.get(roster.slot_of(peer_id), null)
+	if leaving != null and leaving.player != null and leaving.player.carrying_altar:
+		# M5c: the altar does not leave with its carrier (PROVISIONAL Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES).
+		if Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES:
+			_set_altar_down(leaving, true)
+		else:
+			_put_altar(leaving, altar_home, "set_down")
 	var slot: int = roster.release(peer_id)
 	broadcast.note_activity(s.tick)
 	s.bots.note_gone(peer_id)  # a player who left will not finish a bot any more
@@ -206,7 +235,7 @@ func on_hello(peer_id: int, payload: PackedByteArray) -> void:
 		_refuse(peer_id, reason)
 		return
 	var slot: int = roster.admit(peer_id, class_id)
-	var m: NetMember = s.add_member(slot, peer_id, class_id, s.world.spawn_point(slot), Config.SPAWN_FACING)
+	var m: NetMember = s.add_member(slot, peer_id, class_id, spawn_feet(slot), Config.SPAWN_FACING)
 	m.gate = InputGate.new()
 	_equip(m)
 	broadcast.note_activity(s.tick)
@@ -380,25 +409,36 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	frame.anim = -1
 	frame.item = &""
+	frame.channel = false  # M5c: decided here (_channel), whatever the sender resolved
 	if m.gate != null:
 		_frames += 1
 	if frame.op != NetProtocol.Op.NONE:
 		s.request_ticks = 3
+	# M5c: F held while up, frame after frame (the altar is picked up after Config.ALTAR_PICKUP_HOLD_TICKS of them).
+	m.altar_hold = m.altar_hold + 1 if frame.interact and p.vitals.alive() else 0
 	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
 		_refuse_op(m, frame, WorldItems.WHY_WRONG_MAP)
 	elif NetProtocol.op_has_map(frame.op) and not p.vitals.alive():
 		_refuse_op(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
+	elif p.carrying_altar and _blocked_while_carrying(frame.op):
+		_refuse_op(m, frame, AltarMove.WHY_CARRYING)  # M5c: the carrier's click is the altar's (M5b)
 	elif frame.op == NetProtocol.Op.TRAVEL:
 		_travel(m, frame)
+	elif frame.op == NetProtocol.Op.CHANNEL:
+		_channel(m, frame)
+	elif frame.op == NetProtocol.Op.ALTAR_LIFT:
+		_altar_lift(m, frame)
+	elif frame.op == NetProtocol.Op.ALTAR_PLACE:
+		_altar_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and _potion_in(p, frame.slot):
 		_drink(m, frame)
 	elif frame.op == NetProtocol.Op.USE and Farming.seed_kind_in(p.inventory, frame.slot) != Farming.KIND_NONE:
-		_refuse_op(m, frame, Farming.WHY_OFFLINE)  # M5a: offline only until M5c (no session player makes this frame)
+		_plant(m, frame)  # M5c
 	elif frame.op == NetProtocol.Op.USE and frame.slot >= 0 and frame.slot < p.inventory.size() \
 			and p.inventory.stack_at(frame.slot) != null and Purify.is_holy_water(p.inventory.stack_at(frame.slot).id):
-		_refuse_op(m, frame, Purify.WHY_OFFLINE)  # M5b: offline only until M5c (no session player makes this frame)
+		_pour_start(m, frame)  # M5c
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)
@@ -416,7 +456,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_craft(m, frame)
 	elif frame.op != NetProtocol.Op.NONE:
 		_run_op(m, frame)
+	var was_channel: bool = p.channel_tick > 0
 	var events: int = p.step_frame(frame, Config.NET_TICK)
+	_channel_events(m, events, was_channel)  # M5c
 	if frame.anim >= 0 and events & PlayerSim.STARTED:
 		# M6-fix: a use, a drink or a throw counts as done when its action started (a dash pressed in the same frame
 		# wins over it: nothing starts, no potion is used).
@@ -445,6 +487,12 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 func _impact(m: NetMember) -> void:
 	var p: Player = m.player
 	var item: StringName = p.action_item
+	if Purify.is_holy_water(item):
+		_pour(m)  # M5c: holy water's effect frame
+		return
+	if item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(p.data, item, p.action_cell):
+		_farm_impact(m, item)  # M5c: the sickle aimed at a crop harvests instead of attacking (M5a's rule)
+		return
 	if item == Mining.PICKAXE and p.action_anim == RigData.Anim.PICKAXE:
 		if Combat.is_mining_swing(p.data, item, p.action_cell):
 			_mine(m)
@@ -492,6 +540,15 @@ func _died(m: NetMember) -> void:
 ## From the dungeon it is moved to the surface first (its client is sent the surface, like a TRAVEL);
 ## while its last map is still streaming the respawn waits (respawn_pending).
 func _respawn(m: NetMember) -> void:
+	if not s.world.data.altar_rect.has_area():
+		# M5c (README "M5b 들고 있는 동안"): the altar is carried: no spawn slot to come back at; the dead wait (on whatever
+		# map they are) until it is down again (then the next tick, respawn_pending).
+		m.respawn_pending = true
+		if not m.respawn_wait_logged:
+			m.respawn_wait_logged = true
+			s.log_event("respawn_waits", "slot=%d: no altar (carried)" % m.slot)
+		return
+	m.respawn_wait_logged = false
 	if m.map_id != Config.MAP_SURFACE:
 		if streams.has(m.peer_id):
 			m.respawn_pending = true
@@ -756,6 +813,11 @@ func _run_op(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		pickups += 1
 	s.log_event(op_name, "slot=%d item=%s count=%d grade=%s at=%d,%d" % [m.slot, o.item, o.count,
 		ItemDB.GRADE_NAMES[clampi(o.grade, 0, 2)], frame.cell.x, frame.cell.y])
+	if frame.op == NetProtocol.Op.PICKUP and o.gathered and Farming.herb_kind(o.item) != Farming.KIND_NONE:
+		# M5c: a wild herb picked where it grew gives its crop's seed (M5a's offline rule, README "M5a 씨앗 얻기").
+		var seeds: int = Farming.seeds_from_wild(p.inventory, o.item)
+		s.log_event("seed", "slot=%d from=%s item=%s count=%d" % [m.slot, o.item, Farming.SEEDS[Farming.herb_kind(o.item)],
+			seeds])
 
 
 ## Counts a refused request. A client predicted its hotbar selection, so a refused select sends the
@@ -786,8 +848,11 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 ## still can be when the host gets them bunched, after a lost packet or a host hitch: README).
 ## PICKUP / DROP aim at the target tile; a DROP without a slot drops the selected one. A client
 ## applies a hotbar selection at once (predicted). M3b: F (PICKUP) on an entrance or stairs tile of the
-## player's map is a TRAVEL there, and every tile request names the map the player is on.
+## player's map is a TRAVEL there, and every tile request names the map the player is on. M5c: F held on the altar
+## counts toward ALTAR_LIFT (hold_altar), and F with nothing to pick up next to corruption is the paladin's CHANNEL
+## (wants_channel).
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
+	hold_altar(p, f)  # M5c: may put ALTAR_LIFT on this frame
 	var q: NetProtocol.InputFrame = null
 	if action.op != null:
 		if f.op != NetProtocol.Op.NONE:
@@ -814,7 +879,37 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 		f.op = NetProtocol.Op.TRAVEL
 	if q.op == NetProtocol.Op.DROP and q.slot < 0:
 		f.slot = p.inventory.selected
+	if q.op == NetProtocol.Op.PICKUP and f.op == NetProtocol.Op.PICKUP and wants_channel(p, f.cell):
+		# M5c: F with nothing to pick up next to corruption is the paladin's channel (offline Main.pick_up's rule); the
+		# frame starts it at once in the client's prediction, and the host decides it again (_channel).
+		f.op = NetProtocol.Op.CHANNEL
+		f.channel = true
 	if p.data != null and NetProtocol.op_has_map(f.op):
+		f.map = p.data.map_id
+
+
+## M5c: F aimed at tile `c` would start player `p`'s purification channel (as offline: nothing to pick up there, the
+## paladin with corruption on or next to its feet tile, not carrying the altar, not channelling already).
+static func wants_channel(p: Player, c: Vector2i) -> bool:
+	return p.data != null and p.purify_on and not p.carrying_altar and p.channel_tick == 0 and p.vitals.alive() \
+		and WorldItems.pickup_check(p.data, p.sim_position, c) == WorldItems.WHY_NOTHING \
+		and Purify.channel_refusal(p.data, p.class_id(), p.sim_position).is_empty()
+
+
+## M5c: F held aimed at an altar tile counts on player `p` (the local one: its keys or bot); after
+## Config.ALTAR_PICKUP_HOLD_TICKS frames of it frame `f` carries the ALTAR_LIFT request (the host counts the F-held frames
+## itself before it lifts). Letting go, aiming away, an action, going down or carrying start the count over (offline
+## Main.step_altar_hold's rule).
+static func hold_altar(p: Player, f: NetProtocol.InputFrame) -> void:
+	if p.data == null or not p.purify_on or p.carrying_altar or not f.interact or not p.vitals.alive() or p.action_anim >= 0 \
+			or not AltarMove.pickup_refusal(p.data, p.class_id(), p.sim_position, p.aim_cell).is_empty():
+		p.altar_hold_ticks = 0
+		return
+	p.altar_hold_ticks += 1
+	if p.altar_hold_ticks >= Config.ALTAR_PICKUP_HOLD_TICKS and f.op == NetProtocol.Op.NONE:
+		p.altar_hold_ticks = 0
+		f.op = NetProtocol.Op.ALTAR_LIFT
+		f.cell = p.aim_cell
 		f.map = p.data.map_id
 
 
@@ -865,13 +960,15 @@ func tick(action: NetBot.Action, now: int) -> void:
 		if m.respawn_pending and not streams.has(m.peer_id):
 			_respawn(m)
 	_step_arenas()
+	_check_carriers()  # M5c: a carrier who went down this tick sets the altar down
+	_step_farms()  # M5c: after the players and the arenas, like offline (Main: players, combat, farms)
 	# A request's change, or any client frame handled (its acknowledgement goes out): not quiet.
 	if _changed or _frames > 0:
 		broadcast.note_activity(s.tick)
 	_frames = 0
 	for slot: int in s.members:
 		var pl: Player = s.members[slot].player
-		if pl.walking or pl.action_anim >= 0 or not pl.vitals.idle():
+		if pl.walking or pl.action_anim >= 0 or pl.channel_tick > 0 or not pl.vitals.idle():
 			broadcast.note_activity(s.tick)  # before this tick's batch decision (M4b: a timer runs)
 			break
 	if action.edit != null:
@@ -928,7 +1025,7 @@ func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> v
 			m.host_stepping = false
 		return
 	if m.player.vitals.idle():
-		m.clock_debt = Config.NET_HOST_STEPS_AFTER_TICKS  # only an action plays: it waits for the client's frames
+		m.clock_debt = Config.NET_HOST_STEPS_AFTER_TICKS  # only an action (M5c: or a channel) plays: it waits for the frames
 		return
 	if not m.host_stepping:
 		m.host_stepping = true
@@ -940,9 +1037,10 @@ func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> v
 
 
 ## M4-fix: member `m` is timed: its vitals run a timer (Vitals.idle false) or a body action plays. Its
-## frames are then its clock (a client records one every tick, Prediction.step_frame).
+## frames are then its clock (a client records one every tick, Prediction.step_frame). M5c: or its purification
+## channel runs (like an action: the host waits for its frames).
 static func timed(m: NetMember) -> bool:
-	return not m.player.vitals.idle() or m.player.action_anim >= 0
+	return not m.player.vitals.idle() or m.player.action_anim >= 0 or m.player.channel_tick > 0
 
 
 ## One state batch for everybody while something changed, a reliable keyframe once it stops.
@@ -1252,3 +1350,343 @@ func combat_result() -> Dictionary:
 	return {"maps": maps, "deaths": deaths, "enemy_batches_sent": enemy_batches_sent,
 		"enemy_keyframes_sent": enemy_keyframes_sent, "enemy_urgent_sends": enemy_urgent_sends,
 		"shot_messages_sent": shot_messages_sent}
+
+
+# --- farming, purification, the altar (M5c) ----------------------------------------------------------------
+
+## The farm of map `map` (made when missing, or when the map got other data); null for a map this session has none of.
+func farm_of(map: int) -> Farm:
+	var w: GameWorld = s.world_of(map)
+	if w == null or w.data == null:
+		return null
+	var f: Farm = farms.get(map, null)
+	if f == null or f.data != w.data:
+		f = Farm.new(w.data)
+		f.stage_ticks_base = s.options.test_crop_ticks if s.options != null else 0
+		farms[map] = f
+	return f
+
+
+## A farm for every map this host has, and the test fields (--test-field) on the surface before anyone joins (straight
+## into the world: a joiner gets them with its snapshot).
+func _setup_farms() -> void:
+	for map: int in s.worlds:
+		farm_of(map)
+	if s.options != null and not s.options.test_fields.is_empty():
+		var f: Farm = farm_of(Config.MAP_SURFACE)
+		if f != null:
+			Main.put_test_fields(s.world, f, s.options.test_fields)
+
+
+## One farm tick on every map (Config.FARM_RUNS_WITHOUT_PLAYERS; false: only where a player is), in map order; each edit
+## goes out to that map's players like any other (a stage, withering or reviving, drying).
+func _step_farms() -> void:
+	var maps: Array[int] = []
+	maps.assign(farms.keys())
+	maps.sort()
+	for map: int in maps:
+		if not Config.FARM_RUNS_WITHOUT_PLAYERS and players_on(map).is_empty():
+			continue
+		var f: Farm = farm_of(map)
+		if f == null:
+			continue
+		for e: EditLog.WorldEdit in f.step():
+			var was: Farming.Field = Farming.field_at(f.data, e.cell)
+			apply_world_edit(e, map)
+			var now: Farming.Field = Farming.Field.of(e.value)
+			if was != null and now != null and now.kind != Farming.KIND_NONE \
+					and (now.stage != was.stage or now.withered != was.withered):
+				s.log_event("field", "map=%d at=%d,%d %s" % [map, e.cell.x, e.cell.y, now.describe()])
+
+
+## A seed's USE: request rate (like a torch), then Farm.plant on the member's map (● R37: the poison herb's seeds the
+## herbalist only; tilled soil in reach, nothing planted there, where it would grow). The owner gets its inventory.
+func _plant(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var f: Farm = farm_of(m.map_id)
+	if f == null:
+		_refuse_op(m, frame, Farming.WHY_NO_GROUND)
+		return
+	var r: Farm.Result = f.plant(p.sim_position, m.class_id, p.inventory, frame.slot, frame.cell)
+	if not r.ok():
+		_refuse_op(m, frame, r.why)
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		apply_world_edit(e, m.map_id)
+	m.count_done("plant")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("farm", "slot=%d map=%d what=plant at=%d,%d class=%s item=%s field=%s" % [m.slot, m.map_id, frame.cell.x,
+		frame.cell.y, m.class_id, r.item, _field_name(p.data, frame.cell)])
+
+
+## The hoe's / the watering can's landing frame, or the sickle's on a crop, for member `m` on its map's farm, from the
+## host's state of it now (its feet, its class, its inventory). A swing that does nothing is counted by reason
+## (NetMember.swings_missed, like mining).
+func _farm_impact(m: NetMember, item: StringName) -> void:
+	var p: Player = m.player
+	var f: Farm = farm_of(m.map_id)
+	if f == null:
+		return
+	var what: String = "harvest"
+	var r: Farm.Result = null
+	if item == Farming.HOE:
+		what = "till"
+		r = f.till(p.sim_position, p.action_cell)
+	elif item == Farming.WATERING_CAN:
+		what = "water"
+		r = f.water(p.sim_position, p.action_cell)
+	else:
+		r = f.harvest(p.sim_position, m.class_id, p.inventory, p.action_cell)
+	if not r.ok():
+		var n: int = m.swings_missed.get(r.why, 0)
+		m.swings_missed[r.why] = n + 1
+		s.log_event("farm_refused", "slot=%d map=%d what=%s at=%d,%d class=%s: %s" % [m.slot, m.map_id, what, p.action_cell.x,
+			p.action_cell.y, m.class_id, r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		apply_world_edit(e, m.map_id)
+	m.count_done(what)
+	_changed = true
+	var extra: String = ""
+	if what == "harvest":
+		m.inventory_dirty = true
+		extra = " item=%s count=%d grade=%s seeds=%d dropped=%d lost=%d" % [r.item, r.count, ItemDB.GRADE_NAMES[r.grade],
+			r.seeds, r.dropped, r.lost]
+	s.log_event("farm", "slot=%d map=%d what=%s at=%d,%d class=%s%s field=%s" % [m.slot, m.map_id, what, p.action_cell.x,
+		p.action_cell.y, m.class_id, extra, _field_name(p.data, p.action_cell)])
+
+
+## A tile's field for the logs ("soil", "none", or the crop: "healing,stage=2,wet").
+static func _field_name(data: WorldData, c: Vector2i) -> String:
+	var f: Farming.Field = Farming.field_at(data, c)
+	if f != null:
+		return f.describe().replace(" ", ",")
+	return "soil" if Farming.is_tilled(data, c) else "none"
+
+
+## Holy water's USE: in reach with something corrupted around the target (Purify.holy_water_refusal), not busy; it plays
+## Config.HOLY_WATER_ANIM and works on its effect frame (_pour).
+func _pour_start(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	var why: String = Purify.holy_water_refusal(p.data, p.sim_position, frame.cell)
+	if why.is_empty() and busy(p):
+		why = WHY_BUSY
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	frame.anim = Config.HOLY_WATER_ANIM
+	frame.item = Purify.HOLY_WATER
+
+
+## Holy water's effect frame (Purify.pour, offline Main's rule: checked again, one used, the area purified).
+func _pour(m: NetMember) -> void:
+	var p: Player = m.player
+	var r: Purify.Result = Purify.pour(p.data, p.sim_position, p.inventory, p.action_slot, p.action_cell)
+	if r.ok():
+		m.inventory_dirty = true
+	_purified(m, r, "holy_water", p.action_cell)
+
+
+## CHANNEL (F with nothing to pick up): Purify.channel_refusal on the host's state (● the paladin; corruption on or next
+## to the feet tile), not busy, not channelling already. The frame then starts it when the player stands free
+## (PlayerSim.step).
+func _channel(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	var why: String = Purify.channel_refusal(p.data, m.class_id, p.sim_position)
+	if why.is_empty() and (busy(p) or p.channel_tick > 0):
+		why = WHY_BUSY
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	frame.channel = true
+
+
+## What member `m`'s frame did to its channel: started (counted), ran its time (purify around its tile), broken by the
+## frame (moved, a dash, a use) or by a poison tick taking it down.
+func _channel_events(m: NetMember, events: int, was_channel: bool) -> void:
+	var p: Player = m.player
+	if events & PlayerSim.CHANNEL_STARTED:
+		m.count_done("channel")
+		s.log_event("channel", "slot=%d map=%d start at=%d,%d" % [m.slot, m.map_id, p.channel_cell.x, p.channel_cell.y])
+	if events & PlayerSim.CHANNEL_DONE:
+		_purified(m, Purify.channel_done(p.data, p.channel_cell), "channel", p.channel_cell)
+	elif was_channel and p.channel_tick == 0:
+		m.count_combat("channel_broken")
+		s.log_event("channel", "slot=%d map=%d broken" % [m.slot, m.map_id])
+
+
+## A pour or a finished channel of member `m` on its map: the edits out, the purified tiles flash on the host's screen,
+## the map's arena follows (Arena.sync_world: its spawn tiles). Refused: counted, logged.
+func _purified(m: NetMember, r: Purify.Result, what: String, cell: Vector2i) -> void:
+	if not r.ok():
+		var n: int = m.swings_missed.get(r.why, 0)
+		m.swings_missed[r.why] = n + 1
+		s.log_event("purify_refused", "slot=%d map=%d what=%s at=%d,%d: %s" % [m.slot, m.map_id, what, cell.x, cell.y, r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		apply_world_edit(e, m.map_id)
+	var w: GameWorld = s.world_of(m.map_id)
+	if w != null and w.purify_view != null:
+		w.purify_view.flash(r.cells)
+	purified += r.cells.size()
+	var spawn_tiles: int = -1
+	var a: Arena = arenas.get(m.map_id, null)
+	if a != null:
+		a.sync_world()
+		spawn_tiles = a.spawn_cells.size()
+	m.count_done("purify_" + what)
+	_changed = true
+	s.log_event("purify", "slot=%d map=%d what=%s at=%d,%d tiles=%d corrupted_left=%d spawn_tiles=%d" % [m.slot, m.map_id,
+		what, cell.x, cell.y, r.cells.size(), Purify.corrupted_count(m.player.data), spawn_tiles])
+
+
+## What a carrier may not do (its click is the altar's, M5b): use, throw, channel, travel, lift.
+static func _blocked_while_carrying(op: int) -> bool:
+	return op == NetProtocol.Op.USE or op == NetProtocol.Op.THROW or op == NetProtocol.Op.CHANNEL \
+		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT
+
+
+## Where member slot `slot` appears: its spawn slot around the altar (GameWorld.spawn_point); while the altar is carried,
+## around the place it was picked up (or around its carrier: PROVISIONAL Config.ALTAR_CARRIED_JOIN_AT_HOME, README "M5c 들고
+## 있는 동안 참가").
+func spawn_feet(slot: int) -> Vector2:
+	if s.world.data.altar_rect.has_area() or not altar_home.has_area():
+		return s.world.spawn_point(slot)
+	var around: Rect2i = altar_home
+	if not Config.ALTAR_CARRIED_JOIN_AT_HOME:
+		for m: NetMember in s.members.values():
+			if m.player != null and m.player.carrying_altar:
+				around = Rect2i(Aim.feet_cell(m.player.sim_position) - Config.ALTAR_FOOTPRINT / 2, Config.ALTAR_FOOTPRINT)
+	var feet: Array[Vector2] = AltarMove.slot_feet(around)
+	return feet[slot % feet.size()]
+
+
+## ALTAR_LIFT: request rate, F held Config.ALTAR_PICKUP_HOLD_TICKS frames as the host counted them (NetMember.altar_hold),
+## no action or channel playing, then AltarMove.pickup_refusal (the surface, in reach, an altar tile, the class). The
+## footprint leaves the world (edits) and the member carries it.
+func _altar_lift(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	if m.altar_hold < Config.ALTAR_PICKUP_HOLD_TICKS:
+		_refuse_op(m, frame, AltarMove.WHY_HOLD)
+		return
+	if p.action_anim >= 0 or p.channel_tick > 0:
+		_refuse_op(m, frame, WHY_BUSY)
+		return
+	var why: String = AltarMove.pickup_refusal(p.data, m.class_id, p.sim_position, frame.cell)
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	var from: Rect2i = p.data.altar_rect
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(p.data):
+		apply_world_edit(e, m.map_id)
+	p.set_carrying_altar(true)
+	altar_home = from
+	m.altar_hold = 0
+	altar_lifts += 1
+	m.count_done("altar_lift")
+	_changed = true
+	_altar_followers(m.map_id)
+	s.log_event("altar", "slot=%d map=%d picked_up from=%d,%d" % [m.slot, m.map_id, from.position.x, from.position.y])
+
+
+## ALTAR_PLACE (the carrier's click): carrying, request rate, the target tile in reach, then AltarMove.place_refusal with
+## the host's bodies and live heretics on that map.
+func _altar_place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not p.carrying_altar:
+		_refuse_op(m, frame, AltarMove.WHY_NOT_CARRYING)
+		return
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	if not WorldItems.in_reach(p.sim_position, frame.cell):
+		_refuse_op(m, frame, WorldItems.WHY_REACH)
+		return
+	var rect: Rect2i = AltarMove.place_rect(p.sim_position, frame.cell)
+	var why: String = AltarMove.place_refusal(p.data, rect, bodies_on(m.map_id), heretic_feet(m.map_id))
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	_put_altar(m, rect, "placed")
+
+
+## The altar comes down on footprint `rect` from carrier `m` (edits; the light, the safe zone, the spawn slots follow the
+## world), and `m` carries nothing.
+func _put_altar(m: NetMember, rect: Rect2i, what: String) -> void:
+	for e: EditLog.WorldEdit in AltarMove.place_edits(rect):
+		apply_world_edit(e, m.map_id)
+	m.player.set_carrying_altar(false)
+	altar_puts += 1
+	m.count_done("altar_" + what)
+	_changed = true
+	_altar_followers(m.map_id)
+	var data: WorldData = s.world_of(m.map_id).data
+	s.log_event("altar", "slot=%d map=%d %s at=%d,%d light=%d,%d" % [m.slot, m.map_id, what, rect.position.x, rect.position.y,
+		roundi(data.altar_center_px().x), roundi(data.altar_center_px().y)])
+
+
+## Carrier `m` went down (or leaves: `leaving`, its own feet no body any more): the altar comes down at the nearest place
+## the placing rules allow around its feet (AltarMove.set_down_rect; then ignoring the heretics; then where it was picked
+## up), M5b's offline rule.
+func _set_altar_down(m: NetMember, leaving: bool = false) -> void:
+	var p: Player = m.player
+	var bodies: Array[Vector2] = []
+	for q: Player in players_on(m.map_id):
+		if not (leaving and q == p):
+			bodies.append(q.sim_position)
+	var rect: Rect2i = AltarMove.set_down_rect(p.data, p.sim_position, bodies, heretic_feet(m.map_id))
+	if not rect.has_area():
+		rect = AltarMove.set_down_rect(p.data, p.sim_position, bodies)
+	if not rect.has_area():
+		rect = altar_home
+	_put_altar(m, rect, "set_down")
+
+
+## Every carrier that is down or dead now sets the altar down (once a tick, after the arenas: a knife or a poison tick).
+func _check_carriers() -> void:
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		if m.player.carrying_altar and not m.player.vitals.alive():
+			_set_altar_down(m)
+
+
+## The altar moved on map `map`: its arena works out its light and spawn tiles now (it also does at its next step).
+func _altar_followers(map: int) -> void:
+	var a: Arena = arenas.get(map, null)
+	if a != null:
+		a.sync_world()
+
+
+## The feet of the players on map `map` (bodies a footprint may not cover).
+func bodies_on(map: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for q: Player in players_on(map):
+		out.append(q.sim_position)
+	return out
+
+
+## The feet of the live heretics on map `map`.
+func heretic_feet(map: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var a: Arena = arenas.get(map, null)
+	if a != null:
+		for h: HereticSim in a.heretics:
+			if h.alive():
+				out.append(h.pos)
+	return out
+
+
+## M5c results: per map the farm's counters; the tiles purified; the altar's lifts and puts and where it was last picked up.
+func fields_result() -> Dictionary:
+	var by_map: Dictionary = {}
+	for map: int in farms:
+		by_map[str(map)] = farms[map].stats
+	return {"farms": by_map, "purified": purified, "altar_lifts": altar_lifts, "altar_puts": altar_puts,
+		"altar_home": "%d,%d" % [altar_home.position.x, altar_home.position.y] if altar_home.has_area() else "none"}

@@ -10,7 +10,7 @@ extends RefCounted
 ## grass <-> soil, M1) and, M2b, gameplay: a gatherable picked up (VEGETATION cell = 0) and drops put
 ## down, changed (picked in part) or removed (net/session_host.gd, items/world_items.gd).
 ## M3a/M3b: mining (WALL / ORE cells), torches (PLACEABLE cells) and their drops. M5a: tilling (FLOOR) and fields
-## (VEGETATION). M5b (offline until M5c): purification (CORRUPTION -> 0, FLOOR ash -> grass) and the altar picked up / put
+## (VEGETATION). M5b (M5c: in sessions too, the host's): purification (CORRUPTION -> 0, FLOOR ash -> grass) and the altar picked up / put
 ## down (PLACEABLE altar cells; apply_to_data reads the altar's rect back, WorldData.refresh_altar_rect). Each map has its own
 ## log (NetSession.log_for): indices count per map, and a client gets the edits of the map it is on.
 ## Edit message: u32 index, u8 map (M3b), then u8 code:

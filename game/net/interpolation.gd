@@ -19,6 +19,8 @@ extends RefCounted
 ## shows on its new map from the first state there (SessionClient draws only those on its own map).
 ## M4b: a state also carries the player's vitals (null = at rest); the older state's are shown (a hurt or
 ## down pose, the hit flash, the down and revive bars).
+## M5c: a state also carries the purification channel's ticks (shown from the tick it started, counted on like an action,
+## until it runs its time) and whether the player carries the altar (the older state's).
 
 const MAX_SNAPS: int = 64
 
@@ -33,6 +35,8 @@ class Snap:
 	var held: StringName = &""
 	var map: int = Config.MAP_SURFACE
 	var vitals: Vitals = null
+	var channel: int = 0
+	var carrying: bool = false
 
 	func copy_at(t: float) -> Snap:
 		var s: Snap = Snap.new()
@@ -45,6 +49,8 @@ class Snap:
 		s.held = held
 		s.map = map
 		s.vitals = vitals
+		s.channel = channel
+		s.carrying = carrying
 		return s
 
 	## The tick this snap's action started (only meaningful with an action).
@@ -67,6 +73,8 @@ func push(tick: int, state: NetProtocol.PlayerState) -> void:
 	s.held = state.held
 	s.map = state.map
 	s.vitals = state.vitals.copy() if state.vitals != null else null
+	s.channel = state.channel
+	s.carrying = state.carrying
 	if not snaps.is_empty():
 		var last: Snap = snaps.back()
 		if s.tick <= last.tick:
@@ -82,6 +90,10 @@ func push(tick: int, state: NetProtocol.PlayerState) -> void:
 				if again.action_tick >= PlayerSim.action_ticks(again.action):
 					again.action = -1
 					again.action_tick = 0
+			if again.channel > 0:  # M5c: the same for the channel
+				again.channel += roundi(again.tick - last.tick)
+				if again.channel >= Config.PURIFY_CHANNEL_TICKS:
+					again.channel = 0
 			snaps.append(again)
 	snaps.append(s)
 	while snaps.size() > MAX_SNAPS:
@@ -105,7 +117,21 @@ func sample(t: float) -> Snap:
 		var w: float = clampf((t - a.tick) / (b.tick - a.tick), 0.0, 1.0)
 		out.pos = a.pos.lerp(b.pos, w)
 	_action_at(a, b, t, out)
+	_channel_at(a, b, t, out)
 	return out
+
+
+## M5c: the channel shown at `t`, like an action: the newer state's if it had started by then, else the older state's
+## counted on while it still runs (a channel lasts Config.PURIFY_CHANNEL_TICKS), else none.
+static func _channel_at(a: Snap, b: Snap, t: float, out: Snap) -> void:
+	out.channel = 0
+	if b != null and b.channel > 0 and t >= b.tick - b.channel:
+		out.channel = clampi(floori(t - (b.tick - b.channel)), 1, Config.PURIFY_CHANNEL_TICKS - 1)
+		return
+	if a.channel > 0:
+		var n: int = floori(t - (a.tick - a.channel))
+		if n >= 1 and n < Config.PURIFY_CHANNEL_TICKS:
+			out.channel = n
 
 
 ## The action shown at `t`: the newer state's if it had started by then, else the older state's

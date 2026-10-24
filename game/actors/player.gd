@@ -48,14 +48,18 @@ extends Node2D
 ## carry the effects (buff, poison: PlayerSim); EffectMarks shows them over the head. `ui_locked` (the
 ## crafting panel open) turns every tick's input into an empty frame.
 ##
-## M5a (`farming_on`, offline): a click with seeds selected is a USE without an action like a torch's (Main plants);
-## the hoe and the watering can land on their own frames (Farming.impact_tick), the sickle on its hit frame.
+## M5a (`farming_on`, offline; M5c: the session's local player too): a click with seeds selected is a USE without an action
+## like a torch's (Main plants; in a session the host); the hoe and the watering can land on their own frames
+## (Farming.impact_tick), the sickle on its hit frame.
 ##
-## M5b (`purify_on`, offline until M5c): a click with holy water selected pours it (Config.HOLY_WATER_ANIM; it works on
+## M5b (`purify_on`, offline; M5c: the session's local player too): a click with holy water selected pours it (Config.HOLY_WATER_ANIM; it works on
 ## Purify.impact_tick, action_impact, Main purifies). request_channel() (Main, on F with nothing to pick up) puts the
 ## paladin's purification channel into the next frame (PlayerSim.step runs it; channel_started / channel_done /
 ## channel_broken). While `carrying_altar` (Main sets it) a click asks to put the altar down on the target tile
 ## (altar_place_requested) and nothing else is used or thrown; an AltarMark shows over the head.
+## M5c, in a session: the channel goes as the CHANNEL request (SessionHost.attach_local_op turns F with nothing to pick up
+## into it), the click while carrying as ALTAR_PLACE; `carrying_altar` comes from the host's state (its held byte); the
+## channel of a player drawn from states comes with show_state().
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -120,10 +124,10 @@ var interact_held: bool = false
 ## SessionBots.local_action). The
 ## playing action's hotbar slot, the grade of the item it plays and a throw's landing point.
 var potions_on: bool = false
-## M5a: a click with seeds selected plants them (offline only until M5c: Main turns it on for the offline player;
-## off, the click makes no frame, as potions_on did for sessions in M6a).
+## M5a: a click with seeds selected plants them (Main turns it on for the offline player; M5c: and the session's local
+## player, whose seed click is a USE the host plants; off, the click makes no frame, as potions_on did in M6a's sessions).
 var farming_on: bool = false
-## M5b (offline until M5c, Main turns it on): holy water and the purification channel. The channel's state (PlayerSim
+## M5b (Main turns it on offline; M5c: and for the session's local player): holy water and the purification channel. The channel's state (PlayerSim
 ## channel_tick / channel_cell), whether this player carries the altar (Main sets it; AltarMove) and how long F has been
 ## held aimed at the altar (Main counts it, Config.ALTAR_PICKUP_HOLD_TICKS).
 var purify_on: bool = false
@@ -286,9 +290,12 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 				and Purify.channel_refusal(data, class_id(), sim_position).is_empty():
 			f.channel = true
 	if carrying_altar:
-		# M5b: the click is the altar's (Main puts it down); nothing is used or thrown meanwhile.
+		# M5b: the click is the altar's (Main puts it down); nothing is used or thrown meanwhile. M5c: in a session the
+		# click is the ALTAR_PLACE request (the host puts it down where it allows).
 		f.altar_place = use_pressed and vitals.alive()
 		f.cell = aim_cell
+		if f.altar_place:
+			f.op = NetProtocol.Op.ALTAR_PLACE
 	elif free and potions_on and skill:
 		var why_throw: String = Potions.throw_refusal(class_id(), selected)
 		if why_throw.is_empty():
@@ -341,6 +348,13 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.slot = inventory.selected
 			f.cell = aim_cell
 			f.item = inventory.selected_stack().id
+	if f.channel:
+		# M5c: the channel is a request of its own in a session (CHANNEL; the host decides it again); a frame that
+		# already carries another request (a click this tick) starts no channel.
+		if f.op == NetProtocol.Op.NONE and f.anim < 0:
+			f.op = NetProtocol.Op.CHANNEL
+		else:
+			f.channel = false
 	_aim_input = aiming or use_held
 	f.look = Aim.facing(to_mouse, facing) if (_aim_input or f.anim >= 0) else -1
 	return f
@@ -574,8 +588,9 @@ func apply_input(input: Vector2i, delta: float) -> void:
 ## a correction moves the whole step and an unchanged state changes nothing.
 ## `p_action` / `p_action_tick` (M2b): the body action shown (-1 = none) and its frames so far.
 ## `p_vitals` (M4b): the vitals shown (a copy is kept; null = at rest: full and up).
+## `p_channel` (M5c): the purification channel's ticks shown (0 = none; it purifies around the feet tile).
 func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false, p_action: int = -1,
-		p_action_tick: int = 0, p_vitals: Vitals = null) -> void:
+		p_action_tick: int = 0, p_vitals: Vitals = null, p_channel: int = 0) -> void:
 	if not tick:
 		tick_from += pos - sim_position
 	sim_position = pos
@@ -584,6 +599,9 @@ func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false
 	action_anim = p_action if RigData.is_action(p_action) else -1
 	action_tick = p_action_tick if action_anim >= 0 else 0
 	vitals = p_vitals.copy() if p_vitals != null else Vitals.new()
+	channel_tick = maxi(p_channel, 0) if action_anim < 0 else 0
+	if channel_tick > 0:
+		channel_cell = Aim.feet_cell(pos)
 	_sync_view()
 
 

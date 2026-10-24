@@ -468,7 +468,8 @@ func _check_main() -> void:
 	# Meanwhile: the click is the altar's (no tool), no channel, no travel.
 	p.inventory.select(Config.START_WEAPON_SLOT)
 	var f: NetProtocol.InputFrame = p.make_frame(Vector2i.ZERO, at, true, true, true)
-	check(f.altar_place and f.op == NetProtocol.Op.NONE and f.anim < 0, "a click while carrying: put down, no sword swing")
+	check(f.altar_place and f.op == NetProtocol.Op.ALTAR_PLACE and f.anim < 0,
+		"a click while carrying: put down (M5c: the ALTAR_PLACE request a session sends), no sword swing")
 	var ent: Rect2i = SurfaceGen.entrance_rect(data)
 	p.teleport(DungeonGen.arrival_below(ent))
 	_tick(main, p, centre_of(ent.position), 1, false)
@@ -536,7 +537,7 @@ func _check_main() -> void:
 	check_eq(main.altar_moves, 2, "two moves")
 
 
-# --- a session: off until M5c ------------------------------------------------------------------------------------------
+# --- a session (M5c: the host moves it; tests/test_net_fields.gd has the whole session) ------------------------------
 
 func _check_session() -> void:
 	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
@@ -556,11 +557,31 @@ func _check_session() -> void:
 	var was: Rect2i = data.altar_rect
 	var m: NetMember = s.add_member(2, 7, "paladin", below_altar(data), RigData.Dir.NORTH)
 	m.gate = InputGate.new()
-	for i: int in Config.ALTAR_PICKUP_HOLD_TICKS + 20:
-		var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1 + i, Vector2i.ZERO)
+	var at: Vector2i = Aim.feet_cell(m.player.sim_position) + Vector2i(0, -1)
+	# F held alone moves nothing (the request is ALTAR_LIFT); one sent early is refused.
+	var early: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
+	early.op = NetProtocol.Op.ALTAR_LIFT
+	early.cell = at
+	early.map = Config.MAP_SURFACE
+	early.interact = true
+	m.player.begin_tick()
+	host.run_frame(m, early)
+	check(data.altar_rect == was and m.refused(AltarMove.WHY_HOLD) == 1, "an ALTAR_LIFT after one frame of F: refused")
+	for i: int in Config.ALTAR_PICKUP_HOLD_TICKS - 2:
+		var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(2 + i, Vector2i.ZERO)
 		f.interact = true
-		f.look = RigData.Dir.NORTH
 		m.player.begin_tick()
 		host.run_frame(m, f)
-	check(data.altar_rect == was and not m.player.carrying_altar, "F held at the altar in a session: it stays (off until M5c)")
-	check_eq(s.log_for(Config.MAP_SURFACE).size(), 0, "no edit")
+	check(data.altar_rect == was and not m.player.carrying_altar, "F held without the request: it stays")
+	var lift: NetProtocol.InputFrame = NetProtocol.InputFrame.new(500, Vector2i.ZERO)
+	lift.op = NetProtocol.Op.ALTAR_LIFT
+	lift.cell = at
+	lift.map = Config.MAP_SURFACE
+	lift.interact = true
+	for t: int in Config.NET_OP_BURST * Config.NET_OP_INTERVAL_TICKS:
+		m.refill_ops()
+	m.player.begin_tick()
+	host.run_frame(m, lift)
+	check(not data.altar_rect.has_area() and m.player.carrying_altar, "M5c: the ALTAR_LIFT on frame %d of F lifts it" % (
+		Config.ALTAR_PICKUP_HOLD_TICKS))
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 9, "nine edits")

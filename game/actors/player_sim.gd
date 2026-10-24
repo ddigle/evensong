@@ -31,10 +31,11 @@ extends RefCounted
 ## offline game, the host and a prediction run them alike. A potion works from outside (Potions.apply: heal,
 ## add_buff, add_poison), like damage.
 ##
-## M5b (offline until M5c): the paladin's purification channel (channel_tick, channel_cell). A frame with `channel` starts it
-## standing free; it then runs on its own, Config.PURIFY_CHANNEL_TICKS frames, and reports CHANNEL_DONE (the caller purifies
-## around channel_cell, items/purify.gd). A frame that moves, dashes or uses breaks it (CHANNEL_BROKEN, then the frame goes
-## on as usual); hurt() and going down break it too. It is not on the wire (same_as), only in same_all and copy.
+## M5b: the paladin's purification channel (channel_tick, channel_cell). A frame with `channel` starts it standing free; it
+## then runs on its own, Config.PURIFY_CHANNEL_TICKS frames, and reports CHANNEL_DONE (the caller purifies around
+## channel_cell, items/purify.gd). A frame that moves, dashes or uses breaks it (CHANNEL_BROKEN, then the frame goes on as
+## usual); hurt() and going down break it too. M5c: on the wire (same_as, a state's action bits): the host runs it from the
+## client's frames like an action and a client predicts it; channel_cell is the feet tile (a channel never moves).
 
 var pos: Vector2 = Vector2.ZERO
 var facing: int = RigData.Dir.SOUTH
@@ -48,7 +49,7 @@ var action_aim: int = 0
 ## M4a: health, stamina, dash, stagger, life.
 var vit: Vitals = Vitals.new()
 ## M5b: the paladin's purification channel: ticks so far (0 = none; 1 on the frame it starts) and the tile it purifies
-## around (items/purify.gd). Offline until M5c: not on the wire, so not in same_as().
+## around (items/purify.gd; always the feet tile: the player stands). M5c: on the wire, so in same_as().
 var channel_tick: int = 0
 var channel_cell: Vector2i = Vector2i.ZERO
 
@@ -69,16 +70,16 @@ func copy() -> PlayerSim:
 
 
 ## Same replicated position, facing and action (the target tile is not replicated). M4b: the vitals
-## travel too (same_all, NetProtocol's vitals block).
+## travel too (same_all, NetProtocol's vitals block). M5c: the purification channel's ticks too.
 func same_as(o: PlayerSim) -> bool:
 	return o != null and pos == o.pos and facing == o.facing and walking == o.walking and action == o.action \
-		and action_tick == o.action_tick
+		and action_tick == o.action_tick and channel_tick == o.channel_tick
 
 
 ## Everything, vitals and aim included (the M4a determinism checks).
 func same_all(o: PlayerSim) -> bool:
 	return same_as(o) and action_cell == o.action_cell and action_aim == o.action_aim and vit.same_as(o.vit) \
-		and channel_tick == o.channel_tick and channel_cell == o.channel_cell
+		and channel_cell == o.channel_cell
 
 
 ## M5b: a purification channel is under way.
@@ -138,7 +139,7 @@ const CHANNEL_DONE: int = 4096
 const CHANNEL_BROKEN: int = 8192
 
 ## M5b: `channel` (the frame starts the purification channel: the caller checked the class and the ground,
-## Purify.channel_refusal; offline until M5c). It starts only standing free (no move, dash, use, action, stagger) and
+## Purify.channel_refusal; M5c: the host decides it for every member, SessionHost._channel). It starts only standing free (no move, dash, use, action, stagger) and
 ## then runs on its own; a frame that moves, dashes or uses breaks it.
 func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, delta: float, dash: bool = false,
 		interact: bool = false, aim: int = -1, channel: bool = false) -> int:

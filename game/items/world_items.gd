@@ -187,6 +187,22 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 	return o
 
 
+## M5c: what F on tile `c` would meet without taking anything ("" = something to pick up there: a gatherable, a drop, a
+## bag; else pickup()'s refusal before the inventory: outside the map, out of reach, a way to another map, nothing there).
+## A session's F with WHY_NOTHING next to corruption starts the paladin's channel instead (offline Main.pick_up's rule).
+static func pickup_check(data: WorldData, feet: Vector2, c: Vector2i) -> String:
+	if not data.in_bounds(c):
+		return WHY_OUTSIDE
+	if not in_reach(feet, c):
+		return WHY_REACH
+	if is_portal(data, c):
+		return WHY_PORTAL
+	if data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_BAG or not gatherable_at(data, c).is_empty() \
+			or not data.drops_at(c).is_empty():
+		return ""
+	return WHY_NOTHING
+
+
 ## M4a: F on the death bag on tile `c`: every drop there into `inv` (lowest id first, each as much as
 ## fits; the rest stays). The bag tile clears when nothing is left. `item` / `count` = the first item
 ## taken and how many items in all.

@@ -52,6 +52,9 @@ var plots: Dictionary[int, Plot] = {}
 var ticks: int = 0
 ## Counters: tilled, planted, watered, harvested, grown (stages), withered, revived, dried.
 var stats: Dictionary[String, int] = {}
+## M5c, tests only (--test-crop-ticks): ticks per stage in place of Config.CROP_STAGE_TICKS (0 = the Config value;
+## Farming.stage_ticks), so a session sees a crop grow in seconds.
+var stage_ticks_base: int = 0
 
 
 func _init(p_data: WorldData = null) -> void:
@@ -121,7 +124,7 @@ func step() -> Array[EditLog.WorldEdit]:
 				_count("revived")
 			if f.wet and not f.withered and not f.ripe():
 				plot.progress += 1
-				if plot.progress >= Farming.stage_ticks(f.fast):
+				if plot.progress >= Farming.stage_ticks(f.fast, stage_ticks_base):
 					f.stage += 1
 					plot.progress = 0
 					_count("grown")

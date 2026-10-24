@@ -298,7 +298,7 @@ func _check_channel_sim() -> void:
 	var cp: PlayerSim = c.copy()
 	check(cp.channel_tick == 1 and cp.channel_cell == c.channel_cell and cp.same_all(c), "copy() keeps the channel")
 	step(cp, data)
-	check(not cp.same_all(c) and cp.same_as(c), "same_all sees the channel (same_as, the wire's, does not: offline until M5c)")
+	check(not cp.same_all(c) and not cp.same_as(c), "same_all and (M5c) same_as, the wire's, see the channel")
 
 
 # --- the heretics' spawn tiles -------------------------------------------------------------------------------
@@ -647,7 +647,7 @@ func _check_main() -> void:
 	check_eq(q.channel_tick, 0, "a cleric's F next to the ash starts no channel (paladin only)")
 
 
-# --- a session: refused until M5c -----------------------------------------------------------------------------------
+# --- a session (M5c: the host purifies; tests/test_net_fields.gd has the whole session) --------------------------
 
 func _check_session() -> void:
 	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
@@ -667,11 +667,8 @@ func _check_session() -> void:
 	var a: Vector2i = edge_ash(data)
 	var m: NetMember = s.add_member(2, 7, "paladin", feet_in(a + Vector2i(0, 1)), RigData.Dir.NORTH)
 	m.gate = InputGate.new()
-	check(not m.player.purify_on and not m.player.carrying_altar, "a session's player: purification off")
 	m.player.inventory.add(Purify.HOLY_WATER, 3)
-	var hash0: String = data.content_hash()
-	var made: NetProtocol.InputFrame = m.player.make_frame(Vector2i.ZERO, centre_of(a), true, true, true)
-	check_eq(made.op, NetProtocol.Op.NONE, "a holy water click in a session: no request")
+	var before: int = Purify.corrupted_count(data)
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
 	f.op = NetProtocol.Op.USE
 	f.slot = 0
@@ -679,13 +676,28 @@ func _check_session() -> void:
 	f.map = Config.MAP_SURFACE
 	m.player.begin_tick()
 	host.run_frame(m, f)
-	check_eq(m.refused(Purify.WHY_OFFLINE), 1, "a forged holy water USE: refused, purification offline only")
-	check_eq(m.player.inventory.count_of(Purify.HOLY_WATER), 3, "none used")
-	# The paladin's F (a pickup request) next to the ash: no channel in a session.
-	m.player.request_channel()
-	for i: int in 30:
+	check_eq(m.player.action_anim, Config.HOLY_WATER_ANIM, "M5c: a holy water USE plays the pouring action on the host")
+	for i: int in Purify.impact_tick():
 		m.player.begin_tick()
 		host.run_frame(m, NetProtocol.InputFrame.new(2 + i, Vector2i.ZERO))
-	check_eq(m.player.channel_tick, 0, "no channel in a session (purify_on off)")
-	check_eq(data.content_hash(), hash0, "the host's world unchanged")
-	check_eq(s.log_for(Config.MAP_SURFACE).size(), 0, "no edit")
+	var poured: int = before - Purify.corrupted_count(data)
+	check(poured > 0 and m.player.inventory.count_of(Purify.HOLY_WATER) == 2,
+		"its effect frame purifies the 3x3 (%d tiles) and uses one" % poured)
+	# CHANNEL: the paladin's channel runs on the host from its frames and purifies its disc.
+	for i: int in PlayerSim.action_ticks(Config.HOLY_WATER_ANIM):
+		m.player.begin_tick()
+		host.run_frame(m, NetProtocol.InputFrame.new(100 + i, Vector2i.ZERO))
+	m.player.teleport(feet_in(edge_ash(data) + Vector2i(0, 1)))  # next to corruption again (the pour took the first edge)
+	var mid: int = Purify.corrupted_count(data)
+	var ch: NetProtocol.InputFrame = NetProtocol.InputFrame.new(200, Vector2i.ZERO)
+	ch.op = NetProtocol.Op.CHANNEL
+	ch.map = Config.MAP_SURFACE
+	m.player.begin_tick()
+	host.run_frame(m, ch)
+	check_eq(m.player.channel_tick, 1, "a CHANNEL request starts the channel on the host")
+	for i: int in Config.PURIFY_CHANNEL_TICKS - 1:
+		m.player.begin_tick()
+		host.run_frame(m, NetProtocol.InputFrame.new(201 + i, Vector2i.ZERO))
+	check(m.player.channel_tick == 0 and Purify.corrupted_count(data) < mid,
+		"after %d frames it purified around its tile (%d -> %d)" % [Config.PURIFY_CHANNEL_TICKS, mid, Purify.corrupted_count(data)])
+	check(s.log_for(Config.MAP_SURFACE).size() > 0, "as numbered edits")

@@ -24,6 +24,9 @@ extends RefCounted
 ## its disc (the tiles turn to grass, no soil next to ash, the corruption count and the spawn tiles shrink), holy water
 ## purifies its 3x3; the altar picked up (no altar, no safe zone) and put down elsewhere (the light, the spawn slots and
 ## the reserved spots follow). Printed as purify=<channel tiles>+<holy water tiles>/<spawn tiles after> altar=<x>,<y>.
+## M5c: wire v7: the CHANNEL, ALTAR_LIFT and ALTAR_PLACE requests on frames, a state with the channel and the carried altar,
+## and a farm's growth on a host world reaching a client world as encoded edits (the same world). Printed as
+## fields_wire=<a channelling carrier's state>B/<a crop's stage edit>B.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -604,6 +607,7 @@ static func _check_net(r: Report) -> void:
 	r.expect(has_net, "main.tscn has no Net node")
 	_check_net_combat(r, s)
 	_check_net_potions(r, s)
+	_check_net_fields(r)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -727,3 +731,70 @@ static func _check_net_potions(r: Report, s: NetProtocol.PlayerState) -> void:
 		"a poisoned heretic is drawn poisoned by a client (M6b)")
 	thrower.free()
 	r.fields.append("potion_wire=%dB/%dB" % [state_bytes, wire])
+
+
+## M5c: farming, purification and the altar on the wire: the three new requests on frames, a state with the channel in
+## its action bits and the carrier bit, a host farm's edits (a crop growing and withering after the altar left) applied to
+## a client's copy of the world through the edit encoding.
+static func _check_net_fields(r: Report) -> void:
+	var ch: NetProtocol.InputFrame = NetProtocol.InputFrame.new(31, Vector2i.ZERO)
+	ch.op = NetProtocol.Op.CHANNEL
+	var lift: NetProtocol.InputFrame = NetProtocol.InputFrame.new(32, Vector2i.ZERO)
+	lift.op = NetProtocol.Op.ALTAR_LIFT
+	lift.cell = Vector2i(62, 47)
+	lift.interact = true
+	var put: NetProtocol.InputFrame = NetProtocol.InputFrame.new(33, Vector2i.ZERO)
+	put.op = NetProtocol.Op.ALTAR_PLACE
+	put.cell = Vector2i(50, 47)
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([ch, lift, put] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 3 and up.frames[0].channel and up.frames[1].same_request(lift)
+		and up.frames[2].same_request(put), "CHANNEL, ALTAR_LIFT and ALTAR_PLACE round trip (M5c)")
+	var st: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	st.slot = 2
+	st.pos = Vector2(968.0, 254.0)
+	st.channel = 77
+	st.carrying = true
+	var bytes: PackedByteArray = NetProtocol.encode_states(90, [st] as Array[NetProtocol.PlayerState])
+	var back: NetProtocol.StateBatch = NetProtocol.decode_states(bytes)
+	var state_bytes: int = bytes.size() - NetProtocol.STATE_HEADER
+	r.expect(back.ok and back.states[0].same_as(st) and state_bytes == NetProtocol.STATE_SIZE,
+		"a channelling carrier's state round trips in %d B (M5c)" % state_bytes)
+	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var client: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var farm: Farm = Farm.new(host)
+	farm.stage_ticks_base = 2
+	var soil: Vector2i = Vector2i(-1, -1)
+	for y: int in host.size.y:
+		for x: int in host.size.x:
+			if soil.x < 0 and Farming.is_tilled(host, Vector2i(x, y)) and Farming.in_light(host, Vector2i(x, y)):
+				soil = Vector2i(x, y)
+	var edit_bytes: int = 0
+	var index: int = 0
+	var crop: Farming.Field = Farming.Field.new(Farming.KIND_HEALING, 0, true, false)
+	var seed_edit: EditLog.WorldEdit = EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, soil, crop.value())
+	var all: Array[EditLog.WorldEdit] = [seed_edit]
+	EditLog.apply_to_data(host, seed_edit)
+	farm.sync_cell(soil)
+	for t: int in 12:
+		all.append_array(_applied(host, farm.step()))
+	all.append_array(_applied(host, AltarMove.pickup_edits(host)))
+	all.append_array(_applied(host, farm.step()))
+	for e: EditLog.WorldEdit in all:
+		var wire: PackedByteArray = EditLog.encode_one(e, index, Config.MAP_SURFACE)
+		edit_bytes = wire.size()
+		var decoded: Array = EditLog.decode_one(wire)
+		var got: EditLog.WorldEdit = decoded[1]
+		EditLog.apply_to_data(client, got)
+		index += 1
+	var f: Farming.Field = Farming.field_at(client, soil)
+	r.expect(f != null and f.ripe() and f.withered and client.content_hash() == host.content_hash() and not client.altar_rect.has_area(),
+		"a farm's growth and its withering once the altar left reach a client's world as edits (M5c: %s)" % (
+		f.describe() if f != null else "none"))
+	r.fields.append("fields_wire=%dB/%dB" % [state_bytes, edit_bytes])
+
+
+## Applies `edits` to `data` and returns them.
+static func _applied(data: WorldData, edits: Array[EditLog.WorldEdit]) -> Array[EditLog.WorldEdit]:
+	for e: EditLog.WorldEdit in edits:
+		EditLog.apply_to_data(data, e)
+	return edits

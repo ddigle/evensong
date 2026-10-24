@@ -69,6 +69,11 @@ extends RefCounted
 ##   --test-field=<x>,<y>:<soil|healing|buff|poison>[:<stage 0..4>][:wet][:fast][/...]   tilled soil (and a crop at that
 ##                                stage, wet, planted by the herbalist) on those tiles of the start map at the start,
 ##                                past the farming rules (outside the light too; never next to ash)
+## M5c (sessions: the host applies them; offline too):
+##   --test-field=...             a host puts the fields into its surface at the start (late joiners get them)
+##   --test-crop-ticks=<n>        ticks of growth per crop stage in place of Config.CROP_STAGE_TICKS (1..that; the
+##                                herbalist's crops still grow Config.CROP_HERBALIST_GROWTH_PCT faster): a session test
+##                                sees a crop ripen in seconds
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -127,6 +132,8 @@ var test_no_spawns: bool = false
 var test_start_hp: Dictionary[String, int] = {}
 ## M5a test flag: [tile (Vector2i), crop kind (Farming.KIND_*), stage, wet, fast] per field.
 var test_fields: Array[Array] = []
+## M5c test flag: ticks per crop stage (0 = Config.CROP_STAGE_TICKS).
+var test_crop_ticks: int = 0
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -309,6 +316,11 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.test_start_hp[kv[0]] = kv[1].to_int()
 			"test-field":
 				o.test_fields = _parse_fields(value, raw, o.errors)
+			"test-crop-ticks":
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.CROP_STAGE_TICKS:
+					o.errors.append("%s: expected --test-crop-ticks=<1..%d>" % [raw, Config.CROP_STAGE_TICKS])
+				else:
+					o.test_crop_ticks = value.to_int()
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:

@@ -46,6 +46,13 @@ extends RefCounted
 ## and fly here like the shots (net/net_combat.gd); a heretic's poison rides on the enemy batches. A crafting
 ## panel row is a CRAFT request (Main.craft_row, not predicted). The inventory the host sends marks what it holds
 ## as seen (Inventory.seen), so the recipes unlock here as they do on the host.
+##
+## M5c (farming, purification, the altar): the own player tills, plants, waters, harvests, pours holy water, channels
+## (F with nothing to pick up next to corruption: a CHANNEL request, predicted like an action) and lifts / puts down the
+## altar (F held: ALTAR_LIFT; the click while carrying: ALTAR_PLACE) with the offline controls; every result is the host's:
+## fields, crops, purified ground and the altar's place come as edits (a corrupted tile made clean flashes here), the
+## carried altar in the states (the carrier's mark, this player's own carrying), the respawn at the slot of the altar
+## where this world has it.
 
 var s: NetSession
 var prediction: Prediction
@@ -88,6 +95,8 @@ var combat_view: CombatView
 var enemy_msgs: Dictionary[int, int] = {}
 var shot_msgs: Dictionary[int, int] = {}
 var bad_combat: int = 0
+## M5c: tiles flashed as purified (from the host's edits).
+var purify_flashes: int = 0
 
 var _last_state_tick: int = -1
 
@@ -178,10 +187,13 @@ func on_welcome(payload: PackedByteArray) -> void:
 		return
 	_show_others()
 	s.local.player.potions_on = true  # M6b: drinking and throwing in a session (the host decides the effect)
+	s.local.player.farming_on = true  # M5c: farming, purifying and carrying the altar too (the host decides the result)
+	s.local.player.purify_on = true
 	prediction = Prediction.new()
 	var me: NetProtocol.PlayerState = s.local.state()
 	prediction.setup(s.world.data, me.pos, me.facing, 0)
 	prediction.spawn_feet = s.world.spawn_point(w.slot)
+	prediction.spawn_slot = w.slot  # M5c: the respawn follows the altar (Prediction.respawn_feet)
 	for info: NetProtocol.PlayerInfo in w.players:
 		if info.state.slot == w.slot and info.state.vitals != null:
 			prediction.sim.vit = info.state.vitals.copy()
@@ -191,12 +203,16 @@ func on_welcome(payload: PackedByteArray) -> void:
 	_last_state_tick = w.tick
 	s.active = true
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
+	var fields: Dictionary = SessionReport.fields_of(data)  # M5c: what the snapshot brought of the fields and the altar
+	var crops: Dictionary = fields["crops"]
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
-		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d elsewhere=%d generator=%s") % [w.slot, s.local.class_id,
+		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d elsewhere=%d altar=%s tilled=%d crops=%d withered=%d " +
+		"corrupted=%d generator=%s") % [w.slot, s.local.class_id,
 		s.members.size(), w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size,
 		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
-		others_on_welcome, "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12),
-		host_generator_hash.left(12)]])
+		others_on_welcome, "%d,%d" % [data.altar_rect.position.x, data.altar_rect.position.y] if data.altar_rect.has_area() else "none",
+		fields["tilled"], crops.size(), fields["withered"], Purify.corrupted_count(data),
+		"match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12), host_generator_hash.left(12)]])
 	for info2: NetProtocol.PlayerInfo in w.players:
 		if info2.state.vitals != null and info2.state.vitals.has_effects():
 			effects_on_welcome[str(info2.state.slot)] = info2.state.vitals.describe()
@@ -341,8 +357,14 @@ func on_edit(payload: PackedByteArray) -> void:
 	var log: EditLog = s.log_for(map)
 	if index != log.size():
 		s.bad_messages += 1
+	# M5c: a corrupted tile made clean is purified ground: it flashes here as on the host (world/purify_view.gd).
+	var purifies: bool = edit.kind == EditLog.Kind.CELL and edit.layer == WorldData.Layer.CORRUPTION and edit.value == 0 \
+		and Purify.is_corrupted(w.data, edit.cell)
 	if w.apply_edit(edit):
 		log.append(edit)
+		if purifies and w.purify_view != null:
+			w.purify_view.flash([edit.cell] as Array[Vector2i])
+			purify_flashes += 1
 	else:
 		s.bad_messages += 1
 	s.log_event("edit", "%s index=%d map=%d world=%s" % [edit.describe(), index, map, w.data.content_hash().left(12)])
@@ -412,6 +434,8 @@ func _apply_states(payload: PackedByteArray) -> void:
 				_show_predicted(false)
 			if prediction.vitals_corrections > off:
 				s.log_event("vitals_correction", prediction.last_vitals_mismatch)
+			if st.map == s.local.map_id and s.local.player.carrying_altar != st.carrying:
+				s.local.player.set_carrying_altar(st.carrying)  # M5c: the host says this player carries the altar (or not)
 		elif s.members.has(st.slot) and s.members[st.slot].interp != null:
 			s.members[st.slot].interp.push(batch.tick, st)
 			s.members[st.slot].map_id = st.map
@@ -421,8 +445,9 @@ func _apply_states(payload: PackedByteArray) -> void:
 func _show_predicted(tick: bool) -> void:
 	var me: Player = s.local.player
 	var st: PlayerSim = prediction.sim
-	me.show_state(st.pos, st.facing, st.walking, tick, st.action, st.action_tick, st.vit)
+	me.show_state(st.pos, st.facing, st.walking, tick, st.action, st.action_tick, st.vit, st.channel_tick)
 	me.action_cell = st.action_cell
+	me.channel_cell = st.channel_cell
 	me.refresh_aim()
 
 
@@ -472,7 +497,9 @@ func draw_others() -> void:
 			# M3b: drawn only on this client's map; elsewhere followed (positions) but hidden.
 			m.player.visible = smp.map == s.local.map_id
 			m.player.state_held = smp.held
-			m.player.show_state(smp.pos, smp.facing, smp.walking, false, smp.action, smp.action_tick, smp.vitals)
+			m.player.show_state(smp.pos, smp.facing, smp.walking, false, smp.action, smp.action_tick, smp.vitals, smp.channel)
+			if m.player.carrying_altar != smp.carrying:
+				m.player.set_carrying_altar(smp.carrying)  # M5c: the altar over its head
 			if m.player.visible:
 				m.note_action(smp.action, smp.action_tick, t)
 	_draw_combat(t + interp_delay_ticks())

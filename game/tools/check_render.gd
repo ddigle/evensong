@@ -88,6 +88,13 @@ extends SceneTree
 ##            dark); the flames there unshaded. Then a player carrying the altar: the mark over its head on its exact
 ##            pixels (the character map written out here) and unshaded; the place ghost's outline and light-edge dots in
 ##            gold (allowed) and deep red (refused) on their exact pixels. The altar goes back home afterwards.
+##   fields_net (M5c) what a session client draws of the host's fields, purification and carried altar: the host's
+##            world farmed with the real rules (Farm: tilled, planted by four classes, watered, grown), a client world from a
+##            surface snapshot taken half way, the rest as live edits (the altar lifted and put down 13 tiles west, so the
+##            fields wither; a channel's purification at the north zone's edge, flashing on the client from its edits);
+##            the host's carrier and channelling paladin and the client's copies of them from a state batch (the carrier
+##            bit, the channel in the action bits) with the channel's motes. Around the old fields and at the zone's edge
+##            both screens are the same pixels and differ from the bare world.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -151,6 +158,7 @@ func _run() -> void:
 		await _check_cave_and_dark()
 		await _check_purify()
 		await _check_altar_move()
+		await _check_fields_net()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -2037,3 +2045,215 @@ func _check_altar_move() -> void:
 		print("EVENSONG_RENDER altar ok %s" % line)
 	else:
 		_fail("altar", line)
+
+
+# --- M5c: what a session client draws of the host's fields, purification and carried altar ---------------------------
+
+## A surface world for the check (evening off; hidden until shown). `generate` false: empty (a client's).
+func _surface_world(generate: bool = true) -> GameWorld:
+	var w: GameWorld = (load(WORLD_SCENE) as PackedScene).instantiate() as GameWorld
+	w.auto_generate = false
+	w.map_id = Config.MAP_SURFACE
+	root.add_child(w)
+	if generate:
+		w.generate(Config.DEFAULT_SEED)
+	w.overlay.visible = false
+	w.camera.set_process(false)
+	w.visible = false
+	w.lighting.set_evening(false)
+	if w.purify_view != null:
+		w.purify_view.auto_tick = false  # the flashes age only by hand here (both worlds show the same age)
+	return w
+
+
+## A still player for the check (no input, no idle animation) on world `w`.
+static func _still_player(w: GameWorld, class_id: String, feet: Vector2) -> Player:
+	var p: Player = Player.new()
+	p.local_input = false
+	p.setup(w.data, class_id, feet)
+	p.character.animate = false
+	w.entities.add_child(p)
+	return p
+
+
+## (M5c) The host's world farmed, purified and its altar moved with the real rules, edit by edit; a client world from a
+## surface snapshot taken half way, the rest as live edits (as SessionClient.on_edit: a corrupted tile made clean flashes).
+## The host's players (one carrying the altar, a paladin channelling) and the client's copies of them from the wire (a
+## state batch: the carrier bit, the channel in the action bits) with their channels' motes. Around the old fields (soil,
+## crops of every stage, withered now, wet patches, the carrier's mark) and at the zone's edge (the purified ground, the ash
+## smears, the gold, the motes) both screens must be the same pixels and differ from the bare world.
+func _check_fields_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _surface_world()
+	var client_w: GameWorld = _surface_world(false)
+	var bare_w: GameWorld = _surface_world()
+	var d: WorldData = host_w.data
+	var farm: Farm = Farm.new(d)
+	var edits: Array[EditLog.WorldEdit] = []
+	var inv: Inventory = Inventory.new()
+	inv.add(&"seed_healing", 5)
+	inv.add(&"seed_buff", 5)
+	inv.add(&"seed_poison", 5)
+	# Tilled and planted with the farm's actions (feet one tile south of each tile), then some grown and some watered.
+	var plan: Array[Array] = [[Vector2i(62, 51), "seed_healing", "paladin"], [Vector2i(63, 51), "seed_buff", "herbalist"],
+		[Vector2i(64, 51), "seed_poison", "herbalist"], [Vector2i(58, 45), "seed_buff", "archer"],
+		[Vector2i(59, 46), "seed_poison", "herbalist"], [Vector2i(57, 47), "seed_healing", "miner"]]
+	for step: Array in plan:
+		var c: Vector2i = step[0]
+		var feet: Vector2 = Arena.spawn_feet(c + Vector2i(0, 1))
+		var results: Array[Farm.Result] = []
+		if d.terrain_at(c) != Terrain.SOIL:
+			results.append(farm.till(feet, c))
+		_apply_results(host_w, results, edits)
+		results.clear()
+		var item: StringName = StringName(str(step[1]))
+		results.append(farm.plant(feet, str(step[2]), inv, _slot_of(inv, item), c))
+		_apply_results(host_w, results, edits)
+		results.clear()
+		if c.x % 2 == 0:
+			results.append(farm.water(feet, c))
+			_apply_results(host_w, results, edits)
+	farm.stage_ticks_base = 20
+	for t: int in 70:
+		for e: EditLog.WorldEdit in farm.step():
+			host_w.apply_edit(e)
+			edits.append(e)
+	_load_surface_snapshot(host_w, client_w)
+	var snap: int = edits.size()
+	# The altar moves 13 tiles west (lifted, put down): the fields fall outside the light and wither (the farm's edits).
+	var home: Rect2i = d.altar_rect
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(d):
+		host_w.apply_edit(e)
+		edits.append(e)
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(Rect2i(Vector2i(49, 45), Config.ALTAR_FOOTPRINT)):
+		host_w.apply_edit(e2)
+		edits.append(e2)
+	for e3: EditLog.WorldEdit in farm.step():
+		host_w.apply_edit(e3)
+		edits.append(e3)
+	# A channel's purification at the north zone's edge.
+	var edge: Vector2i = Vector2i(60, 15)
+	var r: Purify.Result = Purify.channel_done(d, edge)
+	for e4: EditLog.WorldEdit in r.edits:
+		host_w.apply_edit(e4)
+		edits.append(e4)
+	host_w.purify_view.flash(r.cells)
+	if client_w.data == null:
+		_fail("fields_net", "no client world")
+		return
+	var flashed: int = 0
+	for i: int in range(snap, edits.size()):
+		var e5: EditLog.WorldEdit = edits[i]
+		var purifies: bool = e5.kind == EditLog.Kind.CELL and e5.layer == WorldData.Layer.CORRUPTION and e5.value == 0 \
+			and Purify.is_corrupted(client_w.data, e5.cell)
+		client_w.apply_edit(e5)
+		if purifies:
+			client_w.purify_view.flash([e5.cell] as Array[Vector2i])
+			flashed += 1
+	var same_data: bool = client_w.data.content_hash() == d.content_hash()
+	var fields: Dictionary = SessionReport.fields_of(d)
+	# The players: the host's (a carrier among the old fields, a paladin channelling at the edge) and the client's from
+	# the wire.
+	var carrier_feet: Vector2 = Arena.spawn_feet(Vector2i(61, 49))
+	var pal_feet: Vector2 = Arena.spawn_feet(edge + Vector2i(1, 2))
+	var host_carrier: Player = _still_player(host_w, "herbalist", carrier_feet)
+	host_carrier.set_carrying_altar(true)
+	var host_pal: Player = _still_player(host_w, "paladin", pal_feet)
+	host_pal.channel_tick = 120
+	host_pal.channel_cell = Aim.feet_cell(pal_feet)
+	host_pal.show_state(pal_feet, RigData.Dir.SOUTH, false, false, -1, 0, null, 120)
+	var states: Array[NetProtocol.PlayerState] = []
+	for p: Player in [host_carrier, host_pal]:
+		var st: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+		st.slot = states.size()
+		st.pos = p.sim_position
+		st.facing = p.facing
+		st.channel = p.channel_tick
+		st.carrying = p.carrying_altar
+		states.append(st)
+	var batch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(1, states))
+	var client_players: Array[Player] = []
+	for st2: NetProtocol.PlayerState in batch.states:
+		var cp: Player = _still_player(client_w, "herbalist" if st2.slot == 0 else "paladin", st2.pos)
+		cp.show_state(st2.pos, st2.facing, st2.walking, false, st2.action, st2.action_tick, st2.vitals, st2.channel)
+		cp.set_carrying_altar(st2.carrying)
+		client_players.append(cp)
+	host_w.purify_view.show_channels([PurifyView.Channel.new(host_pal.channel_cell, host_pal.channel_tick)] as Array[PurifyView.Channel])
+	var cpal: Player = client_players[1]
+	client_w.purify_view.show_channels([PurifyView.Channel.new(cpal.channel_cell, cpal.channel_tick)] as Array[PurifyView.Channel])
+	var spots: Array[Vector2i] = [Vector2i(61 * Config.TILE, 48 * Config.TILE), Vector2i(edge.x * Config.TILE, edge.y * Config.TILE)]
+	var host_vs_client: int = 0
+	var drawn: int = 0
+	var shots: Array[Image] = []
+	for spot: Vector2i in spots:
+		var imgs: Array[Image] = []
+		for w: GameWorld in [host_w, client_w, bare_w]:
+			for o: GameWorld in [host_w, client_w, bare_w]:
+				o.visible = o == w
+			w.camera.make_current()
+			_cave_look_at(w, spot)
+			imgs.append(await _capture())
+		host_vs_client += count_diff(imgs[0], imgs[1])
+		drawn += count_diff(imgs[1], imgs[2])
+		shots.append_array(imgs)
+	var carried: bool = client_players[0].carrying_altar and client_players[0].altar_mark.visible
+	# The client's motes on their exact pixels (the gold below-right of each ivory corner, PurifyView's rule).
+	var zone_origin: Vector2i = spots[1] - Config.VIEW_SIZE / 2
+	var motes_ok: int = 0
+	var pts: Array[Vector2i] = PurifyView.mote_points(cpal.channel_cell)
+	for mi: int in PurifyView.motes_lit(cpal.channel_tick):
+		var sp: Vector2i = pts[mi] - zone_origin
+		if shots[4].get_pixelv(sp) == PurifyView.IVORY and shots[4].get_pixelv(sp + Vector2i.ONE) == PurifyView.GOLD:
+			motes_ok += 1
+	var crops: Dictionary = fields["crops"]
+	var line: String = "%d edits (%d after the client's snapshot), same data %s, crops %d withered %d wet %d, purified %d (flashed %d on the client), carrier mark %s, channel %d (motes %d/%d), host vs client %d, drawn %d" % [
+		edits.size(), edits.size() - snap, same_data, crops.size(), fields["withered"], fields["wet"],
+		r.cells.size(), flashed, carried, cpal.channel_tick, motes_ok, PurifyView.motes_lit(cpal.channel_tick), host_vs_client, drawn]
+	if host_vs_client > 0 or save_all:
+		for i: int in shots.size():
+			_save(shots[i], "fields_net_%d.png" % i)
+	var withered: int = fields["withered"]
+	if same_data and host_vs_client == 0 and drawn > 1500 and withered >= 5 and flashed == r.cells.size() and r.cells.size() > 3 \
+			and carried and cpal.channel_tick == 120 and motes_ok == PurifyView.motes_lit(120) and snap > 0 and snap < edits.size() and home != d.altar_rect:
+		print("EVENSONG_RENDER fields_net ok %s" % line)
+	else:
+		_fail("fields_net", line)
+	for w2: GameWorld in [host_w, client_w, bare_w]:
+		root.remove_child(w2)
+		w2.free()
+	world.visible = true
+	world.camera.make_current()
+
+
+## A farm result's edits (when it is ok) into world `w`, kept in `edits`.
+static func _apply_results(w: GameWorld, results: Array[Farm.Result], edits: Array[EditLog.WorldEdit]) -> void:
+	for res: Farm.Result in results:
+		if not res.ok():
+			continue
+		for e: EditLog.WorldEdit in res.edits:
+			w.apply_edit(e)
+			edits.append(e)
+
+
+static func _slot_of(inv: Inventory, id: StringName) -> int:
+	for i: int in inv.size():
+		var st: ItemStack = inv.stack_at(i)
+		if st != null and st.id == id:
+			return i
+	return -1
+
+
+## The client's surface from a snapshot of the host's world now (the join path).
+func _load_surface_snapshot(host_w: GameWorld, client_w: GameWorld) -> void:
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host_w.data)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5,
+		Config.MAP_SURFACE)
+	if got == null:
+		_fail("fields_net", "surface snapshot refused: %s" % rx.error)
+		return
+	client_w.load_data(got)
+	client_w.lighting.set_evening(false)
+	client_w.purify_view.auto_tick = false

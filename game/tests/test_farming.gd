@@ -5,7 +5,7 @@ extends "res://tests/base_test.gd"
 ## (herbs, seeds, grades, a full inventory, the M6 recipe), the sickle rule, withering and reviving (outside the light,
 ## next to corruption), a long deterministic run, the world's edits / snapshot / hash, the view (wet patches, crop
 ## sprites, the recoloured mounds), main.tscn offline (hoe, can, seeds, sickle, a wild herb's seed, test fields) and a
-## session (farming refused / inert until M5c).
+## session (M5c: the host plants and tills; tests/test_net_fields.gd tests sessions).
 
 const SessionHostScript := preload("res://net/session_host.gd")
 const TICK: float = 1.0 / 60.0
@@ -946,7 +946,7 @@ func _check_main() -> void:
 		check(not CliOptions.parse(PackedStringArray([bad])).errors.is_empty(), "%s is refused" % bad)
 
 
-# --- a session (M5a: farming off until M5c) -----------------------------------------------------------------
+# --- a session (M5c: the host farms; tests/test_net_fields.gd has the whole session) ------------------------
 
 func _check_session() -> void:
 	var w: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
@@ -966,14 +966,9 @@ func _check_session() -> void:
 	var soil: Vector2i = soil_cells(data)[0]
 	var m: NetMember = s.add_member(2, 7, "herbalist", feet_for(soil), RigData.Dir.NORTH)
 	m.gate = InputGate.new()
-	check(not m.player.farming_on, "a session's player: farming off")
 	m.player.inventory.add(&"seed_healing", 3)
 	m.player.inventory.add(&"hoe", 1)
-	var hash0: String = data.content_hash()
-	# Its own controls make no frame of a seed click.
-	var made: NetProtocol.InputFrame = m.player.make_frame(Vector2i.ZERO, Vector2(soil * 16) + Vector2(8, 8), true, true, true)
-	check_eq(made.op, NetProtocol.Op.NONE, "a seed click in a session: no request")
-	# A forged USE of the seeds: refused.
+	# M5c: a seed's USE is planted by the host on its farm of that map (SessionHost._plant).
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
 	f.op = NetProtocol.Op.USE
 	f.slot = 0
@@ -981,9 +976,14 @@ func _check_session() -> void:
 	f.map = Config.MAP_SURFACE
 	m.player.begin_tick()
 	host.run_frame(m, f)
-	check_eq(m.refused(Farming.WHY_OFFLINE), 1, "the host refuses it: farming offline only")
-	check_eq(m.player.inventory.count_of(&"seed_healing"), 3, "no seed used")
-	# The hoe plays its action and changes nothing.
+	check_eq(m.player.inventory.count_of(&"seed_healing"), 2, "the host plants a seed's USE: one seed used")
+	var crop: Farming.Field = Farming.field_at(data, soil)
+	check(crop != null and crop.kind == Farming.KIND_HEALING and crop.fast and crop.stage == 0,
+		"a healing crop at stage 0, the herbalist's (%s)" % (crop.describe() if crop != null else "none"))
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 1, "one numbered edit of the surface")
+	check(host.farms.has(Config.MAP_SURFACE) and host.farms[Config.MAP_SURFACE].plots.has(data.index_of(soil)),
+		"the host's farm keeps its timer")
+	# The hoe tills on its landing frame, on the host.
 	var g: Vector2i = lit_grass(data)[0]
 	m.player.teleport(feet_for(g))
 	var hoe: NetProtocol.InputFrame = NetProtocol.InputFrame.new(2, Vector2i.ZERO)
@@ -997,6 +997,5 @@ func _check_session() -> void:
 	for i: int in 40:
 		m.player.begin_tick()
 		host.run_frame(m, NetProtocol.InputFrame.new(3 + i, Vector2i.ZERO))
-	check_eq(data.terrain_at(g), Terrain.GRASS, "and tills nothing in a session")
-	check_eq(data.content_hash(), hash0, "the host's world unchanged")
-	check_eq(s.log_for(Config.MAP_SURFACE).size(), 0, "no edit")
+	check_eq(data.terrain_at(g), Terrain.SOIL, "and tills the tile on the host (M5c)")
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 2, "a second edit")

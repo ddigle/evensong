@@ -1117,8 +1117,9 @@ func _check_pair_items(host: Instance, c1: Instance, c2: Instance) -> void:
 			"pair/%s: its inventory = the host's copy (%s)" % [c.name, _player(host, slot).get("inventory", "")])
 		check(_num(c.result, "inventories") >= 1.0, "pair/%s: got its inventory from the host" % c.name)
 	# M4b: and its class weapon in the last hotbar slot, which the host gave it when it joined.
-	check_eq(_player(c2, s2).get("inventory", ""), "0:stone_a x5, 1:wild_buff x1 (fine), %d:sickle x1" % Config.START_WEAPON_SLOT,
-		"pair/c2: what it picked up (and its start weapon)")
+	# M5c: and the wild herb's seed (the host gives it, Farming.seeds_from_wild).
+	check_eq(_player(c2, s2).get("inventory", ""), "0:stone_a x5, 1:wild_buff x1 (fine), 2:seed_buff x%d, %d:sickle x1" % [
+		Config.SEEDS_PER_WILD_HERB, Config.START_WEAPON_SLOT], "pair/c2: what it picked up (and its start weapon, M5c: the herb's seed)")
 	var ops: Dictionary = host.result.get("ops", {})
 	for slot: String in ops:
 		var o: Dictionary = ops[slot]
