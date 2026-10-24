@@ -194,6 +194,10 @@ class InputFrame:
 	var dash: bool = false
 	var interact: bool = false
 	var aim: int = -1
+	## M5b, resolved, not sent (offline until M5c, no wire change): the frame starts the paladin's purification channel
+	## (PlayerSim.step), and a click of the player carrying the altar asks to put it down on `cell` (Main).
+	var channel: bool = false
+	var altar_place: bool = false
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq

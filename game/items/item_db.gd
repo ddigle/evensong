@@ -23,12 +23,16 @@ extends RefCounted
 
 ## M3a: PLACEABLE = put on a floor tile by "use" (the torch; M6a: the alchemy table).
 ## M6a: POTION = drunk with "use" (left click), thrown with the herbalist's skill (items/potions.gd).
-## M5a: SEED = planted on tilled soil with "use" (a click, like the torch; items/farming.gd, world/farm.gd).
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED }
+## M5b: CONSUMABLE = used up on a target tile with "use" (holy water purifies the corrupted tiles around it,
+## items/purify.gd).
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
-const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed"]
+const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable"]
+## M5b: holy water's icon (04-env 묶음 2 #58 "a small glass vial of holy water", 판정 좋음; the a / b / c vials are
+## candidates, a is the first of the two marked good).
+const HOLY_WATER_ICON: String = "item_holy_water_a_v02.png"
 ## M6a: the 04-env items strip (items_v04_strip.png, 18 icons of 16x16 in a row) holds the potion icons:
 ## its 4th, 5th and 6th icons are the red, amber and poison potions (04-env/prompts.md "1차 판정 뒤 손질"
 ## 작은 것 #21, #22, #23; v04 = the last touch-up, the poison cork rust). The file is copied whole
@@ -231,6 +235,10 @@ static func _build() -> void:
 		s.icon_path = ART_DIR + ITEMS_STRIP
 		s.icon_region = Rect2i(STRIP_SEEDS[seed_id] * 16, 0, 16, 16)
 		_add(s)
+	# M5b (appended): holy water (● gameplay-design §3.0 R11 paladin row: anyone purifies a few tiles with it; the shop
+	# that sells it is M8). Kind CONSUMABLE, no grade, stack Config.STACK_HOLY_WATER. No action of its own: a click pours it
+	# (Config.HOLY_WATER_ANIM, items/purify.gd). How it is had is PROVISIONAL (README "M5b 성수 얻기": --give only).
+	_art(&"holy_water", Kind.CONSUMABLE, Config.STACK_HOLY_WATER, false, HOLY_WATER_ICON)
 
 
 static func _tool(id: StringName, action: int) -> void:

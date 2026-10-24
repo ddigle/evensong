@@ -30,6 +30,11 @@ extends RefCounted
 ## items/potions.gd, Config "M6a"); an alive player counts them down first thing (_tick_effects), so the
 ## offline game, the host and a prediction run them alike. A potion works from outside (Potions.apply: heal,
 ## add_buff, add_poison), like damage.
+##
+## M5b (offline until M5c): the paladin's purification channel (channel_tick, channel_cell). A frame with `channel` starts it
+## standing free; it then runs on its own, Config.PURIFY_CHANNEL_TICKS frames, and reports CHANNEL_DONE (the caller purifies
+## around channel_cell, items/purify.gd). A frame that moves, dashes or uses breaks it (CHANNEL_BROKEN, then the frame goes
+## on as usual); hurt() and going down break it too. It is not on the wire (same_as), only in same_all and copy.
 
 var pos: Vector2 = Vector2.ZERO
 var facing: int = RigData.Dir.SOUTH
@@ -42,6 +47,10 @@ var action_cell: Vector2i = Vector2i.ZERO
 var action_aim: int = 0
 ## M4a: health, stamina, dash, stagger, life.
 var vit: Vitals = Vitals.new()
+## M5b: the paladin's purification channel: ticks so far (0 = none; 1 on the frame it starts) and the tile it purifies
+## around (items/purify.gd). Offline until M5c: not on the wire, so not in same_as().
+var channel_tick: int = 0
+var channel_cell: Vector2i = Vector2i.ZERO
 
 
 func copy() -> PlayerSim:
@@ -54,6 +63,8 @@ func copy() -> PlayerSim:
 	c.action_cell = action_cell
 	c.action_aim = action_aim
 	c.vit = vit.copy()
+	c.channel_tick = channel_tick
+	c.channel_cell = channel_cell
 	return c
 
 
@@ -66,7 +77,13 @@ func same_as(o: PlayerSim) -> bool:
 
 ## Everything, vitals and aim included (the M4a determinism checks).
 func same_all(o: PlayerSim) -> bool:
-	return same_as(o) and action_cell == o.action_cell and action_aim == o.action_aim and vit.same_as(o.vit)
+	return same_as(o) and action_cell == o.action_cell and action_aim == o.action_aim and vit.same_as(o.vit) \
+		and channel_tick == o.channel_tick and channel_cell == o.channel_cell
+
+
+## M5b: a purification channel is under way.
+func channelling() -> bool:
+	return channel_tick > 0
 
 
 ## How many frames body action `anim` lasts.
@@ -113,9 +130,18 @@ const HEALED: int = 128
 const BUFFED: int = 256
 const POISONED: int = 512
 const POISON_TICK: int = 1024
+## M5b: the purification channel started this frame / ran its Config.PURIFY_CHANNEL_TICKS (the caller purifies around
+## channel_cell) / was broken this frame (by moving, a dash or a use in it; hurt() and going down break it too, the
+## caller sees the channel gone).
+const CHANNEL_STARTED: int = 2048
+const CHANNEL_DONE: int = 4096
+const CHANNEL_BROKEN: int = 8192
 
+## M5b: `channel` (the frame starts the purification channel: the caller checked the class and the ground,
+## Purify.channel_refusal; offline until M5c). It starts only standing free (no move, dash, use, action, stagger) and
+## then runs on its own; a frame that moves, dashes or uses breaks it.
 func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, delta: float, dash: bool = false,
-		interact: bool = false, aim: int = -1) -> int:
+		interact: bool = false, aim: int = -1, channel: bool = false) -> int:
 	var events: int = 0
 	if vit.flash_ticks > 0:
 		vit.flash_ticks -= 1
@@ -169,6 +195,24 @@ func step(data: WorldData, dir: Vector2i, look: int, anim: int, cell: Vector2i, 
 	if staggered:
 		vit.hurt_ticks -= 1
 		walking = false
+		return events
+	# M5b: the purification channel runs standing; moving, a dash or a use breaks it (and then happens as usual).
+	if channel_tick > 0:
+		if dir != Vector2i.ZERO or dash or RigData.is_action(anim):
+			channel_tick = 0
+			events |= CHANNEL_BROKEN
+		else:
+			channel_tick += 1
+			walking = false
+			if channel_tick >= Config.PURIFY_CHANNEL_TICKS:
+				channel_tick = 0
+				events |= CHANNEL_DONE
+			return events
+	elif channel and action < 0 and dir == Vector2i.ZERO and not dash and not RigData.is_action(anim):
+		channel_tick = 1
+		channel_cell = Aim.feet_cell(pos)
+		walking = false
+		events |= CHANNEL_STARTED
 		return events
 	if dash and action < 0 and vit.dash_cooldown == 0 and vit.stamina >= Config.DASH_STAMINA:
 		vit.stamina -= Config.DASH_STAMINA
@@ -224,6 +268,7 @@ func hurt(amount: int) -> int:
 	vit.flash_ticks = Config.HIT_FLASH_TICKS
 	action = -1
 	action_tick = 0
+	channel_tick = 0  # M5b: a hit breaks the purification channel
 	vit.dash_ticks = 0
 	vit.dash_dir = Vector2i.ZERO
 	walking = false
@@ -238,6 +283,7 @@ func hurt(amount: int) -> int:
 ## At 0 HP: down (its action and dash already stopped by the caller); M6a: the effects end
 ## (Config.EFFECTS_END_ON_DOWN).
 func _go_down() -> void:
+	channel_tick = 0  # M5b: going down (a poison tick too) breaks the purification channel
 	vit.life = Vitals.Life.DOWN
 	vit.life_ticks = 0
 	vit.revive_ticks = 0
@@ -342,6 +388,7 @@ func respawn(feet: Vector2) -> void:
 	walking = false
 	action = -1
 	action_tick = 0
+	channel_tick = 0
 	vit.reset()
 
 

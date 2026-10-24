@@ -13,9 +13,11 @@
 그 위에 **M6b "세션의 제작 · 물약"**을 더했다: M6a가 혼자 할 때 더한 것을 세션에서 모두 호스트가 정한다. 제작은 새 요청 CRAFT(레시피 번호: 호스트가 그 사람의 자리에서 작업대·해금·클래스·등급·입력·자리를 보고 그 사람의 인벤토리에 만든다), 조제대 놓기는 횃불처럼 그 지도의 편집(M6a의 세션 거부를 없앰), 마시기는 물약 칸의 USE(호스트가 가득 찬 HP 등을 다시 봄), 던지기는 새 요청 THROW(던진 점을 싣고 호스트가 96px로 자름). 클라이언트는 마시기·던지기 동작만 예측하고 효과는 호스트의 것을 받는다: 플레이어의 버프·독은 vitals 블록 뒤 **효과 블록**(7B, 효과가 있을 때만: 쉬는 상태는 17B 그대로), 이단의 독은 적 묶음의 표시 비트(0B), 던진 병은 화살처럼 **"던짐"·"터짐" 사건 + 클라이언트 비행**(호스트와 같은 걸음 함수라 그리는 병 = 호스트의 점). 효과는 타이머라 호스트 시간으로 흐른다(클라이언트가 효과 동안 프레임을 보냄). 늦은 참가·지도 들어옴은 효과·독·날고 있는 병·조제대를 그대로 받는다. 전송 형식 v6. 던진 회복이 다운된 사람을 일으키는지는 임시값(기본 아니오). [M6b: 세션의 제작 · 물약](#m6b-세션의-제작--물약).
 그 위에 M6 검토 지적을 반영했다(**M6-fix**): 조제대는 사람이 걷지 않고 나타나는 자리(지도의 도착점, 제단 둘레 부활·참가 자리 아홉)를 덮을 수 없다(그 위에 도착하거나 부활한 사람이 막는 탁자 속에 섰다. 임시값), 던진 병을 unshaded로(어두운 던전에서 거의 안 보였다), 호스트의 제작 검사는 레시피의 작업대 종류 중 손 닿는 것(가장 가까운 작업대 하나만 보지 않음)이고 작업대 찾기는 자리 크기에 상관없음, 작업대 아이콘·클래스 거부 문구·자리 크기를 작업대·설치물 값마다 표로, 쓰러진 뒤 끝난 독이 남기던 필드(`EFFECTS_END_ON_DOWN`을 끌 때), 무기로 죽은 이단의 독, 독 틱을 무기 맞음과 따로 셈(`poison_hits`, 로그 `POISON`), 사용·마시기·던지기는 동작이 시작될 때만 한 것으로 셈(같은 프레임의 Space), 던질 점을 혼자 할 때도 정수 px로(전송 형식과 같게), 이름 없던 숫자·낡은 주석·끊긴 줄 잇기, 빠진 시험(나타나는 자리, 큰 자리의 작업대, 마시는 중 사라진 물약, 효과의 끝과 지도 옮김, 사거리 밖 던지기, 리그 시간으로 그려 본 남의 표시가 꺼짐, THROW + Space), 문서에 없던 규칙을 임시값 줄로(플레이어의 독은 다운·사망까지, 빈 지도의 병과 독, 제작 창이 열린 동안), 두 창 그림 다시. [검토 반영 (M6-fix)](#검토-반영-m6-fix-2026-10-22).
 그 위에 **M5a "밭 · 씨앗 · 물주기 · 자라기 · 수확 · 시듦"**(혼자 할 때 먼저. 세션에서는 농사가 꺼져 있고 M6b 흐름 그대로, M5c에서 켠다)을 더했다: 괭이가 제단 빛 안의 풀을 일군 흙으로(바닥 편집, 채굴처럼 지도의 편집. M1 생성기의 흙 덩어리는 이미 밭), 씨앗 셋(04-env 작은 것 띠의 씨앗 봉투, 좌클릭으로 심기: 회복·버프 약초는 누구나, 독초 씨앗은 약초사만 ● R37), 물뿌리개(칸이 젖고 60초 뒤 마름, 04-env 물 준 흙을 칸별 덧칠로 ● R29), 자라기(젖은 동안만, 0~4단계 = 04-env `crops_v03`, 약초사가 심은 것은 두 배 빠름), 낫으로 수확(작물을 겨누면 수확만, 아니면 무기 그대로: 야생 약초와 같은 아이템 둘 + 씨앗 하나, 등급은 거두는 사람 = 약초사면 상급), 시듦(빛 밖이거나 오염이 2칸 안이면 그 틱에 시들어 멈추고, 원인이 사라지는 틱에 되살아남, 밭은 남음), 야생 약초를 캐면 그 작물의 씨앗 하나. 작물의 보이는 상태는 월드의 식생 레이어 값이라 스냅샷·해시·편집 기록이 그대로 덮고, 자라는 시간·물 시간은 지도마다의 `Farm`이 틱으로 센다(시계·난수 없음: 혼자 = 호스트(M5c)). 시험 플래그 `--test-field`, 창 그림 검사 `fields`, 스모크 `farm=`. [M5a: 밭 · 씨앗 · 물주기 · 자라기 · 수확 · 시듦](#m5a-밭--씨앗--물주기--자라기--수확--시듦).
+그 위에 **M5b "정화 · 성수 · 제단 옮기기"**(혼자 할 때 먼저. 세션에서는 꺼져 있고 M5a 흐름 그대로, M5c에서 켠다)를 더했다: 성수(04-env `item_holy_water_a_v02`, ● §3.0 누구나: 고르고 좌클릭 = 목표 칸 둘레 3×3의 오염 칸을 정화, 마법 동작을 빌려 씀, 얻는 길은 아직 `--give`뿐), 팔라딘의 광역 정화 채널링(● §3.0: 재 위나 바로 옆에서 주울 것이 없을 때 **F** = 정화 시작, 3초 서 있으면 발 칸 둘레 반지름 3칸 원판의 오염 칸이 풀로, 움직이기·대시·사용·맞음·다운이면 끊김, 마법 동작을 되풀이하고 둘레에 금빛 점), 정화된 칸 = 풀(바닥 재 → 풀, 오염 → 0: 월드 편집이라 스냅샷·해시·편집 기록이 그대로 덮음. 재가 걷히는 모습은 잠깐의 재 얼룩(04-env `decal_ashcreep`)과 금빛 테두리로만), 이단의 스폰 칸이 오염을 따라 다시 계산되고(`Arena.sync_world`) 오염 옆에서 시든 작물은 다음 틱에 되살아남(M5a 규칙). 제단 옮기기(● §9.3 위치·이동 자유): 누구나 제단 칸을 겨누고 **F를 2초** 누르고 있으면 든다(제단 칸이 월드에서 빠진다: 그동안 빛·안전 반경·스폰 억제·부활 자리가 없고 죽은 사람은 기다린다, 든 사람 머리 위에 작은 제단), **좌클릭** = 겨눈 쪽 두 칸 앞에 내려놓기(열린 땅이고 오염·설치물·채집물·밭·드롭·누구의 발·도착점이 아니고, 부활 자리 아홉이 설 수 있고, 새 빛 안에 살아 있는 이단이 없을 때. 놓일 자리를 금빛/짙은 빨강 테두리와 빛 가장자리 점으로 보임). 든 사람은 오가기·채널링·도구 사용을 못 하고, 다운되면 가까운 놓을 수 있는 자리에 저절로 놓인다. 놓으면 빛·안전 반경·이단의 빛 규칙과 스폰 칸·부활 자리 아홉·비워 두는 자리·제단 옆 띠·밭의 빛이 모두 새 자리를 따른다(옛 밭은 남아 시들고 새 빛 안의 밭은 자람, 더미도 새 자리로). 제단 자리는 설치물 레이어의 칸에서 다시 읽어서(`WorldData.refresh_altar_rect`) M5c도 전송 형식을 바꾸지 않아도 된다. [M5b: 정화 · 성수 · 제단 옮기기](#m5b-정화--성수--제단-옮기기).
 
 기준 문서: `docs/game-concept.md` §2 §3 §7 §9.3 §9.7 §10 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §2.2 §2.3 §2.4 §2.5 §2.6 §3.0 §3.1 §3.2 §3.4 §3.5 §3.8 §5 (M4b: §2.1 실시간·에임형, §2.6 사망 흐름, §3.0 팔라딘 줄, §3.1 ○ "타일 동기화가 던전 안 인원끼리만", game-concept §13 호스트 권한. M6a: §1 ○ "Tab 인벤토리·제작", §2.2 ? 스킬 킷과 ○ 약초사 정체성 스킬 = 약제 투척, §2.4 ○ 상태이상, §3.0 ● R11 약초사 줄, §3.4 ● 상급, §3.5 ○ 제작·해금, game-concept §9.7 ○ 조제대, §12 ● 작물 셋 R28. M6b: game-concept §13 ● 호스트 권한, §2.6 ● 소생(던진 회복과의 관계), 나머지는 M6a와 같음), `docs/concept-art-brief.md` §4 §5.6 §5.7(M6a: ● R29 물약 색), `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작. M4a: 8차 피격·사망, 13차 이단과 "M4에 넘길 것"), `assets/concept/04-env/prompts.md`("본 제작", 채집물, M3a: 던전 바닥↔벽 타일, 광맥, 벽 금, 던전 입구, 이단의 제단, 소품. M6a: 조제대 v05, 작은 것 묶음 `items_v04_strip`의 물약).
 M5a 기준 문서: `docs/game-concept.md` §9.3(● 제단 = 빛·안전 반경, 위치·이동 자유), §9.7(○ 농사 줄기, 밭은 빛 안에서만, 시듦과 되살아남, 밭은 남음, R37 슬라이스 줄), §10(톤 이원화), §11, §12(● 작물 셋 R28, ● R37 누가 무엇을 심나), `docs/gameplay-design.md` §1(○ 키), §2.6, §3.0(● R11 약초사·팔라딘 줄), §3.4(● 상급), §3.7(○ 정화: M5b), §3.8(○ 농사, ● R37 줄), `docs/concept-art-brief.md` §5.7(● R28 작물, ● R29 시든 작물·물 준 흙 칸별 덧칠·독초 색), `assets/concept/04-env/prompts.md`(1차 시험 손질: 흙 v03·물 준 흙·흙 변형, `crops_v03`, 씨앗 봉투 #18~#20).
+M5b 기준 문서: `docs/game-concept.md` §5(○ 오염과 정화: 슬라이스는 확산 없는 고정 구역), §9.3(● 제단 위치·이동 자유, 안전 반경 = 빛·스폰 억제·오염 저항, 팔라딘의 정화가 반경 밖 땅을 되찾음), §9.7(○ 제단을 옮기면 밭은 남고 빛 밖, 시든 작물을 정화가 되살림), §10, §11, §12(고정 오염 구역 2~3곳, 팔라딘 정화), `docs/gameplay-design.md` §1(○ F "정화 시작"), §2.6(● 부활 지점 = 제단; §5 ○ "제단을 옮기면 부활 지점도 옮겨진다"), §3.0(● R11 팔라딘 줄: 누구나 성수로 타일 몇 개, 클래스 전용 광역 정화 채널링, 상점 성수 = 대체 수단), §3.7(○ 정화: 채널링 반경 N, 원천을 부숴야 재오염이 멈춤, 슬라이스는 확산 없음), §3.8, `docs/concept-art-brief.md` §5.7, `assets/concept/04-env/prompts.md`(묶음 2 #58~#60 성수, "오염 장식" `decal_ashcreep`).
 문서의 ●는 그대로 따르고, ○·?는 정하지 않고 [임시값](#임시값-사람-확인-필요)으로 둔다.
 
 ## 준비
@@ -49,7 +51,7 @@ timeout 300 "$GODOT" --headless --path game --import < /dev/null
 timeout 600 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
 ```
 
-- 출력: 첫 줄 `EVENSONG_TESTS start: 22 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22. 전체가 약 270~290초라 위 명령의 `timeout`은 600)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
+- 출력: 첫 줄 `EVENSONG_TESTS start: 24 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24. 전체가 약 270~290초라 위 명령의 `timeout`은 600)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
 - 종료 코드: 모두 통과 0, 하나라도 실패 1 (불러오기 실패·시간 초과·테스트 파일 없음·시작 중 오류·마지막 파일 뒤 오류도 1)
 - 통과하는 실행에도 오류 묶음이 **8개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
   - `ERROR: Character: unknown class 'wizard'` 1개: `test_actors.gd`가 모르는 클래스 이름을 거부하는지 확인
@@ -152,7 +154,7 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 - 경로는 `game/` 기준이다 → `game/build/evensong.exe`(+ `evensong.console.exe`), `game/build/arm64/evensong.exe`
 - ARM64는 `build/arm64` 폴더가 없으면 "주어진 내보내기 경로는 존재하지 않습니다"로 실패한다 (그래서 `mkdir`). 이 데스크탑(x86_64)에서는 실행해 볼 수 없다
 - `tests/`, `tools/`는 내보내기에서 뺀다. `build/`는 `.gdignore`가 있어 임포트하지 않고 커밋하지 않는다
-- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=319B items=30 actions=8 combat=30/3 spawn_tiles=678 potions=6/1 ... combat_wire=25B potion_wire=40B/46B net=v6 checks=308`을 찍고 0으로 끝나야 한다(M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b·M6a·M6b에서 항목이 늘었다. 지상·던전 해시는 M6a·M6b에서 그대로). 아래 "스모크" 참조
+- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=319B items=34 actions=8 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 ... combat_wire=25B potion_wire=40B/46B net=v6 checks=338`을 찍고 0으로 끝나야 한다(M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b·M6a·M6b·M5a·M5b에서 항목이 늘었다. 지상·던전 해시는 M6a·M6b·M5a·M5b에서 그대로). 아래 "스모크" 참조
 
 ### 실행
 
@@ -170,6 +172,8 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 "$GODOT" --path game -- --class=herbalist --give=potion_poison:3:fine,potion_healing:2,potion_buff:2 --test-at=63,53 --test-heretic=63,57   # M6a: 빛 남쪽 가장자리, 빛 밖에 이단 하나. 1번 칸(독)을 고른 채 이단을 조준하고 1
 "$GODOT" --path game -- --class=herbalist --give=hoe,watering_can,seed_healing:5,seed_buff:5,seed_poison:5   # M5a: 괭이 1번·물뿌리개 2번·씨앗 3~5번. 빛 안 풀을 조준해 괭이 → 씨앗 → 물뿌리개, 익으면 Q로 낫(8번)
 "$GODOT" --path game -- --class=paladin --give=sickle --test-field=59,45:healing:4/58,46:buff:3:wet/57,47:poison:2   # M5a: 빛 안 밭에 시험 작물(익은 회복 약초 등)을 놓고 시작, 낫(1번)으로 거둔다
+"$GODOT" --path game -- --class=paladin --test-at=60,15 --give=holy_water:5 --test-no-spawns   # M5b: 북쪽 오염 구역 동쪽 가장자리. 서쪽(재)을 조준하고 F = 정화 채널링 3초, 성수(1번)를 고르고 재를 조준해 좌클릭 = 3×3 정화
+"$GODOT" --path game -- --class=miner --test-at=63,49   # M5b: 제단 바로 남쪽. 북쪽(제단)을 조준하고 F를 2초 누르고 있으면 듦, 빈 땅을 조준하고 좌클릭 = 내려놓기
 ```
 
 - `main.tscn`(실행 장면): WASD 또는 방향키로 8방향 걷기, 카메라는 내 캐릭터 가운데(맵 밖은 안 보이게 가장자리에서 멈춤). 제단 둘레에 나머지 네 클래스가 제단을 보고 서 있다(움직이지 않는 더미, 표식 다섯 가지가 한 화면에 보이게)
@@ -186,6 +190,8 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 - M6b (세션, 키는 M6a 그대로): 세션에서도 같다. 조제대 옆 Tab = 제작 창, 줄을 만들면 호스트에게 요청이 가고 만든 물약은 호스트가 보낸 인벤토리로 들어온다(왕복 뒤). 물약 좌클릭 = 마시기, 1 = 던지기: 동작은 바로 보이고 효과(HP, 버프·독 표시)는 호스트 상태가 오면. 던진 병은 모두의 화면에서 날아가 터진다. 콘솔(호스트)에 `EVENSONG_NET host craft slot=1 map=0 recipe=potion_poison_fine item=potion_poison count=1 grade=fine station=64,50`, `throw slot=1 map=0 item=potion_poison grade=fine id=4 from=1016,854 to=1016,926`, `splash map=0 id=4 item=potion_poison at=1016,926 why=landed players=0 heretics=1`, `drink slot=2 map=0 item=potion_healing grade=common hp=70 buff=0 poison=0`, `request_refused slot=2 craft map=0 recipe=4: herbalist only n=1`, 클라이언트에 `EVENSONG_CRAFT request recipe=...`, 늦은 참가자에 `welcome_effects {"1":"alive hp=90 ... buff=140/1608 ..."}`
 - M5a (혼자 할 때, 키는 M2a 그대로: 좌클릭 = 고른 것 사용): **괭이**를 들고 빛 안의 풀을 조준해 좌클릭 = 일구기(동작 4번째 프레임에, 누르고 있으면 되풀이), **씨앗**을 고르고 일군 흙에 좌클릭 = 심기(한 번, 동작 없음), **물뿌리개** 좌클릭 = 물주기(동작 6번째 프레임에), **낫**(약초사는 핫바 8번, 다른 클래스는 `--give=sickle`)으로 작물을 조준하고 좌클릭 = 수확(익은 것만. 작물을 겨눈 낫은 공격하지 않는다). 야생 약초를 F로 캐면 그 작물의 씨앗 하나가 같이 들어온다. 씨앗은 `--give=seed_healing:5` 등으로도 받는다(F5 묶음에는 없다). 콘솔에 `EVENSONG_FARM till at=62,51 class=herbalist field=none`, `EVENSONG_FARM plant at=62,51 class=herbalist item=seed_healing field=healing stage=0 fast`, `EVENSONG_FARM water at=62,51 class=herbalist field=healing stage=0 wet fast`, `EVENSONG_FARM grew at=62,51 crop=healing stage=1`, `EVENSONG_FARM harvest at=.. class=herbalist item=wild_poison count=2 grade=fine seeds=1 dropped=0 lost=0 field=soil`, `EVENSONG_FARM withered at=74,25 crop=healing stage=4`, `EVENSONG_FARM revived ...`, `EVENSONG_FARM seed from=wild_buff item=seed_buff count=1`, `EVENSONG_FARM plant refused at=..,.. class=paladin: herbalist only`
 - M5a 세션: 바뀐 것이 없다(씨앗 좌클릭은 아무것도 하지 않고, 괭이·물뿌리개는 M2b처럼 동작만, 낫은 무기, 야생 약초에 씨앗 없음. 호스트는 씨앗 칸의 USE를 `farming offline only`로 거부). M5c에서 켠다
+- M5b (혼자 할 때, 키는 임시값 "M5b 키"): **성수**(`--give=holy_water:5`, F5 묶음에는 없다)를 고르고 오염(재)을 조준해 좌클릭 = 붓기(마법 동작, 4번째 프레임에 목표 칸 둘레 3×3의 오염 칸이 풀이 되고 하나 씀. 오염이 없으면 `holy water refused: nothing to purify`, 아무것도 안 씀). **팔라딘**이 재 위나 바로 옆에서 **F**(목표 칸에 주울 것이 없을 때) = 정화 채널링 시작(서서 3초, 마법 동작을 되풀이, 둘레의 금빛 점이 하나씩 켜짐, 끝나면 발 칸 둘레 반지름 3칸 원판의 오염 칸이 풀로. 걷기·Space·좌클릭·맞음이면 끊김). 정화된 칸에는 잠깐 재 얼룩과 금빛 테두리. **제단**을 조준하고 **F를 2초** 누르고 있음 = 들기(누구나. 빛이 꺼지고 머리 위에 작은 제단, 놓을 자리가 금빛(됨)/짙은 빨강(안 됨) 테두리와 빛 가장자리 점으로 보임), 들고 있는 동안 **좌클릭** = 겨눈 쪽 두 칸 앞(3×3의 가까운 변이 목표 칸)에 내려놓기. 들고 있는 동안 입구·계단의 F, 채널링, 도구·물약 사용이 없다. 콘솔에 `EVENSONG_PURIFY channel start at=60,15 class=paladin ticks=180`, `EVENSONG_PURIFY channel at=60,15 class=paladin tiles=9 corrupted_left=304 spawn_tiles=666`, `EVENSONG_PURIFY channel broken: moved`, `EVENSONG_PURIFY holy water at=53,10 class=paladin tiles=2 corrupted_left=299 spawn_tiles=653`, `EVENSONG_ALTAR picked up who=LocalPlayer class=herbalist from=62,46`, `EVENSONG_ALTAR place refused at=58,15 who=LocalPlayer: corrupted ground`, `EVENSONG_ALTAR placed at=49,45 who=LocalPlayer light=808,744`, `EVENSONG_ALTAR set down at=48,51 ...`(든 사람이 다운), `EVENSONG_DEATH respawn waits who=Ally_archer: no altar (carried)`, `EVENSONG_MAP travel refused to=dungeon: carrying the altar`
+- M5b 세션: 바뀐 것이 없다(성수 좌클릭은 프레임을 만들지 않고, F는 M2b 줍기 그대로, F를 누르고 있어도 제단은 그대로. 호스트는 성수 칸의 USE를 `purification offline only`로 거부). M5c에서 켠다
 - `world.tscn`: WASD 또는 방향키로 자유 카메라 이동 (제단·빛은 있고 캐릭터는 없다)
 - 창 기본 1920×1080(4배). `-- --scale=3`이면 1440×810
 - `--quit-after` 같은 Godot 인자는 `--` **앞에** 쓴다
@@ -459,6 +465,24 @@ timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=72,26
 timeout 120 "$GODOT" --max-fps 60 --path game -- --no-evening --class=paladin --test-at=72,26 --test-no-spawns --give=torch:2 --test-field=74,25:healing:4/75,25:buff:3:wet/76,25:poison:4/77,25:healing:2/78,25:buff:4:wet/79,24:poison:1/73,25:soil:wet --bot="select:1;aimat:72,27;use:1;wait:20;aimat:76,25;wait:30" --screenshot=shots/m5_withered_off.png --frames=60 < /dev/null
 ```
 
+- M5b 그림 6장 (모두 시드 1, 480×270, 창 960×540, 혼자 할 때 봇. 정화와 제단 옮기기는 봇이 실제로 한다(F, F 누르고 있기, 좌클릭), 작물은 `--test-field`. 채널링 점·금빛 테두리·든 제단·놓을 자리 표시는 코드 그림 자리 표시, 재 얼룩은 04-env 장식):
+  - `shots/m5b_purify_channel.png`: 저녁, 북쪽 오염 구역 동쪽 가장자리. 팔라딘이 (60,15)에서 서쪽 재를 겨누고 F로 첫 채널링을 마친 뒤(재 가장자리 9칸이 풀로: 위쪽의 패인 자리) 남쪽 (58,19)로 걸어가 두 번째 채널링을 하는 중: 마법 동작(되풀이)과 반지름 둘레의 금빛 점(진행만큼 켜짐, 저녁에도 제 색)
+  - `shots/m5b_purified.png`: 같은 봇, 첫 채널링이 끝난 직후: 정화된 9칸에 줄어드는 금빛 테두리와 재 얼룩, 재 가장자리가 물러났다. `shots/m5b_purified_off.png`: 같은 순간 저녁 끔(풀이 된 칸과 재 얼룩의 색이 보이게)
+  - `shots/m5b_altar_carried.png`: 저녁, 약초사가 제단 남쪽에서 F를 2초 눌러 제단을 들고 서쪽으로 걸어가는 중: 빛이 없어 온통 어둡고, 머리 위에 작은 제단, 왼쪽에 놓일 자리(금빛 3×3 테두리 = 놓을 수 있음)와 새 빛 가장자리의 점. 더미 넷은 옛 자리에 있고, 옛 밭(오른쪽 M1 흙)과 새 밭(아래)이 모두 시들었다(빛이 없음)
+  - `shots/m5b_altar_moved.png`: 저녁, 제단을 13칸 서쪽 (49,45)에 내려놓은 뒤: 새 자리에 제단과 빛, 더미 넷이 새 부활 자리에서 제단을 보고, 새 빛 안의 밭(아래 두 덩어리, `--test-field`로 처음부터 있던 것: 빛 밖이라 시들었다가 놓은 틱에 되살아남)이 자라고, 옛 빛 자리의 밭(오른쪽, M1 흙)은 빛 밖이라 시든 채 남는다. `shots/m5b_altar_moved_off.png`: 같은 장면 저녁 끔(시든 그림과 자라는 작물의 색)
+
+```bash
+BOT="aimat:59,15;wait:2;pick;wait:185;walkto:58,19;aimat:57,19;wait:2;pick;wait:400"
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=60,15 --test-no-spawns --bot="$BOT" --screenshot=shots/m5b_purify_channel.png --frames=362 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=60,15 --test-no-spawns --bot="$BOT" --screenshot=shots/m5b_purified.png --frames=189 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --no-evening --class=paladin --test-at=60,15 --test-no-spawns --bot="$BOT" --screenshot=shots/m5b_purified_off.png --frames=189 < /dev/null
+FIELDS="57,45:healing:4/58,45:buff:3:wet/59,45:poison:4:fast/57,46:healing:2/58,46:buff:4/59,46:healing:3:wet/57,47:poison:2:fast/58,47:buff:1/59,47:healing:4/58,49:healing:4:wet/59,49:buff:3/60,49:poison:4:fast/46,50:healing:3:wet/47,50:buff:4/48,50:poison:4:fast/53,50:healing:4/54,50:buff:2:wet"
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --test-no-spawns --test-field="$FIELDS" --bot="walkto:63,49;aimat:63,48;hold:125;aimat:50,47;walkto:52,48;wait:400" --screenshot=shots/m5b_altar_carried.png --frames=345 < /dev/null
+BOT2="walkto:63,49;aimat:63,48;hold:125;walkto:50,48;aimat:50,47;wait:8;use:1;wait:300"
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --test-no-spawns --test-field="$FIELDS" --bot="$BOT2" --screenshot=shots/m5b_altar_moved.png --frames=430 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --no-evening --class=herbalist --test-no-spawns --test-field="$FIELDS" --bot="$BOT2" --screenshot=shots/m5b_altar_moved_off.png --frames=430 < /dev/null
+```
+
 ### 그림 검사 (창, 렌더러 필요)
 
 헤드리스 테스트는 더미 렌더러라 화면을 못 본다. 빛·불꽃·캐릭터 레이어·y 정렬이 **실제로 그려진 픽셀**을 보는 검사는 따로 창을 띄워 돌린다 (창이 3초쯤 떴다 닫힌다).
@@ -480,6 +504,8 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 - `potions` (M6a): 저녁 끄고 한 화면에 세계 편집으로 놓은 조제대, 독 걸린 이단(시트 프레임 + 머리 위 독 표시), 반쯤 날아간 병(물약 아이콘, 포물선 높이), 터짐 둘(0·1프레임)을 그려 배경 + 각각의 CPU 합성과 픽셀까지 비교(조제대 자리는 `FixtureView.table_origin`을 쓰지 않고 그림의 마지막 불투명 줄을 재서 따로 계산). 그다음 버프·독이 걸린 성직자의 머리 위 표시 둘과 HUD의 효과 아이콘·남은 시간 막대 126픽셀이 그 자리 그 색인지. 일부러 깨 본 것: 화살표를 금빛으로(`crafting` 불일치 72), 터짐 1px(`potions` 135), 머리 위 표시 1px 아래(23 · 표시 35), 조제대 그림 1px 위(484). 넷 다 FAIL·종료 1. 조제대는 처음에 기대 그림을 같은 함수로 만들어 통과해 버렸고(M4a의 교훈과 같은 실수), 따로 계산하게 고쳤다. M6-fix: 그다음 저녁을 켜고 같은 화면을 다시 찍어, 병·터짐의 불투명 픽셀 197개(병 92)가 제 색 그대로(unshaded)이고 둘레 바닥은 어두워졌는지(8px 간격 표본 2,039개가 저녁 끔의 66% 밑). 일부러 깨 봄: 병을 shaded로 되돌리면 `dark_mismatches=92`로 FAIL·종료 1
 - `potions_net` (M6b): 세션 클라이언트가 그리는 호스트의 물약. 기록을 켠 진짜 호스트 아레나에서 약초사가 병 둘을 던졌다(하나는 몇 틱 전에 터져 터짐이 보이고, 하나는 날고 있음), 독 걸린 이단, 버프·독이 걸린 성직자. 호스트의 `CombatView`·Player가 그린 화면과, 클라이언트가 전송 형식(독 표시가 든 적 묶음, 던짐·터짐 사건, 효과 블록이 든 상태)을 풀어 `NetCombat`·Player로 그 틱에 그린 화면이 픽셀까지 같아야 하고, 병·터짐이 하나씩, 이단의 독 표시와 성직자의 표시 둘이 있어야 한다. 그다음 월드 스냅샷으로 받은 조제대 옆에서 인벤토리 메시지로 받은 인벤토리로 연 제작 창 = 혼자 할 때 같은 인벤토리로 연 창(픽셀, 줄 넷). 일부러 깨 본 것은 아래 "측정"의 M6b
 - `fields` (M5a): 저녁 끄고 제단 둘레 화면에서 빛 안의 칸을 모두 흙으로(풀이면 바닥 편집으로 일굼, 시드 1: 120칸 중 101칸) 만들고 엔티티를 숨겨 찍은 바닥 = 그림 칸마다 그 칸이 그린 타일을 **PNG 파일에서 읽어** 붙인 CPU 합성(흙이 흙으로 그려짐). 그다음 작물 열여덟(세 작물 × 0~4단계·시듦, 넷에 하나는 젖음)과 젖은 빈 흙 여섯을 놓아 찍은 화면 = 그 바닥 + 젖은 칸마다 네 사분면(그 꼭짓점 둘레 그림 칸이 그린 타일의 물 준 PNG에서) + 작물(시트 PNG의 그 칸, 흙더미 색은 이 검사에 따로 적은 색 표로 마른·물 준 흙에 맞춤), 픽셀까지. 그다음 저녁을 켜고 빛 안쪽(반경 − 테두리 띠 − 4px)의 젖은 칸·작물 픽셀이 모두 밝은지(물 준 덧칠은 바닥 빛 레이어, 작물은 캐릭터 빛 레이어). 일부러 깨 본 것은 아래 "측정"의 M5a
+- `purify` (M5b): 저녁 끄고 오염 구역의 남쪽 가장자리에서(엔티티 숨김) 채널링 하나가 정화할 칸을 월드 편집으로 정화한 바닥 = 그림 칸마다 그 칸이 그린 타일을 PNG에서 읽어 붙인 CPU 합성(정화된 칸은 풀, 구역의 새 가장자리는 풀↔재 타일). 그다음 정화 첫 프레임: 그 바닥 + 정화된 칸마다 재 얼룩(04-env 장식 PNG, 이 검사에 따로 적은 고르기 규칙, 칸 가운데) + 칸 테두리 금빛 1px, 픽셀까지. 저녁을 켜면 금빛은 제 색 그대로(unshaded), 재 얼룩은 어두워짐(바닥 빛 레이어). 그다음 채널링 마지막 틱의 점 16개(2×2 금빛, 왼쪽 위 상아빛)가 반지름 + 0.5칸 고리의 이 검사에 따로 적은 자리에 있고 그 64픽셀만 바뀜(저녁 켬). 일부러 깨 본 것은 아래 "측정"의 M5b
+- `altar` (M5b): 제단을 월드 편집으로 13칸 서쪽에 옮기고(엔티티는 제단만) 새 자리 둘레 화면 픽셀 전부를 저녁 켬·끔으로 찍어 밝음 = 새 영역의 바닥 빛 텍셀(`ground`와 같은 규칙. 화면 안의 옛 영역 픽셀 약 3.9만 개는 모두 어두움, 불꽃 81픽셀은 제 색). 그다음 제단을 든 플레이어의 머리 위 표시 46픽셀이 이 검사에 따로 적은 문자 지도 그대로 그 자리에(저녁 켬·끔 둘 다, unshaded), 놓을 자리 표시의 테두리와 빛 가장자리 점이 금빛(됨)·짙은 빨강(안 됨)으로 그 자리에. 끝나면 제단을 제자리로
 - `items` (M2b): 채집물이 가장 많이 보이는 화면(시드 1: 9개)과 드롭 하나를 저녁 끈 채 찍어, 그것들을 숨긴 화면 + 각자의 그림(월드 그림 / 아이콘)을 그 칸에 놓은 것과 픽셀까지 비교. 일부러 깨 봄: 그림을 1px 내리면 FAIL(불일치 1,054픽셀)
 - `cave` (M3a): 시드 1 던전의 도착 방 둘레를 어둠 끄고(엔티티 숨김) 찍어, 그림 칸마다 `CaveView.drawn_at`의 절벽 타일 + 광맥·금 오버레이를 CPU로 합친 그림과 픽셀까지 비교. 그 전에 벽을 깎아 둔다(앞면이 있는 벽 셋에 금 1·2·3단계, 옆 벽 하나에 1단계, 앞면 벽 하나는 깨서 앞면이 한 칸 위로). 지상 월드는 그동안 숨긴다
 - `dark` (M3a): 같은 던전에 횃불 하나를 놓고(다른 빛은 끄고 다른 엔티티는 숨김) 어둠 켬·끔 두 번 찍어, 횃불 반경 밖 픽셀은 모두 어둡고(비율 ≤ 0.3) 첫 단계(반경의 45%) 안 픽셀은 모두 밝은지(≥ 0.75), 그 자리가 안전 반경이 아닌지(빛일 뿐)
@@ -554,6 +580,7 @@ M4b: 대시·F 누르고 있기·USE 조준이 든 프레임 왕복, vitals 블�
 M6a: 아이템 30개(물약 셋 아이콘은 띠의 16×16 칸, 조제대 아이콘은 코드), 입력 액션 `skill_1`, 레시피 여섯과 약초사 전용 규칙, 일반 회복 물약 만들기(약초 둘 → 하나), 조제대 그림 48×32와 시드 1 제단 남쪽에 놓기(편집 셋, 작업대로 찾힘), 회복 물약, 독 한 번에 다운, 던진 상급 독이 이단에 닿음(출력 `potions=6/1`: 레시피 수 / 닿은 이단),
 M6b: THROW·CRAFT 프레임 왕복, 효과 블록이 든 상태 왕복(40B), 기록을 켠 아레나가 던진 독의 던짐·터짐 사건을 클라이언트 `NetCombat`이 받아 호스트가 날린 모든 틱에 호스트 점 그대로 날림, 독 걸린 이단을 클라이언트가 독 표시로 그림(출력 `potion_wire=40B/46B`: 효과가 있는 상태 / 병 하나의 사건 둘), `net=v6`,
 M5a: 씨앗 아이템 셋(종류 SEED), 작물 시트 112×48과 물 준 흙 그림 셋, 시드 1 지상의 첫 빛 안 흙 칸에 약초사가 심은 회복 약초를 젖은 채 두면 4,800틱(네 단계 × 1,200, 이 검사에 따로 적은 셈)에 익고 낫으로 상급 약초 둘 + 씨앗 하나(출력 `farm=4800/2`),
+M5b: 성수 아이템(종류 CONSUMABLE)과 아이콘, 재 얼룩 그림 셋, 시드 1 지상의 첫 오염 칸에서 끝난 채널링이 원판의 오염 칸(이 검사에 따로 적은 셈)을 깨끗한 풀로(흙 + 재 0, 오염 칸 수가 그만큼 줆), 성수가 3×3 안을 정화하고 하나 씀, 스폰 칸이 줆, 제단을 들면 제단·안전 반경 없음, 13칸 서쪽 근처에 내려놓으면 그 자리에 제단과 빛, 부활 자리가 따라감(출력 `purify=11+4/648 altar=49,45`: 채널링 칸 + 성수 칸 / 그 뒤 스폰 칸, 옮긴 제단의 왼쪽 위 칸),
 기본 월드의 안전 반경 hard 빛 텍스처 226×226 텍셀 전부 = `is_in_safe_zone()`, 불꽃 마스크 81픽셀,
 네트워크(G3): 물리 틱 60, ENet 호스트가 루프백 빈 포트에서 열리고 닫힘(방화벽 창이 뜨지 않게 127.0.0.1만), Steam 가용성 = GodotSteam 유무, 상태 묶음 왕복, 늦은 참가 월드 스냅샷 왕복(H1: 이 빌드의 zstd로 압축 → 조각 → 받기 → 같은 월드), 9명 뒤 열 번째 거부, `main.tscn`에 `Net` 노드.
 내보낸 exe에서 돌면 pck 안의 타일셋·그림까지 확인하는 셈이다. 월드 해시는 이 데스크탑(x86_64)에서 만든 값이라, 다른 기기(서피스 ARM64)에서 `--smoke`가 해시로 FAIL이면 그 기기는 같은 시드로 다른 월드를 만든다는 뜻이다. 늦은 참가는 이제 호스트의 월드를 받으므로 그래도 된다(H1). 다만 그 기기가 호스트가 되면 같은 시드라도 데스크탑과 다른 월드가 된다.
@@ -572,7 +599,9 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 채집물 표, 줍기·버리기·사용·주기 규칙과 거부 이유, 등급 규칙, M3a: 횃불 놓기·입구 거부),
                                 mining.gd (채굴 규칙, M3a), M6a: crafting.gd (작업대·레시피·해금·만들기 규칙), potions.gd
                                 (물약: 마시기·던지기 규칙, 효과 수치, 아이템 꺼내기), M5a: farming.gd (농사 규칙: 밭의 식생
-                                값, 빛·오염, 일구기·심기·물주기·수확 검사, 낫 규칙)
+                                값, 빛·오염, 일구기·심기·물주기·수확 검사, 낫 규칙), M5b: purify.gd (정화 규칙: 성수 3×3,
+                                채널링 원판과 시작 조건, 정화 편집), altar_move.gd (제단 들기·놓기 규칙, 놓을 자리,
+                                다운 때 내려놓을 자리)
   ui/                           hud.gd (핫바 줄 · Tab 인벤토리 칸 · 3×5 숫자, 자기 캔버스 레이어; M4a: HP·스태미나·다운 막대,
                                 부활 카운트다운; M6a: 효과 아이콘), crafting_panel.gd (M6a: 제작 창)
   combat/                       (M4a) combat.gd (공격 표·조준 코드·근접 호·시야 선·곡괭이 규칙·적의 빛 규칙), heretic_sim.gd
@@ -585,14 +614,15 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 dungeon_gen.gd (던전 생성기), cave_table.gd (절벽 타일 조회: 코너 + 둘레), cave_view.gd
                                 (던전 dual grid + 광맥·금 오버레이), fixture_view.gd (입구·계단·제단·횃불 그림과 빛),
                                 M5a: farm.gd (지도 하나의 농장: 자라기·물·시듦의 틱과 네 동작), field_view.gd (물 준 흙 덧칠,
-                                작물 그림과 흙더미 색),
+                                작물 그림과 흙더미 색), M5b: purify_view.gd (재 얼룩·금빛 테두리·채널링 점), altar_ghost.gd
+                                (놓을 자리 표시),
                                 tilesets/surface.tres, tilesets/dungeon.tres (만든 타일셋, 커밋)
   actors/                       character.gd (레이어 캐릭터), rig_data.gd (리그 표), rig_anchors.gd (생성된 기준점 표),
                                 rig_measure.gd (기준점 재기), movement.gd (이동 규칙), player.gd (+ M2a 조작: 조준·사용·동작
                                 시간, M2b: 프레임 만들기·진행), player_sim.gd (M2b: 프레임 하나를 진행하는 규칙, 호스트·예측·혼자 공통),
                                 aim.gd (조준 규칙과 창 늘이기 계산, M2a), player_camera.gd, free_camera.gd (world.tscn 맵 보기용),
                                 M4a: vitals.gd (HP·스태미나·대시·경직·다운/사망; M6a: 버프·독), heretic.gd (이단 그림 + HP 막대),
-                                M6a: effect_marks.gd (머리 위 효과 표시와 그 아이콘)
+                                M6a: effect_marks.gd (머리 위 효과 표시와 그 아이콘), M5b: altar_mark.gd (든 제단 표시)
   light/                        safe_zone.gd (안전 반경 규칙), light_gen.gd (빛 텍스처·불꽃 마스크), altar_light.gd, lighting.gd,
                                 torch_light.gd (횃불 빛 텍스처, M3a)
   net/                          session.gd (세션 노드 Net: 두 역할이 같이 쓰는 상태·RPC 표·틱 나누기), session_host.gd
@@ -615,6 +645,7 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 fight·fight4·fightlag, test_net_session.gd를 이어 씀), test_crafting.gd, test_potions.gd (M6a),
                                 test_net_potions.gd (M6b: 세션의 제작·물약, 한 프로세스, test_net_combat.gd를 이어 씀),
                                 test_net_brew.gd (M6b: 실제 세션 brew·brew4, test_net_session.gd를 이어 씀), test_farming.gd (M5a),
+                                test_purify.gd, test_altar_move.gd (M5b),
                                 fixtures/ (러너 자체 시험)
   tools/                        build_tileset.gd (타일셋 빌더), build_rig_anchors.gd (기준점 표), check_render.gd (창 그림 검사)
   shots/                        스크린샷 (.gdignore)
@@ -633,6 +664,7 @@ game/                           Godot 프로젝트 루트 (= res://)
 - **M3a**: 생성기 5단계가 던전 입구(설치물 `PLACEABLE_ENTRANCE`, 2×1)를 넣는다. 그래서 `SurfaceGen.GOLDEN_HASH`가 **다시 바뀌었다**: `ff2e1d90c4dc12d6dfad926584d440d0` → `1d9f92c7b5ef2a715f95cc32d7424b36` (입구 칸 2개뿐. 난수를 쓰지 않고 4단계 뒤에 놓아서 채집물 74개는 M2b 자리 그대로다, `test_dungeon.gd`가 확인). 늦은 참가 스냅샷 원본이 그만큼 바뀌어 세션 시험의 압축 크기·조각 수가 조금 달라졌다(시험은 수를 스스로 센다). 설치물 중 막는 것은 제단·입구·계단·이단의 제단(`WorldData.placeable_blocks`), 횃불은 막지 않는다
 - **M3a 지도**: 지도마다 WorldData가 따로다(`map_id`: 지상 `Config.MAP_SURFACE` 0, 첫 던전 `MAP_DUNGEON` 1. 해시·스냅샷에는 들어가지 않는다). 던전은 벽(WALL)·광맥(ORE)·설치물만 쓰고 바닥 레이어는 0이다. 벽 바이트 = 종류(아래 4비트: 0 없음, 1 바위, 2 기반암) | 맞은 횟수(위 4비트), 광맥 = 0 없음 / 1 구리 / 2 철 (`world/walls.gd`). 그래서 채굴 한 번이 보통 칸 편집 하나이고 스냅샷·해시·편집 기록이 반쯤 깬 벽까지 그대로 덮는다
 - **M5a 밭**: 일군 칸 = 바닥 레이어 흙(괭이질은 M1 디버그 편집과 같은 바닥 편집 하나). 작물·젖은 흙은 식생 레이어의 값 `Config.FIELD_BASE`(64) + 작물(0 없음·1 회복·2 버프·3 독초) × 40 + 단계(0~4) × 8 + 표지(시듦 4, 젖음 2, 약초사가 심음 1). 0 = 마른 빈 흙, 66 = 젖은 빈 흙. 채집물 값(1..15)과 겹치지 않는다. 그래서 스냅샷·월드 해시·편집 기록이 밭을 그대로 덮고, 세션의 전송 형식(v6)도 바꿀 것이 없다. 자라는 틱·남은 물 틱은 월드가 아니라 지도마다의 `Farm`에 있다(아래 "M5a")
+- **M5b 정화·제단**: 정화된 칸 = 바닥 풀 + 오염 0(칸 편집 둘, 재를 거치는 모습은 그림뿐). 제단 자리(`altar_rect`)는 이제 설치물 레이어에서 다시 읽는다: 들기·놓기는 제단 칸 아홉의 칸 편집이고, `EditLog.apply_to_data`가 제단 칸이 바뀔 때 `WorldData.refresh_altar_rect()`로 다시 계산한다(제단 칸이 한 3×3일 때만 그 자리, 아니면 없음 = 들고 있음·반쯤 옮김). 스냅샷 머리말의 제단 자리와 해시는 그 값을 그대로 담는다(시험: 편집을 전송 형식으로 보낸 사본·스냅샷이 같은 제단 자리와 해시)
 
 ## 캐릭터 (G2)
 
@@ -1163,6 +1195,62 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 - 작물이 많을 때의 시간: 젖은 작물 120개(빛 안 + 빛 밖)에 한 틱 약 0.4ms(측정). 빛 안이 129칸이라 슬라이스에서는 넘지 않지만, 제단을 옮겨 밭이 늘면(M5b) 시듦 검사를 매 틱 하지 않게 바꿀 수 있다
 - 디버그 바닥 편집(봇 `edit`)은 흙을 풀로 되돌릴 수 있다(밭이 없는 흙만). 게임 규칙으로는 되돌릴 수 없다
 
+## M5b: 정화 · 성수 · 제단 옮기기
+
+혼자 할 때 먼저(M5b 지시, M5a처럼). **세션(`--host`/`--join`)에서는 꺼져 있고 M5a 흐름 그대로다**(M5c에서 켠다): 세션의 플레이어는 `Player.purify_on`이 꺼져 있어 성수 좌클릭이 프레임을 만들지 않고 F가 채널링을 시작하지 않으며, 호스트는 성수 칸의 USE를 `purification offline only`로 거부하고(M5a의 씨앗처럼), F를 누르고 있어도 제단은 그대로다(제단 들기는 혼자 할 때의 `Main.step_altar_hold`만 센다). 전송 형식은 v6 그대로(정화·제단은 칸 편집이고, 채널링 상태는 아직 전송 형식에 없다). 문서의 ●는 그대로 따랐다: 누구나 성수로 타일 몇 개를 정화하고 광역 정화 채널링은 팔라딘의 것(● gameplay-design §3.0 R11 팔라딘 줄), 제단의 위치·이동 자유(● game-concept §9.3), 부활 지점 = 제단(● §2.6), 밭은 남는다(● §9.7). ○·?와 문서에 없는 것은 모두 [임시값](#임시값-사람-확인-필요) 표의 "M5b" 줄이다. 오염 확산·재오염(○ §3.7 슬라이스), 원천 봉인·반경 확장(팔라딘 전용 칸의 나머지), 상인·상점 성수(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 새 적, 나무·건설(M7), 저장, 세션(M5c)은 M5b가 아니다.
+
+### 성수 (`items/purify.gd`, `ItemDB` 종류 `CONSUMABLE`)
+
+- `holy_water`: 04-env 묶음 2 #58 성수 병(`item_holy_water_a_v02.png`, 판정 "좋음" 둘 중 첫째; b·c는 쓰지 않음), 새 종류 `CONSUMABLE`(목표 칸에 써서 없어지는 것), 묶음 10(`STACK_HOLY_WATER`), 등급 없음, 표 끝(아이템 34개, 다른 번호 그대로)
+- **얻는 길 (임시값 "M5b 성수 얻기")**: `--give=holy_water:<n>`뿐(M6a의 조제대처럼 디버그 아이템). 문서의 대체 수단은 상점의 성수(M8)이고, 공용 수행 칸은 "누구나 성수로"라고만 하며 만드는 법이 없다. 조제대 레시피로 두지 않은 이유: 재료가 문서에 없고(약초로 만들면 정화가 약초사 고리에 묶임), 상점이 생기면 그쪽이 문서의 길이다. F5 묶음에도 넣지 않았다(M3-fix가 비워 둔 칸)
+- **붓기**: 성수를 고르고 목표 칸에 좌클릭(누르고 있어도 한 번) → 마법 동작(`HOLY_WATER_ANIM`, 마시기처럼 빌려 씀) → 4번째 프레임(`HOLY_WATER_EFFECT_FRAME`, 18틱째)에 하나를 쓰고 목표 칸 둘레 체비셰프 1칸(3×3, `HOLY_WATER_RADIUS_TILES`)의 오염 칸을 정화한다. 조건(`Purify.holy_water_refusal`): 맵 안, 손 닿는 칸, 그 3×3에 오염 칸이 있음(없으면 `nothing to purify`, 동작도 시작하지 않고 아무것도 안 씀). 쓰이는 프레임에 다시 본다(`Purify.pour`: 그동안 정화됐으면 거부·안 씀, 그 칸의 성수가 없으면 다른 칸의 것, 하나도 없으면 `the holy water is gone`). 그 전에 맞으면 동작이 끊겨 아무것도 안 씀
+
+### 팔라딘의 정화 채널링 (`PlayerSim` 채널, `Purify.channel_*`)
+
+- **시작**: **F**(임시값 "M5b 키", ○ §1 "F … 정화 시작"). F는 먼저 줍기(M2b)이고, 목표 칸에 주울 것이 없을 때(`nothing there`) 팔라딘(● 클래스 전용)의 발 칸이나 그 8이웃(`PURIFY_START_REACH_TILES` 1)에 오염 칸이 있으면 다음 프레임에 채널링을 시작한다(`Main.pick_up` → `Player.request_channel` → 프레임의 `channel`(전송 형식에 없는 해석 필드) → `PlayerSim.step`). 서 있고(그 프레임에 걷지 않음) 동작·대시·경직·다운이 아니고 제단을 들고 있지 않아야 한다. 다른 클래스의 F는 줍기 그대로
+- **진행**: 공유 시뮬레이션(`PlayerSim.channel_tick`/`channel_cell`)이라 혼자 할 때와 (M5c의) 호스트·예측이 같은 규칙이다. `PURIFY_CHANNEL_TICKS`(180틱, 3초, 시작 프레임 포함) 동안 서 있고, 끝나는 틱에 `CHANNEL_DONE` → 발 칸 가운데에서 반지름 `PURIFY_RADIUS_TILES`(3칸) 안에 가운데가 드는 칸(원판 29칸) 중 오염 칸을 정화한다(`Purify.channel_done`: 그때 남은 것만, 없으면 `nothing to purify`). 그동안 마법 동작을 되풀이해 보이고(`PURIFY_ANIM`, 자리 표시), 반지름 둘레의 금빛 점 16개가 진행만큼 켜진다
+- **끊김**: 그 프레임의 움직이기·대시·사용(끊고 그 프레임은 평소처럼 걷거나 대시하거나 동작을 시작), 맞음(`PlayerSim.hurt`), 다운(독 틱 포함, `_go_down`), 다른 지도로 감(`Player.set_world`). 아무것도 정화되지 않는다. 콘솔 `EVENSONG_PURIFY channel broken: moved|dash|use|hit|down`
+
+### 정화된 땅 (임시값 "M5b 정화된 땅")
+
+- 정화 = 칸마다 편집 둘(`Purify.edits_for`): 오염 레이어 0, 바닥 재 → 풀(**그 자리에서 풀**). 구역의 새 가장자리는 풀↔재 dual grid 타일(오염 v05)이 그린다(풀은 무엇과도 닿을 수 있어 흙 + 재 금지 규칙이 늘 지켜짐, 시험)
+- "재를 거쳐 풀"은 월드에 두지 않고 그림으로만 보인다(`world/purify_view.gd`): 정화된 칸마다 04-env 재 얼룩(`decal_ashcreep_1~3`, 풀 쪽 경계의 잿빛 얼룩, 칸 해시로 셋 중 하나, 칸 가운데, 바닥 빛 레이어)이 1초(`PURIFY_ASH_TICKS`), 칸 테두리의 금빛 1px 사각형이 0.5초(`PURIFY_FLASH_TICKS`) 동안 안으로 줄어든다(코드 그림, unshaded)
+- 정화된 칸 위의 채집물(재 버섯·금 간 돌·곰팡이 돌)은 그대로 있다. 재오염·확산은 없다
+
+### 정화가 바꾸는 것
+
+- **이단의 스폰 칸**: `Arena.sync_world`가 매 `step()` 처음에(그리고 Main이 정화를 적용한 뒤에) 제단 자리와 오염 칸 수가 바뀌었으면 빛 규칙과 지상 스폰 칸(오염 구역과 그 둘레 2칸, M4a 규칙)을 다시 계산한다. 정화된 구역 둘레에는 스폰 칸이 없어지고, 오염이 모두 걷히면 스폰 칸 0 → 지상 스폰 없음. 이미 있는 이단은 그대로. 생성된 월드 그대로의 스폰 칸은 678개(스모크 `spawn_tiles=678` 그대로)
+- **시든 작물**: M5a 규칙 그대로(오염이 2칸 안이면 시듦) 그 오염이 걷히면 다음 농장 틱에 되살아난다(단계·자란 틱 이어감, 시험)
+- **던전**: 오염 레이어가 비어 있어 정화할 것이 없다. 이단의 제단은 M4 전투 그대로
+
+### 제단 들고 옮기기 (`items/altar_move.gd`)
+
+- **들기**: 누구나(`ALTAR_MOVE_ANYONE`) 손 닿는 제단 칸을 겨누고 F를 `ALTAR_PICKUP_HOLD_TICKS`(120틱, 2초) 누르고 있으면 든다(놓거나 다른 데를 겨누면 처음부터, 동작 중이거나 다운이면 세지 않음). 지상만, 비용 없음. 제단 칸 아홉이 "설치물 없음" 편집 → 제단이 월드에 없다
+- **들고 있는 동안** (임시값 "M5b 들고 있는 동안", 고른 쪽: **안전 반경 없음**): 빛·안전 반경·이단의 빛 규칙·스폰 억제·부활 자리·조제대가 비워 두는 부활 자리가 없다(제단을 읽는 모든 것이 "제단 없음"을 읽음). 밭은 모두 빛 밖이라 시든다. 죽은 사람의 부활은 제단이 놓일 때까지 기다린다(`EVENSONG_DEATH respawn waits`, 놓으면 다음 틱에 새 자리로). 든 사람: 머리 위에 작은 제단(`AltarMark`), 좌클릭은 내려놓기만(도구·마시기·성수·던지기 없음), 입구·계단의 F 거부(`carrying the altar`), 채널링 없음. 걷기·대시·F 줍기는 그대로(속도도 그대로). 다른 길(놓을 때까지 옛 빛이 남음)은 고르지 않았다: 빛을 들고 다니면 "빛 = 제단이 있는 곳"이 흐려지고, 옮기는 동안의 위험이 "제단을 옮겨 새 지역으로 전진"(§9.3)을 팀 일로 만든다
+- **내려놓기**: 좌클릭 → 목표 칸(발 칸의 8이웃)이 가까운 변이 되는 3×3(가운데가 발 칸에서 그 방향으로 두 칸, `AltarMove.place_rect`). 조건(`AltarMove.place_refusal`, 이 순서): 지상(`the altar stays on the surface`), 맵 안, 모든 칸이 열린 땅(설치물·벽·드롭 없음: 입구·횃불·조제대·가방 위는 안 됨 `not open ground`), 오염·재 아님(`corrupted ground`), 식생 없음(채집물·작물·젖은 흙 `something grows there`; 마른 빈 흙은 됨), 누구의 발도 아래에 없음(`someone stands there`), 사람이 나타나는 자리(입구 도착점) 아님(`where players appear`), 새 부활 자리 아홉이 모두 설 수 있음(맵 안, 막는 것 없음 `no room around it`), 새 빛 안(발 상자)에 살아 있는 이단이 없음(`a heretic is in the light`: 이단은 빛에 들어가지 않는다는 M4a 규칙이 놓는 순간에도 지켜지게). 들고 있는 동안 놓일 자리가 금빛(됨)/짙은 빨강(안 됨) 테두리와 새 빛 가장자리 점(6°마다)으로 보인다(`AltarGhost`)
+- **든 사람이 다운되면**(맞음·독): 그 발 칸에서 가까운 고리부터(체비셰프, 64칸까지, 고리 안은 줄 순서) 내려놓기 규칙(손 닿음 빼고)으로 처음 되는 자리에 저절로 놓인다(`AltarMove.set_down_rect`, `EVENSONG_ALTAR set down`). 없으면 이단을 빼고 한 번 더, 그래도 없으면 들었던 자리
+- **옮긴 제단을 따르는 것**(모두 그때그때 월드의 제단 자리를 읽는다): 빛(`AltarLight`, 텍스처는 자리마다 캐시에서), 안전 반경(`GameWorld.safe_zone`), 제단 노드·불꽃, 제단 옆 띠(걷기 충돌), 이단의 빛 규칙·가장자리 지켜보기·스폰 칸(`Arena.sync_world`), 부활·참가 자리 아홉(`GameWorld.spawn_point`), 조제대가 비워 두는 자리(`WorldItems.reserved_feet`), 밭의 빛(`Farming.in_light`: 옛 밭은 남아 시들고, 새 빛 안의 밭은 일구고 자라고, 돌아오면 되살아남), 더미(새 부활 자리 1~4에서 제단을 봄)
+- **제단 자리 = 설치물 레이어**: 들기·놓기는 칸 편집 아홉이고 `EditLog.apply_to_data`가 `WorldData.refresh_altar_rect`로 제단 자리를 다시 읽는다(제단 칸 아홉이 한 3×3일 때만 그 자리, 반쯤이면 없음). `GameWorld.apply_edit`가 자리가 바뀌면 안전 반경·제단 노드·빛을 다시 놓고(저녁이 꺼져 있으면 꺼진 채) `altar_moved`를 낸다. 그래서 스냅샷·해시·편집 기록이 제단 자리를 그대로 덮고 M5c도 전송 형식을 바꾸지 않아도 된다
+
+### 시험 (M5b)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=purify,altar_move < /dev/null   # 약 2초
+```
+
+- `test_purify.gd`: 넓이(성수 3×3, 채널링 원판 29칸: 이 시험에 따로 적은 원판과 칸마다 비교), 성수(가장자리에서 됨, 2칸 멀리·맵 밖·깨끗한 풀 거부, 붓기는 편집만 돌려줌, 3×3의 오염 칸(따로 셈)만 풀로, 칸마다 편집 둘, 하나 씀, 오염 수, 채집물은 그대로, 흙 + 재 0, 거부면 안 씀, 없으면 `gone`, 다른 칸의 것을 씀, 효과 프레임), 채널링 규칙(클래스 다섯 × 위·옆·2칸: 팔라딘만, 깨끗한 풀·던전은 `nothing to purify`, 원판의 오염 칸(따로 셈), 두 번째는 없음), 공유 시뮬레이션(시작 프레임·발 칸, 정확히 180프레임, 그동안 안 움직임, 움직이기·대시·사용이 끊고 그 프레임은 평소대로, 맞음·독 다운이 끊음, 걷는 중·동작 중·경직·다운이면 시작 안 함, `copy`·`same_all`에 있고 `same_as`(전송)에는 없음), 스폰 칸(생성 월드 678, 구역 하나를 정화하면 `sync_world` → 새로 계산한 규칙과 같고 줄고 모든 스폰 칸이 오염 2칸 안(따로 셈), `step()`이 스스로 따라감, 오염이 없으면 스폰 칸·스폰 0이고 있던 이단은 그대로), 되살아남(빛 안 흙 2칸 옆에 재를 놓으면 시들고 안 자람, 성수로 걷으면 다음 틱에 같은 단계로 되살아나 이어 자람), 결정성(성수와 채널링 대본 2,000틱 두 번이 50틱마다 해시까지 같음, 정화 편집의 전송 형식 왕복 = 같은 월드, 스냅샷), 그림(정화한 바닥 = 데이터, 재 얼룩이 칸마다 가운데·바닥 빛 레이어, 금빛 unshaded, 테두리 60픽셀 → 2×2 → 없음, 재는 60틱, 점 16개가 고리 위·첫 점이 위, 켜지는 수, `load_data`가 비움), `main.tscn`(팔라딘: F 뒤 다음 프레임에 시작, 마법 동작과 점, 마지막 틱 전에는 그대로·마지막 틱에 원판, 깜빡임, 아레나 스폰 칸, 걷기로 끊김, 재 위 채집물은 F로 주움(채널 없음), 성수: 좌클릭에 붓는 동작·효과 프레임에 3×3·하나 씀, 깨끗한 풀은 동작 없음, 성직자의 F는 채널 없음), 세션(성수 클릭은 프레임 없음, 위조한 USE는 `purification offline only`·안 씀, 채널 없음, 월드·편집 기록 그대로)
+- `test_altar_move.gd`: 들기(클래스 다섯 모두, 2칸 멀리·발 칸·풀·맵 밖·던전 거부, 편집 아홉, 들면 제단·안전 반경·옆 띠 없음), 놓을 자리(여덟 방향과 발 칸: 이 시험에 따로 적은 3×3), 놓기 규칙(옛 자리·서쪽 풀은 됨, 횃불·드롭·채집물·작물·젖은 흙 거부, 마른 흙은 됨, 재 3×3, 입구 위, 입구 도착점 위, 누구의 발, 옆의 발은 됨, 부활 자리의 조제대, 맵 가장자리(부활 자리가 맵 밖), 맵 밖, 빈 자리, 새 빛 안의 이단·바로 밖의 이단, 던전, 가장 가까운 자리: 더 가까운 고리에 되는 자리가 없음), 다시 읽기(놓는 편집 여덟까지는 제단 없음, 아홉째에 그 자리, 한 칸 빠지면 없음), 월드 그림(`altar_moved` 두 번, 들면 제단 노드·빛 없음, 놓으면 노드·바닥 가운데·안전 반경·빛 자리와 텍스처, 새 자리 텍스처 둘, 부활 자리 아홉, 비워 두는 자리 = 도착점 + 새 부활 자리, 옆 띠, 걷기: 옛 자리 비고 새 자리 막힘, 남쪽에서 걸으면 남면에 딱 붙어 멈춤, 저녁 끈 채 돌아오면 빛 꺼진 채·켜면 켜짐, 돌아오면 새 텍스처 없음, 바닥 그대로), 밭(빛 안 작물이 들면 다음 틱에 시들고, 멀리 놓으면 시든 채 남고 흙·작물 그대로, 새 빛 안에 일구고 심고 물 준 밭은 자람, 옛 자리 옆 풀은 이제 빛 밖, 돌아오면 되살아남), 아레나(들면 빛 규칙 없음·옛 자리 옆에 스폰 가능, 구역 가장자리 옆에 놓으면 새 빛 안 스폰 칸 0·줄어듦·새 빛 안 스폰 거부, 빛 가장자리 안쪽의 플레이어를 쫓던 이단이 300틱 동안 한 번도 빛에 안 들어가고 가장자리에서 기다리고 플레이어는 안 맞음), 결정성(같은 옮기기 두 번 = 같은 해시·자리, 편집을 전송 형식으로 보낸 사본 = 같은 자리·해시, 스냅샷), `main.tscn`(F 한 틱 모자라면 그대로, 놓으면 처음부터, 120틱에 듦, 제단 노드·빛 없음, 머리 위 표시, 놓을 자리 표시가 겨눈 자리, 들고 있는 동안 좌클릭은 놓기만(검 안 휘두름), 오가기 거부, 죽은 동료의 부활이 기다림, 재를 겨눈 놓기 거부·붉은 표시, 채널링 없음, 서쪽에 놓기: 제단·빛·더미 넷·기다리던 동료의 부활(새 자리 1번)·아레나의 빛, 죽은 플레이어는 새 자리 0번에 부활, 다시 들고 다운 = 3칸 안에 저절로 놓임·발 위는 아님), 세션(F를 누르고 있어도 제단 그대로, 편집 없음)
+- 바꾼 기존 시험: `test_items.gd`(아이템 34개, 종류별 수에 CONSUMABLE 1, 성수가 씨앗 뒤 표 끝, 앞 번호 그대로), `test_actors.gd`(그림 출처 4개 더함, 87). 스모크 M5b 항목, 창 그림 검사 `purify`·`altar`
+
+### 알려진 문제·자리 표시 (M5b)
+
+- 채널링 자세(마법 동작 되풀이), 정화의 금빛 테두리와 점, 든 제단 표시, 놓을 자리 표시는 모두 코드 그림 자리 표시다(임시값 "M5b 그림 자리 표시"). 재 얼룩은 풀 쪽 경계용 04-env 장식을 빌려 쓴다. 효과가 작아서(테두리 1px, 점 2×2) 화면에서 잘 안 보일 수 있다: 사람이 볼 것
+- 오염 구역 자체의 흩뿌린 장식(04-env 뼈·곰팡이·금·맥 `decal_*`)은 아직 없다. 구역은 M1처럼 재 타일만
+- 빛 텍스처 캐시가 제단이 처음 놓이는 자리마다 둘(226×226) 늘고 놓지 않는다(4.7.2에서 텍스처를 풀면 엔진 오류, G2). 놓는 순간 텍스처 둘을 만드는 시간은 아래 "측정"
+- 들고 있는 동안 죽은 동료는 놓일 때까지 부활하지 않는다(혼자 할 때는 든 사람이 다운되면 먼저 놓이므로 막히지 않는다)
+- 내려놓을 때 새 빛 안에 이단이 있으면 거부라, 이단에게 쫓기는 중에는 놓을 수 없다(다운 때의 저절로 놓기는 이단이 없는 더 먼 자리를 찾는다)
+- 세션에서는 아무것도 바뀌지 않는다(M5c)
+
 ## 빛과 제단 (G2)
 
 - **규칙은 하나**: `SafeZone.is_in_safe_zone(pos)` = 제단 가운데에서 반경(임시 7타일 = 112px) 안 (경계 포함). 게임 로직은 `GameWorld.is_in_safe_zone()`로 이것을 부르고, 빛 텍스처는 같은 함수를 텍셀 가운데마다 불러 만든다
@@ -1174,6 +1262,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 - 제단(`Altar`, world/altar.gd): 그림 `altar_v04.png`(48×57, 불투명 x 0~46, y 5~47)의 왼쪽 위를 자리 3×3의 왼쪽 위에 둔다. 그림의 맨 아래 외곽선 줄이 자리의 마지막 픽셀 줄에 온다. 노드는 자리 바닥 가운데라 y 정렬에서 발이 자리 아래 변보다 아래(남쪽)인 캐릭터는 제단 앞, 위인 캐릭터는 제단 뒤에 그려진다
 - 불꽃: `altar_v04.png`와 `altar_v04_unlit.png`가 다르고 밝기 148 이상인 픽셀 = 81개(등잔 9 × 9). 같은 자리에 unshaded로 한 번 더 그려서 저녁에도 원본 색 그대로다(창 검사에서 채널 차 0). brief §5.7은 불꽃을 손으로 그려 빛 마스크와 함께 두라고 하는데 그 그림이 아직 없어서 켜짐·꺼짐 차이로 만든다
 - 디버그 선(F3)도 unshaded라 저녁에 어두워지지 않는다
+- **M5b**: 제단이 옮겨지면(위 "M5b") `GameWorld._altar_moved`가 안전 반경을 새로 만들고 제단 노드와 `AltarLight`를 새 가운데에 다시 놓는다(텍스처는 `texture_for` 캐시: 처음 가는 자리면 둘을 새로 만들고, 갔던 자리면 그것을 다시 씀. 저녁이 꺼져 있으면 꺼진 채). 들고 있는 동안은 제단·빛·안전 반경이 없다(`SafeZone.for_world` 반지름 0). 디버그 선도 새 자리를 그린다
 
 ## 네트워크 (G3)
 
@@ -1217,6 +1306,7 @@ H-fix에서 더한 것: 호스트 입력 토큰이 실제 시간을 따라감(�
 - 싸움 (M4b): 피해·소생·사망·가방·부활·적·날아가는 것은 호스트만 정한다(`SessionHost`가 지도마다 `Arena`를 돌림). 클라이언트에 보내는 것은 결과다: 플레이어 상태의 vitals, 지도마다 적 묶음(그 지도의 사람에게만, `peers_on`), 화살 사건. 플레이어 시뮬레이션에 새 상태를 더하면 `PlayerSim.copy`·`same_all`·`Vitals.same_wire`와 vitals 블록(`NetProtocol.put_vitals`/`get_vitals`)을 같이 본다(예측이 호스트 상태에서 다시 돌리므로 빠진 필드는 보정이 된다)
 - 물약·제작 (M6b): 효과를 걸고(마시기의 효과 틱·터짐) 아이템을 만드는 것(제작)은 호스트만 한다. 혼자 할 때와 호스트가 같은 규칙 함수를 부른다(`Potions.release`, `Crafting.craft`, `WorldItems.place`). 플레이어의 효과 필드를 늘리면 `Vitals.has_effects`·`same_effects`와 효과 블록(`NetProtocol.put_vitals`/`get_vitals`/`effects_valid`), 예측의 `Prediction.effect_event`를 같이 본다. 던진 병의 걸음을 바꾸면 `Arena.flask_points` 하나만 바꾼다(호스트의 비행과 클라이언트의 그림이 같이 쓴다)
 - 농사 (M5a): 밭의 보이는 상태(흙, 작물·단계·젖음·시듦·약초사가 심음)는 월드(바닥·식생 레이어)에만 두고 편집으로만 바꾼다. 보이지 않는 시간은 `Farm`에 두고, `Farm`의 메서드는 데이터를 쓰지 않고 편집을 돌려준다: 받은 편집을 다음 호출 전에 적용한다(`GameWorld.apply_edit`. 적용 전에 다시 부르면 그 칸을 옛 값으로 읽는다: 스모크를 처음 짤 때 물주기가 심기 편집 전의 빈 흙을 읽어 작물을 덮었다). 규칙 검사는 `items/farming.gd`의 순수 함수(혼자 할 때와 M5c의 호스트가 같이 쓴다). 시계·난수를 쓰지 않는다
+- 정화·제단 (M5b): 정화(오염 0, 재 → 풀)와 제단 들기·놓기(설치물 칸)는 월드 편집이다(`items/purify.gd`, `items/altar_move.gd`의 순수 함수가 편집을 돌려주고 부른 쪽이 `GameWorld.apply_edit`으로 적용). 제단 자리를 쓰는 코드는 저장한 값이 아니라 `data.altar_rect`·`SafeZone.for_world(data)`를 그때그때 읽는다(빛 규칙·스폰 칸을 저장해 두는 `Arena`는 `sync_world`로 따라감. 새로 저장해 두는 곳을 만들면 같이 따라가게). 채널링 상태는 `PlayerSim`(공유 규칙)에 두고 전송 형식에는 아직 없다(M5c에서 `same_as`·상태 묶음에 더함)
 - 요청 (M2b): 클라이언트의 새 요청은 새 RPC가 아니라 입력 프레임에 붙인다(`NetProtocol.Op`, 필드 크기 고정, 디코더가 범위를 먼저 봄). 호스트는 그 프레임을 처리할 때 검사·적용한다(`SessionHost.run_frame`). 검사 규칙은 `items/world_items.gd`의 순수 함수로 두어 호스트와 혼자 할 때(`Main`)가 같이 쓴다. 플레이어의 프레임 규칙은 `PlayerSim.step` 하나다(호스트·예측·혼자). 드롭은 `WorldData.drops`와 편집으로만 바꾼다
 - 빛 레이어: 바닥·제단·건물 = `Config.LIGHT_LAYER_WORLD`(1, 기본값), 캐릭터 스프라이트와 채집물·드롭(M2b) = `LIGHT_LAYER_ACTORS`(2). `light_mask`는 자식에게 물려지지 않으니 스프라이트마다 넣는다
 - 빛 텍스처(`PointLight2D.texture`)는 실행 중에 새로 만들어 갈아 끼우지 않는다. `AltarLight.texture_for()`의 캐시를 쓴다
@@ -1403,6 +1493,20 @@ func run() -> Array[String]:
 | M5a 일구기 프레임 | `HOE_IMPACT_FRAME` | 괭이 동작의 4번째 프레임(18틱째) | 문서에 없음 (03-pixel 괭이 시트에서 날이 흙에 닿는 칸) |
 | M5a 세션 | `Player.farming_on`, `SessionHost.run_frame` (`Farming.WHY_OFFLINE`) | 세션은 농장이 없다: 씨앗 USE 거부, 괭이·물뿌리개는 동작만, 낫은 무기, 야생 약초에 씨앗 없음. M5c에서 켬 | (M5a 지시) |
 | M5a 그림 자리 표시 | `FieldView` | 시든 그림은 다 자란 것 하나(어린 작물도 그것), 작물 흙더미 색은 코드 색 표, 수확 다발 칸은 안 씀 | ● brief §5.7 R29 시든 작물 색. 어린 작물의 시든 그림은 없다 |
+| M5b 성수 | `ItemDB` `holy_water`(종류 `CONSUMABLE`), `STACK_HOLY_WATER`, `HOLY_WATER_RADIUS_TILES`, `HOLY_WATER_ANIM`·`HOLY_WATER_EFFECT_FRAME`, `Purify.pour` | 하나가 목표 칸 둘레 체비셰프 1칸(3×3)의 오염 칸을 정화. 손 닿는 칸, 그 안에 오염이 없으면 거부(안 씀). 묶음 10, 등급 없음. 마법 동작의 4번째 프레임에 씀(그 전에 맞으면 안 씀) | ● gameplay-design §3.0 R11 "누구나 성수로 타일 몇 개 정화". 몇 개·붓는 동작·묶음은 문서에 없음 |
+| M5b 성수 얻기 | `--give=holy_water:<n>` | 디버그로만(M6a 조제대처럼). F5 묶음·레시피·상점 없음 | ● §3.0 대체 수단 "상점의 성수 (소량 정화, 비쌈)"(상인 M8). 공용 수행은 "성수로"만 말하고 만드는 법이 없다. 다른 길: 조제대 레시피(재료가 문서에 없다), 시작 인벤토리, F5 묶음 |
+| M5b 채널링 시작 | `PURIFY_START_REACH_TILES`, `Main.pick_up`, `Player.request_channel`, `Purify.channel_refusal` | F는 먼저 줍기(M2b). 목표 칸에 주울 것이 없고(`nothing there`) 팔라딘의 발 칸이나 그 8이웃에 오염 칸이 있으면 다음 프레임에 시작. 서 있고 동작·대시·경직·다운이 아니고 제단을 들지 않았을 때 | ● §3.0 "클래스 전용: 광역 정화 채널링"(팔라딘). ○ §1 "F 상호작용 (… 정화 시작)", ○ §3.7 "오염 타일 위에서 채널링". 옆에서도 되는지는 문서에 없음 |
+| M5b 채널링 시간·반지름 | `PURIFY_CHANNEL_TICKS`, `PURIFY_RADIUS_TILES`, `Purify.channel_area` | 180틱(3초) 서 있으면 발 칸 가운데에서 3칸 안에 가운데가 드는 칸(원판 29칸)의 오염 칸을 정화 | ○ §3.7 "반경 N타일"(N·시간은 문서에 없음) |
+| M5b 채널링이 끊기는 것 | `PlayerSim.step`·`hurt`·`_go_down`, `Player.set_world` | 그 프레임의 움직이기·대시·사용(그 프레임은 평소대로), 맞음, 다운(독 틱도), 다른 지도. 끊기면 아무것도 정화 안 함 | 문서에 없음 (§3.6 기도의 "방해받으면 중단"과 같은 쪽) |
+| M5b 채널링 자세 | `PURIFY_ANIM`, `Player.channel_frame` | 마법 동작(성직자 기도·치료)을 되풀이 | 그림 없음 (brief §5.6 표에 정화 동작이 없다) |
+| M5b 정화된 땅 | `Purify.edits_for` | 오염 0 + 바닥 재 → 풀(그 자리에서). 그 위 채집물(재 버섯·금 간 돌·곰팡이 돌)은 그대로. 재오염·확산 없음 | ○ game-concept §5·§9.3 "정화가 반경 밖의 땅을 되찾는다", ○ §3.7 "슬라이스: 확산 없음". 재를 거쳐(시간을 두고) 풀이 되는지, 채집물이 어떻게 되는지는 문서에 없음. 다른 길: 깨끗한 재(바닥 재, 오염 0)로 두었다가 시간이 지나 풀, 채집물을 없앰 |
+| M5b 제단 들기 | `ALTAR_PICKUP_HOLD_TICKS`, `ALTAR_MOVE_ANYONE`, `AltarMove.pickup_refusal`, `Main.step_altar_hold` | 누구나 손 닿는 제단 칸을 겨누고 F를 2초(120틱) 누르고 있으면 듦(놓거나 다른 데를 겨누면 처음부터). 지상만, 비용 없음 | ● game-concept §9.3 "위치 자유, 이동 자유". 누가·어떻게·비용·시간은 문서에 없음(§9.3 "제단을 옮겨 새 지역으로 전진"이 팀 이벤트). 다른 길: 팔라딘만(`ALTAR_MOVE_ANYONE` 끔), 재료 비용, 채널링처럼 끊기는 들기 |
+| M5b 들고 있는 동안 | `WorldData.refresh_altar_rect`(제단 없음), `Main._on_respawn_due`, `Player.carrying_altar` | **안전 반경 없음**(고른 쪽): 빛·안전 반경·이단의 빛 규칙·스폰 억제·부활 자리·조제대가 비워 두는 부활 자리가 없음, 밭은 모두 시듦, 죽은 사람은 놓일 때까지 부활을 기다림. 든 사람은 걷기·대시·F 줍기만(좌클릭 = 내려놓기; 도구·물약·성수·던지기·채널링·오가기 없음), 속도 그대로 | 문서에 없음. 다른 길: 놓을 때까지 옛 자리의 빛이 남음, 든 사람이 느려짐 |
+| M5b 내려놓기 | `AltarMove.place_rect`·`place_refusal` | 좌클릭: 목표 칸이 가까운 변인 3×3(가운데가 발 칸에서 그 방향으로 두 칸). 지상, 맵 안, 열린 땅(설치물·벽·드롭 없음), 오염·재 아님, 식생 없음(채집물·작물·젖은 흙. 마른 빈 흙은 됨), 누구의 발도 아래에 없음, 도착점 아님, 새 부활 자리 아홉이 설 수 있음, 새 빛 안에 살아 있는 이단 없음 | 문서에 없음 (M6-fix 조제대 규칙 + 이단은 빛에 들어가지 않는다는 M4a 규칙을 놓는 순간에도 지키려고) |
+| M5b 든 사람이 다운되면 | `ALTAR_SET_DOWN_SEARCH_TILES`, `AltarMove.set_down_rect`, `Main.set_altar_down` | 그 발 칸에서 가까운 고리부터(체비셰프 64칸까지, 고리 안은 줄 순서) 내려놓기 규칙(손 닿음 빼고)으로 처음 되는 자리에 저절로. 없으면 이단을 빼고, 그래도 없으면 들었던 자리 | 문서에 없음. 다른 길: 들었던 자리로 돌아감, 그 자리에 떨어뜨려 아무나 다시 들게 |
+| M5b 키 | `project.godot` 입력 `interact`, `use_item` (그대로) | F = 줍기, 주울 것이 없으면 팔라딘의 채널링 / F 누르고 있기 = 제단 들기 / 성수 좌클릭 = 붓기 / 들고 있는 동안 좌클릭 = 내려놓기 | ○ gameplay-design §1 "F 상호작용 (줍기, 문, 작업대, 기도, 정화 시작)" |
+| M5b 세션 | `Player.purify_on`, `SessionHost.run_frame` (`Purify.WHY_OFFLINE`), `Main.step_altar_hold`(혼자 할 때만) | 세션은 정화·제단 옮기기가 없다: 성수 USE 거부, F 채널링 없음, F를 누르고 있어도 제단 그대로. M5c에서 켬 | (M5b 지시) |
+| M5b 그림 자리 표시 | `PurifyView`, `AltarMark`, `AltarGhost`, `PURIFY_ANIM` | 채널링 자세(마법 동작), 정화의 금빛 테두리·점, 재 얼룩(04-env 풀 쪽 경계 장식을 빌려 씀), 든 제단 표시, 놓을 자리 표시 | 그림 없음 (정화 효과·든 제단·놓을 자리 그림이 04-env·03-pixel에 없다) |
 
 ### 구현에서 고른 값 (설계 결정 아님)
 
@@ -1566,10 +1670,16 @@ func run() -> Array[String]:
 | 시험 밭 (M5a) | `--test-field`, `Main.apply_test_fields` | 규칙을 건너뛰고 놓음(재 옆만 거부), 농장이 첫 틱에 시듦 판단 | 다 자라는 데 몇 분이 걸리고 빛 밖에는 일굴 수 없어서, 스크린샷·시험이 장면을 바로 세운다 |
 | 농사 로그 (M5a) | `EVENSONG_FARM` (`Main._apply_farm`, `_log_field_change`, `seed_from_wild`) | 동작·거부·단계·시듦·되살아남·씨앗 줄. 마름은 찍지 않음 | 다른 `EVENSONG_` 줄처럼 사람이 콘솔로 볼 수 있게. 마름은 물 준 칸마다 나와 너무 잦다 |
 | 시듦 검사 비용 (M5a) | `Farming.near_corruption`(오염 레이어 바이트를 바로 읽음), `withers_at`의 `SafeZone` 하나 | 매 틱 작물마다 5×5 칸 + 모서리 넷 | 첫 판은 칸마다 `get_value`를 25번 불렀다: 시험의 20,000틱 대본(밭 12칸, 대본의 동작 포함)이 틱당 191µs → 바꾼 뒤 78µs(잰 값) |
+| 정화 효과 (M5b) | `PURIFY_FLASH_TICKS`·`PURIFY_ASH_TICKS`·`PURIFY_MOTES`, `PurifyView` | 정화된 칸: 금빛 1px 테두리가 30틱 동안 안으로 줄어듦(unshaded), 재 얼룩(칸 해시로 셋 중 하나, 칸 가운데)이 60틱(바닥 빛 레이어). 채널링: 반지름 + 0.5칸 고리에 점 16개(2×2 금빛, 왼쪽 위 상아빛)가 진행만큼 켜짐 | 재가 걷히는 모습("재를 거쳐 풀")을 월드에 두지 않고 보이기만. 저녁에도 읽히게 |
+| 제단 자리 다시 읽기 (M5b) | `WorldData.refresh_altar_rect`, `EditLog.apply_to_data`, `GameWorld._altar_moved`·`altar_moved` | 설치물 칸에서 제단 칸이 한 3×3일 때만 그 자리, 반쯤이면 없음. 제단 칸을 바꾸는 편집마다(첫 칸 찾기와 세기는 네이티브) | 들기·놓기를 기존 칸 편집으로 해서 스냅샷·해시·편집 기록·전송 형식이 그대로(M5c) |
+| 아레나가 따라가기 (M5b) | `Arena.sync_world`(`_synced_altar`, `_synced_corruption`) | 매 `step()` 처음에 제단 자리와 오염 칸 수(`count(0)`, 네이티브)를 보고 바뀌었으면 빛 규칙과 지상 스폰 칸을 다시 계산 | 혼자 할 때 Main이, M5c의 호스트가 따로 부르지 않아도 맞게 |
+| 더미가 따라가기 (M5b) | `Main._on_altar_moved` | 놓으면 더미 넷이 새 부활 자리 1~4에서 제단을 봄, 들고 있는 동안은 그대로 | M1 더미 = 부활 자리의 클래스 표식 보기 |
+| 놓을 자리·든 제단 표시 (M5b) | `AltarGhost.DOT_STEP`, `AltarMark.MAP`·`MARK_Y` | 테두리 1px + 빛 가장자리 6°마다 점(반지름 − 1px), 머리 위 9×6(발 위 53px, 효과 표시 위) | 코드 그림 자리 표시 |
+| 빛 텍스처 캐시 (M5b) | `AltarLight.texture_for`(그대로) | 처음 놓는 자리마다 텍스처 둘(226×226)을 만들고 놓지 않음 | 4.7.2에서 텍스처를 풀면 엔진 오류(G2). 자리마다 내용은 같지만(디더 무늬가 4px 주기이고 제단 가운데는 늘 16의 배수 + 8) 캐시 열쇠가 가운데라서. M1 시험이 "다른 영역 = 새 텍스처 둘"을 보므로 열쇠는 그대로 둠 |
 
 ## 그림 출처
 
-`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 83개 전부 md5 비교, M3a에서 19개, M4a에서 9개, M6a에서 2개, M5a에서 4개 더함). 도구 아이콘 6개는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
+`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 87개 전부 md5 비교, M3a에서 19개, M4a에서 9개, M6a에서 2개, M5a에서 4개, M5b에서 4개 더함). 도구 아이콘 6개는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
 
 | 파일 | 원본 |
 |---|---|
@@ -1601,8 +1711,25 @@ func run() -> Array[String]:
 | `tiles/tiles_grass-soil_v03_watered.png`, `tiles/tiles_soil_var_1_v01_watered.png`, `tiles/tiles_soil_var_2_v01_watered.png` (M5a) | `04-env/` (물 준 흙: 일군 흙 v03·흙 변형 둘의 흙 픽셀만 바꾼 사본, 1차 시험 2차 손질. 칸별 덧칠로 씀 ● R29. 채택 후보) |
 | `env/crops_v03_sheet.png` (M5a) | `04-env/` (작물 셋 × 0~4단계·수확 다발·시듦, 16칸 7×3, 손그림 v03. 0~4단계와 시듦 칸을 씀, 흙더미 색은 코드에서 흙에 맞춤. 채택 후보) |
 | `items/items_v04_strip.png` (M5a에서 더 씀) | 위 M6a 줄의 파일 그대로. 첫 세 칸 = 씨앗 봉투 셋(#18~#20, 회복·버프·독초)을 씨앗 아이콘으로 잘라 씀(`ItemDB.STRIP_SEEDS`) |
+| `items/item_holy_water_a_v02.png` (M5b) | `04-env/` (성수 병, 본 제작 묶음 2 #58 "금실 감은 코르크의 작은 유리병, 상아빛 물", 판정 좋음. b·c 판은 쓰지 않음. 채택 후보) |
+| `env/decal_ashcreep_{1,2,3}_v01.png` (M5b) | `04-env/` (풀 쪽 경계의 잿빛 얼룩, 흩뿌리는 오염 장식 묶음. 정화된 칸에 잠깐 보이는 재로 빌려 씀(칸 가운데). 채택 후보) |
 
 ## 측정 (이 데스크탑, `.godot/`을 지운 상태에서)
+
+M5b (2026-10-24):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 5.1초, 종료 0, 오류 줄 0 (세 번 모두 종료 0·오류 0). 새 그림 4장(`.import`: 성수 병, 재 얼룩 셋)과 새 스크립트 7개(`.uid`: purify·altar_move·purify_view·altar_ghost·altar_mark·test_purify·test_altar_move)를 커밋 |
+| 전체 테스트, 두 번 (마지막 코드, `.godot/`을 지우고 다시 임포트한 뒤) | 두 번 모두 24파일 통과, 25,864 / 25,864 checks, 268.1 / 270.3초, 종료 0, 오류 묶음 8개(알린 것 그대로). 새 파일 purify 131(약 0.5초), altar_move 131(약 0.6초), items 1,662(성수 줄), actors 1,691(그림 출처 83 → 87개), core 297(새 스크립트도 불러 봄). 세션 파일(net_session 560, net_fight 269, net_brew 229)과 farming 580·heretic 14,906·combat 555·light 73은 그대로 통과 |
+| 스모크 (`--smoke`, 에디터 빌드와 내보낸 exe) | 338 checks ok(M5a 321 + M5b 17), `items=34 ... farm=4800/2 purify=11+4/648 altar=49,45`, 지상·던전 해시 그대로(`hash=1d9f92c7b5ef`, `hash=8dda0ad69ad9`, `dungeon_seeds=acc0a9bc2359`), `spawn_tiles=678` 그대로, 전송 형식 `net=v6` 그대로, 두 빌드 모두 종료 0·오류 줄 0 |
+| 내보내기 | x86_64 `evensong.exe` 110,042,480 B, ARM64 92,436,336 B, 둘 다 종료 0, 오류 줄 0 |
+| 창 그림 검사 `check_render.gd` | 4.5초, 18부분 모두 ok (`purify`: 정화 11칸 모두 풀, 바닥 = PNG 합성 불일치 0, 첫 프레임 불일치 0(금빛 660·재 얼룩 363픽셀), 저녁 켬 금빛 틀림 0·재 얼룩 밝음 0, 점 64픽셀 불일치 0. `altar`: 13칸 서쪽 (49,45), 확인 129,340픽셀 불일치 0, 화면 안의 옛 영역 38,573픽셀 중 밝음 0, 불꽃 81 제 색, 머리 위 표시 46픽셀 불일치 0, 놓을 자리 표시 496픽셀(금빛·빨강) 불일치 0, 제단 제자리로). 다른 부분은 M5a와 같은 수 |
+| 스크린샷 | `shots/m5b_purify_channel.png`, `m5b_purified.png`, `m5b_purified_off.png`, `m5b_altar_carried.png`, `m5b_altar_moved.png`, `m5b_altar_moved_off.png` (위 "스크린샷"), 콘솔 오류 줄 0 |
+| 제단을 처음 가는 자리에 놓기 (헤드리스, `test_altar_move.gd`의 note) | 칸 편집 아홉 + 제단 노드 + 빛 텍스처 둘 = 약 38ms (37.5 / 37.7). 갔던 자리로 돌아가면 텍스처를 다시 만들지 않음 |
+| 일부러 깨 보기 (스크래치 `r5m5/mut/mutate_m5b.py`: 작업 트리의 파일 하나에서 정확한 문자열 하나를 바꾸고 해당 시험을 돌리고 되돌림) | 헤드리스 26개(`purify`·`altar_move` 25, 스모크 1) 모두 FAIL·종료 1, 창 그림 검사 7개 모두 FAIL·종료 1 (아래) |
+
+일부러 깨 보기 (M5b, 실패 수): 성수가 5×5(`purify` 5), 채널링 원판 대신 정사각형(8), 누구나 채널링(13), 시작은 오염 위에서만(10), 재 바닥이 그대로(3), 성수를 안 씀(6), 채널링 한 틱 짧게(2), 걸어도 안 끊김(3), 맞아도 안 끊김(1), 아레나가 따라가지 않음(`purify`·`altar_move` 17), F가 채널링을 시작하지 않음(8), 세션이 성수 USE를 받음(1), 제단 들기 1틱(`altar_move` 2), 재 위에도 놓음(10), 새 빛 안의 이단 무시(1), 부활 자리 검사 없음(2), 도착점 검사 없음(1), 제단 자리를 다시 읽지 않음(51), 빛이 따라가지 않음(7), 들고 있어도 부활(2), 다운돼도 안 내려놓음(3), 더미가 그대로(1), 놓을 자리가 한 칸 멀리(11), 들고 있어도 도구를 씀(11), 들고 오가기(13), 스모크의 원판을 정사각형으로(스모크 FAIL: 11 대신 16칸). 창 그림 검사: 금빛 테두리 한 칸 더 안쪽(`purify` 불일치 1,232), 재 얼룩 1px 오른쪽(202), 정화 효과 shaded(금빛 660·점 64 틀림), 점 고리 반지름 + 0.5칸(128), 머리 위 표시 1px 아래(`altar` 33), 안 되는 자리도 금빛(248), 빛이 옛 자리에(불일치 67,475·옛 영역 밝음 33,687)
 
 M5a (2026-10-24):
 
@@ -2027,6 +2154,7 @@ M4a = 혼자 할 때의 HP·스태미나·대시(공유 시뮬레이션), 클래
 M6b = M6a가 더한 것을 호스트 권한 세션으로(CRAFT 요청과 호스트 검사, 조제대 놓기 편집, 물약 USE = 마시기, THROW 요청, 호스트의 물약 효과 틱, 효과 블록, 이단의 독 표시, 병 사건과 클라이언트 비행, 늦은 참가·지도 들어옴의 효과·병·조제대, 클라이언트의 해금 기억, 세션의 제작 창). 농사·씨앗·자라기·물주기·정화(M5), 작업대·모루·성물 제작대와 도구·무기 만들기(M7), 건설, 상인·상점 물약(M8), 다른 스킬·스킬 키, 클래스 자원, 기도, 효과 둘 밖의 것, 새 적, Steam, 저장은 M6b가 아니다.
 M6a = 혼자 할 때의 제작 틀(작업대·레시피·해금·만들기), 조제대(놓기·막기·그림), Tab 제작 창, 물약 셋(야생 약초로, 등급 = 입력), 마시기, 약초사의 약제 투척, 효과 둘(버프 = 걷기 속도, 독)과 그 표시. 세션의 제작·마시기·던지기·효과(M6b), 농사·씨앗·자라기·물주기·정화(M5), 작업대·모루·성물 제작대 레시피와 도구·무기 만들기(M7), 건설, 상인·상점 물약(M8), 다른 스킬·스킬 키, 클래스 자원, 기도, 효과 둘 밖의 것, 새 적, Steam, 저장은 M6a가 아니다.
 M5a = 혼자 할 때의 밭(괭이로 빛 안의 풀 일구기), 씨앗 셋(야생 약초·수확에서, 누가 무엇을 심나 ● R37), 물주기(물 준 흙 칸별 덧칠), 자라기(0~4단계, 약초사가 빠름), 낫 수확(야생 약초와 같은 아이템, 거두는 사람의 등급), 시듦과 되살아남(빛 밖·오염 2칸 안), 결정적인 지도별 농장. 세션의 농사(M5c), 정화·성수·제단 옮기기(M5b), 나무·도끼, 작업대·모루·성물 제작대·건설(M7), 상인·상점(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 오염 확산·재오염, 새 적, Steam, 저장은 M5a가 아니다.
+M5b = 혼자 할 때의 정화(성수 3×3은 누구나, 팔라딘 F 채널링 반지름 3·3초, 정화된 칸 = 풀, 스폰 칸과 시든 작물이 따라감)와 제단 옮기기(F 2초로 들기, 좌클릭으로 놓기, 들고 있는 동안 안전 반경 없음, 다운이면 가까이 내려놓기, 빛·안전 반경·이단·부활 자리·비워 두는 자리·밭의 빛이 따라감). 세션(M5c), 오염 확산·재오염·원천 봉인·반경 확장, 상점 성수(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 새 적, 나무·건설(M7), 저장은 M5b가 아니다.
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
@@ -2045,6 +2173,7 @@ M5a = 혼자 할 때의 밭(괭이로 빛 안의 풀 일구기), 씨앗 셋(야�
 | M6b 세션의 제작 · 물약 | CRAFT·THROW 요청과 호스트 검사(작업대·레시피·클래스·등급·입력·자리, 던질 점 자르기, 손 닿음·바쁨·다운·지도), 물약 USE = 마시기, 호스트의 물약 효과 틱(`Potions.release`, 혼자 할 때와 같은 규칙), 조제대 놓기 편집, 효과 블록(효과가 있을 때만)과 효과 = 타이머, 이단의 독 표시, 병 사건(던짐·터짐) + 클라이언트 비행(호스트와 같은 걸음 함수), 늦은 참가·지도 들어옴의 효과·병·조제대, 클라이언트의 해금 기억, 세션의 제작 창·창 잠금·봇 Tab, 임시값 하나(던진 회복과 다운), 전송 형식 v6, 시험(한 프로세스 1파일 + 실제 세션 `brew`·`brew4`), 스모크, 창 그림 검사 `potions_net`, 두 창 그림, 트래픽 | **끝** (사람 확인: 두 기기, 마우스·키로 세션의 제작·던지기, 버프가 많을 때의 트래픽, 임시값 "M6b 던진 회복과 다운") |
 | M6-fix 검토 반영 | 조제대가 비워 두는 자리(도착점·부활 자리 아홉, 임시값), 병 unshaded + 창 검사의 어둠, 호스트 제작 검사 = 레시피 종류의 작업대, 자리 크기에 상관없는 작업대 찾기·`still_at`은 연 그 작업대, 설치물·작업대 값마다의 표(자리 크기·아이콘·클래스 거부), 끝난 독의 필드, 무기로 죽은 이단의 독, 독 틱 = `poison_hits`·로그 `POISON`, 동작이 시작될 때만 `done`, 던질 점 정수 px(혼자도), 이름 붙인 숫자·주석·줄 잇기, 시험(나타나는 자리, 큰 자리·종류·같은 거리의 작업대, 마시는 중 사라진 물약·다른 묶음·아레나 없음, 효과의 끝·지도 옮김·빈 지도, THROW + Space, 독 맞음 셈, 리그 시간으로 그린 표시가 꺼짐, 사거리 밖 던지기), brew 세션의 조제대 자리 옮김, 임시값 새 줄 넷과 문서 칸 고침, README, 두 창 그림 다시 | **끝** (사람 확인: 새 임시값 줄 넷, 특히 "M6-fix 조제대가 비워 두는 자리"·"M6-fix 플레이어의 독", 어둠의 병) |
 | M5a 밭 · 씨앗 · 물주기 · 자라기 · 수확 · 시듦 | 밭 = 바닥 흙 + 식생 값(스냅샷·해시·편집이 그대로 덮음), 괭이(빛 안의 풀, 네 모서리), 씨앗 셋(띠의 씨앗 봉투, 야생 약초·수확에서, 독초는 약초사만 ●), 물뿌리개(60초, 물 준 흙 사분면 덧칠), 자라기(0~4단계, 젖은 동안만, 약초사 200%), 낫 수확(작물을 겨누면 수확만, 야생 약초 아이템 둘 + 씨앗, 거두는 사람의 등급, 넘치면 드롭), 시듦(빛 밖·오염 2칸 안, 원인이 사라지면 되살아남, 밭은 남음), 지도별 `Farm`(시계·난수 없음, 혼자 = 호스트 준비), 세션은 끔(씨앗 USE 거부), `--test-field`, 시험 1파일 + 창 그림 검사 `fields` + 스모크 `farm=`, 스크린샷 4장 | **끝** (사람 확인: 위 "혼자 M5a 해 보기", 임시값 "M5a" 줄) |
+| M5b 정화 · 성수 · 제단 옮기기 | 성수(CONSUMABLE, 3×3, `--give`), 팔라딘 채널링(F, 공유 시뮬레이션, 3초·반지름 3, 끊김 다섯), 정화된 칸 = 풀(칸 편집 둘), 재 얼룩·금빛 테두리·점(코드 + 04-env 장식), `Arena.sync_world`(빛 규칙·스폰 칸), 제단 들기·놓기(설치물 칸 편집, `refresh_altar_rect`, 놓기 조건 아홉, 다운 때 내려놓기), 따라가는 것(빛·안전 반경·이단·부활 자리·비워 두는 자리·옆 띠·밭·더미), 든 제단·놓을 자리 표시, 세션은 끔(성수 USE 거부), 시험 2파일 + 창 그림 검사 `purify`·`altar` + 스모크 `purify=`·`altar=`, 스크린샷 6장 | **끝** (사람 확인: 위 실행 예, 임시값 "M5b" 줄) |
 | M4a 체력 · 대시 · 기본 공격 · 사망 · 이단 | 공유 시뮬레이션의 Vitals(HP·스태미나·대시·경직·다운·사망 시간), Space 대시(걷기 충돌), 클래스 무기 다섯(근접 호 셋·화살·빛 탄, 새 아이템 성광, 핫바 8번 시작 무기, 곡괭이 채굴/공격 규칙, 아군 사격 끔), 피격·사망 자세(기준점 표·창 검사), 다운·소생(성직자 즉시)·포기·사망·제단 부활, 사망 가방(절반/3종 규칙, 설치물 칸 + 드롭 = 월드 기계 그대로, F로 되찾기), 이단(시트 다섯, 쫓기·예고·맞는 열·끈·빛 가장자리, 지상·던전 스폰, 지도별 아레나), 이단의 제단 HP와 부서진 그림·스폰 멈춤, HUD 막대·카운트다운, 시험 2파일 + 창 검사 `heretic`·`bars` + 스모크, 스크린샷 5장, 일부러 깨 보기 23개 | **끝** (사람 확인: 아래 "M4a에서 확인하지 않은 것", 임시값 "M4a" 줄. 세션은 M4b) |
 | M3-fix 검토 반영 | 광부 3×3은 친 칸을 깰 수 있을 때만(계단 둘레), 벽 횃불 자리 고르기(도착 방은 늘 밝음, 출구·광맥 순서), F5 묶음 2칸 비움, 호스트를 잃은 클라이언트(빈 던전 거부, 채굴·횃불 잇기), 디버그 드롭은 벽·앞면 거부, 맨 윗줄 그림 = 충돌, 결과용 기록 상한, 줄 잇기 넷·`_on_local_map_changed` null, 시험(계단의 광부, 방마다 벽 횃불, 횃불 요청 예산, 지도 들어옴의 보임, 묶음 빈 칸, 호스트 잃은 뒤 혼자), README 고침, 두 창 캡처 다시 | **끝** (사람 확인: "두 기기에서 M3 해 보기", 새로 적은 임시값 문구) |
 | M2-fix 검토 반영 | 발 칸 = 발 상자 가운데(타일 선 위의 발), 사용의 바라보기를 호스트가 목표 칸에서, 동작 중 표시는 동작의 칸, 고르기는 예산 밖 + 거부되면 인벤토리로 바로잡기, 클라이언트 F7도 주기처럼, 거부 로그 줄이기, 클라이언트 `--give` 255씩 나누기 + 줄 64개·버린 것 로그, 시험(서서 조준, 인벤토리 다시 얹기, `tick` 순서, `MAX_DROPS`, M1 바라보기를 따로 적은 600틱, 발 칸, 표시, 주기 나누기, 버리기 끔), README 고침, 스크린샷 5장 다시 | **끝** (사람 확인: 두 기기, 새 임시값 표 문구) |

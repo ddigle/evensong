@@ -9,7 +9,9 @@ extends RefCounted
 ## so applying it twice changes nothing. Sources: the host's debug floor edit (bot command "edit",
 ## grass <-> soil, M1) and, M2b, gameplay: a gatherable picked up (VEGETATION cell = 0) and drops put
 ## down, changed (picked in part) or removed (net/session_host.gd, items/world_items.gd).
-## M3a/M3b: mining (WALL / ORE cells), torches (PLACEABLE cells) and their drops. Each map has its own
+## M3a/M3b: mining (WALL / ORE cells), torches (PLACEABLE cells) and their drops. M5a: tilling (FLOOR) and fields
+## (VEGETATION). M5b (offline until M5c): purification (CORRUPTION -> 0, FLOOR ash -> grass) and the altar picked up / put
+## down (PLACEABLE altar cells; apply_to_data reads the altar's rect back, WorldData.refresh_altar_rect). Each map has its own
 ## log (NetSession.log_for): indices count per map, and a client gets the edits of the map it is on.
 ## Edit message: u32 index, u8 map (M3b), then u8 code:
 ##   0..5   cell edit on that layer: u16 x, u16 y, u8 value                         (11 B in all)
@@ -122,7 +124,10 @@ static func apply_to_data(data: WorldData, edit: WorldEdit) -> bool:
 			return true
 	if edit.layer < 0 or edit.layer >= WorldData.LAYER_COUNT or not data.in_bounds(edit.cell):
 		return false
+	var was: int = data.get_value(edit.layer, edit.cell)
 	data.set_value(edit.layer, edit.cell, edit.value)
+	if edit.layer == WorldData.Layer.PLACEABLE and (was == WorldData.PLACEABLE_ALTAR or edit.value == WorldData.PLACEABLE_ALTAR):
+		data.refresh_altar_rect()  # M5b: the altar is picked up / put down with cell edits (items/altar_move.gd)
 	return true
 
 

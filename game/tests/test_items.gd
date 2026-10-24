@@ -40,6 +40,8 @@ const PLACEABLES: Dictionary[StringName, int] = {&"torch": WorldData.PLACEABLE_T
 const POTIONS: Dictionary[StringName, int] = {&"potion_healing": 3, &"potion_buff": 4, &"potion_poison": 5}
 ## M5a: the seeds (kind SEED, no grade, icons: the strip's first three, the seed bags).
 const SEEDS: Dictionary[StringName, int] = {&"seed_healing": 0, &"seed_buff": 1, &"seed_poison": 2}
+## M5b: holy water (kind CONSUMABLE, no grade, the 04-env vial a), appended after the seeds.
+const CONSUMABLES: Dictionary[StringName, String] = {&"holy_water": "item_holy_water_a_v02.png"}
 const HERBS: Array[StringName] = [&"wild_healing", &"wild_buff", &"wild_poison", &"herb_clump"]
 
 
@@ -59,10 +61,13 @@ func run() -> Array[String]:
 
 func _check_table() -> void:
 	var ids: Array[StringName] = ItemDB.ids()
-	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size() + SEEDS.size(),
-		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a)")
-	check_eq(ItemDB.ids().slice(ids.size() - 3), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
+	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size() + SEEDS.size()
+		+ CONSUMABLES.size(),
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b)")
+	check_eq(ItemDB.ids().slice(ids.size() - 4, ids.size() - 1), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
 		"M5a: the seeds appended at the end (the wire's item indices of the others unchanged)")
+	check_eq(ItemDB.ids().slice(ids.size() - 1), [&"holy_water"] as Array[StringName], "M5b: holy water appended after them")
+	check_eq(ItemDB.index_of(&"seed_poison"), 32, "M5b: the earlier items keep their wire indices")
 	var kinds: Dictionary[int, int] = {}
 	for id: StringName in ids:
 		var def: ItemDB.ItemDef = ItemDB.get_def(id)
@@ -100,6 +105,13 @@ func _check_table() -> void:
 			check_eq(def.icon_path, ItemDB.ART_DIR + ItemDB.ITEMS_STRIP, "%s icon from the items strip" % id)
 			check_eq(def.icon_region, Rect2i(SEEDS[id] * 16, 0, 16, 16), "%s icon region" % id)
 			check_eq(Farming.seed_kind(id), SEEDS[id] + 1, "%s plants crop %d" % [id, SEEDS[id] + 1])
+		elif CONSUMABLES.has(id):
+			check_eq(def.kind, ItemDB.Kind.CONSUMABLE, "%s is a consumable" % id)
+			check_eq(def.action, -1, "%s plays no tool action (pouring is Purify's)" % id)
+			check_eq(def.stack_max, Config.STACK_HOLY_WATER, "%s stack size" % id)
+			check(not def.graded, "%s has no grade" % id)
+			check_eq(def.icon_path, ItemDB.ART_DIR + CONSUMABLES[id], "%s icon file" % id)
+			check(Purify.is_holy_water(id) and not Potions.is_potion(id), "%s: holy water, not a potion" % id)
 		else:
 			check_eq(def.action, -1, "%s plays no action" % id)
 			check(def.icon_code.is_empty(), "%s icon is art" % id)
@@ -112,8 +124,9 @@ func _check_table() -> void:
 				"%s stack size" % id)
 			check_eq(def.graded, HERBS.has(id), "%s graded only if a herb" % id)
 	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0),
-		kinds.get(ItemDB.Kind.PLACEABLE, 0), kinds.get(ItemDB.Kind.POTION, 0), kinds.get(ItemDB.Kind.SEED, 0)], [7, 3, 15, 2, 3, 3],
-		"items per kind (tool (M4a: 7), material, gatherable, placeable (M6a: + table), potion (M6a), seed (M5a))")
+		kinds.get(ItemDB.Kind.PLACEABLE, 0), kinds.get(ItemDB.Kind.POTION, 0), kinds.get(ItemDB.Kind.SEED, 0),
+		kinds.get(ItemDB.Kind.CONSUMABLE, 0)], [7, 3, 15, 2, 3, 3, 1],
+		"items per kind (tool (M4a: 7), material, gatherable, placeable (M6a: + table), potion (M6a), seed (M5a), consumable (M5b))")
 	# Every action with a hand tool has exactly one tool; throw has none (README). M4a: magic has the
 	# cleric's holy light.
 	var actions: Array[int] = []

@@ -20,6 +20,10 @@ extends RefCounted
 ## M5a: the seed items, the crops sheet and the watered soil art, and a crop on the seed-1 world's first lit soil tile:
 ## planted by the herbalist, kept wet, ripe after four stages at the herbalist's speed, harvested for FINE herbs and a
 ## seed. Printed as farm=<ticks to ripe>/<herbs>.
+## M5b: holy water and the ash smear art; on the seed-1 world a finished channel at the first corrupted tile purifies
+## its disc (the tiles turn to grass, no soil next to ash, the corruption count and the spawn tiles shrink), holy water
+## purifies its 3x3; the altar picked up (no altar, no safe zone) and put down elsewhere (the light, the spawn slots and
+## the reserved spots follow). Printed as purify=<channel tiles>+<holy water tiles>/<spawn tiles after> altar=<x>,<y>.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -75,6 +79,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_combat(r)
 	_check_potions(r)
 	_check_farm(r)
+	_check_purify(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -433,6 +438,71 @@ static func _check_farm(r: Report) -> void:
 	r.expect(got.ok() and inv.count_of(&"wild_healing", ItemDB.Grade.FINE) == Config.CROP_HARVEST_HERBS
 		and inv.count_of(&"seed_healing") == Config.CROP_HARVEST_SEEDS, "harvest: FINE herbs and a seed (%s)" % got.why)
 	r.fields.append("farm=%d/%d" % [ripe_at, got.count])
+
+
+## M5b: purification and moving the altar (see the header).
+static func _check_purify(r: Report) -> void:
+	var def: ItemDB.ItemDef = ItemDB.get_def(Purify.HOLY_WATER)
+	r.expect(def != null and def.kind == ItemDB.Kind.CONSUMABLE and ItemIcons.texture_for(Purify.HOLY_WATER) != null,
+		"holy water item and icon")
+	for i: int in PurifyView.ASH_PATHS.size():
+		r.expect(PurifyView.ash_texture(i) != null, "ash smear %d" % (i + 1))
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var before: int = Purify.corrupted_count(data)
+	var spawn_before: int = Arena.surface_spawn_cells(data, SafeZone.for_world(data)).size()
+	var c: Vector2i = Vector2i(-1, -1)
+	for i: int in data.layers[WorldData.Layer.CORRUPTION].size():
+		if data.layers[WorldData.Layer.CORRUPTION][i] != 0:
+			c = Vector2i(i % data.size.x, i / data.size.x)
+			break
+	if not r.expect(c.x >= 0 and before > 0, "corruption on the seed-1 world"):
+		return
+	# Written out (not Purify.channel_area): corrupted tiles whose centre lies within the radius of c's centre.
+	var want: int = 0
+	var rad: int = Config.PURIFY_RADIUS_TILES
+	for y: int in range(c.y - rad, c.y + rad + 1):
+		for x: int in range(c.x - rad, c.x + rad + 1):
+			if (x - c.x) * (x - c.x) + (y - c.y) * (y - c.y) <= rad * rad and data.get_value(WorldData.Layer.CORRUPTION, Vector2i(x, y)) != 0:
+				want += 1
+	var done: Purify.Result = Purify.channel_done(data, c)
+	for e: EditLog.WorldEdit in done.edits:
+		EditLog.apply_to_data(data, e)
+	r.expect(done.ok() and done.cells.size() == want and want > 0, "a channel purifies its disc (%d of %d)" % [done.cells.size(), want])
+	var grass: bool = true
+	for t: Vector2i in done.cells:
+		grass = grass and data.terrain_at(t) == Terrain.GRASS and data.get_value(WorldData.Layer.CORRUPTION, t) == 0
+	r.expect(grass, "purified tiles are clean grass")
+	r.expect_eq(data.soil_ash_contacts(), 0, "no soil next to ash after purifying")
+	var c2: Vector2i = Vector2i(-1, -1)
+	for i2: int in data.layers[WorldData.Layer.CORRUPTION].size():
+		if data.layers[WorldData.Layer.CORRUPTION][i2] != 0:
+			c2 = Vector2i(i2 % data.size.x, i2 / data.size.x)
+			break
+	var inv: Inventory = Inventory.new()
+	inv.add(Purify.HOLY_WATER, 2)
+	var poured: Purify.Result = Purify.pour(data, Arena.spawn_feet(c2 + Vector2i(0, 1)), inv, 0, c2)
+	for e2: EditLog.WorldEdit in poured.edits:
+		EditLog.apply_to_data(data, e2)
+	r.expect(poured.ok() and poured.cells.size() >= 1 and poured.cells.size() <= 9 and inv.count_of(Purify.HOLY_WATER) == 1,
+		"holy water purifies a few tiles and is used (%s)" % poured.why)
+	r.expect_eq(Purify.corrupted_count(data), before - done.cells.size() - poured.cells.size(), "the corruption count")
+	var spawn_after: int = Arena.surface_spawn_cells(data, SafeZone.for_world(data)).size()
+	r.expect(spawn_after < spawn_before, "fewer spawn tiles around the zones (%d -> %d)" % [spawn_before, spawn_after])
+	r.fields.append("purify=%d+%d/%d" % [done.cells.size(), poured.cells.size(), spawn_after])
+	# The altar: picked up (no altar, no light), put down elsewhere (everything that reads it follows).
+	var old_rect: Rect2i = data.altar_rect
+	for e3: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		EditLog.apply_to_data(data, e3)
+	r.expect(not data.altar_rect.has_area() and SafeZone.for_world(data).radius == 0.0, "picked up: no altar, no safe zone")
+	var to: Rect2i = AltarMove.set_down_rect(data, (Vector2(old_rect.position) + Vector2(-12, 1)) * Config.TILE)
+	if not r.expect(to.has_area() and to != old_rect, "a place to put it down"):
+		return
+	for e4: EditLog.WorldEdit in AltarMove.place_edits(to):
+		EditLog.apply_to_data(data, e4)
+	var centre: Vector2 = (Vector2(to.position) + Vector2(1.5, 1.5)) * Config.TILE
+	r.expect(data.altar_rect == to and SafeZone.for_world(data).center == centre, "put down: the altar and its light there")
+	r.expect(WorldItems.reserved_feet(data).has(centre + Vector2(Config.SPAWN_SLOTS[0])), "the spawn slots follow it")
+	r.fields.append("altar=%d,%d" % [to.position.x, to.position.y])
 
 
 static func _check_light(r: Report) -> void:

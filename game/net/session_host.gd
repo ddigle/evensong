@@ -396,6 +396,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_drink(m, frame)
 	elif frame.op == NetProtocol.Op.USE and Farming.seed_kind_in(p.inventory, frame.slot) != Farming.KIND_NONE:
 		_refuse_op(m, frame, Farming.WHY_OFFLINE)  # M5a: offline only until M5c (no session player makes this frame)
+	elif frame.op == NetProtocol.Op.USE and frame.slot >= 0 and frame.slot < p.inventory.size() \
+			and p.inventory.stack_at(frame.slot) != null and Purify.is_holy_water(p.inventory.stack_at(frame.slot).id):
+		_refuse_op(m, frame, Purify.WHY_OFFLINE)  # M5b: offline only until M5c (no session player makes this frame)
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)

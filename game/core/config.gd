@@ -511,6 +511,43 @@ const FARM_RUNS_WITHOUT_PLAYERS: bool = true
 const HOE_IMPACT_FRAME: int = 3
 const WATER_IMPACT_FRAME: int = 5
 
+# --- PROVISIONAL, M5b (purification: holy water and the paladin's channel; placing and moving the altar) -----------
+# Offline first (M5b); in a session these stay off until M5c (as M5a). README "임시값" M5b.
+# ● decided and followed as written: anyone purifies a few tiles with holy water, the paladin channels a wide
+# purification (gameplay-design §3.0 R11 paladin row); the altar's position and moving are free (game-concept §9.3);
+# respawning is at the altar (gameplay-design §2.6). Everything below is ○ or not in the docs.
+
+## PROVISIONAL (not in docs; ● §3.0 "누구나 성수로 타일 몇 개 정화", "상점의 성수 (소량 정화, 비쌈)" = the merchant, M8): a holy
+## water stack's size, and the tiles one holy water purifies: every corrupted tile within this many tiles (Chebyshev) of
+## the target tile (1 = the 3x3 around it, "타일 몇 개").
+const STACK_HOLY_WATER: int = 10
+const HOLY_WATER_RADIUS_TILES: int = 1
+## PROVISIONAL (not in docs; no sprinkling art exists): pouring holy water plays this body action (the magic action,
+## the cleric's "기도·치료" in brief §5.6, as drinking does) and purifies on HOLY_WATER_EFFECT_FRAME (0-based); a hit
+## before that cuts it off and nothing is used.
+const HOLY_WATER_ANIM: int = RigData.Anim.MAGIC
+const HOLY_WATER_EFFECT_FRAME: int = 3
+## PROVISIONAL (○ gameplay-design §3.7 "팔라딘이 오염 타일 위에서 스킬 채널링 → 반경 N타일 정화", §1 ○ "F … 정화 시작"): F (with
+## nothing to pick up on the target tile) starts the paladin's channel while a corrupted tile lies within this many tiles
+## (Chebyshev) of the feet tile (0 = only standing on corruption, 1 = on it or next to it).
+const PURIFY_START_REACH_TILES: int = 1
+## PROVISIONAL (○ §3.7, numbers not in the docs): the channel lasts this many ticks; when it completes, every corrupted
+## tile whose centre lies within PURIFY_RADIUS_TILES tiles of the feet tile's centre (a disc) is purified. Moving,
+## dashing, using an item, a hit and going down break it (nothing purified).
+const PURIFY_CHANNEL_TICKS: int = 3 * 60
+const PURIFY_RADIUS_TILES: int = 3
+## PROVISIONAL (not in docs; no channel pose exists): the channel shows this body action, looped (a placeholder).
+const PURIFY_ANIM: int = RigData.Anim.MAGIC
+## PROVISIONAL (○ game-concept §9.3 "제단 … 위치 자유, 이동 자유" ●; how is not in the docs): holding F this many ticks aimed
+## at an altar tile in reach picks the altar up (its footprint leaves the world); left click puts it down. true = anyone
+## may move it; false = only the paladin.
+const ALTAR_PICKUP_HOLD_TICKS: int = 2 * 60
+const ALTAR_MOVE_ANYONE: bool = true
+## PROVISIONAL (not in docs): when the carrier goes down, the altar is set down at the nearest place the placing rules
+## allow (reach aside), searched in rings of growing distance (tiles, Chebyshev, of the footprint centre) around the
+## carrier's feet tile up to this far.
+const ALTAR_SET_DOWN_SEARCH_TILES: int = 64
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -684,6 +721,13 @@ const THROW_ARC_PX: float = 10.0
 const FIELD_BASE: int = 64
 const FIELD_KIND_STEP: int = 40
 const FIELD_STAGE_STEP: int = 8
+## IMPL (M5b, placeholder effects drawn in code, world/purify_view.gd): a purified tile shows a gold outline that shrinks
+## for PURIFY_FLASH_TICKS and an ash smear (04-env decal_ashcreep) for PURIFY_ASH_TICKS (the ash going away: "ash, then
+## grass" on the screen while the world turns to grass at once); the channel shows PURIFY_MOTES motes on a ring at the
+## purified radius, one more lit per 1 / PURIFY_MOTES of the channel.
+const PURIFY_FLASH_TICKS: int = 30
+const PURIFY_ASH_TICKS: int = 60
+const PURIFY_MOTES: int = 16
 
 
 static func safe_radius_px() -> float:

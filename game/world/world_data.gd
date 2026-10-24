@@ -22,6 +22,10 @@ extends RefCounted
 ## uses WALL (kind + hits taken) and ORE (world/walls.gd); its FLOOR layer is unused (0). PLACEABLE
 ## gains the dungeon entrance (surface), a placed torch, the exit stairs, the heretic shrine and the
 ## decorative wall torches. The map id is not part of the content hash (each map has its own data).
+##
+## M5b: purified corruption is FLOOR grass + CORRUPTION 0 (items/purify.gd). The altar can move (items/altar_move.gd):
+## picking it up and putting it down are PLACEABLE cell edits, and altar_rect follows them (refresh_altar_rect, called by
+## EditLog.apply_to_data): empty while the altar is carried.
 
 enum Layer { FLOOR, WALL, ORE, VEGETATION, CORRUPTION, PLACEABLE }
 
@@ -234,6 +238,21 @@ func put_placeable(rect: Rect2i, p: int) -> void:
 
 func altar_center_px() -> Vector2:
 	return (Vector2(altar_rect.position) + Vector2(altar_rect.size) / 2.0) * Config.TILE
+
+
+## M5b: the altar's footprint read back from the PLACEABLE layer (picking the altar up and putting it down are cell
+## edits, items/altar_move.gd): the rectangle of PLACEABLE_ALTAR cells when they form one whole Config.ALTAR_FOOTPRINT,
+## else empty (no altar: carried, or half way through the edits that move it). Returns whether altar_rect changed.
+func refresh_altar_rect() -> bool:
+	var was: Rect2i = altar_rect
+	var grid: PackedByteArray = layers[Layer.PLACEABLE]
+	var first: int = grid.find(PLACEABLE_ALTAR)
+	altar_rect = Rect2i()
+	if first >= 0:
+		var r: Rect2i = footprint_at(Vector2i(first % size.x, first / size.x))
+		if r.size == Config.ALTAR_FOOTPRINT and grid.count(PLACEABLE_ALTAR) == r.size.x * r.size.y:
+			altar_rect = r
+	return altar_rect != was
 
 
 ## md5 of the size, seed, altar, every layer and the drops. Equal hashes = equal worlds.

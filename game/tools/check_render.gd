@@ -75,6 +75,19 @@ extends SceneTree
 ##            crops (their sheet cell on the tile, the mound recoloured to the dry / watered soil by a table written out
 ##            here), pixel for pixel. Then with the evening on: the wet and crop pixels well inside the light stay lit
 ##            (the wet patches on the ground's light layer, the crops on the actors').
+##   purify   (M5b) evening off, at a corruption zone's edge, the entities hidden: a finished channel's tiles purified
+##            through the world's edits; the ground equals the CPU composite of the tiles the display cells show, read from
+##            the PNG files (the purified tiles drawn as grass, the zone's new edge from the grass <-> ash set). Then the
+##            purification's first frame: that ground plus each purified tile's ash smear (the 04-env decal PNG, centred
+##            in its tile, chosen by the rule written out here) and its gold outline (the tile's border pixels), pixel for
+##            pixel; with the evening on the gold stays its colour (unshaded) and the smears darken (the ground's light).
+##            Then a channel's motes at its last tick: 16 gold 2x2 motes (ivory top-left) on the ring at (radius + 0.5)
+##            tiles, positions written out here, exactly those pixels changed, with the evening on.
+##   altar    (M5b) the altar moved 13 tiles west through the world's edits: around its new place, every screen pixel lit
+##            (evening on / off ratio) exactly where the new zone's ground light texel is lit (the old place, on screen,
+##            dark); the flames there unshaded. Then a player carrying the altar: the mark over its head on its exact
+##            pixels (the character map written out here) and unshaded; the place ghost's outline and light-edge dots in
+##            gold (allowed) and deep red (refused) on their exact pixels. The altar goes back home afterwards.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -136,6 +149,8 @@ func _run() -> void:
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
+		await _check_purify()
+		await _check_altar_move()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -1738,3 +1753,287 @@ func _check_dark(dun: GameWorld) -> void:
 		_fail("dark", line)
 		_save(dark, "dark_on.png")
 		_save(bright, "dark_off.png")
+
+
+# --- M5b: purification and the moved altar -------------------------------------------------------------------------
+
+## The ground on the screen at `origin` from the PNG files: every display cell, the tile it shows (GROUND_FILES).
+## Returns [image, unknown sources].
+func _ground_png(origin: Vector2i) -> Array:
+	var want: Image = Image.create_empty(Config.VIEW_SIZE.x, Config.VIEW_SIZE.y, false, Image.FORMAT_RGBA8)
+	var files: Dictionary[int, Image] = {}
+	var unknown: int = 0
+	for dy: int in range(origin.y / 16 - 2, (origin.y + Config.VIEW_SIZE.y) / 16 + 2):
+		for dx: int in range(origin.x / 16 - 2, (origin.x + Config.VIEW_SIZE.x) / 16 + 2):
+			var drawn: Vector3i = world.ground.drawn_at(Vector2i(dx, dy))
+			if not GROUND_FILES.has(drawn.x):
+				unknown += 1
+				continue
+			if not files.has(drawn.x):
+				files[drawn.x] = _png("tiles/" + GROUND_FILES[drawn.x])
+			want.blit_rect(files[drawn.x], Rect2i(drawn.y * 16, drawn.z * 16, 16, 16), Vector2i(dx * 16 + 8, dy * 16 + 8) - origin)
+	return [want, unknown]
+
+
+func _hide_entities() -> Array[CanvasItem]:
+	var hidden: Array[CanvasItem] = []
+	for n: Node in world.entities.get_children():
+		var ci: CanvasItem = n as CanvasItem
+		if ci != null and ci.visible:
+			ci.visible = false
+			hidden.append(ci)
+	return hidden
+
+
+## M5b: the purified ground, the flash with its ash smears, the channel's motes (see the header).
+func _check_purify() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var pv: PurifyView = world.purify_view
+	pv.auto_tick = false
+	# A zone's southern edge tile with grass below it.
+	var a: Vector2i = Vector2i(-1, -1)
+	for y: int in range(8, data.size.y - 8):
+		for x: int in range(16, data.size.x - 16):
+			var c: Vector2i = Vector2i(x, y)
+			if a.x < 0 and data.get_value(WorldData.Layer.CORRUPTION, c) != 0 and data.terrain_at(c + Vector2i(0, 1)) == Terrain.GRASS \
+					and data.get_value(WorldData.Layer.CORRUPTION, c + Vector2i(0, -2)) != 0:
+				a = c
+	if a.x < 0:
+		_fail("purify", "no zone edge found")
+		return
+	var centre_tile: Vector2i = a + Vector2i(0, 1)
+	var origin: Vector2i = _look_at(centre_tile * 16 + Vector2i(8, 8))
+	var hidden: Array[CanvasItem] = _hide_entities()
+	world.decals.visible = false
+	var r: Purify.Result = Purify.channel_done(data, centre_tile)
+	var undo: Array[EditLog.WorldEdit] = []
+	for c2: Vector2i in r.cells:
+		undo.append(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c2, data.terrain_at(c2)))
+		undo.append(EditLog.WorldEdit.new(WorldData.Layer.CORRUPTION, c2, data.get_value(WorldData.Layer.CORRUPTION, c2)))
+	for e: EditLog.WorldEdit in r.edits:
+		world.apply_edit(e)
+	var grass: int = 0
+	for c3: Vector2i in r.cells:
+		grass += int(data.terrain_at(c3) == Terrain.GRASS)
+	var ground_got: Image = await _capture()
+	var png: Array = _ground_png(origin)
+	var ground_want: Image = png[0]
+	var unknown: int = png[1]
+	var ground_bad: int = count_diff(ground_got, ground_want)
+	# The first frame: the smears (written out: decal (x * 7 + y * 13) mod 3, centred) and the gold borders.
+	pv.flash(r.cells)
+	var want: Image = ground_got.duplicate() as Image
+	var gold_px: Dictionary[Vector2i, bool] = {}
+	var ash_px: Dictionary[Vector2i, bool] = {}
+	var decals: Array[Image] = [_png("env/decal_ashcreep_1_v01.png"), _png("env/decal_ashcreep_2_v01.png"),
+		_png("env/decal_ashcreep_3_v01.png")]
+	for c4: Vector2i in r.cells:
+		var d: Image = decals[posmod(c4.x * 7 + c4.y * 13, 3)]
+		var at: Vector2i = c4 * 16 + (Vector2i(16, 16) - d.get_size()) / 2 - origin
+		for y2: int in d.get_height():
+			for x2: int in d.get_width():
+				var px: Color = d.get_pixel(x2, y2)
+				if px.a8 == 255:
+					want.set_pixelv(at + Vector2i(x2, y2), px)
+					ash_px[at + Vector2i(x2, y2)] = true
+				elif px.a8 != 0:
+					unknown += 1  # the decals have no half-transparent pixels (04-env 손질 규칙)
+	for c5: Vector2i in r.cells:
+		for i: int in 16:
+			for p: Vector2i in [Vector2i(i, 0), Vector2i(i, 15), Vector2i(0, i), Vector2i(15, i)]:
+				var s: Vector2i = c5 * 16 + p - origin
+				want.set_pixelv(s, PurifyView.GOLD)
+				gold_px[s] = true
+				ash_px.erase(s)
+	var got: Image = await _capture()
+	var flash_bad: int = count_diff(got, want)
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	var gold_wrong: int = 0
+	for s2: Vector2i in gold_px:
+		if eve.get_pixelv(s2) != PurifyView.GOLD:
+			gold_wrong += 1
+	var ash_lit: int = 0
+	for s3: Vector2i in ash_px:
+		if _brightness(eve.get_pixelv(s3)) > _brightness(got.get_pixelv(s3)) * LIT_RATIO:
+			ash_lit += 1
+	# The motes of a channel on its last tick, evening on (unshaded), over the purified ground with the flash gone.
+	pv.advance(Config.PURIFY_ASH_TICKS)
+	var bg: Image = await _capture()
+	pv.show_channels([PurifyView.Channel.new(centre_tile, Config.PURIFY_CHANNEL_TICKS)] as Array[PurifyView.Channel])
+	var motes: Image = await _capture()
+	var mote_want: Image = bg.duplicate() as Image
+	var ring_c: Vector2 = (Vector2(centre_tile) + Vector2(0.5, 0.5)) * 16.0
+	var ring_r: float = (Config.PURIFY_RADIUS_TILES + 0.5) * 16.0
+	for i2: int in Config.PURIFY_MOTES:
+		var ang: float = TAU * float(i2) / float(Config.PURIFY_MOTES) - PI / 2.0
+		var tl: Vector2i = Vector2i((ring_c + Vector2(cos(ang), sin(ang)) * ring_r).round()) - Vector2i.ONE - origin
+		for k: int in 4:
+			mote_want.set_pixelv(tl + Vector2i(k % 2, k / 2), PurifyView.GOLD)
+		mote_want.set_pixelv(tl, PurifyView.IVORY)
+	var mote_bad: int = count_diff(motes, mote_want)
+	var mote_px: int = count_diff(motes, bg)
+	pv.show_channels([] as Array[PurifyView.Channel])
+	world.lighting.set_evening(false)
+	if ground_bad > 0 or flash_bad > 0 or gold_wrong > 0 or ash_lit > 0 or mote_bad > 0 or save_all:
+		_save(ground_got, "purify_ground_got.png")
+		_save(ground_want, "purify_ground_expected.png")
+		_save(got, "purify_flash_got.png")
+		_save(want, "purify_flash_expected.png")
+		_save(eve, "purify_flash_evening.png")
+		_save(motes, "purify_motes_got.png")
+		_save(mote_want, "purify_motes_expected.png")
+	# Back as it was.
+	for e2: EditLog.WorldEdit in undo:
+		world.apply_edit(e2)
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	world.decals.visible = true
+	var line: String = "tiles=%d grass=%d ground_mismatches=%d flash_mismatches=%d gold=%d gold_wrong=%d ash=%d ash_lit=%d motes_px=%d mote_mismatches=%d unknown=%d" % [
+		r.cells.size(), grass, ground_bad, flash_bad, gold_px.size(), gold_wrong, ash_px.size(), ash_lit, mote_px, mote_bad, unknown]
+	if r.cells.size() > 3 and grass == r.cells.size() and ground_bad == 0 and flash_bad == 0 and gold_wrong == 0 and ash_lit == 0 \
+			and ash_px.size() > 20 and mote_bad == 0 and mote_px == 4 * Config.PURIFY_MOTES and unknown == 0:
+		print("EVENSONG_RENDER purify ok %s" % line)
+	else:
+		_fail("purify", line)
+
+
+## M5b: the moved altar's light, the carried mark and the ghost (see the header).
+func _check_altar_move() -> void:
+	var data: WorldData = world.data
+	var home: Rect2i = data.altar_rect
+	var old_zone: SafeZone = world.safe_zone
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		world.apply_edit(e)
+	var to: Rect2i = AltarMove.set_down_rect(data, (Vector2(home.position) + Vector2(-12, 1)) * Config.TILE)
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(to):
+		world.apply_edit(e2)
+	var z: SafeZone = world.safe_zone
+	var origin: Vector2i = _look_at(Vector2i(z.center) + Vector2i(80, 0))
+	# Only the altar among the entities (the gatherables take the actors' hard light, not the ground's dither).
+	var hidden: Array[CanvasItem] = _hide_entities()
+	world.altar.visible = true
+	hidden.erase(world.altar)
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var day: Image = await _capture()
+	var flame_px: Dictionary[Vector2i, bool] = {}
+	var mask: Image = Altar.flame_image()
+	var art: Vector2i = world.altar.art_origin()
+	for y: int in mask.get_height():
+		for x: int in mask.get_width():
+			if mask.get_pixel(x, y).a8 > 0:
+				flame_px[art + Vector2i(x, y) - origin] = true
+	var band: int = Config.SAFE_EDGE_BAND_PX
+	var mismatches: int = 0
+	var checked: int = 0
+	var old_lit: int = 0
+	var old_seen: int = 0
+	for sy: int in Config.VIEW_SIZE.y:
+		for sx: int in Config.VIEW_SIZE.x:
+			var s: Vector2i = Vector2i(sx, sy)
+			if flame_px.has(s):
+				continue
+			var b: Color = day.get_pixelv(s)
+			if _brightness(b) < MIN_BRIGHTNESS:
+				continue
+			var lit: bool = _brightness(eve.get_pixelv(s)) / _brightness(b) > LIT_RATIO
+			var px: Vector2i = origin + s
+			checked += 1
+			if lit != (LightGen.light_at(z, LightGen.Edge.DITHER, band, px) > 0.5):
+				mismatches += 1
+			if old_zone.is_in_safe_zone(Vector2(px) + Vector2(0.5, 0.5)) and not z.is_in_safe_zone(Vector2(px) + Vector2(0.5, 0.5)):
+				old_seen += 1
+				old_lit += int(lit)
+	var flames_wrong: int = 0
+	var lit_art: Image = LightGen.to_rgba8(Altar.LIT.get_image())
+	for f: Vector2i in flame_px:
+		var a: Vector2i = f + origin - art
+		if eve.get_pixelv(f) != lit_art.get_pixelv(a):
+			flames_wrong += 1
+	# A player carrying the altar: the mark over its head (written out: 9x6, top-left at the feet + (-4, -53)).
+	var rows: PackedStringArray = ["..g.g.g..", ".kgkgkgk.", "kkkkkkkkk", "khhhhhhhk", "kmmmmmmmk", "kkkkkkkkk"]
+	var feet: Vector2i = Vector2i(z.center) + Vector2i(150, 30)
+	var p: Player = Player.new()
+	p.local_input = false
+	p.setup(data, "paladin", Vector2(feet))
+	p.character.animate = false
+	world.entities.add_child(p)
+	world.lighting.set_evening(false)
+	var before_mark: Image = await _capture()
+	p.set_carrying_altar(true)
+	world.lighting.set_evening(true)
+	var mark_eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var mark_day: Image = await _capture()
+	var mark_wrong: int = 0
+	var mark_n: int = 0
+	for my: int in rows.size():
+		for mx: int in rows[my].length():
+			var ch: String = rows[my][mx]
+			if ch == ".":
+				continue
+			mark_n += 1
+			var sp: Vector2i = feet + Vector2i(-4 + mx, -53 + my) - origin
+			var want_c: Color = ItemIcons.PALETTE[ch]
+			if mark_eve.get_pixelv(sp) != want_c or mark_day.get_pixelv(sp) != want_c:
+				mark_wrong += 1
+	var mark_changed: int = count_diff(mark_day, before_mark)
+	world.entities.remove_child(p)
+	p.free()
+	# The ghost: outline and light-edge dots, gold then deep red (written out).
+	var ghost: AltarGhost = AltarGhost.new()
+	world.add_child(ghost)
+	world.move_child(ghost, world.entities.get_index())
+	var gr: Rect2i = Rect2i(Aim.feet_cell(Vector2(feet)) + Vector2i(-6, -2), Vector2i(3, 3))
+	var ghost_px: Dictionary[Vector2i, bool] = {}
+	var lo: Vector2i = gr.position * 16
+	var hi: Vector2i = gr.end * 16 - Vector2i.ONE
+	for gx: int in range(lo.x, hi.x + 1):
+		ghost_px[Vector2i(gx, lo.y) - origin] = true
+		ghost_px[Vector2i(gx, hi.y) - origin] = true
+	for gy: int in range(lo.y, hi.y + 1):
+		ghost_px[Vector2i(lo.x, gy) - origin] = true
+		ghost_px[Vector2i(hi.x, gy) - origin] = true
+	var gc: Vector2 = (Vector2(gr.position) + Vector2(1.5, 1.5)) * 16.0
+	for deg: int in range(0, 360, 6):
+		var ang: float = deg_to_rad(float(deg))
+		ghost_px[Vector2i((gc + Vector2(cos(ang), sin(ang)) * (Config.safe_radius_px() - 1.0)).floor()) - origin] = true
+	var ghost_wrong: int = 0
+	var ghost_seen: int = 0
+	world.lighting.set_evening(true)
+	for allowed: bool in [true, false]:
+		ghost.show_at(gr, allowed)
+		var gimg: Image = await _capture()
+		var col: Color = AltarGhost.GOLD if allowed else AltarGhost.RED
+		for gp: Vector2i in ghost_px:
+			if gp.x < 0 or gp.y < 0 or gp.x >= Config.VIEW_SIZE.x or gp.y >= Config.VIEW_SIZE.y:
+				continue
+			ghost_seen += 1
+			if gimg.get_pixelv(gp) != col:
+				ghost_wrong += 1
+	world.remove_child(ghost)
+	ghost.free()
+	world.lighting.set_evening(false)
+	if mismatches > 0 or old_lit > 0 or flames_wrong > 0 or mark_wrong > 0 or ghost_wrong > 0 or save_all:
+		_save(eve, "altar_evening.png")
+		_save(day, "altar_day.png")
+		_save(mark_eve, "altar_mark_evening.png")
+	# Home again.
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	for e3: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		world.apply_edit(e3)
+	for e4: EditLog.WorldEdit in AltarMove.place_edits(home):
+		world.apply_edit(e4)
+	var line: String = "moved_to=%d,%d checked=%d mismatches=%d old_zone_px=%d old_zone_lit=%d flames=%d wrong=%d mark=%d mark_wrong=%d mark_changed=%d ghost_px=%d ghost_wrong=%d home=%s" % [
+		to.position.x, to.position.y, checked, mismatches, old_seen, old_lit, flame_px.size(), flames_wrong, mark_n, mark_wrong,
+		mark_changed, ghost_seen, ghost_wrong, data.altar_rect == home]
+	if to.has_area() and mismatches == 0 and checked > 50000 and old_seen > 1000 and old_lit == 0 and flame_px.size() == 81 \
+			and flames_wrong == 0 and mark_wrong == 0 and mark_n == 46 and mark_changed == mark_n and ghost_wrong == 0 \
+			and ghost_seen > 200 and data.altar_rect == home:
+		print("EVENSONG_RENDER altar ok %s" % line)
+	else:
+		_fail("altar", line)
