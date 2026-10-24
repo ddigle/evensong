@@ -18,8 +18,14 @@ extends Node2D
 ## (Config.DUNGEON_DARK_COLOR) and has no altar. Both draw their other placeables with a FixtureView
 ## (entrance, exit stairs, shrine, torches; ground decals in Decals, between the ground and the
 ## entities) and their gatherables and drops with an ItemView.
+## M5a: the fields (watered soil right above the ground, crops among the entities) with a FieldView (Fields).
+## M5b: purification's effects with a PurifyView (Purify, above the decals); the altar follows its footprint in the
+## world: an edit that picks it up or puts it down (WorldData.refresh_altar_rect) moves the safe zone, the altar's node and
+## its light here (_altar_moved) and says so (altar_moved).
 
 signal generated
+## M5b: the altar was picked up or put down (its footprint changed through world edits).
+signal altar_moved
 
 ## Generate in _ready from the --seed flag (Config.DEFAULT_SEED without it). Tests turn this off
 ## and call generate() themselves.
@@ -32,12 +38,20 @@ signal generated
 var data: WorldData
 var safe_zone: SafeZone
 var altar: Altar
+## M5-fix: the footprint the altar last stood on (it stays while the altar is carried; empty when this world never had
+## one, e.g. a joiner's world received while it was carried). The set-downs' last fallback (AltarMove.set_down_fallback)
+## and where a client playing on after losing the host puts it back (Main.restore_altar).
+var last_altar_rect: Rect2i = Rect2i()
 ## Gatherables and drops (M2b, world/item_view.gd).
 var items: ItemView
 ## M3a: the dungeon's walls (null on the surface), the placeables other than the altar, ground decals.
 var cave: CaveView
 var fixtures: FixtureView
 var decals: Node2D
+## M5a: the fields (watered soil over the ground, crops among the entities; world/field_view.gd).
+var fields: FieldView
+## M5b: purification's effects (world/purify_view.gd), above the decals, below the entities.
+var purify_view: PurifyView
 var generation_ms: float = 0.0
 var view_ms: float = 0.0
 
@@ -87,6 +101,7 @@ func load_data(p_data: WorldData) -> void:
 		ground.setup(data)
 	view_ms = (Time.get_ticks_usec() - t1) / 1000.0
 	safe_zone = SafeZone.for_world(data)
+	last_altar_rect = data.altar_rect  # M5-fix (empty when it is carried in the world received)
 	_place_altar()
 	if items == null:
 		items = ItemView.new(entities)
@@ -96,6 +111,17 @@ func load_data(p_data: WorldData) -> void:
 		decals.name = &"Decals"
 		add_child(decals)
 		move_child(decals, entities.get_index())
+	if fields == null:
+		fields = FieldView.new()
+		fields.name = &"Fields"
+		add_child(fields)
+		move_child(fields, decals.get_index())  # right above the ground, below the decals and the entities
+	fields.setup(data, ground, entities)
+	if purify_view == null:
+		purify_view = PurifyView.new()
+		add_child(purify_view)
+		move_child(purify_view, entities.get_index())  # above the decals, below the entities
+	purify_view.clear()
 	if fixtures == null:
 		fixtures = FixtureView.new()
 		fixtures.name = &"Fixtures"
@@ -122,6 +148,18 @@ func _place_altar() -> void:
 	altar.setup(data.altar_rect)
 	entities.add_child(altar)
 	entities.move_child(altar, 0)
+
+
+## M5b: the altar left its place or came down on a new one (WorldData.altar_rect changed through edits): the safe zone,
+## the altar's node and its light (on as the evening is), the debug lines follow; `altar_moved` tells the rest (Main:
+## the arena, the dummies).
+func _altar_moved() -> void:
+	safe_zone = SafeZone.for_world(data)
+	_place_altar()
+	lighting.altar_light.setup(safe_zone)
+	lighting.altar_light.set_lit(lighting.evening_on)
+	overlay.queue_redraw()
+	altar_moved.emit()
 
 
 ## THE safe-zone rule for game logic (the light shows the same zone).
@@ -151,8 +189,13 @@ func set_terrain(v: Vector2i, terrain: int) -> Array[Vector2i]:
 ## and every client apply edits through here, so the same log gives the same world. False when the
 ## edit does not fit the data.
 func apply_edit(edit: EditLog.WorldEdit) -> bool:
+	var altar_before: Rect2i = data.altar_rect
 	if not EditLog.apply_to_data(data, edit):
 		return false
+	if data.altar_rect != altar_before:
+		# M5-fix: where it stood (picked up: the place it left; put down: the new one).
+		last_altar_rect = data.altar_rect if data.altar_rect.has_area() else altar_before
+		_altar_moved()  # M5b: picked up (no altar now) or put down (a whole footprint again)
 	match edit.kind:
 		EditLog.Kind.DROP_PUT, EditLog.Kind.DROP_REMOVE:
 			items.update_drop(edit.drop_id)
@@ -160,8 +203,10 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 			if edit.layer == WorldData.Layer.FLOOR:
 				if cave == null:
 					ground.redraw_vertex(edit.cell)
+					fields.update_floor(edit.cell)  # M5a: wet tiles take their quadrants from the redrawn cells
 			elif edit.layer == WorldData.Layer.VEGETATION:
 				items.update_cell(edit.cell)
+				fields.update_cell(edit.cell)  # M5a: crops and wet soil
 			elif edit.layer == WorldData.Layer.WALL or edit.layer == WorldData.Layer.ORE:
 				if cave != null:
 					cave.redraw_wall(edit.cell)

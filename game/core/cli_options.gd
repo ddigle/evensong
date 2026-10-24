@@ -65,6 +65,15 @@ extends RefCounted
 ##   --test-no-spawns             no heretic spawns (offline and host; the test heretics still come)
 ##   --test-start-hp=<class>:<hp>[,...]   host: members of that class start with that HP (tests: one hit
 ##                                downs them)
+## M5a (offline screenshot / test flag):
+##   --test-field=<x>,<y>:<soil|healing|buff|poison>[:<stage 0..4>][:wet][:fast][/...]   tilled soil (and a crop at that
+##                                stage, wet, planted by the herbalist) on those tiles of the start map at the start,
+##                                past the farming rules (outside the light too; never next to ash)
+## M5c (sessions: the host applies them; offline too):
+##   --test-field=...             a host puts the fields into its surface at the start (late joiners get them)
+##   --test-crop-ticks=<n>        ticks of growth per crop stage in place of Config.CROP_STAGE_TICKS (1..that; the
+##                                herbalist's crops still grow Config.CROP_HERBALIST_GROWTH_PCT faster): a session test
+##                                sees a crop ripen in seconds
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -121,6 +130,10 @@ var test_shrine_hp: int = 0
 var test_dungeon_heretics: Array[Vector2i] = []
 var test_no_spawns: bool = false
 var test_start_hp: Dictionary[String, int] = {}
+## M5a test flag: [tile (Vector2i), crop kind (Farming.KIND_*), stage, wet, fast] per field.
+var test_fields: Array[Array] = []
+## M5c test flag: ticks per crop stage (0 = Config.CROP_STAGE_TICKS).
+var test_crop_ticks: int = 0
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -301,6 +314,13 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 						o.errors.append("%s: expected --test-start-hp=<class>:<1..%d>[,...]" % [raw, Config.PLAYER_HP_MAX])
 						break
 					o.test_start_hp[kv[0]] = kv[1].to_int()
+			"test-field":
+				o.test_fields = _parse_fields(value, raw, o.errors)
+			"test-crop-ticks":
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.CROP_STAGE_TICKS:
+					o.errors.append("%s: expected --test-crop-ticks=<1..%d>" % [raw, Config.CROP_STAGE_TICKS])
+				else:
+					o.test_crop_ticks = value.to_int()
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:
@@ -317,6 +337,42 @@ static func _parse_tiles(value: String, raw: String, errors: PackedStringArray) 
 			errors.append("%s: expected tiles <x>,<y>[/<x>,<y>...]" % raw)
 			return [] as Array[Vector2i]
 		out.append(Vector2i(xy[0].to_int(), xy[1].to_int()))
+	return out
+
+
+## M5a: "<x>,<y>:<soil|healing|buff|poison>[:<stage 0..4>][:wet][:fast][/...]" -> [tile, kind, stage, wet, fast] per
+## field; an error and none if bad.
+static func _parse_fields(value: String, raw: String, errors: PackedStringArray) -> Array[Array]:
+	var out: Array[Array] = []
+	var usage: String = "%s: expected --test-field=<x>,<y>:<soil|healing|buff|poison>[:<0..%d>][:wet][:fast][/...]" % [
+		raw, Farming.RIPE_STAGE]
+	for part: String in value.split("/"):
+		var bits: PackedStringArray = part.split(":")
+		var kind: int = -1
+		if bits.size() > 1:
+			kind = Farming.KIND_NONE if bits[1] == "soil" else Farming.CROP_NAMES.find(bits[1])
+		if bits.size() < 2 or kind < 0 or bits[1] == "none":
+			errors.append(usage)
+			return [] as Array[Array]
+		var tiles: Array[Vector2i] = _parse_tiles(bits[0], raw, errors)
+		if tiles.size() != 1:
+			errors.append(usage)
+			return [] as Array[Array]
+		var stage: int = 0
+		var is_wet: bool = false
+		var fast: bool = false
+		for i: int in range(2, bits.size()):
+			if bits[i] == "wet":
+				is_wet = true
+			elif bits[i] == "fast" and kind != Farming.KIND_NONE:
+				fast = true
+			elif bits[i].is_valid_int() and bits[i].to_int() >= 0 and bits[i].to_int() <= Farming.RIPE_STAGE \
+					and kind != Farming.KIND_NONE:
+				stage = bits[i].to_int()
+			else:
+				errors.append(usage)
+				return [] as Array[Array]
+		out.append([tiles[0], kind, stage, is_wet, fast])
 	return out
 
 

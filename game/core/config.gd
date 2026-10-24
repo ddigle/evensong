@@ -461,6 +461,117 @@ const THROW_RELEASE_FRAME: int = 3
 ## potion that revives from 6 tiles away would make the cleric's instant revive (● §2.6) one of two.
 const THROW_HEAL_REVIVES: bool = false
 
+# --- PROVISIONAL, M5a (fields, seeds, watering, growth, harvest, withering) -------------------------------
+# Offline first (M5a); M5c brings the same rules to sessions (the host's farm, net/session_host.gd). README "임시값" M5a.
+# ● decided and followed as written: the three crops (game-concept §12 R28) and who plants what (§12 R37: the
+# healing and buff herbs anyone at COMMON grade, poison-herb seeds the herbalist only). Everything below is ○ or
+# not in the docs.
+
+## PROVISIONAL (○ game-concept §9.7 / gameplay-design §3.8 "밭은 제단 빛(반경) 안에서만 일군다"): true = the hoe tills a
+## grass tile only while the whole tile (its four corners) lies inside the altar's safe radius, the rule SurfaceGen
+## used for the M1 soil patches (Farming.in_light); false = any grass tile of the surface (soil still never next to
+## ash: no soil + ash tile art, WorldData.can_set_terrain).
+const TILL_ONLY_IN_LIGHT: bool = true
+## PROVISIONAL (not in docs): a seed stack's size.
+const STACK_SEED: int = 99
+## PROVISIONAL (not in docs; no merchant until M8): picking a wild herb (a gatherable, not a drop) also gives this many
+## seeds of its crop (offline in M5a; M5c: the host's pickup too, Farming.seeds_from_wild). The wild herb is the crop's wild
+## plant.
+const SEEDS_PER_WILD_HERB: int = 1
+## PROVISIONAL (○ §9.7 "물주기 → 성장 단계"; how long water lasts is not in the docs): a watered tile stays wet this
+## many ticks (watering again starts the count over), then dries.
+const WATER_TICKS: int = 60 * 60
+## PROVISIONAL (○ §9.7 "씨앗 → 성장 4~6단계 → 수확물"; the 04-env crops_v03 sheet draws stages 0..4): ticks of growth a
+## crop needs per stage (0 seed -> 1 -> 2 -> 3 -> 4 ripe). A crop grows only while its tile is wet and it has not
+## withered.
+const CROP_STAGE_TICKS: int = 40 * 60
+## PROVISIONAL (○ §9.7 / gameplay-design §3.8 "약초사는 성장이 빠르고"): a crop the herbalist planted grows at this
+## percent of the common speed (200 = each stage takes half as long).
+const CROP_HERBALIST_GROWTH_PCT: int = 200
+## PROVISIONAL (○ §9.7 "약초사는 … 상급 등급을 거두며"; ● gameplay-design §3.4 lets the picker decide a wild herb's grade):
+## true = the harvester decides (the herbalist's harvest is FINE, anyone else's COMMON), false = the planter (a crop the
+## herbalist planted gives FINE to whoever harvests it).
+const CROP_GRADE_BY_HARVESTER: bool = true
+## PROVISIONAL (not in docs): what one ripe crop gives: herbs of its kind (the wild herbs' items, so the M6 potions
+## brew from them) and seeds of its kind. What does not fit the inventory lies on the tile (like mining, M3a).
+const CROP_HARVEST_HERBS: int = 2
+const CROP_HARVEST_SEEDS: int = 1
+## PROVISIONAL (○ §9.7 / gameplay-design §3.8 "오염에 닿은 작물은 시든다"; "닿은" is not defined): a crop withers while a
+## corrupted tile (CORRUPTION layer) lies within this many tiles of it (Chebyshev, its own tile included). 2 is the
+## nearest a field can lie to the ash: no tile art has soil and ash corners, so soil stays a tile away from ash.
+const CROP_CORRUPTION_REACH_TILES: int = 2
+## PROVISIONAL (not in docs): seeds go only where the crop would grow (true: not outside the light, not next to
+## corruption, see Farming.withers_at); false = on any tilled soil (and it withers at once there).
+const PLANT_ONLY_WHERE_IT_GROWS: bool = true
+## PROVISIONAL (not in docs): crops grow, dry and wither on every map every tick, whether or not a player is on it
+## (true); false = only on maps with a player (like the heretics, M4a).
+const FARM_RUNS_WITHOUT_PLAYERS: bool = true
+## PROVISIONAL (not in docs): the action frame (0-based) on which the hoe tills and the one on which the watering can
+## waters (read off the 03-pixel sheets: the blade hits the soil on the hoe's 4th frame, like the pickaxe; the water
+## reaches the ground on the can's 6th).
+const HOE_IMPACT_FRAME: int = 3
+const WATER_IMPACT_FRAME: int = 5
+
+# --- PROVISIONAL, M5b (purification: holy water and the paladin's channel; placing and moving the altar) -----------
+# Offline first (M5b); M5c brings the same rules to sessions (the host decides). README "임시값" M5b.
+# ● decided and followed as written: anyone purifies a few tiles with holy water, the paladin channels a wide
+# purification (gameplay-design §3.0 R11 paladin row); the altar's position and moving are free (game-concept §9.3);
+# respawning is at the altar (gameplay-design §2.6). Everything below is ○ or not in the docs.
+
+## PROVISIONAL (not in docs; ● §3.0 "누구나 성수로 타일 몇 개 정화", "상점의 성수 (소량 정화, 비쌈)" = the merchant, M8): a holy
+## water stack's size, and the tiles one holy water purifies: every corrupted tile within this many tiles (Chebyshev) of
+## the target tile (1 = the 3x3 around it, "타일 몇 개").
+const STACK_HOLY_WATER: int = 10
+const HOLY_WATER_RADIUS_TILES: int = 1
+## PROVISIONAL (not in docs; no sprinkling art exists): pouring holy water plays this body action (the magic action,
+## the cleric's "기도·치료" in brief §5.6, as drinking does) and purifies on HOLY_WATER_EFFECT_FRAME (0-based); a hit
+## before that cuts it off and nothing is used.
+const HOLY_WATER_ANIM: int = RigData.Anim.MAGIC
+const HOLY_WATER_EFFECT_FRAME: int = 3
+## PROVISIONAL (○ gameplay-design §3.7 "팔라딘이 오염 타일 위에서 스킬 채널링 → 반경 N타일 정화", §1 ○ "F … 정화 시작"): F (with
+## nothing to pick up on the target tile) starts the paladin's channel while a corrupted tile lies within this many tiles
+## (Chebyshev) of the feet tile (0 = only standing on corruption, 1 = on it or next to it).
+const PURIFY_START_REACH_TILES: int = 1
+## PROVISIONAL (○ §3.7, numbers not in the docs): the channel lasts this many ticks; when it completes, every corrupted
+## tile whose centre lies within PURIFY_RADIUS_TILES tiles of the feet tile's centre (a disc) is purified. Moving,
+## dashing, using an item, a hit and going down break it (nothing purified).
+const PURIFY_CHANNEL_TICKS: int = 3 * 60
+const PURIFY_RADIUS_TILES: int = 3
+## PROVISIONAL (not in docs; no channel pose exists): the channel shows this body action, looped (a placeholder).
+const PURIFY_ANIM: int = RigData.Anim.MAGIC
+## PROVISIONAL (○ game-concept §9.3 "제단 … 위치 자유, 이동 자유" ●; how is not in the docs): holding F this many ticks aimed
+## at an altar tile in reach picks the altar up (its footprint leaves the world); left click puts it down. true = anyone
+## may move it; false = only the paladin.
+const ALTAR_PICKUP_HOLD_TICKS: int = 2 * 60
+const ALTAR_MOVE_ANYONE: bool = true
+## PROVISIONAL (not in docs): when the carrier goes down, the altar is set down at the nearest place the placing rules
+## allow (reach aside), searched in rings of growing distance (tiles, Chebyshev, of the footprint centre) around the
+## carrier's feet tile up to this far. M5-fix: then the same ignoring the heretics, then around where it was picked up
+## (AltarMove.set_down_fallback); never over anything (a footprint place_refusal refuses is never used).
+const ALTAR_SET_DOWN_SEARCH_TILES: int = 64
+## PROVISIONAL (M5-fix; ○ game-concept §5 "제단(코어)의 안전 반경은 오염을 밀어낸다", §9.3 "안전 반경(빛, 스폰 억제, 오염 저항)";
+## what a moved light does to the corruption it lands on is not in the docs): true = the altar may go down wherever its
+## footprint is clean, so its light may cover corrupted tiles. That corruption stays (nothing pushes it back and nothing
+## spreads in the slice: only purification clears it), heretics may spawn on the zone's ring right at the light's edge
+## (never inside it, M4a) and lit crops within CROP_CORRUPTION_REACH_TILES of it wither. §9.7's slice line ("고정 오염
+## 구역 옆 밭으로 시험한다") needs a light beside a zone, and the generated altar keeps ASH_CLEARANCE_TILES of grass.
+## false = a footprint is refused while a corrupted tile's centre lies within the safe radius + ASH_CLEARANCE_TILES of
+## its centre (the M1 generator's margin, AltarMove.light_corruption_refusal).
+const ALTAR_LIGHT_MAY_COVER_CORRUPTION: bool = true
+
+# --- PROVISIONAL, M5c (farming, purification and the altar in sessions: the host decides, README "임시값" M5c) -----------
+# Everything M5a / M5b decided offline holds on the host as it is (one rule set: items/farming.gd, items/purify.gd,
+# items/altar_move.gd, world/farm.gd). Only what a session adds that offline never meets is below; not in the docs.
+
+## PROVISIONAL (not in docs; ● gameplay-design §2.6 puts players at the altar, and a carried altar has no spawn slots, M5b):
+## a player who joins while the altar is carried appears at the spawn slots around the place it was picked up (true) or
+## around the carrier's feet (false).
+const ALTAR_CARRIED_JOIN_AT_HOME: bool = true
+## PROVISIONAL (not in docs): a carrier who leaves the session (disconnects) sets the altar down at the nearest place the
+## placing rules allow around its feet, like a carrier going down (true, M5b's set-down rule); false = it goes back to
+## where it was picked up.
+const ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -628,6 +739,19 @@ const NET_HOST_STEPS_AFTER_TICKS: int = 30
 ## is drawn this many px higher at the middle of its flight (an arc on top of SHOT_DRAW_LIFT_PX).
 const SPLASH_SHOW_TICKS: int = 18
 const THROW_ARC_PX: float = 10.0
+## IMPL (M5a): a field tile's VEGETATION value (items/farming.gd): FIELD_BASE + crop kind * FIELD_KIND_STEP + stage *
+## FIELD_STAGE_STEP + flags (withered 4, wet 2, planted by the herbalist 1). Gatherables use 1..15, so 64.. is free and
+## every field value (64..223) fits a byte.
+const FIELD_BASE: int = 64
+const FIELD_KIND_STEP: int = 40
+const FIELD_STAGE_STEP: int = 8
+## IMPL (M5b, placeholder effects drawn in code, world/purify_view.gd): a purified tile shows a gold outline that shrinks
+## for PURIFY_FLASH_TICKS and an ash smear (04-env decal_ashcreep) for PURIFY_ASH_TICKS (the ash going away: "ash, then
+## grass" on the screen while the world turns to grass at once); the channel shows PURIFY_MOTES motes on a ring at the
+## purified radius, one more lit per 1 / PURIFY_MOTES of the channel.
+const PURIFY_FLASH_TICKS: int = 30
+const PURIFY_ASH_TICKS: int = 60
+const PURIFY_MOTES: int = 16
 
 
 static func safe_radius_px() -> float:

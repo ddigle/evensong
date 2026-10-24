@@ -6,8 +6,10 @@ extends Node2D
 ##   ActorLight   hard edge copy, lights Config.LIGHT_LAYER_ACTORS (characters), so a dithered
 ##                edge never draws a checkerboard on a face (spike RESULTS §4)
 ## Both textures come from LightGen.zone_light_image() of the same SafeZone. Textures are built once
-## per zone and kept in a static cache: in 4.7.2, giving a PointLight2D a new texture while the
+## per zone shape and kept in a static cache: in 4.7.2, giving a PointLight2D a new texture while the
 ## old one is freed logs "Parameter t is null" (spike RESULTS §4), so no texture is ever released.
+## M5-fix: the image depends on the centre only through its phase (cache_key), and the node stands at the
+## centre, so one pair serves every place the altar is put down (the altar's centre is always 16n + 8).
 
 static var _images: Dictionary[String, Image] = {}
 static var _textures: Dictionary[String, ImageTexture] = {}
@@ -58,8 +60,16 @@ func is_lit() -> bool:
 	return ground_light.enabled
 
 
+## M5-fix: the image of a zone (LightGen.zone_light_image) reads the centre only through the 4x4 Bayer phase of its
+## texels (the origin is round(centre) minus a half size fixed by the radius, and the dither threshold is posmod(px, 4):
+## so round(centre) mod 4) and the centre's fraction (the disc test is relative to the centre). Two zones with the same
+## edge, band, radius, phase and fraction give the same texels, so they share one cached image and texture
+## (tests/test_light.gd compares the bytes). Before, the key was the whole centre and every new altar place built two more.
 static func cache_key(p_zone: SafeZone, edge: LightGen.Edge, band: int) -> String:
-	return "%d/%d/%s/%s" % [edge, band, p_zone.center, p_zone.radius]
+	var whole: Vector2i = Vector2i(roundi(p_zone.center.x), roundi(p_zone.center.y))
+	var phase: Vector2i = Vector2i(posmod(whole.x, 4), posmod(whole.y, 4))
+	var fraction: Vector2 = p_zone.center - Vector2(whole)
+	return "%d/%d/%s/%s/%s" % [edge, band, p_zone.radius, phase, fraction]
 
 
 ## Cached light image of a zone (built on first use).

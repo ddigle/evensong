@@ -7,6 +7,8 @@ extends RefCounted
 ##
 ## Gatherables live in the VEGETATION layer: value = 1 + index in GATHERABLES (0 = nothing). Picking
 ## one up clears the cell (an ordinary layer edit). There is no regrowth (not in the docs).
+## M5a: a field's crop or wet soil is a VEGETATION value from Config.FIELD_BASE on (items/farming.gd): no gatherable
+## (gatherable_for gives &""), but "something grows here" for every rule below that reads VEGETATION != 0.
 ## Drops are WorldData.drops: any player may pick up any drop and it is theirs (PROVISIONAL, ○
 ## gameplay-design §5 "드롭은 주운 사람 것"); a drop that does not fit the inventory whole is taken in
 ## part and the rest stays.
@@ -88,6 +90,8 @@ class Outcome:
 	var item: StringName = &""
 	var count: int = 0
 	var grade: int = 0
+	## M5a: the pick up took a gatherable (it grew there), not a drop (offline, a wild herb then gives a seed).
+	var gathered: bool = false
 
 	func ok() -> bool:
 		return why.is_empty()
@@ -160,6 +164,7 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		o.item = plant
 		o.count = 1
 		o.grade = grade
+		o.gathered = true
 		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, 0))
 		return o
 	var here: Array[WorldData.Drop] = data.drops_at(c)
@@ -180,6 +185,22 @@ static func pickup(data: WorldData, feet: Vector2, class_id: String, inv: Invent
 		rest.count -= n
 		o.edits.append(EditLog.WorldEdit.drop_put(rest))
 	return o
+
+
+## M5c: what F on tile `c` would meet without taking anything ("" = something to pick up there: a gatherable, a drop, a
+## bag; else pickup()'s refusal before the inventory: outside the map, out of reach, a way to another map, nothing there).
+## A session's F with WHY_NOTHING next to corruption starts the paladin's channel instead (offline Main.pick_up's rule).
+static func pickup_check(data: WorldData, feet: Vector2, c: Vector2i) -> String:
+	if not data.in_bounds(c):
+		return WHY_OUTSIDE
+	if not in_reach(feet, c):
+		return WHY_REACH
+	if is_portal(data, c):
+		return WHY_PORTAL
+	if data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_BAG or not gatherable_at(data, c).is_empty() \
+			or not data.drops_at(c).is_empty():
+		return ""
+	return WHY_NOTHING
 
 
 ## M4a: F on the death bag on tile `c`: every drop there into `inv` (lowest id first, each as much as
@@ -424,8 +445,10 @@ static func reserved_feet(data: WorldData) -> Array[Vector2]:
 ## walking (WorldData.placeable_blocks) may not cover the placer's feet box nor any of `bodies` (other feet:
 ## players, heretics) and may not touch another of its kind (WorldData.footprint_at would merge them).
 ## M6-fix: nor a feet box at a point where players appear (reserved_feet: arrivals and the altar's spawn slots).
+## M5-fix: `reserved_extra` = more such points the caller knows of (the host: the spawn slots around where a carried
+## altar was picked up, where joiners appear meanwhile: SessionHost.carried_reserved_feet).
 static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
-		bodies: Array[Vector2] = []) -> Outcome:
+		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = []) -> Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
 		return Outcome.refused(WHY_BAD_SLOT)
 	var stack: ItemStack = inv.stack_at(slot)
@@ -455,7 +478,9 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		for b: Vector2 in all:
 			if px.intersects(Movement.feet_box(b)):
 				return Outcome.refused(WHY_BODY)
-		for r: Vector2 in reserved_feet(data):
+		var spots: Array[Vector2] = reserved_feet(data)
+		spots.append_array(reserved_extra)
+		for r: Vector2 in spots:
 			if px.intersects(Movement.feet_box(r)):
 				return Outcome.refused(WHY_RESERVED)
 		for y2: int in range(rect.position.y - 1, rect.end.y + 1):

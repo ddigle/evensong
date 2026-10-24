@@ -28,6 +28,11 @@ extends RefCounted
 ##                         s16 y (M6b: the point the bottle is thrown at, world px; the host clamps it to
 ##                         Config.THROW_RANGE_PX from where it has the thrower)   the skill key 1
 ##                 CRAFT   u8 map, u8 recipe (index in Crafting.recipes())     M6b: the crafting panel
+##                 CHANNEL u8 map                                              M5c: F with nothing to pick up next to
+##                         corruption (the paladin's purification channel; the host checks it, PlayerSim runs it)
+##                 ALTAR_LIFT  u8 map, s16 x, s16 y (an altar tile)            M5c: F held Config.ALTAR_PICKUP_HOLD_TICKS
+##                         (the host counts the F-held frames itself)
+##                 ALTAR_PLACE u8 map, s16 x, s16 y (the target tile)          M5c: the carrier's click
 ##               M3b: a request aimed at a tile names the map it was aimed on (the map the sender
 ##               was on when it made the frame); the host refuses it on any other map ("wrong map").
 ##               M6b: a USE of a potion is a drink (the host resolves it from the slot, like a tool).
@@ -56,6 +61,10 @@ extends RefCounted
 ##               Positions are the host's float32 simulation values, sent exactly, so a client that
 ##               replays its unacknowledged frames from them lands where the host will (M4b: the vitals
 ##               too: they are part of what the replay starts from).
+##               M5c: the action bits = 15 (CHANNEL_ACTION) while the paladin's purification channel runs (it never runs
+##               with a body action); the action-frames byte then holds the channel's ticks (1..PURIFY_CHANNEL_TICKS - 1)
+##               and the tile it purifies around is the feet tile (a channel never moves). The held-item byte's bit 7
+##               (CARRYING_FLAG) = this player carries the altar. Still 17, 33 or 40 B.
 ## Player info   u8 class index + state (18 or 34 B), in welcome and joined
 ## Hello         u16 version, u8 class index
 ## World chunk   u32 index + at most NET_SNAPSHOT_CHUNK_BYTES of the packed world (net/world_snapshot.gd),
@@ -100,7 +109,10 @@ extends RefCounted
 ## block, the enemy batches and the shot events per map.
 ## 6 (M6b): potions and crafting in sessions: THROW and CRAFT requests, the effects block after the vitals,
 ## the heretic's poison flag, the thrown and broke events of a thrown potion.
-const VERSION: int = 6
+## 7 (M5c): farming, purification and moving the altar in sessions: CHANNEL, ALTAR_LIFT and ALTAR_PLACE requests, the
+## channel in a state's action bits, the carried altar in its held-item byte (fields, crops, purified ground and the
+## altar's place are world edits and snapshot layers as before).
+const VERSION: int = 7
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -111,11 +123,17 @@ const CH_ENEMY: int = 3
 enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO }
 const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "class_taken", "bad_hello"]
 
-## Requests riding on input frames (M2b). M6b: THROW (the skill key 1), CRAFT (the crafting panel).
-enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT }
-const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft"]
+## Requests riding on input frames (M2b). M6b: THROW (the skill key 1), CRAFT (the crafting panel). M5c: CHANNEL (the
+## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click).
+enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE }
+const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
+	"altar_lift", "altar_place"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2]
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5]
+## M5c: a state's action bits while the purification channel runs (no RigData action is 15), and the held-item byte's
+## flag of the altar carrier (item indices stay far below 128).
+const CHANNEL_ACTION: int = 15
+const CARRYING_FLAG: int = 0x80
 
 const INPUT_HEADER: int = 5
 const STATE_HEADER: int = 5
@@ -194,6 +212,11 @@ class InputFrame:
 	var dash: bool = false
 	var interact: bool = false
 	var aim: int = -1
+	## M5b, resolved, not sent: the frame starts the paladin's purification channel (PlayerSim.step), and a click of the
+	## player carrying the altar asks to put it down on `cell`. M5c: in a session they ride as the CHANNEL and ALTAR_PLACE
+	## requests (the host decides `channel` again from its own state, SessionHost.run_frame).
+	var channel: bool = false
+	var altar_place: bool = false
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq
@@ -224,6 +247,12 @@ class InputFrame:
 					roundi(throw_to.y)]
 			Op.CRAFT:
 				return "craft map=%d recipe=%d" % [map, recipe]
+			Op.CHANNEL:
+				return "channel map=%d" % map
+			Op.ALTAR_LIFT:
+				return "altar_lift map=%d at=%d,%d" % [map, cell.x, cell.y]
+			Op.ALTAR_PLACE:
+				return "altar_place map=%d at=%d,%d" % [map, cell.x, cell.y]
 		return "none"
 
 
@@ -243,11 +272,15 @@ class PlayerState:
 	var map: int = Config.MAP_SURFACE
 	## M4b: the player's vitals, or null when they are at rest (Vitals.at_rest: full, up, no timer).
 	var vitals: Vitals = null
+	## M5c: the purification channel's ticks (0 = none; PlayerSim.channel_tick; it purifies around the feet tile) and
+	## whether the player carries the altar (Player.carrying_altar).
+	var channel: int = 0
+	var carrying: bool = false
 
 	func same_as(o: PlayerState) -> bool:
 		return o != null and slot == o.slot and pos == o.pos and facing == o.facing and walking == o.walking \
 			and ack == o.ack and action == o.action and action_tick == o.action_tick and held == o.held and map == o.map \
-			and NetProtocol.same_vitals(vitals, o.vitals)
+			and NetProtocol.same_vitals(vitals, o.vitals) and channel == o.channel and carrying == o.carrying
 
 	## The vitals (a fresh, full set when at rest).
 	func vitals_or_full() -> Vitals:
@@ -419,7 +452,8 @@ static func dir_from_code(code: int) -> Vector2i:
 
 ## Whether requests of kind `op` carry a map (they aim at a tile of it; M6b: a throw, a craft at a station of it).
 static func op_has_map(op: int) -> bool:
-	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT
+	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT \
+		or op == Op.CHANNEL or op == Op.ALTAR_LIFT or op == Op.ALTAR_PLACE
 
 
 static func valid_map(map: int) -> bool:
@@ -475,7 +509,7 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_s16(at + 1, f.cell.x)
 			out.encode_s16(at + 3, f.cell.y)
 			out.encode_u8(at + 5, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
-		Op.PICKUP, Op.TRAVEL:
+		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE:
 			out.encode_s16(at, f.cell.x)
 			out.encode_s16(at + 2, f.cell.y)
 		Op.SELECT:
@@ -514,8 +548,11 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
 			f.aim = bytes.decode_u8(at + 5)
 			return f.slot < Config.HOTBAR_SLOTS
-		Op.PICKUP, Op.TRAVEL:
+		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE:
 			f.cell = Vector2i(bytes.decode_s16(at), bytes.decode_s16(at + 2))
+			return true
+		Op.CHANNEL:
+			f.channel = true  # M5c: what the sender asks for; the host decides it again (SessionHost.run_frame)
 			return true
 		Op.SELECT:
 			f.slot = bytes.decode_u8(at)
@@ -650,14 +687,18 @@ static func state_size_at(bytes: PackedByteArray, at: int) -> int:
 
 static func _put_state(out: PackedByteArray, at: int, s: PlayerState) -> void:
 	var action: int = s.action if RigData.is_action(s.action) else 0
+	var tick: int = s.action_tick if action != 0 else 0
+	if action == 0 and s.channel > 0:
+		action = CHANNEL_ACTION  # M5c: the channel rides in the action bits (it never runs with a body action)
+		tick = clampi(s.channel, 1, 255)
 	var with_vitals: bool = s.vitals != null and not s.vitals.at_rest()
 	out.encode_u8(at, s.slot)
 	out.encode_float(at + 1, s.pos.x)
 	out.encode_float(at + 5, s.pos.y)
 	out.encode_u8(at + 9, (s.facing & 3) | (4 if s.walking else 0) | (action << 3) | (VITALS_FLAG if with_vitals else 0))
 	out.encode_u32(at + 10, s.ack)
-	out.encode_u8(at + 14, s.action_tick if action != 0 else 0)
-	out.encode_u8(at + 15, ItemDB.index_of(s.held) + 1 if not s.held.is_empty() else 0)
+	out.encode_u8(at + 14, tick)
+	out.encode_u8(at + 15, (ItemDB.index_of(s.held) + 1 if not s.held.is_empty() else 0) | (CARRYING_FLAG if s.carrying else 0))
 	out.encode_u8(at + 16, s.map)
 	if with_vitals:
 		put_vitals(out, at + STATE_SIZE, s.vitals)
@@ -684,7 +725,16 @@ static func _get_state(bytes: PackedByteArray, at: int) -> PlayerState:
 		s.vitals = get_vitals(bytes, at + STATE_SIZE)
 		if s.vitals == null or s.vitals.at_rest():
 			return null  # an at-rest block is never sent: one is malformed
-	if action == 0:
+	s.carrying = (held & CARRYING_FLAG) != 0
+	held &= ~CARRYING_FLAG
+	if action == CHANNEL_ACTION:
+		# M5c: the purification channel (ticks 1 .. PURIFY_CHANNEL_TICKS - 1: it ends on the tick it reaches the time).
+		if tick < 1 or tick >= Config.PURIFY_CHANNEL_TICKS:
+			return null
+		s.channel = tick
+		action = 0
+		tick = 0
+	elif action == 0:
 		if tick != 0:
 			return null
 	elif not RigData.is_action(action) or tick >= PlayerSim.action_ticks(action):

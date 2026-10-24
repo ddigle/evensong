@@ -23,17 +23,25 @@ extends RefCounted
 
 ## M3a: PLACEABLE = put on a floor tile by "use" (the torch; M6a: the alchemy table).
 ## M6a: POTION = drunk with "use" (left click), thrown with the herbalist's skill (items/potions.gd).
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION }
+## M5b: CONSUMABLE = used up on a target tile with "use" (holy water purifies the corrupted tiles around it,
+## items/purify.gd).
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
-const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion"]
+const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable"]
+## M5b: holy water's icon (04-env 묶음 2 #58 "a small glass vial of holy water", 판정 좋음; the a / b / c vials are
+## candidates, a is the first of the two marked good).
+const HOLY_WATER_ICON: String = "item_holy_water_a_v02.png"
 ## M6a: the 04-env items strip (items_v04_strip.png, 18 icons of 16x16 in a row) holds the potion icons:
 ## its 4th, 5th and 6th icons are the red, amber and poison potions (04-env/prompts.md "1차 판정 뒤 손질"
 ## 작은 것 #21, #22, #23; v04 = the last touch-up, the poison cork rust). The file is copied whole
 ## (byte-identical) and an icon is a region of it.
 const ITEMS_STRIP: String = "items_v04_strip.png"
 const STRIP_POTIONS: Dictionary[StringName, int] = {&"potion_healing": 3, &"potion_buff": 4, &"potion_poison": 5}
+## M5a: the strip's first three icons are the seed bags of the three crops (04-env prompts.md 1차 시험 #18~#20 "씨앗
+## 봉투", bands in the crop colours: healing red, buff amber, poison yellow with rust; v03/v04 손질).
+const STRIP_SEEDS: Dictionary[StringName, int] = {&"seed_healing": 0, &"seed_buff": 1, &"seed_poison": 2}
 ## IMPL (M3-fix): inventory slots the debug kit leaves free (debug_kit()). M4a: 3 on an empty inventory,
 ## so the offline player's start weapon (Config.START_WEAPON_SLOT) still leaves the M3-fix two.
 const DEBUG_KIT_FREE_SLOTS: int = 3
@@ -219,6 +227,18 @@ static func _build() -> void:
 	table.icon_code = &"alchemy_table"
 	table.place = WorldData.PLACEABLE_ALCHEMY
 	_add(table)
+	# M5a (appended): the three crops' seeds (● game-concept §12 R28 crops; who may plant which is ● R37, Farming).
+	# Kind SEED, no grade (PROVISIONAL: the grade is the harvest's, Config.CROP_GRADE_BY_HARVESTER), stack
+	# Config.STACK_SEED. Icons: the items strip's seed bags (STRIP_SEEDS). No action: a click plants (like the torch).
+	for seed_id: StringName in STRIP_SEEDS:
+		var s: ItemDef = ItemDef.new(seed_id, Kind.SEED, Config.STACK_SEED)
+		s.icon_path = ART_DIR + ITEMS_STRIP
+		s.icon_region = Rect2i(STRIP_SEEDS[seed_id] * 16, 0, 16, 16)
+		_add(s)
+	# M5b (appended): holy water (● gameplay-design §3.0 R11 paladin row: anyone purifies a few tiles with it; the shop
+	# that sells it is M8). Kind CONSUMABLE, no grade, stack Config.STACK_HOLY_WATER. No action of its own: a click pours it
+	# (Config.HOLY_WATER_ANIM, items/purify.gd). How it is had is PROVISIONAL (README "M5b 성수 얻기": --give only).
+	_art(&"holy_water", Kind.CONSUMABLE, Config.STACK_HOLY_WATER, false, HOLY_WATER_ICON)
 
 
 static func _tool(id: StringName, action: int) -> void:

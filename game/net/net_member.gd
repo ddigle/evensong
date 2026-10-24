@@ -45,6 +45,11 @@ var frames_held: int = 0
 var host_steps: int = 0
 var host_stepping: bool = false
 var respawn_pending: bool = false
+## Host (M5c): consecutive frames of this member with F held while up (the altar is picked up after
+## Config.ALTAR_PICKUP_HOLD_TICKS of them, SessionHost._altar_lift), and whether its waiting respawn was logged (the
+## altar is carried).
+var altar_hold: int = 0
+var respawn_wait_logged: bool = false
 var combat: Dictionary[String, int] = {}
 var _last_action: int = -1
 var _last_action_start: float = -1.0
@@ -85,6 +90,8 @@ func state() -> NetProtocol.PlayerState:
 	s.held = player.held_id()
 	s.map = map_id
 	s.vitals = player.vitals.copy() if not player.vitals.at_rest() else null
+	s.channel = player.channel_tick  # M5c
+	s.carrying = player.carrying_altar
 	return s
 
 

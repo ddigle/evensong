@@ -17,6 +17,16 @@ extends RefCounted
 ## M6b: wire v6: a THROW and a CRAFT on frames, a state with its effects block, a host arena's thrown potion as
 ## its thrown / broke events flown by a client's NetCombat on the host's points, the heretic's poison flag drawn
 ## on the client. Printed as potion_wire=<a state with effects>B/<a throw's two events>B.
+## M5a: the seed items, the crops sheet and the watered soil art, and a crop on the seed-1 world's first lit soil tile:
+## planted by the herbalist, kept wet, ripe after four stages at the herbalist's speed, harvested for FINE herbs and a
+## seed. Printed as farm=<ticks to ripe>/<herbs>.
+## M5b: holy water and the ash smear art; on the seed-1 world a finished channel at the first corrupted tile purifies
+## its disc (the tiles turn to grass, no soil next to ash, the corruption count and the spawn tiles shrink), holy water
+## purifies its 3x3; the altar picked up (no altar, no safe zone) and put down elsewhere (the light, the spawn slots and
+## the reserved spots follow). Printed as purify=<channel tiles>+<holy water tiles>/<spawn tiles after> altar=<x>,<y>.
+## M5c: wire v7: the CHANNEL, ALTAR_LIFT and ALTAR_PLACE requests on frames, a state with the channel and the carried altar,
+## and a farm's growth on a host world reaching a client world as encoded edits (the same world). Printed as
+## fields_wire=<a channelling carrier's state>B/<a crop's stage edit>B.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -71,6 +81,8 @@ static func run(tree: SceneTree) -> Report:
 	_check_items(r)
 	_check_combat(r)
 	_check_potions(r)
+	_check_farm(r)
+	_check_purify(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -385,6 +397,117 @@ static func _check_potions(r: Report) -> void:
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
 ## and the flame mask has the 81 lamp pixels.
+## M5a: the farming art and one crop from seed to harvest (see the header).
+static func _check_farm(r: Report) -> void:
+	for id: StringName in Farming.SEEDS.slice(1):
+		var def: ItemDB.ItemDef = ItemDB.get_def(id)
+		r.expect(def != null and def.kind == ItemDB.Kind.SEED, "seed item %s" % id)
+	var sheet: Texture2D = FieldView.crop_sheet(false)
+	r.expect(sheet != null and Vector2i(sheet.get_size()) == Vector2i(112, 48), "crops sheet 112x48")
+	for source: int in FieldView.WET_PATHS:
+		r.expect(FieldView.wet_texture(source) != null, "watered soil art for ground source %d" % source)
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var farm: Farm = Farm.new(data)
+	var c: Vector2i = Vector2i(-1, -1)
+	for i: int in data.layers[WorldData.Layer.FLOOR].size():
+		var t: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
+		if data.terrain_at(t) == Terrain.SOIL and Farming.in_light(data, t):
+			c = t
+			break
+	if not r.expect(c.x >= 0, "a lit soil tile in the seed-1 world"):
+		return
+	var feet: Vector2 = Arena.spawn_feet(c + Vector2i(0, 1))
+	var inv: Inventory = Inventory.new()
+	inv.add(&"seed_healing", 1)
+	var ripe_at: int = -1
+	var edits: Array[EditLog.WorldEdit] = farm.plant(feet, "herbalist", inv, 0, c).edits
+	for tick: int in range(1, 6 * Config.CROP_STAGE_TICKS):
+		# Every result's edits go into the data before the next call reads it (as GameWorld.apply_edit does).
+		for e: EditLog.WorldEdit in edits:
+			EditLog.apply_to_data(data, e)
+		for e: EditLog.WorldEdit in farm.water(feet, c).edits:
+			EditLog.apply_to_data(data, e)
+		edits = farm.step()
+		for e: EditLog.WorldEdit in edits:
+			EditLog.apply_to_data(data, e)
+		edits = []
+		var f: Farming.Field = Farming.field_at(data, c)
+		if f != null and f.ripe():
+			ripe_at = tick
+			break
+	# Written out (not Farming.stage_ticks): four stages at the herbalist's percent of the common speed.
+	r.expect_eq(ripe_at, 4 * Config.CROP_STAGE_TICKS * 100 / Config.CROP_HERBALIST_GROWTH_PCT, "the herbalist's crop ripe after four stages")
+	var got: Farm.Result = farm.harvest(feet, "herbalist", inv, c)
+	r.expect(got.ok() and inv.count_of(&"wild_healing", ItemDB.Grade.FINE) == Config.CROP_HARVEST_HERBS
+		and inv.count_of(&"seed_healing") == Config.CROP_HARVEST_SEEDS, "harvest: FINE herbs and a seed (%s)" % got.why)
+	r.fields.append("farm=%d/%d" % [ripe_at, got.count])
+
+
+## M5b: purification and moving the altar (see the header).
+static func _check_purify(r: Report) -> void:
+	var def: ItemDB.ItemDef = ItemDB.get_def(Purify.HOLY_WATER)
+	r.expect(def != null and def.kind == ItemDB.Kind.CONSUMABLE and ItemIcons.texture_for(Purify.HOLY_WATER) != null,
+		"holy water item and icon")
+	for i: int in PurifyView.ASH_PATHS.size():
+		r.expect(PurifyView.ash_texture(i) != null, "ash smear %d" % (i + 1))
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var before: int = Purify.corrupted_count(data)
+	var spawn_before: int = Arena.surface_spawn_cells(data, SafeZone.for_world(data)).size()
+	var c: Vector2i = Vector2i(-1, -1)
+	for i: int in data.layers[WorldData.Layer.CORRUPTION].size():
+		if data.layers[WorldData.Layer.CORRUPTION][i] != 0:
+			c = Vector2i(i % data.size.x, i / data.size.x)
+			break
+	if not r.expect(c.x >= 0 and before > 0, "corruption on the seed-1 world"):
+		return
+	# Written out (not Purify.channel_area): corrupted tiles whose centre lies within the radius of c's centre.
+	var want: int = 0
+	var rad: int = Config.PURIFY_RADIUS_TILES
+	for y: int in range(c.y - rad, c.y + rad + 1):
+		for x: int in range(c.x - rad, c.x + rad + 1):
+			if (x - c.x) * (x - c.x) + (y - c.y) * (y - c.y) <= rad * rad and data.get_value(WorldData.Layer.CORRUPTION, Vector2i(x, y)) != 0:
+				want += 1
+	var done: Purify.Result = Purify.channel_done(data, c)
+	for e: EditLog.WorldEdit in done.edits:
+		EditLog.apply_to_data(data, e)
+	r.expect(done.ok() and done.cells.size() == want and want > 0, "a channel purifies its disc (%d of %d)" % [done.cells.size(), want])
+	var grass: bool = true
+	for t: Vector2i in done.cells:
+		grass = grass and data.terrain_at(t) == Terrain.GRASS and data.get_value(WorldData.Layer.CORRUPTION, t) == 0
+	r.expect(grass, "purified tiles are clean grass")
+	r.expect_eq(data.soil_ash_contacts(), 0, "no soil next to ash after purifying")
+	var c2: Vector2i = Vector2i(-1, -1)
+	for i2: int in data.layers[WorldData.Layer.CORRUPTION].size():
+		if data.layers[WorldData.Layer.CORRUPTION][i2] != 0:
+			c2 = Vector2i(i2 % data.size.x, i2 / data.size.x)
+			break
+	var inv: Inventory = Inventory.new()
+	inv.add(Purify.HOLY_WATER, 2)
+	var poured: Purify.Result = Purify.pour(data, Arena.spawn_feet(c2 + Vector2i(0, 1)), inv, 0, c2)
+	for e2: EditLog.WorldEdit in poured.edits:
+		EditLog.apply_to_data(data, e2)
+	r.expect(poured.ok() and poured.cells.size() >= 1 and poured.cells.size() <= 9 and inv.count_of(Purify.HOLY_WATER) == 1,
+		"holy water purifies a few tiles and is used (%s)" % poured.why)
+	r.expect_eq(Purify.corrupted_count(data), before - done.cells.size() - poured.cells.size(), "the corruption count")
+	var spawn_after: int = Arena.surface_spawn_cells(data, SafeZone.for_world(data)).size()
+	r.expect(spawn_after < spawn_before, "fewer spawn tiles around the zones (%d -> %d)" % [spawn_before, spawn_after])
+	r.fields.append("purify=%d+%d/%d" % [done.cells.size(), poured.cells.size(), spawn_after])
+	# The altar: picked up (no altar, no light), put down elsewhere (everything that reads it follows).
+	var old_rect: Rect2i = data.altar_rect
+	for e3: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		EditLog.apply_to_data(data, e3)
+	r.expect(not data.altar_rect.has_area() and SafeZone.for_world(data).radius == 0.0, "picked up: no altar, no safe zone")
+	var to: Rect2i = AltarMove.set_down_rect(data, (Vector2(old_rect.position) + Vector2(-12, 1)) * Config.TILE)
+	if not r.expect(to.has_area() and to != old_rect, "a place to put it down"):
+		return
+	for e4: EditLog.WorldEdit in AltarMove.place_edits(to):
+		EditLog.apply_to_data(data, e4)
+	var centre: Vector2 = (Vector2(to.position) + Vector2(1.5, 1.5)) * Config.TILE
+	r.expect(data.altar_rect == to and SafeZone.for_world(data).center == centre, "put down: the altar and its light there")
+	r.expect(WorldItems.reserved_feet(data).has(centre + Vector2(Config.SPAWN_SLOTS[0])), "the spawn slots follow it")
+	r.fields.append("altar=%d,%d" % [to.position.x, to.position.y])
+
+
 static func _check_light(r: Report) -> void:
 	var zone: SafeZone = SafeZone.for_world(SurfaceGen.generate(Config.DEFAULT_SEED))
 	var img: Image = LightGen.zone_light_image(zone, LightGen.Edge.HARD, 0)
@@ -484,6 +607,7 @@ static func _check_net(r: Report) -> void:
 	r.expect(has_net, "main.tscn has no Net node")
 	_check_net_combat(r, s)
 	_check_net_potions(r, s)
+	_check_net_fields(r)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -607,3 +731,70 @@ static func _check_net_potions(r: Report, s: NetProtocol.PlayerState) -> void:
 		"a poisoned heretic is drawn poisoned by a client (M6b)")
 	thrower.free()
 	r.fields.append("potion_wire=%dB/%dB" % [state_bytes, wire])
+
+
+## M5c: farming, purification and the altar on the wire: the three new requests on frames, a state with the channel in
+## its action bits and the carrier bit, a host farm's edits (a crop growing and withering after the altar left) applied to
+## a client's copy of the world through the edit encoding.
+static func _check_net_fields(r: Report) -> void:
+	var ch: NetProtocol.InputFrame = NetProtocol.InputFrame.new(31, Vector2i.ZERO)
+	ch.op = NetProtocol.Op.CHANNEL
+	var lift: NetProtocol.InputFrame = NetProtocol.InputFrame.new(32, Vector2i.ZERO)
+	lift.op = NetProtocol.Op.ALTAR_LIFT
+	lift.cell = Vector2i(62, 47)
+	lift.interact = true
+	var put: NetProtocol.InputFrame = NetProtocol.InputFrame.new(33, Vector2i.ZERO)
+	put.op = NetProtocol.Op.ALTAR_PLACE
+	put.cell = Vector2i(50, 47)
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([ch, lift, put] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 3 and up.frames[0].channel and up.frames[1].same_request(lift)
+		and up.frames[2].same_request(put), "CHANNEL, ALTAR_LIFT and ALTAR_PLACE round trip (M5c)")
+	var st: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	st.slot = 2
+	st.pos = Vector2(968.0, 254.0)
+	st.channel = 77
+	st.carrying = true
+	var bytes: PackedByteArray = NetProtocol.encode_states(90, [st] as Array[NetProtocol.PlayerState])
+	var back: NetProtocol.StateBatch = NetProtocol.decode_states(bytes)
+	var state_bytes: int = bytes.size() - NetProtocol.STATE_HEADER
+	r.expect(back.ok and back.states[0].same_as(st) and state_bytes == NetProtocol.STATE_SIZE,
+		"a channelling carrier's state round trips in %d B (M5c)" % state_bytes)
+	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var client: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var farm: Farm = Farm.new(host)
+	farm.stage_ticks_base = 2
+	var soil: Vector2i = Vector2i(-1, -1)
+	for y: int in host.size.y:
+		for x: int in host.size.x:
+			if soil.x < 0 and Farming.is_tilled(host, Vector2i(x, y)) and Farming.in_light(host, Vector2i(x, y)):
+				soil = Vector2i(x, y)
+	var edit_bytes: int = 0
+	var index: int = 0
+	var crop: Farming.Field = Farming.Field.new(Farming.KIND_HEALING, 0, true, false)
+	var seed_edit: EditLog.WorldEdit = EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, soil, crop.value())
+	var all: Array[EditLog.WorldEdit] = [seed_edit]
+	EditLog.apply_to_data(host, seed_edit)
+	farm.sync_cell(soil)
+	for t: int in 12:
+		all.append_array(_applied(host, farm.step()))
+	all.append_array(_applied(host, AltarMove.pickup_edits(host)))
+	all.append_array(_applied(host, farm.step()))
+	for e: EditLog.WorldEdit in all:
+		var wire: PackedByteArray = EditLog.encode_one(e, index, Config.MAP_SURFACE)
+		edit_bytes = wire.size()
+		var decoded: Array = EditLog.decode_one(wire)
+		var got: EditLog.WorldEdit = decoded[1]
+		EditLog.apply_to_data(client, got)
+		index += 1
+	var f: Farming.Field = Farming.field_at(client, soil)
+	r.expect(f != null and f.ripe() and f.withered and client.content_hash() == host.content_hash() and not client.altar_rect.has_area(),
+		"a farm's growth and its withering once the altar left reach a client's world as edits (M5c: %s)" % (
+		f.describe() if f != null else "none"))
+	r.fields.append("fields_wire=%dB/%dB" % [state_bytes, edit_bytes])
+
+
+## Applies `edits` to `data` and returns them.
+static func _applied(data: WorldData, edits: Array[EditLog.WorldEdit]) -> Array[EditLog.WorldEdit]:
+	for e: EditLog.WorldEdit in edits:
+		EditLog.apply_to_data(data, e)
+	return edits

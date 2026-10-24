@@ -104,6 +104,7 @@ class Hit:
 	var poison: bool = false
 
 var data: WorldData
+## The light rule's zone (SafeZone.for_world). M5b: worked out again when the altar moves (sync_world).
 var safe: SafeZone
 var map_id: int = Config.MAP_SURFACE
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -136,6 +137,10 @@ var occupied: bool = false
 ## while its tiles are still the shrine (checked per call, six tiles); `_shrine_data` = the data it is for.
 var _shrine: Rect2i = Rect2i()
 var _shrine_data: WorldData = null
+## M5b: the altar rect and the corrupted tile count the light rule and the spawn tiles were last worked out for
+## (sync_world).
+var _synced_altar: Rect2i = Rect2i()
+var _synced_corruption: int = 0
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -168,6 +173,28 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	shrine_hp = Config.SHRINE_HP if shrine_rect().has_area() else 0
 	shrine_flash = 0
 	spawn_cells = surface_spawn_cells(data, safe) if map_id == Config.MAP_SURFACE else dungeon_spawn_cells(data)
+	_synced_altar = data.altar_rect
+	_synced_corruption = Purify.corrupted_count(data)
+
+
+## M5b: the world the arena reads changed where it caches: the altar moved (picked up: no light; put down: a new light)
+## or corruption was purified. Then the light rule (`safe`) and, on the surface, the spawn tiles around the zones are
+## worked out again from the data (the dungeon's spawn tiles do not depend on either). Called first thing every step()
+## (cheap when nothing changed: the altar rect and a count of the corruption layer) and by whoever applied such edits.
+## Heretics keep their homes; none can be inside a new light (AltarMove.place_refusal). Returns whether it changed.
+func sync_world() -> bool:
+	if data == null:
+		return false
+	var corrupted: int = Purify.corrupted_count(data)
+	if data.altar_rect == _synced_altar and corrupted == _synced_corruption:
+		return false
+	_synced_altar = data.altar_rect
+	_synced_corruption = corrupted
+	safe = SafeZone.for_world(data)
+	if map_id == Config.MAP_SURFACE:
+		spawn_cells = surface_spawn_cells(data, safe)
+	count("world_synced")
+	return true
 
 
 ## Counter `key` (0 when it never counted).
@@ -225,6 +252,7 @@ func in_light(pos: Vector2) -> bool:
 ## edits it made (the caller applies them before anything else reads the world).
 func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
+	sync_world()  # M5b: the altar moved or corruption was purified since the last step
 	attacks_started = 0
 	occupied = not players.is_empty()
 	if shrine_flash > 0:

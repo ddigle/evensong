@@ -52,6 +52,11 @@ extends Node
 ## unreliable while they change, a reliable keyframe after and on entering) and the shots from the host's
 ## shot events (net/net_combat.gd). The host's own arenas are drawn by a CombatView per map.
 ##
+## M5c (farming, purification, the altar): the host keeps one Farm per map and steps it every tick; tilling, planting,
+## watering, harvesting, holy water, the paladin's channel and moving the altar are requests on the frames the host checks
+## and applies; fields, crops, purified ground and the altar's place are world edits (snapshots carry them), the channel
+## and the carried altar ride in the states.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,

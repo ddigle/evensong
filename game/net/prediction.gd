@@ -44,6 +44,12 @@ extends RefCounted
 ## effect. The effects are part of the Vitals (the effects block): a buff or a poison running down is stepped
 ## alike here and on the host (its walking speed, its poison ticks), but one put on (a drink's effect frame, a
 ## splash; or one made longer or stronger) is the host's event (effect_event), like a hit, and so is a heal.
+##
+## M5c: the paladin's purification channel is predicted like an action (a CHANNEL frame starts it, PlayerSim runs it, every
+## frame of it is recorded: the host's clock of it; a state carries its ticks and a mismatch is an action correction);
+## what it purifies, a crop that grows, the altar lifted or put down are the host's edits, never predicted. The respawn
+## follows the altar: at this player's slot around the altar where the client's world has it now (respawn_feet), and not
+## while it is carried (the host waits too).
 
 class Pending:
 	extends RefCounted
@@ -78,6 +84,8 @@ var other_map: int = 0
 ## M6b: a potion's effect) and their largest position error, timer mismatches without one (M6-fix: including the
 ## states the host made stepping a quiet client itself), respawns.
 var spawn_feet: Vector2 = Vector2.ZERO
+## M5c: this player's spawn slot (Config.SPAWN_SLOTS; -1 = respawn at spawn_feet): the respawn follows the altar.
+var spawn_slot: int = -1
 var event_corrections: int = 0
 var max_event_error_px: float = 0.0
 var vitals_corrections: int = 0
@@ -119,14 +127,15 @@ func step(dir: Vector2i) -> NetProtocol.InputFrame:
 ## One local tick: `frame` (look, request; a USE resolved into `anim` by the caller) is stepped at
 ## once. Returns it numbered when it was recorded (see the class comment), or null.
 func step_frame(frame: NetProtocol.InputFrame) -> NetProtocol.InputFrame:
-	var was_acting: bool = sim.action >= 0
+	var was_acting: bool = sim.action >= 0 or sim.channel_tick > 0
 	var facing_before: int = sim.facing
 	var idle_before: bool = sim.vit.idle()
 	_after_step(sim.step(data, frame.dir, frame.look, frame.anim, frame.cell, Config.NET_TICK, frame.dash, frame.interact,
-		frame.aim))
+		frame.aim, channel_on_map(frame)))
+	# M5c: every frame of a purification channel too (they are the host's clock of it, like an action's).
 	var recorded: bool = frame.dir != Vector2i.ZERO or _last_dir != Vector2i.ZERO or frame.op != NetProtocol.Op.NONE \
-		or was_acting or sim.action >= 0 or sim.facing != facing_before or frame.dash or frame.interact or _last_interact \
-		or not idle_before or not sim.vit.idle()
+		or was_acting or sim.action >= 0 or sim.channel_tick > 0 or sim.facing != facing_before or frame.dash \
+		or frame.interact or _last_interact or not idle_before or not sim.vit.idle()
 	_last_dir = frame.dir
 	_last_interact = frame.interact
 	if not recorded:
@@ -194,7 +203,8 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 		or predicted.vit.revive_ticks != host.vit.revive_ticks or effect_event(predicted.vit, host.vit)
 	if event:
 		if error > 0.0 or predicted.facing != state.facing or predicted.action != state.action \
-				or predicted.action_tick != state.action_tick or not predicted.vit.same_wire(host.vit):
+				or predicted.action_tick != state.action_tick or predicted.channel_tick != state.channel \
+				or not predicted.vit.same_wire(host.vit):
 			event_corrections += 1
 		max_event_error_px = maxf(max_event_error_px, error)
 		error = 0.0
@@ -203,8 +213,9 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 			corrections += 1
 		if predicted.facing != state.facing:
 			facing_corrections += 1
-		if predicted.action != state.action or predicted.action_tick != state.action_tick:
-			action_corrections += 1
+		if predicted.action != state.action or predicted.action_tick != state.action_tick \
+				or predicted.channel_tick != state.channel:
+			action_corrections += 1  # M5c: the purification channel counts as an action here
 		if not predicted.vit.same_wire(host.vit):
 			vitals_corrections += 1
 			last_vitals_mismatch = "ack %d: predicted %s flash %d / host %s flash %d" % [state.ack, predicted.vit.describe(),
@@ -252,17 +263,32 @@ func _replay(from: PlayerSim) -> void:
 	sim = from.copy()
 	for p: Pending in pending:
 		_after_step(sim.step(data, p.frame.dir, p.frame.look, anim_on_map(p.frame), p.frame.cell, Config.NET_TICK,
-			p.frame.dash, p.frame.interact, p.frame.aim), false)
+			p.frame.dash, p.frame.interact, p.frame.aim, channel_on_map(p.frame)), false)
 		p.after = sim.copy()
 
 
 ## M4b: what the host does after a step that the prediction does too: the respawn at the spawn slot (on
-## the surface; from another map the host sends the surface and switch_map takes over).
+## the surface; from another map the host sends the surface and switch_map takes over). M5c: at the spawn slot of the
+## altar where the client's world has it now (it moves), and not while it is carried (the host waits too).
 func _after_step(events: int, count: bool = true) -> void:
-	if events & PlayerSim.RESPAWN and map == Config.MAP_SURFACE:
-		sim.respawn(spawn_feet)
+	if events & PlayerSim.RESPAWN and map == Config.MAP_SURFACE and data != null and data.altar_rect.has_area():
+		sim.respawn(respawn_feet())
 		if count:
 			respawns += 1
+
+
+## M5c: where this player respawns: its spawn slot around the altar as the client's world has it (GameWorld.spawn_point's
+## rule), or `spawn_feet` when no slot was set (tests that set the feet themselves).
+func respawn_feet() -> Vector2:
+	if spawn_slot < 0 or data == null or not data.altar_rect.has_area():
+		return spawn_feet
+	return data.altar_center_px() + Vector2(Config.SPAWN_SLOTS[spawn_slot % Config.SPAWN_SLOTS.size()])
+
+
+## M5c: whether frame `f` starts the purification channel on this map (a CHANNEL aimed on another map is refused by the
+## host, like a use).
+func channel_on_map(f: NetProtocol.InputFrame) -> bool:
+	return f.channel and not (NetProtocol.op_has_map(f.op) and f.map != map)
 
 
 ## The action frame `f` starts on this map: its own, unless it is a request aimed on another map.
@@ -280,6 +306,9 @@ static func _sim_of(state: NetProtocol.PlayerState) -> PlayerSim:
 	host.action = state.action
 	host.action_tick = state.action_tick
 	host.vit = state.vitals_or_full()
+	host.channel_tick = state.channel  # M5c: around the feet tile (a channel never moves)
+	if state.channel > 0:
+		host.channel_cell = Aim.feet_cell(state.pos)
 	return host
 
 

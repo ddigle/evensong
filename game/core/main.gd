@@ -61,6 +61,24 @@ extends Node2D
 ## predicted: the host's inventory comes back), drinking and throwing are frames the session sends (the
 ## client predicts the action, the host decides the effect); the alchemy table is placed like a torch, by the
 ## host. A bot's tab / craft in a session come here through NetSession.bot_ui.
+## M5a (offline; M5c: a session's farms are the host's, net/session_host.gd): each map has a Farm (world/farm.gd), stepped every physics
+## tick after the players (Config.FARM_RUNS_WITHOUT_PLAYERS: every map, the local player's or not); its edits go into
+## the world. The hoe's landing frame tills the target tile, the watering can's waters it, the sickle aimed at a crop
+## harvests it (Farming.is_harvest_swing; elsewhere it attacks as before), a click with seeds plants them (Player.
+## place_requested, like the torch), a wild herb picked gives a seed (Config.SEEDS_PER_WILD_HERB). --test-field puts
+## fields down at the start (screenshots, tests).
+## M5b (offline; M5c: in a session the host does all of it): holy water's effect frame purifies the corrupted tiles around
+## the target (Purify.pour); F with nothing to pick up on the target tile starts the paladin's purification channel when
+## corruption is on or next to the feet tile (Purify.channel_refusal, Player.request_channel); a finished channel purifies
+## around its tile (Purify.channel_done). F held Config.ALTAR_PICKUP_HOLD_TICKS on an altar tile picks the altar up
+## (AltarMove; the player carries it: no light, no safe zone, nobody respawns meanwhile), a click puts it down where
+## AltarMove.place_refusal allows (an AltarGhost shows where), and the carrier going down sets it down nearby
+## (AltarMove.set_down_rect). Whatever follows the altar follows the world (GameWorld.altar_moved: the light; the arena
+## syncs itself; the dummies stand on the new spawn slots).
+## M5c (sessions): the local player farms, purifies and carries the altar with the same keys; the frames carry the
+## requests (a seed's or holy water's USE, CHANNEL, ALTAR_LIFT, ALTAR_PLACE: net/session_host.gd) and the host decides.
+## Main shows what this machine has: the channels' motes (_show_purify, from the players' states) and the ghost while
+## the local player carries the altar (from the host's state).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -82,6 +100,16 @@ var combat_views: Dictionary[int, CombatView] = {}
 var allies: Array[Player] = []
 var deaths: int = 0
 var combat_on: bool = false
+## M5a (offline): a farm per map.
+var farms: Dictionary[int, Farm] = {}
+var farming_on: bool = false
+## M5b (offline): purification and moving the altar on; where the carried altar would go down; how many tiles were
+## purified and how often the altar moved (logs, tests); players whose respawn waits for the altar (logged once).
+var purify_on: bool = false
+var ghost: AltarGhost
+var purified: int = 0
+var altar_moves: int = 0
+var _respawn_waiting: Dictionary[int, bool] = {}
 var _gave: bool = false
 var _debug_action: int = 0
 
@@ -102,6 +130,10 @@ func _ready() -> void:
 	marker.name = &"TargetMarker"
 	world.add_child(marker)
 	world.move_child(marker, world.entities.get_index())
+	ghost = AltarGhost.new()
+	world.add_child(ghost)
+	world.move_child(ghost, world.entities.get_index())  # M5b: where the carried altar would go
+	world.altar_moved.connect(_on_altar_moved)
 	worlds[Config.MAP_SURFACE] = world
 	if options.host or options.join:
 		get_window().title = "Evensong (%s, %s)" % ["host" if options.host else "client",
@@ -118,6 +150,8 @@ func _ready() -> void:
 	add_dungeon()
 	spawn(options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS)
 	setup_combat()
+	setup_farming()
+	purify_on = true  # M5b (offline; M5c: a session's is the host's)
 	_apply_test_options(options)
 	if not options.bot.is_empty():
 		bot = NetBot.new()
@@ -177,6 +211,9 @@ func travel(to: int) -> bool:
 	if worlds[to].data == null:
 		print("EVENSONG_MAP travel refused to=%s: that map was never received" % Config.MAP_NAMES[to])
 		return false
+	if player.carrying_altar:
+		print("EVENSONG_MAP travel refused to=%s: %s" % [Config.MAP_NAMES[to], AltarMove.WHY_CARRYING])  # M5b
+		return false
 	_show_map(to)
 	var w: GameWorld = worlds[to]
 	player.get_parent().remove_child(player)
@@ -194,10 +231,16 @@ func _physics_process(delta: float) -> void:
 		return
 	_check_crafting()  # M6b: in a session too
 	if _in_session():
+		_show_altar_ghost(player)  # M5c: where the carried altar would go down (the host decides)
+		_show_purify()  # M5c: the channels under way, from the players' states
 		return
 	if bot != null:
 		_bot_tick(delta)
+	step_altar_hold(player)
 	step_combat(delta)
+	check_carriers()  # M5-fix: after the combat, like the host (SessionHost.tick: arenas, then _check_carriers)
+	step_farms()
+	_show_purify()
 
 
 func _bot_tick(delta: float) -> void:
@@ -211,6 +254,7 @@ func _bot_tick(delta: float) -> void:
 	for p: Player in players_on(current_map):
 		if p.vitals.life == Vitals.Life.DOWN:
 			bot.downed.append(p.sim_position)
+	bot.world = player.data  # M5c: waitfield
 	var a: NetBot.Action = bot.step(player.sim_position)
 	if a.tab:
 		toggle_tab()  # M6a
@@ -247,6 +291,8 @@ func spawn(local_class: String) -> void:
 	player.name = &"LocalPlayer"
 	player.controls = true
 	player.potions_on = true  # M6a: offline only until M6b
+	player.farming_on = true  # M5a (M5c: a session's local player too, _on_local_player_ready)
+	player.purify_on = true  # M5b (M5c: likewise)
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
 	player.action_started.connect(_on_action_started)
@@ -256,6 +302,7 @@ func spawn(local_class: String) -> void:
 	player.died.connect(_on_died.bind(player))
 	player.respawn_due.connect(_on_respawn_due.bind(player))
 	player.hurt.connect(_on_hurt.bind(player))
+	_connect_purify(player)
 	world.entities.add_child(player)
 	var slot: int = 1
 	for class_id: String in Config.CLASSES:
@@ -310,6 +357,8 @@ func _bind(p: Player) -> void:
 func _on_local_player_ready(p: Player) -> void:
 	player = p
 	p.potions_on = true  # M6b: drinking and throwing in sessions (the host decides the effect)
+	p.farming_on = true  # M5c: farming, purifying and carrying the altar in sessions (the host decides the result)
+	p.purify_on = true
 	for pair: Array in [[p.action_started, _on_action_started], [p.action_impact, _on_action_impact],
 			[p.place_requested, _on_place_requested], [p.potion_refused, _on_potion_refused]]:
 		var sig: Signal = pair[0]
@@ -408,8 +457,30 @@ func pick_up() -> void:
 	if to >= 0:
 		travel(to)  # refused (and logged) for a map never received; F on a way is never a pick up
 		return
-	_apply_offline(WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell),
-		"pickup", cell)
+	var o: WorldItems.Outcome = WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell)
+	if not o.ok() and o.why == WorldItems.WHY_NOTHING and purify_on and not player.carrying_altar \
+			and not AltarMove.is_altar_cell(data, cell) \
+			and Purify.channel_refusal(data, player.class_id(), player.sim_position).is_empty():
+		# M5b: F with nothing to pick up, on or next to corruption: the paladin's channel. M5-fix: not F aimed at the altar
+		# (that F is the altar's: holding it lifts the altar, PROVISIONAL README "M5b 키").
+		player.request_channel()
+		return
+	_apply_offline(o, "pickup", cell)
+	if o.ok() and o.gathered and farming_on:
+		seed_from_wild(player.inventory, o.item)
+
+
+## M5a (offline): a wild herb picked where it grew gives Config.SEEDS_PER_WILD_HERB seeds of its crop (PROVISIONAL: the
+## one way to seeds before the merchant, M8; the harvest gives seeds back). What does not fit is not given. Returns how
+## many went in.
+static func seed_from_wild(inv: Inventory, herb: StringName) -> int:
+	var kind: int = Farming.herb_kind(herb)
+	if kind == Farming.KIND_NONE or Config.SEEDS_PER_WILD_HERB <= 0:
+		return 0
+	var n: int = Farming.seeds_from_wild(inv, herb)  # M5c: the host's rule too
+	print("EVENSONG_FARM seed from=%s item=%s count=%d%s" % [herb, Farming.SEEDS[kind], n,
+		"" if n == Config.SEEDS_PER_WILD_HERB else " (inventory full)"])
+	return n
 
 
 ## F7 (debug): drop the selected stack on the target tile (M4a: not while down or dead).
@@ -466,7 +537,13 @@ func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 	if Potions.is_potion(item):
 		potion_impact(player, item, anim)  # M6a
 		return
+	if purify_on and Purify.is_holy_water(item):
+		holy_water_impact(player, target)  # M5b
+		return
 	var w: GameWorld = current_world()
+	if farming_on and (item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(w.data, item, target)):
+		farm_impact(player, item, target)  # M5a: the sickle aimed at a crop harvests instead of attacking
+		return
 	if Combat.attack_for(item) != null and not Combat.is_mining_swing(w.data, item, target):
 		_attack(player, item)
 		return
@@ -546,6 +623,13 @@ func players_on(map_id: int) -> Array[Player]:
 	var w: GameWorld = _live_world(map_id)
 	if w == null:
 		return out
+	if _in_session():
+		# M5c: the session's players on that map as this machine has them (a client: the others drawn there).
+		for slot: int in net.slots():
+			var m: NetMember = net.members[slot]
+			if m.map_id == map_id and m.player != null and is_instance_valid(m.player) and (m == net.local or m.player.visible):
+				out.append(m.player)
+		return out
 	if player != null and is_instance_valid(player) and player.data == w.data:
 		out.append(player)
 	for a: Player in allies:
@@ -608,6 +692,8 @@ func _log_edit(e: EditLog.WorldEdit) -> void:
 
 func _on_hurt(amount: int, downed: bool, p: Player) -> void:
 	print("EVENSONG_COMBAT hurt who=%s amount=%d hp=%d%s" % [p.name, amount, p.vitals.hp, " DOWN" if downed else ""])
+	# M5b: a carrier that went down sets the altar down nearby. M5-fix: not here in the middle of the arena's step (its
+	# heretics half moved) but once the tick's combat is over (check_carriers), in the host's order.
 
 
 ## M4a: player `p` died (down time over, or gave up): part of its materials and consumables fall in a
@@ -629,6 +715,14 @@ func _on_died(p: Player) -> void:
 ## 제단"), facing Config.SPAWN_FACING, full (Config.RESPAWN_HP).
 func _on_respawn_due(p: Player) -> void:
 	var slot: int = 0 if p == player else 1 + allies.find(p)
+	if not world.data.altar_rect.has_area():
+		# M5b (PROVISIONAL README "M5b 들고 있는 동안"): the altar is carried, so there is no altar to respawn at; the dead
+		# wait (the respawn is due again every frame, PlayerSim.step) until it is down again.
+		if not _respawn_waiting.has(p.get_instance_id()):
+			_respawn_waiting[p.get_instance_id()] = true
+			print("EVENSONG_DEATH respawn waits who=%s: no altar (carried)" % p.name)
+		return
+	_respawn_waiting.erase(p.get_instance_id())
 	if p == player and current_map != Config.MAP_SURFACE:
 		_show_map(Config.MAP_SURFACE)
 	if p.get_parent() != world.entities:
@@ -660,7 +754,19 @@ func _go_offline_combat() -> void:
 	player.potions_on = true
 	if not player.potion_refused.is_connected(_on_potion_refused):
 		player.potion_refused.connect(_on_potion_refused)
+	# M5-fix: the host went while someone else carried the altar (the host itself, or another client): this world has no
+	# altar and nobody here to put it down. It comes back where it last stood (GameWorld.last_altar_rect), or the nearest
+	# allowed place around it (PROVISIONAL README "M5c 호스트를 잃었을 때 제단"), before the offline arena takes its light.
+	if not world.data.altar_rect.has_area() and not player.carrying_altar:
+		restore_altar(world, bodies_on(Config.MAP_SURFACE))
 	setup_combat()
+	# M5a: and farming (the fields the host's world had, with fresh timers: Farm.setup).
+	player.farming_on = true
+	setup_farming()
+	# M5b: and purification, moving the altar.
+	player.purify_on = true
+	purify_on = true
+	_connect_purify(player)
 
 
 ## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
@@ -681,9 +787,15 @@ func add_ally(class_id: String, down: bool) -> Player:
 
 
 ## M3a, offline: a click with a torch selected puts it on the target tile. M6a: the same for the alchemy table
-## (its footprint may not cover anyone: the other players and the heretics on the map are passed along).
+## (its footprint may not cover anyone: the other players and the heretics on the map are passed along). M5a: seeds
+## are planted (Farm.plant).
 func _on_place_requested(slot: int, cell: Vector2i) -> void:
 	if _in_session() or player == null:
+		return
+	if farming_on and Farming.seed_kind_in(player.inventory, slot) != Farming.KIND_NONE:
+		if ensure_farm(current_map):
+			_apply_farm(farms[current_map], farms[current_map].plant(player.sim_position, player.class_id(), player.inventory,
+				slot, cell), "plant", cell, player)
 		return
 	var bodies: Array[Vector2] = []
 	for p: Player in players_on(current_map):
@@ -822,6 +934,358 @@ func _on_potion_refused(what: String, why: String) -> void:
 	print("EVENSONG_POTION %s refused: %s" % [what, why])
 
 
+# --- M5a: farming (offline) -------------------------------------------------------------------------------
+
+## A farm for every map (offline only, like the arenas; M5c: a session's farms are the host's, SessionHost.farm_of).
+func setup_farming() -> void:
+	farming_on = true
+	for id: int in worlds:
+		ensure_farm(id)
+
+
+## Map `id`'s farm, (re)made when missing or when its world got other data (tests swap worlds).
+func ensure_farm(id: int) -> bool:
+	var w: GameWorld = _live_world(id)
+	if not farming_on or w == null or w.data == null:
+		return false
+	if not farms.has(id) or farms[id].data != w.data:
+		farms[id] = Farm.new(w.data)
+		farms[id].stage_ticks_base = CliOptions.current().test_crop_ticks  # M5c: 0 unless --test-crop-ticks
+	return true
+
+
+## One farm tick on every map (Config.FARM_RUNS_WITHOUT_PLAYERS; false: only where a player is), in map order; the
+## edits go into each map's world.
+func step_farms() -> void:
+	if not farming_on:
+		return
+	var ids: Array[int] = []
+	ids.assign(worlds.keys())
+	ids.sort()
+	for id: int in ids:
+		if not ensure_farm(id):
+			continue
+		if not Config.FARM_RUNS_WITHOUT_PLAYERS and players_on(id).is_empty():
+			continue
+		var w: GameWorld = worlds[id]
+		for e: EditLog.WorldEdit in farms[id].step():
+			var was: Farming.Field = Farming.field_at(w.data, e.cell)
+			w.apply_edit(e)
+			_log_field_change(was, Farming.Field.of(e.value), e.cell)
+
+
+func _log_field_change(was: Farming.Field, now: Farming.Field, c: Vector2i) -> void:
+	if was == null or now == null or now.kind == Farming.KIND_NONE:
+		return
+	if now.stage != was.stage:
+		print("EVENSONG_FARM grew at=%d,%d crop=%s stage=%d" % [c.x, c.y, Farming.CROP_NAMES[now.kind], now.stage])
+	if now.withered != was.withered:
+		print("EVENSONG_FARM %s at=%d,%d crop=%s stage=%d" % ["withered" if now.withered else "revived", c.x, c.y,
+			Farming.CROP_NAMES[now.kind], now.stage])
+
+
+## The hoe's / the watering can's landing frame, or the sickle's on a crop (Farming.is_harvest_swing), for player `p`
+## on the local player's map.
+func farm_impact(p: Player, item: StringName, target: Vector2i) -> void:
+	if not ensure_farm(current_map):
+		return
+	var farm: Farm = farms[current_map]
+	if item == Farming.HOE:
+		_apply_farm(farm, farm.till(p.sim_position, target), "till", target, p)
+	elif item == Farming.WATERING_CAN:
+		_apply_farm(farm, farm.water(p.sim_position, target), "water", target, p)
+	else:
+		_apply_farm(farm, farm.harvest(p.sim_position, p.class_id(), p.inventory, target), "harvest", target, p)
+
+
+func _apply_farm(farm: Farm, r: Farm.Result, what: String, cell: Vector2i, p: Player) -> void:
+	var w: GameWorld = _world_of(p)
+	if w == null:
+		w = current_world()
+	if not r.ok():
+		print("EVENSONG_FARM %s refused at=%d,%d class=%s: %s" % [what, cell.x, cell.y, p.class_id(), r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		w.apply_edit(e)
+	var f: Farming.Field = Farming.field_at(farm.data, cell)
+	var line: String = "EVENSONG_FARM %s at=%d,%d class=%s" % [what, cell.x, cell.y, p.class_id()]
+	if what == "harvest":
+		line += " item=%s count=%d grade=%s seeds=%d dropped=%d lost=%d" % [r.item, r.count, ItemDB.GRADE_NAMES[r.grade],
+			r.seeds, r.dropped, r.lost]
+	elif what == "plant":
+		line += " item=%s" % r.item
+	print(line + (" field=%s" % f.describe() if f != null else " field=none"))
+
+
+## --test-field (screenshots, tests): fields put down on the start map at the start, past the farming rules (outside the
+## light too) but never next to ash (the terrain rule). The farm takes them as they are; one there withers on its first
+## tick if it is outside the light or next to corruption.
+func apply_test_fields(entries: Array[Array]) -> void:
+	if not ensure_farm(current_map):
+		return
+	put_test_fields(current_world(), farms[current_map], entries)
+
+
+## The --test-field entries into world `w` (data and views, no edit log) and its farm `farm` (M5c: the host's start too).
+static func put_test_fields(w: GameWorld, farm: Farm, entries: Array[Array]) -> void:
+	for entry: Array in entries:
+		var c: Vector2i = entry[0]
+		var kind: int = entry[1]
+		var stage: int = entry[2]
+		var is_wet: bool = entry[3]
+		var fast: bool = entry[4]
+		if not w.data.in_bounds(c) or (w.data.terrain_at(c) != Terrain.SOIL and not w.data.can_set_terrain(c, Terrain.SOIL)):
+			print("EVENSONG_FARM test field refused at=%d,%d: not soil, cannot be (ash next to it)" % [c.x, c.y])
+			continue
+		w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c, Terrain.SOIL))
+		var f: Farming.Field = Farming.Field.new(kind, stage, is_wet, fast)
+		w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, f.value()))
+		farm.sync_cell(c)
+
+
+# --- M5b: purification and moving the altar (offline) -------------------------------------------------------------
+
+func _connect_purify(p: Player) -> void:
+	for pair: Array in [[p.channel_started, _on_channel_started], [p.channel_done, _on_channel_done],
+			[p.channel_broken, _on_channel_broken], [p.purify_refused, _on_purify_refused],
+			[p.altar_place_requested, _on_altar_place_requested]]:
+		var sig: Signal = pair[0]
+		var handler: Callable = pair[1]
+		if not sig.is_connected(handler):
+			sig.connect(handler)
+
+
+## Holy water's effect frame for player `p` on tile `target` (Purify.pour: checked again, one used, the area purified).
+func holy_water_impact(p: Player, target: Vector2i) -> void:
+	var w: GameWorld = _world_of(p)
+	if w == null:
+		return
+	apply_purify(w, Purify.pour(w.data, p.sim_position, p.inventory, p.action_slot, target), "holy water", target, p)
+
+
+## A purification's edits go into world `w` (data and views), the purified tiles flash, the arena follows the corruption
+## (Arena.sync_world: its spawn tiles), and a log line.
+func apply_purify(w: GameWorld, r: Purify.Result, what: String, cell: Vector2i, p: Player) -> void:
+	if not r.ok():
+		print("EVENSONG_PURIFY %s refused at=%d,%d class=%s: %s" % [what, cell.x, cell.y, p.class_id(), r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		w.apply_edit(e)
+	w.purify_view.flash(r.cells)
+	purified += r.cells.size()
+	var spawn_tiles: int = -1
+	if ensure_combat(w.map_id):
+		arenas[w.map_id].sync_world()
+		spawn_tiles = arenas[w.map_id].spawn_cells.size()
+	print("EVENSONG_PURIFY %s at=%d,%d class=%s tiles=%d corrupted_left=%d spawn_tiles=%d" % [what, cell.x, cell.y,
+		p.class_id(), r.cells.size(), Purify.corrupted_count(w.data), spawn_tiles])
+
+
+func _on_channel_started(cell: Vector2i) -> void:
+	print("EVENSONG_PURIFY channel start at=%d,%d class=%s ticks=%d" % [cell.x, cell.y, player.class_id(),
+		Config.PURIFY_CHANNEL_TICKS])
+
+
+func _on_channel_done(cell: Vector2i) -> void:
+	var w: GameWorld = _world_of(player)
+	if w == null:
+		return
+	apply_purify(w, Purify.channel_done(w.data, cell), "channel", cell, player)
+
+
+func _on_channel_broken(why: String) -> void:
+	print("EVENSONG_PURIFY channel broken: %s" % why)
+
+
+func _on_purify_refused(what: String, why: String) -> void:
+	print("EVENSONG_PURIFY %s refused: %s" % [what, why])
+
+
+## F held aimed at an altar tile (Config.ALTAR_PICKUP_HOLD_TICKS, AltarMove.pickup_refusal) picks the altar up; letting go
+## or aiming away starts the count over. Then, while `p` carries it, the ghost shows where a click would put it.
+## M5-fix: a frame counts only by AltarMove.hold_counts (no action, no channel running, no downed player in revive reach:
+## the host's rule, so a channel can never finish while its paladin carries the altar, and a revive never lifts it).
+func step_altar_hold(p: Player) -> void:
+	if not purify_on or p == null or not is_instance_valid(p):
+		return
+	var w: GameWorld = _world_of(p)
+	if w == null:
+		return
+	if not p.carrying_altar:
+		if p.interact_held and AltarMove.hold_counts(p, players_on(w.map_id)) \
+				and AltarMove.pickup_refusal(w.data, p.class_id(), p.sim_position, p.aim_cell).is_empty():
+			p.altar_hold_ticks += 1
+			if p.altar_hold_ticks >= Config.ALTAR_PICKUP_HOLD_TICKS:
+				pick_up_altar(p)
+		else:
+			p.altar_hold_ticks = 0
+	_show_altar_ghost(p)
+
+
+## While player `p` carries the altar the ghost shows where a click would put it down, gold where the placing rules allow
+## (on this machine's world: in a session the host decides, M5c), dark red where not; nothing otherwise.
+func _show_altar_ghost(p: Player) -> void:
+	if ghost == null or p == null or not is_instance_valid(p):
+		return
+	var w: GameWorld = _world_of(p)
+	if w == null or not p.carrying_altar:
+		ghost.show_at(Rect2i(), false)
+		return
+	var rect: Rect2i = AltarMove.place_rect(p.sim_position, p.aim_cell)
+	ghost.show_at(rect, AltarMove.place_refusal(w.data, rect, bodies_on(w.map_id), heretics_on(w.map_id)).is_empty())
+
+
+## Player `p` takes the altar out of the world and carries it (AltarMove.pickup_edits).
+func pick_up_altar(p: Player) -> void:
+	var w: GameWorld = _world_of(p)
+	if w == null or not w.data.altar_rect.has_area():
+		return
+	var from: Rect2i = w.data.altar_rect
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(w.data):
+		w.apply_edit(e)  # the world keeps where it stood (GameWorld.last_altar_rect: the set-down's last fallback)
+	p.altar_hold_ticks = 0
+	p.set_carrying_altar(true)
+	print("EVENSONG_ALTAR picked up who=%s class=%s from=%d,%d" % [p.name, p.class_id(), from.position.x, from.position.y])
+
+
+## The feet of the players on map `map_id` (bodies a footprint may not cover) and of its live heretics.
+func bodies_on(map_id: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for q: Player in players_on(map_id):
+		out.append(q.sim_position)
+	return out
+
+
+func heretics_on(map_id: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if _in_session():
+		return net.bots.foe_positions() if map_id == net.local_map() else out  # M5c: as this machine has them
+	if arenas.has(map_id):
+		for h: HereticSim in arenas[map_id].heretics:
+			if h.alive():
+				out.append(h.pos)
+	return out
+
+
+func _on_altar_place_requested(cell: Vector2i) -> void:
+	place_altar(player, cell)
+
+
+## Player `p` carrying the altar puts it down aiming at tile `cell` (AltarMove.place_rect / place_refusal). Returns ""
+## or why not.
+func place_altar(p: Player, cell: Vector2i) -> String:
+	var w: GameWorld = _world_of(p)
+	if w == null or not p.carrying_altar:
+		return AltarMove.WHY_NO_ALTAR
+	var rect: Rect2i = AltarMove.place_rect(p.sim_position, cell)
+	var why: String = AltarMove.place_refusal(w.data, rect, bodies_on(w.map_id), heretics_on(w.map_id))
+	if not why.is_empty():
+		print("EVENSONG_ALTAR place refused at=%d,%d who=%s: %s" % [rect.position.x, rect.position.y, p.name, why])
+		return why
+	_put_altar(w, p, rect, "placed")
+	return ""
+
+
+## The carrier `p` went down: the altar comes down at the nearest allowed place around it (AltarMove.set_down_fallback:
+## then ignoring the heretics, then around where it last stood, GameWorld.last_altar_rect). M5-fix: never over anything,
+## and when nothing allows it (no place within Config.ALTAR_SET_DOWN_SEARCH_TILES of either) `p` keeps it (logged once;
+## README "알려진 문제 (M5-fix)"). Returns whether it came down.
+func set_altar_down(p: Player) -> bool:
+	var w: GameWorld = _world_of(p)
+	if w == null:
+		return false
+	var rect: Rect2i = AltarMove.set_down_fallback(w.data, p.sim_position, w.last_altar_rect, bodies_on(w.map_id),
+		heretics_on(w.map_id))
+	if not rect.has_area():
+		p.altar_set_down_failed = true
+		print("EVENSONG_ALTAR set down failed who=%s: no place allows it, still carried" % p.name)
+		return false
+	_put_altar(w, p, rect, "set down")
+	return true
+
+
+## M5-fix: every carrier that is down or dead now sets the altar down, once a tick after the combat (offline
+## _physics_process; the host's SessionHost._check_carriers). A carrier for whom no place was found tries again once it
+## is up again (Player.altar_set_down_failed).
+func check_carriers() -> void:
+	if not purify_on:
+		return
+	var all: Array[Player] = [player]
+	all.append_array(allies)
+	for p: Player in all:
+		if p == null or not is_instance_valid(p) or not p.carrying_altar:
+			continue
+		if p.vitals.alive():
+			p.altar_set_down_failed = false
+		elif not p.altar_set_down_failed:
+			set_altar_down(p)
+
+
+## M5-fix: world `w` has no altar and nobody here carries it (a client playing on after it lost the host while the host
+## or another client carried it): it comes back where it last stood (`w.last_altar_rect`), or at the nearest place the
+## placing rules allow around that (with `bodies`, ignoring heretics: the offline arena is not set up yet), or, with no
+## place known (joined while it was carried), around the local player. Returns the footprint, empty when none allowed
+## it (then a respawn waits as while it is carried; logged).
+func restore_altar(w: GameWorld, bodies: Array[Vector2]) -> Rect2i:
+	var from: Vector2 = player.sim_position if player != null and is_instance_valid(player) and player.data == w.data \
+		else Vector2(w.data.size * Config.TILE) / 2.0
+	return restore_altar_at(w, from, bodies)
+
+
+## restore_altar's work: where it last stood if the placing rules allow (with `bodies`), else the nearest allowed place
+## around that, else around `from` (AltarMove.set_down_fallback, home first); the edits go into `w`.
+static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2]) -> Rect2i:
+	var none: Array[Vector2] = []
+	var rect: Rect2i = AltarMove.set_down_fallback(w.data, from, w.last_altar_rect, bodies, none, true)
+	if not rect.has_area():
+		print("EVENSONG_ALTAR restore failed: no place allows it (last stood %s)" % w.last_altar_rect)
+		return rect
+	for e: EditLog.WorldEdit in AltarMove.place_edits(rect):
+		w.apply_edit(e)
+	print("EVENSONG_ALTAR restored at=%d,%d (the host went while it was carried) light=%d,%d" % [rect.position.x,
+		rect.position.y, roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
+	return rect
+
+
+func _put_altar(w: GameWorld, p: Player, rect: Rect2i, what: String) -> void:
+	for e: EditLog.WorldEdit in AltarMove.place_edits(rect):
+		w.apply_edit(e)
+	p.set_carrying_altar(false)
+	ghost.show_at(Rect2i(), false)
+	altar_moves += 1
+	print("EVENSONG_ALTAR %s at=%d,%d who=%s light=%d,%d" % [what, rect.position.x, rect.position.y, p.name,
+		roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
+
+
+## The surface's altar moved (GameWorld.altar_moved): the arena works out its light and spawn tiles again, and the
+## dummies stand on the new spawn slots facing it (they stay where they were while it is carried).
+func _on_altar_moved() -> void:
+	if arenas.has(Config.MAP_SURFACE):
+		arenas[Config.MAP_SURFACE].sync_world()
+	if not world.data.altar_rect.has_area():
+		return
+	var slot: int = 1
+	for d: Character in dummies:
+		if not is_instance_valid(d) or not d.name.begins_with("Dummy_"):
+			continue
+		d.position = world.spawn_point(slot)
+		d.direction = RigData.facing_toward(d.position, world.data.altar_center_px()) as RigData.Dir
+		slot += 1
+
+
+## The channels under way on the shown map, for its PurifyView (one per channelling player).
+func _show_purify() -> void:
+	var w: GameWorld = current_world()
+	if w == null or w.purify_view == null:
+		return
+	var list: Array[PurifyView.Channel] = []
+	for q: Player in players_on(current_map):
+		if q.channel_tick > 0:
+			list.append(PurifyView.Channel.new(q.channel_cell, q.channel_tick))
+	if not list.is_empty() or not w.purify_view.channels.is_empty():
+		w.purify_view.show_channels(list)
+
+
 func _on_action_started(item: StringName, anim: int, target: Vector2i) -> void:
 	if _in_session():
 		return  # the session logs actions itself
@@ -858,6 +1322,8 @@ func _apply_test_options(options: CliOptions) -> void:
 		for c: Vector2i in options.test_heretics:
 			arenas[current_map].spawn_heretic(Arena.spawn_feet(c))
 		combat_views[current_map].sync(players_on(current_map))
+	if not options.test_fields.is_empty():
+		apply_test_fields(options.test_fields)  # M5a
 	if arenas.has(Config.MAP_DUNGEON):
 		for c: Vector2i in options.test_dungeon_heretics:
 			arenas[Config.MAP_DUNGEON].spawn_heretic(Arena.spawn_feet(c))

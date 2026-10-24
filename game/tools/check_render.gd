@@ -67,6 +67,34 @@ extends SceneTree
 ##            state with its effects block) sampled at the host's tick: the same pixels, with the bottle, the splash
 ##            and the marks there. Then the crafting panel a client opens at a table that came in a world snapshot,
 ##            for the inventory that came in an inventory message: the same pixels as the panel opened offline.
+##   fields   (M5a) evening off, around the altar: lit grass tilled (floor edits) next to the M1 soil patches, the entities
+##            hidden: the ground equals a CPU composite of the tile each display cell shows, read from the PNG files
+##            (soil drawn as soil). Then crops of the three kinds at stages 0..4 and withered, some wet, and wet bare
+##            soil: the screen equals that ground plus the wet quarters (each wet tile = the four quarters around its
+##            vertex of the watered copies of the tiles those display cells show, read from the watered PNGs) and the
+##            crops (their sheet cell on the tile, the mound recoloured to the dry / watered soil by a table written out
+##            here), pixel for pixel. Then with the evening on: the wet and crop pixels well inside the light stay lit
+##            (the wet patches on the ground's light layer, the crops on the actors').
+##   purify   (M5b) evening off, at a corruption zone's edge, the entities hidden: a finished channel's tiles purified
+##            through the world's edits; the ground equals the CPU composite of the tiles the display cells show, read from
+##            the PNG files (the purified tiles drawn as grass, the zone's new edge from the grass <-> ash set). Then the
+##            purification's first frame: that ground plus each purified tile's ash smear (the 04-env decal PNG, centred
+##            in its tile, chosen by the rule written out here) and its gold outline (the tile's border pixels), pixel for
+##            pixel; with the evening on the gold stays its colour (unshaded) and the smears darken (the ground's light).
+##            Then a channel's motes at its last tick: 16 gold 2x2 motes (ivory top-left) on the ring at (radius + 0.5)
+##            tiles, positions written out here, exactly those pixels changed, with the evening on.
+##   altar    (M5b) the altar moved 13 tiles west through the world's edits: around its new place, every screen pixel lit
+##            (evening on / off ratio) exactly where the new zone's ground light texel is lit (the old place, on screen,
+##            dark); the flames there unshaded. Then a player carrying the altar: the mark over its head on its exact
+##            pixels (the character map written out here) and unshaded; the place ghost's outline and light-edge dots in
+##            gold (allowed) and deep red (refused) on their exact pixels. The altar goes back home afterwards.
+##   fields_net (M5c) what a session client draws of the host's fields, purification and carried altar: the host's
+##            world farmed with the real rules (Farm: tilled, planted by four classes, watered, grown), a client world from a
+##            surface snapshot taken half way, the rest as live edits (the altar lifted and put down 13 tiles west, so the
+##            fields wither; a channel's purification at the north zone's edge, flashing on the client from its edits);
+##            the host's carrier and channelling paladin and the client's copies of them from a state batch (the carrier
+##            bit, the channel in the action bits) with the channel's motes. Around the old fields and at the zone's edge
+##            both screens are the same pixels and differ from the bare world.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -124,9 +152,13 @@ func _run() -> void:
 		await _check_crafting()
 		await _check_potions()
 		await _check_potions_net()
+		await _check_fields()
 		await _check_items()
 		await _check_ysort()
 		await _check_cave_and_dark()
+		await _check_purify()
+		await _check_altar_move()
+		await _check_fields_net()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -1157,6 +1189,169 @@ func _check_items() -> void:
 		_fail("items", line)
 
 
+## M5a: the ground's PNG per TilesetBuilder source id, and the watered copies of the soil ones (written out here).
+const GROUND_FILES: Dictionary[int, String] = {
+	0: "tiles_grass-soil_v03.png", 1: "tiles_grass-corruption_v05.png",
+	10: "tiles_grass_var_1_v02.png", 11: "tiles_grass_var_2_v02.png", 12: "tiles_grass_var_3_v02.png",
+	13: "tiles_grass_var_4_v02.png", 20: "tiles_soil_var_1_v01.png", 21: "tiles_soil_var_2_v01.png",
+	30: "tiles_ash_var_1_v02.png", 31: "tiles_ash_var_2_v02.png", 32: "tiles_ash_var_3_v02.png",
+}
+const WET_FILES: Dictionary[int, String] = {
+	0: "tiles_grass-soil_v03_watered.png", 20: "tiles_soil_var_1_v01_watered.png", 21: "tiles_soil_var_2_v01_watered.png",
+}
+## The crops sheet's mound browns -> the dry / watered soil's (04-env prompts.md: the mound takes the soil's colours),
+## the seed mound's two lighter browns only in column 0, the harvest column (5) never.
+const MOUND_TO_DRY: Dictionary[int, int] = {0x5b2e15: 0x56321b, 0x723f0e: 0x6a4528, 0x83501c: 0x7f5531}
+const MOUND_TO_WET: Dictionary[int, int] = {0x5b2e15: 0x331f16, 0x723f0e: 0x4b3021, 0x83501c: 0x5c3c27}
+const SEED_TO_DRY: Dictionary[int, int] = {0x8c5a2c: 0x6a4528, 0xb0814e: 0x7f5531}
+const SEED_TO_WET: Dictionary[int, int] = {0x8c5a2c: 0x4b3021, 0xb0814e: 0x84603f}
+
+
+static func _png(file: String) -> Image:
+	var img: Image = Image.load_from_file(ProjectSettings.globalize_path("res://art/" + file))
+	img.convert(Image.FORMAT_RGBA8)
+	return img
+
+
+## The crop sheet cell (col, row) with its mound in the dry or the watered soil's colours.
+static func _crop_cell(sheet: Image, col: int, row: int, is_wet: bool) -> Image:
+	var cell: Image = sheet.get_region(Rect2i(col * 16, row * 16, 16, 16))
+	var mound: Dictionary[int, int] = MOUND_TO_WET if is_wet else MOUND_TO_DRY
+	var seed_mound: Dictionary[int, int] = SEED_TO_WET if is_wet else SEED_TO_DRY
+	for y: int in 16:
+		for x: int in 16:
+			var c: Color = cell.get_pixel(x, y)
+			var rgb: int = (c.r8 << 16) | (c.g8 << 8) | c.b8
+			var to: int = mound.get(rgb, -1)
+			if to < 0 and col == 0:
+				to = seed_mound.get(rgb, -1)
+			if c.a8 > 0 and to >= 0 and col != 5:
+				cell.set_pixel(x, y, Color8((to >> 16) & 0xff, (to >> 8) & 0xff, to & 0xff, c.a8))
+	return cell
+
+
+## M5a: tilled and watered soil and the crops (see the header).
+func _check_fields() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var centre: Vector2 = data.altar_center_px()
+	var origin: Vector2i = _look_at(Vector2i(centre) + Vector2i(0, 8))
+	var screen: Rect2i = Rect2i(origin, Config.VIEW_SIZE)
+	# Field tiles: wholly lit, on the screen, nothing on them, soil allowed; grass ones get tilled first.
+	var cells: Array[Vector2i] = []
+	var tilled: Array[Vector2i] = []
+	for y: int in range(data.altar_rect.position.y - 8, data.altar_rect.end.y + 8):
+		for x: int in range(data.altar_rect.position.x - 8, data.altar_rect.end.x + 8):
+			var c: Vector2i = Vector2i(x, y)
+			if not screen.encloses(Rect2i(c * 16, Vector2i(16, 16))) or not Farming.in_light(data, c) \
+					or data.get_value(WorldData.Layer.PLACEABLE, c) != 0 or data.get_value(WorldData.Layer.VEGETATION, c) != 0 \
+					or not data.can_set_terrain(c, Terrain.SOIL):
+				continue
+			cells.append(c)
+			if data.terrain_at(c) == Terrain.GRASS:
+				tilled.append(c)
+	for c: Vector2i in tilled:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c, Terrain.SOIL))
+	var hidden: Array[CanvasItem] = []
+	for n: Node in world.entities.get_children():
+		var ci: CanvasItem = n as CanvasItem
+		if ci != null and ci.visible:
+			ci.visible = false
+			hidden.append(ci)
+	world.decals.visible = false
+	var ground_got: Image = await _capture()
+	# The ground from the PNG files: every display cell on the screen, the tile it shows.
+	var ground_want: Image = Image.create_empty(Config.VIEW_SIZE.x, Config.VIEW_SIZE.y, false, Image.FORMAT_RGBA8)
+	var files: Dictionary[int, Image] = {}
+	var unknown: int = 0
+	for dy: int in range(origin.y / 16 - 2, (origin.y + Config.VIEW_SIZE.y) / 16 + 2):
+		for dx: int in range(origin.x / 16 - 2, (origin.x + Config.VIEW_SIZE.x) / 16 + 2):
+			var drawn: Vector3i = world.ground.drawn_at(Vector2i(dx, dy))
+			if not GROUND_FILES.has(drawn.x):
+				unknown += 1
+				continue
+			if not files.has(drawn.x):
+				files[drawn.x] = _png("tiles/" + GROUND_FILES[drawn.x])
+			ground_want.blit_rect(files[drawn.x], Rect2i(drawn.y * 16, drawn.z * 16, 16, 16), Vector2i(dx * 16 + 8, dy * 16 + 8) - origin)
+	var ground_bad: int = count_diff(ground_got, ground_want)
+	# The fields: 3 kinds x (stages 0..4, withered), every 4th wet; then wet bare soil; the rest dry bare soil.
+	var sheet: Image = _png("env/crops_v03_sheet.png")
+	var want: Image = ground_got.duplicate() as Image
+	var wet_cells: Array[Vector2i] = []
+	var crop_cells: Array[Vector2i] = []
+	var crop_images: Array[Image] = []
+	for i: int in cells.size():
+		var c: Vector2i = cells[i]
+		var f: Farming.Field = null
+		if i < 18:
+			f = Farming.Field.new(1 + i / 6, mini(i % 6, Farming.RIPE_STAGE), i % 4 == 0, false, i % 6 == 5)
+		elif i < 24:
+			f = Farming.Field.new(Farming.KIND_NONE, 0, true)
+		if f == null:
+			continue
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, f.value()))
+		if f.wet:
+			wet_cells.append(c)
+		if f.kind != Farming.KIND_NONE:
+			crop_cells.append(c)
+			crop_images.append(_crop_cell(sheet, 6 if f.withered else f.stage, f.kind - 1, f.wet))
+	for c: Vector2i in wet_cells:
+		for k: int in 4:
+			var q: Vector2i = Vector2i(k % 2, k / 2)
+			var drawn2: Vector3i = world.ground.drawn_at(c + q - Vector2i.ONE)
+			if not WET_FILES.has(drawn2.x):
+				unknown += 1
+				continue
+			if not files.has(100 + drawn2.x):
+				files[100 + drawn2.x] = _png("tiles/" + WET_FILES[drawn2.x])
+			want.blit_rect(files[100 + drawn2.x], Rect2i(drawn2.y * 16 + (1 - q.x) * 8, drawn2.z * 16 + (1 - q.y) * 8, 8, 8),
+				c * 16 + q * 8 - origin)
+	for i2: int in crop_cells.size():
+		_paste_at(want, crop_images[i2], crop_cells[i2] * 16 - origin)
+	var got: Image = await _capture()
+	var fields_bad: int = count_diff(got, want)
+	var drawn_px: int = count_diff(got, ground_got)
+	# The evening on: wet and crop pixels well inside the light stay lit.
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var checked: int = 0
+	var dark: int = 0
+	for y2: int in Config.VIEW_SIZE.y:
+		for x2: int in Config.VIEW_SIZE.x:
+			var p: Vector2i = Vector2i(x2, y2)
+			if want.get_pixelv(p) == ground_got.get_pixelv(p):
+				continue  # not a field pixel (or one equal to the ground)
+			if Vector2(origin + p).distance_to(centre) > Config.safe_radius_px() - Config.SAFE_EDGE_BAND_PX - 4:
+				continue
+			if _brightness(got.get_pixelv(p)) < MIN_BRIGHTNESS:
+				continue
+			checked += 1
+			if _brightness(eve.get_pixelv(p)) < _brightness(got.get_pixelv(p)) * LIT_RATIO:
+				dark += 1
+	if ground_bad > 0 or fields_bad > 0 or dark > 0 or save_all:
+		_save(ground_got, "fields_ground_got.png")
+		_save(ground_want, "fields_ground_expected.png")
+		_save(got, "fields_got.png")
+		_save(want, "fields_expected.png")
+		_save(eve, "fields_evening_got.png")
+	# Back to the world as it was (the later parts use it).
+	for c2: Vector2i in cells:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c2, 0))
+	for c3: Vector2i in tilled:
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c3, Terrain.GRASS))
+	for ci2: CanvasItem in hidden:
+		ci2.visible = true
+	world.decals.visible = true
+	var line: String = "tiles=%d tilled=%d crops=%d wet=%d ground_mismatches=%d mismatches=%d drawn=%d unknown=%d lit_checked=%d dark=%d" % [
+		cells.size(), tilled.size(), crop_cells.size(), wet_cells.size(), ground_bad, fields_bad, drawn_px, unknown, checked, dark]
+	if ground_bad == 0 and fields_bad == 0 and unknown == 0 and dark == 0 and crop_cells.size() == 18 and wet_cells.size() >= 8 \
+			and tilled.size() > 0 and drawn_px > 1000 and checked > 500:
+		print("EVENSONG_RENDER fields ok %s" % line)
+	else:
+		_fail("fields", line)
+
+
 static func _blend(dst: Image, tex: Texture2D, at: Vector2i) -> void:
 	var img: Image = tex.get_image()
 	img.convert(Image.FORMAT_RGBA8)
@@ -1566,3 +1761,499 @@ func _check_dark(dun: GameWorld) -> void:
 		_fail("dark", line)
 		_save(dark, "dark_on.png")
 		_save(bright, "dark_off.png")
+
+
+# --- M5b: purification and the moved altar -------------------------------------------------------------------------
+
+## The ground on the screen at `origin` from the PNG files: every display cell, the tile it shows (GROUND_FILES).
+## Returns [image, unknown sources].
+func _ground_png(origin: Vector2i) -> Array:
+	var want: Image = Image.create_empty(Config.VIEW_SIZE.x, Config.VIEW_SIZE.y, false, Image.FORMAT_RGBA8)
+	var files: Dictionary[int, Image] = {}
+	var unknown: int = 0
+	for dy: int in range(origin.y / 16 - 2, (origin.y + Config.VIEW_SIZE.y) / 16 + 2):
+		for dx: int in range(origin.x / 16 - 2, (origin.x + Config.VIEW_SIZE.x) / 16 + 2):
+			var drawn: Vector3i = world.ground.drawn_at(Vector2i(dx, dy))
+			if not GROUND_FILES.has(drawn.x):
+				unknown += 1
+				continue
+			if not files.has(drawn.x):
+				files[drawn.x] = _png("tiles/" + GROUND_FILES[drawn.x])
+			want.blit_rect(files[drawn.x], Rect2i(drawn.y * 16, drawn.z * 16, 16, 16), Vector2i(dx * 16 + 8, dy * 16 + 8) - origin)
+	return [want, unknown]
+
+
+func _hide_entities() -> Array[CanvasItem]:
+	var hidden: Array[CanvasItem] = []
+	for n: Node in world.entities.get_children():
+		var ci: CanvasItem = n as CanvasItem
+		if ci != null and ci.visible:
+			ci.visible = false
+			hidden.append(ci)
+	return hidden
+
+
+## M5b: the purified ground, the flash with its ash smears, the channel's motes (see the header).
+func _check_purify() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var pv: PurifyView = world.purify_view
+	pv.auto_tick = false
+	# A zone's southern edge tile with grass below it.
+	var a: Vector2i = Vector2i(-1, -1)
+	for y: int in range(8, data.size.y - 8):
+		for x: int in range(16, data.size.x - 16):
+			var c: Vector2i = Vector2i(x, y)
+			if a.x < 0 and data.get_value(WorldData.Layer.CORRUPTION, c) != 0 and data.terrain_at(c + Vector2i(0, 1)) == Terrain.GRASS \
+					and data.get_value(WorldData.Layer.CORRUPTION, c + Vector2i(0, -2)) != 0:
+				a = c
+	if a.x < 0:
+		_fail("purify", "no zone edge found")
+		return
+	var centre_tile: Vector2i = a + Vector2i(0, 1)
+	var origin: Vector2i = _look_at(centre_tile * 16 + Vector2i(8, 8))
+	var hidden: Array[CanvasItem] = _hide_entities()
+	world.decals.visible = false
+	var r: Purify.Result = Purify.channel_done(data, centre_tile)
+	var undo: Array[EditLog.WorldEdit] = []
+	for c2: Vector2i in r.cells:
+		undo.append(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c2, data.terrain_at(c2)))
+		undo.append(EditLog.WorldEdit.new(WorldData.Layer.CORRUPTION, c2, data.get_value(WorldData.Layer.CORRUPTION, c2)))
+	for e: EditLog.WorldEdit in r.edits:
+		world.apply_edit(e)
+	var grass: int = 0
+	for c3: Vector2i in r.cells:
+		grass += int(data.terrain_at(c3) == Terrain.GRASS)
+	var ground_got: Image = await _capture()
+	var png: Array = _ground_png(origin)
+	var ground_want: Image = png[0]
+	var unknown: int = png[1]
+	var ground_bad: int = count_diff(ground_got, ground_want)
+	# The first frame: the smears (written out: decal (x * 7 + y * 13) mod 3, centred) and the gold borders.
+	pv.flash(r.cells)
+	var want: Image = ground_got.duplicate() as Image
+	var gold_px: Dictionary[Vector2i, bool] = {}
+	var ash_px: Dictionary[Vector2i, bool] = {}
+	var decals: Array[Image] = [_png("env/decal_ashcreep_1_v01.png"), _png("env/decal_ashcreep_2_v01.png"),
+		_png("env/decal_ashcreep_3_v01.png")]
+	for c4: Vector2i in r.cells:
+		var d: Image = decals[posmod(c4.x * 7 + c4.y * 13, 3)]
+		var at: Vector2i = c4 * 16 + (Vector2i(16, 16) - d.get_size()) / 2 - origin
+		for y2: int in d.get_height():
+			for x2: int in d.get_width():
+				var px: Color = d.get_pixel(x2, y2)
+				if px.a8 == 255:
+					want.set_pixelv(at + Vector2i(x2, y2), px)
+					ash_px[at + Vector2i(x2, y2)] = true
+				elif px.a8 != 0:
+					unknown += 1  # the decals have no half-transparent pixels (04-env 손질 규칙)
+	for c5: Vector2i in r.cells:
+		for i: int in 16:
+			for p: Vector2i in [Vector2i(i, 0), Vector2i(i, 15), Vector2i(0, i), Vector2i(15, i)]:
+				var s: Vector2i = c5 * 16 + p - origin
+				want.set_pixelv(s, PurifyView.GOLD)
+				gold_px[s] = true
+				ash_px.erase(s)
+	var got: Image = await _capture()
+	var flash_bad: int = count_diff(got, want)
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	var gold_wrong: int = 0
+	for s2: Vector2i in gold_px:
+		if eve.get_pixelv(s2) != PurifyView.GOLD:
+			gold_wrong += 1
+	var ash_lit: int = 0
+	for s3: Vector2i in ash_px:
+		if _brightness(eve.get_pixelv(s3)) > _brightness(got.get_pixelv(s3)) * LIT_RATIO:
+			ash_lit += 1
+	# The motes of a channel on its last tick, evening on (unshaded), over the purified ground with the flash gone.
+	pv.advance(Config.PURIFY_ASH_TICKS)
+	var bg: Image = await _capture()
+	pv.show_channels([PurifyView.Channel.new(centre_tile, Config.PURIFY_CHANNEL_TICKS)] as Array[PurifyView.Channel])
+	var motes: Image = await _capture()
+	var mote_want: Image = bg.duplicate() as Image
+	var ring_c: Vector2 = (Vector2(centre_tile) + Vector2(0.5, 0.5)) * 16.0
+	var ring_r: float = (Config.PURIFY_RADIUS_TILES + 0.5) * 16.0
+	for i2: int in Config.PURIFY_MOTES:
+		var ang: float = TAU * float(i2) / float(Config.PURIFY_MOTES) - PI / 2.0
+		var tl: Vector2i = Vector2i((ring_c + Vector2(cos(ang), sin(ang)) * ring_r).round()) - Vector2i.ONE - origin
+		for k: int in 4:
+			mote_want.set_pixelv(tl + Vector2i(k % 2, k / 2), PurifyView.GOLD)
+		mote_want.set_pixelv(tl, PurifyView.IVORY)
+	var mote_bad: int = count_diff(motes, mote_want)
+	var mote_px: int = count_diff(motes, bg)
+	pv.show_channels([] as Array[PurifyView.Channel])
+	world.lighting.set_evening(false)
+	if ground_bad > 0 or flash_bad > 0 or gold_wrong > 0 or ash_lit > 0 or mote_bad > 0 or save_all:
+		_save(ground_got, "purify_ground_got.png")
+		_save(ground_want, "purify_ground_expected.png")
+		_save(got, "purify_flash_got.png")
+		_save(want, "purify_flash_expected.png")
+		_save(eve, "purify_flash_evening.png")
+		_save(motes, "purify_motes_got.png")
+		_save(mote_want, "purify_motes_expected.png")
+	# Back as it was.
+	for e2: EditLog.WorldEdit in undo:
+		world.apply_edit(e2)
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	world.decals.visible = true
+	var line: String = "tiles=%d grass=%d ground_mismatches=%d flash_mismatches=%d gold=%d gold_wrong=%d ash=%d ash_lit=%d motes_px=%d mote_mismatches=%d unknown=%d" % [
+		r.cells.size(), grass, ground_bad, flash_bad, gold_px.size(), gold_wrong, ash_px.size(), ash_lit, mote_px, mote_bad, unknown]
+	if r.cells.size() > 3 and grass == r.cells.size() and ground_bad == 0 and flash_bad == 0 and gold_wrong == 0 and ash_lit == 0 \
+			and ash_px.size() > 20 and mote_bad == 0 and mote_px == 4 * Config.PURIFY_MOTES and unknown == 0:
+		print("EVENSONG_RENDER purify ok %s" % line)
+	else:
+		_fail("purify", line)
+
+
+## M5b: the moved altar's light, the carried mark and the ghost (see the header).
+func _check_altar_move() -> void:
+	var data: WorldData = world.data
+	var home: Rect2i = data.altar_rect
+	var old_zone: SafeZone = world.safe_zone
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		world.apply_edit(e)
+	var to: Rect2i = AltarMove.set_down_rect(data, (Vector2(home.position) + Vector2(-12, 1)) * Config.TILE)
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(to):
+		world.apply_edit(e2)
+	var z: SafeZone = world.safe_zone
+	var origin: Vector2i = _look_at(Vector2i(z.center) + Vector2i(80, 0))
+	# Only the altar among the entities (the gatherables take the actors' hard light, not the ground's dither).
+	var hidden: Array[CanvasItem] = _hide_entities()
+	world.altar.visible = true
+	hidden.erase(world.altar)
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var day: Image = await _capture()
+	var flame_px: Dictionary[Vector2i, bool] = {}
+	var mask: Image = Altar.flame_image()
+	var art: Vector2i = world.altar.art_origin()
+	for y: int in mask.get_height():
+		for x: int in mask.get_width():
+			if mask.get_pixel(x, y).a8 > 0:
+				flame_px[art + Vector2i(x, y) - origin] = true
+	var band: int = Config.SAFE_EDGE_BAND_PX
+	var mismatches: int = 0
+	var checked: int = 0
+	var old_lit: int = 0
+	var old_seen: int = 0
+	for sy: int in Config.VIEW_SIZE.y:
+		for sx: int in Config.VIEW_SIZE.x:
+			var s: Vector2i = Vector2i(sx, sy)
+			if flame_px.has(s):
+				continue
+			var b: Color = day.get_pixelv(s)
+			if _brightness(b) < MIN_BRIGHTNESS:
+				continue
+			var lit: bool = _brightness(eve.get_pixelv(s)) / _brightness(b) > LIT_RATIO
+			var px: Vector2i = origin + s
+			checked += 1
+			if lit != (LightGen.light_at(z, LightGen.Edge.DITHER, band, px) > 0.5):
+				mismatches += 1
+			if old_zone.is_in_safe_zone(Vector2(px) + Vector2(0.5, 0.5)) and not z.is_in_safe_zone(Vector2(px) + Vector2(0.5, 0.5)):
+				old_seen += 1
+				old_lit += int(lit)
+	var flames_wrong: int = 0
+	var lit_art: Image = LightGen.to_rgba8(Altar.LIT.get_image())
+	for f: Vector2i in flame_px:
+		var a: Vector2i = f + origin - art
+		if eve.get_pixelv(f) != lit_art.get_pixelv(a):
+			flames_wrong += 1
+	# A player carrying the altar: the mark over its head (written out: 9x6, top-left at the feet + (-4, -53)).
+	var rows: PackedStringArray = ["..g.g.g..", ".kgkgkgk.", "kkkkkkkkk", "khhhhhhhk", "kmmmmmmmk", "kkkkkkkkk"]
+	var feet: Vector2i = Vector2i(z.center) + Vector2i(150, 30)
+	var p: Player = Player.new()
+	p.local_input = false
+	p.setup(data, "paladin", Vector2(feet))
+	p.character.animate = false
+	world.entities.add_child(p)
+	world.lighting.set_evening(false)
+	var before_mark: Image = await _capture()
+	p.set_carrying_altar(true)
+	world.lighting.set_evening(true)
+	var mark_eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var mark_day: Image = await _capture()
+	var mark_wrong: int = 0
+	var mark_n: int = 0
+	for my: int in rows.size():
+		for mx: int in rows[my].length():
+			var ch: String = rows[my][mx]
+			if ch == ".":
+				continue
+			mark_n += 1
+			var sp: Vector2i = feet + Vector2i(-4 + mx, -53 + my) - origin
+			var want_c: Color = ItemIcons.PALETTE[ch]
+			if mark_eve.get_pixelv(sp) != want_c or mark_day.get_pixelv(sp) != want_c:
+				mark_wrong += 1
+	var mark_changed: int = count_diff(mark_day, before_mark)
+	world.entities.remove_child(p)
+	p.free()
+	# The ghost: outline and light-edge dots, gold then deep red (written out).
+	var ghost: AltarGhost = AltarGhost.new()
+	world.add_child(ghost)
+	world.move_child(ghost, world.entities.get_index())
+	var gr: Rect2i = Rect2i(Aim.feet_cell(Vector2(feet)) + Vector2i(-6, -2), Vector2i(3, 3))
+	var ghost_px: Dictionary[Vector2i, bool] = {}
+	var lo: Vector2i = gr.position * 16
+	var hi: Vector2i = gr.end * 16 - Vector2i.ONE
+	for gx: int in range(lo.x, hi.x + 1):
+		ghost_px[Vector2i(gx, lo.y) - origin] = true
+		ghost_px[Vector2i(gx, hi.y) - origin] = true
+	for gy: int in range(lo.y, hi.y + 1):
+		ghost_px[Vector2i(lo.x, gy) - origin] = true
+		ghost_px[Vector2i(hi.x, gy) - origin] = true
+	var gc: Vector2 = (Vector2(gr.position) + Vector2(1.5, 1.5)) * 16.0
+	for deg: int in range(0, 360, 6):
+		var ang: float = deg_to_rad(float(deg))
+		ghost_px[Vector2i((gc + Vector2(cos(ang), sin(ang)) * (Config.safe_radius_px() - 1.0)).floor()) - origin] = true
+	var ghost_wrong: int = 0
+	var ghost_seen: int = 0
+	world.lighting.set_evening(true)
+	for allowed: bool in [true, false]:
+		ghost.show_at(gr, allowed)
+		var gimg: Image = await _capture()
+		var col: Color = AltarGhost.GOLD if allowed else AltarGhost.RED
+		for gp: Vector2i in ghost_px:
+			if gp.x < 0 or gp.y < 0 or gp.x >= Config.VIEW_SIZE.x or gp.y >= Config.VIEW_SIZE.y:
+				continue
+			ghost_seen += 1
+			if gimg.get_pixelv(gp) != col:
+				ghost_wrong += 1
+	world.remove_child(ghost)
+	ghost.free()
+	world.lighting.set_evening(false)
+	if mismatches > 0 or old_lit > 0 or flames_wrong > 0 or mark_wrong > 0 or ghost_wrong > 0 or save_all:
+		_save(eve, "altar_evening.png")
+		_save(day, "altar_day.png")
+		_save(mark_eve, "altar_mark_evening.png")
+	# Home again.
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	for e3: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		world.apply_edit(e3)
+	for e4: EditLog.WorldEdit in AltarMove.place_edits(home):
+		world.apply_edit(e4)
+	var line: String = "moved_to=%d,%d checked=%d mismatches=%d old_zone_px=%d old_zone_lit=%d flames=%d wrong=%d mark=%d mark_wrong=%d mark_changed=%d ghost_px=%d ghost_wrong=%d home=%s" % [
+		to.position.x, to.position.y, checked, mismatches, old_seen, old_lit, flame_px.size(), flames_wrong, mark_n, mark_wrong,
+		mark_changed, ghost_seen, ghost_wrong, data.altar_rect == home]
+	if to.has_area() and mismatches == 0 and checked > 50000 and old_seen > 1000 and old_lit == 0 and flame_px.size() == 81 \
+			and flames_wrong == 0 and mark_wrong == 0 and mark_n == 46 and mark_changed == mark_n and ghost_wrong == 0 \
+			and ghost_seen > 200 and data.altar_rect == home:
+		print("EVENSONG_RENDER altar ok %s" % line)
+	else:
+		_fail("altar", line)
+
+
+# --- M5c: what a session client draws of the host's fields, purification and carried altar ---------------------------
+
+## A surface world for the check (evening off; hidden until shown). `generate` false: empty (a client's).
+func _surface_world(generate: bool = true) -> GameWorld:
+	var w: GameWorld = (load(WORLD_SCENE) as PackedScene).instantiate() as GameWorld
+	w.auto_generate = false
+	w.map_id = Config.MAP_SURFACE
+	root.add_child(w)
+	if generate:
+		w.generate(Config.DEFAULT_SEED)
+	w.overlay.visible = false
+	w.camera.set_process(false)
+	w.visible = false
+	w.lighting.set_evening(false)
+	if w.purify_view != null:
+		w.purify_view.auto_tick = false  # the flashes age only by hand here (both worlds show the same age)
+	return w
+
+
+## A still player for the check (no input, no idle animation) on world `w`.
+static func _still_player(w: GameWorld, class_id: String, feet: Vector2) -> Player:
+	var p: Player = Player.new()
+	p.local_input = false
+	p.setup(w.data, class_id, feet)
+	p.character.animate = false
+	w.entities.add_child(p)
+	return p
+
+
+## (M5c) The host's world farmed, purified and its altar moved with the real rules, edit by edit; a client world from a
+## surface snapshot taken half way, the rest as live edits (as SessionClient.on_edit: a corrupted tile made clean flashes).
+## The host's players (one carrying the altar, a paladin channelling) and the client's copies of them from the wire (a
+## state batch: the carrier bit, the channel in the action bits) with their channels' motes. Around the old fields (soil,
+## crops of every stage, withered now, wet patches, the carrier's mark) and at the zone's edge (the purified ground, the ash
+## smears, the gold, the motes) both screens must be the same pixels and differ from the bare world.
+func _check_fields_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _surface_world()
+	var client_w: GameWorld = _surface_world(false)
+	var bare_w: GameWorld = _surface_world()
+	var d: WorldData = host_w.data
+	var farm: Farm = Farm.new(d)
+	var edits: Array[EditLog.WorldEdit] = []
+	var inv: Inventory = Inventory.new()
+	inv.add(&"seed_healing", 5)
+	inv.add(&"seed_buff", 5)
+	inv.add(&"seed_poison", 5)
+	# Tilled and planted with the farm's actions (feet one tile south of each tile), then some grown and some watered.
+	var plan: Array[Array] = [[Vector2i(62, 51), "seed_healing", "paladin"], [Vector2i(63, 51), "seed_buff", "herbalist"],
+		[Vector2i(64, 51), "seed_poison", "herbalist"], [Vector2i(58, 45), "seed_buff", "archer"],
+		[Vector2i(59, 46), "seed_poison", "herbalist"], [Vector2i(57, 47), "seed_healing", "miner"]]
+	for step: Array in plan:
+		var c: Vector2i = step[0]
+		var feet: Vector2 = Arena.spawn_feet(c + Vector2i(0, 1))
+		var results: Array[Farm.Result] = []
+		if d.terrain_at(c) != Terrain.SOIL:
+			results.append(farm.till(feet, c))
+		_apply_results(host_w, results, edits)
+		results.clear()
+		var item: StringName = StringName(str(step[1]))
+		results.append(farm.plant(feet, str(step[2]), inv, _slot_of(inv, item), c))
+		_apply_results(host_w, results, edits)
+		results.clear()
+		if c.x % 2 == 0:
+			results.append(farm.water(feet, c))
+			_apply_results(host_w, results, edits)
+	farm.stage_ticks_base = 20
+	for t: int in 70:
+		for e: EditLog.WorldEdit in farm.step():
+			host_w.apply_edit(e)
+			edits.append(e)
+	_load_surface_snapshot(host_w, client_w)
+	var snap: int = edits.size()
+	# The altar moves 13 tiles west (lifted, put down): the fields fall outside the light and wither (the farm's edits).
+	var home: Rect2i = d.altar_rect
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(d):
+		host_w.apply_edit(e)
+		edits.append(e)
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(Rect2i(Vector2i(49, 45), Config.ALTAR_FOOTPRINT)):
+		host_w.apply_edit(e2)
+		edits.append(e2)
+	for e3: EditLog.WorldEdit in farm.step():
+		host_w.apply_edit(e3)
+		edits.append(e3)
+	# A channel's purification at the north zone's edge.
+	var edge: Vector2i = Vector2i(60, 15)
+	var r: Purify.Result = Purify.channel_done(d, edge)
+	for e4: EditLog.WorldEdit in r.edits:
+		host_w.apply_edit(e4)
+		edits.append(e4)
+	host_w.purify_view.flash(r.cells)
+	if client_w.data == null:
+		_fail("fields_net", "no client world")
+		return
+	var flashed: int = 0
+	for i: int in range(snap, edits.size()):
+		var e5: EditLog.WorldEdit = edits[i]
+		var purifies: bool = e5.kind == EditLog.Kind.CELL and e5.layer == WorldData.Layer.CORRUPTION and e5.value == 0 \
+			and Purify.is_corrupted(client_w.data, e5.cell)
+		client_w.apply_edit(e5)
+		if purifies:
+			client_w.purify_view.flash([e5.cell] as Array[Vector2i])
+			flashed += 1
+	var same_data: bool = client_w.data.content_hash() == d.content_hash()
+	var fields: Dictionary = SessionReport.fields_of(d)
+	# The players: the host's (a carrier among the old fields, a paladin channelling at the edge) and the client's from
+	# the wire.
+	var carrier_feet: Vector2 = Arena.spawn_feet(Vector2i(61, 49))
+	var pal_feet: Vector2 = Arena.spawn_feet(edge + Vector2i(1, 2))
+	var host_carrier: Player = _still_player(host_w, "herbalist", carrier_feet)
+	host_carrier.set_carrying_altar(true)
+	var host_pal: Player = _still_player(host_w, "paladin", pal_feet)
+	host_pal.channel_tick = 120
+	host_pal.channel_cell = Aim.feet_cell(pal_feet)
+	host_pal.show_state(pal_feet, RigData.Dir.SOUTH, false, false, -1, 0, null, 120)
+	var states: Array[NetProtocol.PlayerState] = []
+	for p: Player in [host_carrier, host_pal]:
+		var st: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+		st.slot = states.size()
+		st.pos = p.sim_position
+		st.facing = p.facing
+		st.channel = p.channel_tick
+		st.carrying = p.carrying_altar
+		states.append(st)
+	var batch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(1, states))
+	var client_players: Array[Player] = []
+	for st2: NetProtocol.PlayerState in batch.states:
+		var cp: Player = _still_player(client_w, "herbalist" if st2.slot == 0 else "paladin", st2.pos)
+		cp.show_state(st2.pos, st2.facing, st2.walking, false, st2.action, st2.action_tick, st2.vitals, st2.channel)
+		cp.set_carrying_altar(st2.carrying)
+		client_players.append(cp)
+	host_w.purify_view.show_channels([PurifyView.Channel.new(host_pal.channel_cell, host_pal.channel_tick)] as Array[PurifyView.Channel])
+	var cpal: Player = client_players[1]
+	client_w.purify_view.show_channels([PurifyView.Channel.new(cpal.channel_cell, cpal.channel_tick)] as Array[PurifyView.Channel])
+	var spots: Array[Vector2i] = [Vector2i(61 * Config.TILE, 48 * Config.TILE), Vector2i(edge.x * Config.TILE, edge.y * Config.TILE)]
+	var host_vs_client: int = 0
+	var drawn: int = 0
+	var shots: Array[Image] = []
+	for spot: Vector2i in spots:
+		var imgs: Array[Image] = []
+		for w: GameWorld in [host_w, client_w, bare_w]:
+			for o: GameWorld in [host_w, client_w, bare_w]:
+				o.visible = o == w
+			w.camera.make_current()
+			_cave_look_at(w, spot)
+			imgs.append(await _capture())
+		host_vs_client += count_diff(imgs[0], imgs[1])
+		drawn += count_diff(imgs[1], imgs[2])
+		shots.append_array(imgs)
+	var carried: bool = client_players[0].carrying_altar and client_players[0].altar_mark.visible
+	# The client's motes on their exact pixels (the gold below-right of each ivory corner, PurifyView's rule).
+	var zone_origin: Vector2i = spots[1] - Config.VIEW_SIZE / 2
+	var motes_ok: int = 0
+	var pts: Array[Vector2i] = PurifyView.mote_points(cpal.channel_cell)
+	for mi: int in PurifyView.motes_lit(cpal.channel_tick):
+		var sp: Vector2i = pts[mi] - zone_origin
+		if shots[4].get_pixelv(sp) == PurifyView.IVORY and shots[4].get_pixelv(sp + Vector2i.ONE) == PurifyView.GOLD:
+			motes_ok += 1
+	var crops: Dictionary = fields["crops"]
+	var line: String = "%d edits (%d after the client's snapshot), same data %s, crops %d withered %d wet %d, purified %d (flashed %d on the client), carrier mark %s, channel %d (motes %d/%d), host vs client %d, drawn %d" % [
+		edits.size(), edits.size() - snap, same_data, crops.size(), fields["withered"], fields["wet"],
+		r.cells.size(), flashed, carried, cpal.channel_tick, motes_ok, PurifyView.motes_lit(cpal.channel_tick), host_vs_client, drawn]
+	if host_vs_client > 0 or save_all:
+		for i: int in shots.size():
+			_save(shots[i], "fields_net_%d.png" % i)
+	var withered: int = fields["withered"]
+	if same_data and host_vs_client == 0 and drawn > 1500 and withered >= 5 and flashed == r.cells.size() and r.cells.size() > 3 \
+			and carried and cpal.channel_tick == 120 and motes_ok == PurifyView.motes_lit(120) and snap > 0 and snap < edits.size() and home != d.altar_rect:
+		print("EVENSONG_RENDER fields_net ok %s" % line)
+	else:
+		_fail("fields_net", line)
+	for w2: GameWorld in [host_w, client_w, bare_w]:
+		root.remove_child(w2)
+		w2.free()
+	world.visible = true
+	world.camera.make_current()
+
+
+## A farm result's edits (when it is ok) into world `w`, kept in `edits`.
+static func _apply_results(w: GameWorld, results: Array[Farm.Result], edits: Array[EditLog.WorldEdit]) -> void:
+	for res: Farm.Result in results:
+		if not res.ok():
+			continue
+		for e: EditLog.WorldEdit in res.edits:
+			w.apply_edit(e)
+			edits.append(e)
+
+
+static func _slot_of(inv: Inventory, id: StringName) -> int:
+	for i: int in inv.size():
+		var st: ItemStack = inv.stack_at(i)
+		if st != null and st.id == id:
+			return i
+	return -1
+
+
+## The client's surface from a snapshot of the host's world now (the join path).
+func _load_surface_snapshot(host_w: GameWorld, client_w: GameWorld) -> void:
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host_w.data)
+	var rx: WorldSnapshot.Receiver = WorldSnapshot.Receiver.new()
+	for i: int in packed.chunk_count():
+		rx.add(packed.chunk(i))
+	var got: WorldData = rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5,
+		Config.MAP_SURFACE)
+	if got == null:
+		_fail("fields_net", "surface snapshot refused: %s" % rx.error)
+		return
+	client_w.load_data(got)
+	client_w.lighting.set_evening(false)
+	client_w.purify_view.auto_tick = false

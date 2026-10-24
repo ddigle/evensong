@@ -47,6 +47,19 @@ extends Node2D
 ## grade and landing point kept in action_slot / action_grade / action_target; Main applies it. The Vitals
 ## carry the effects (buff, poison: PlayerSim); EffectMarks shows them over the head. `ui_locked` (the
 ## crafting panel open) turns every tick's input into an empty frame.
+##
+## M5a (`farming_on`, offline; M5c: the session's local player too): a click with seeds selected is a USE without an action
+## like a torch's (Main plants; in a session the host); the hoe and the watering can land on their own frames
+## (Farming.impact_tick), the sickle on its hit frame.
+##
+## M5b (`purify_on`, offline; M5c: the session's local player too): a click with holy water selected pours it (Config.HOLY_WATER_ANIM; it works on
+## Purify.impact_tick, action_impact, Main purifies). request_channel() (Main, on F with nothing to pick up) puts the
+## paladin's purification channel into the next frame (PlayerSim.step runs it; channel_started / channel_done /
+## channel_broken). While `carrying_altar` (Main sets it) a click asks to put the altar down on the target tile
+## (altar_place_requested) and nothing else is used or thrown; an AltarMark shows over the head.
+## M5c, in a session: the channel goes as the CHANNEL request (SessionHost.attach_local_op turns F with nothing to pick up
+## into it), the click while carrying as ALTAR_PLACE; `carrying_altar` comes from the host's state (its held byte); the
+## channel of a player drawn from states comes with show_state().
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -62,6 +75,14 @@ signal respawn_due
 signal revived
 ## M6a: a drink or a throw the controls did not start (Potions.WHY_*), for the log.
 signal potion_refused(what: String, why: String)
+## M5b: the purification channel started around tile `cell` / ran its time (purify around `cell`) / was broken (`why`:
+## "moved", "dash", "use", "hit", "down"); a holy water pour the controls did not start (Purify.WHY_*); the carrier's
+## click to put the altar down on tile `cell`.
+signal channel_started(cell: Vector2i)
+signal channel_done(cell: Vector2i)
+signal channel_broken(why: String)
+signal purify_refused(what: String, why: String)
+signal altar_place_requested(cell: Vector2i)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -103,6 +124,22 @@ var interact_held: bool = false
 ## SessionBots.local_action). The
 ## playing action's hotbar slot, the grade of the item it plays and a throw's landing point.
 var potions_on: bool = false
+## M5a: a click with seeds selected plants them (Main turns it on for the offline player; M5c: and the session's local
+## player, whose seed click is a USE the host plants; off, the click makes no frame, as potions_on did in M6a's sessions).
+var farming_on: bool = false
+## M5b (Main turns it on offline; M5c: and for the session's local player): holy water and the purification channel. The channel's state (PlayerSim
+## channel_tick / channel_cell), whether this player carries the altar (Main sets it; AltarMove) and how long F has been
+## held aimed at the altar (Main counts it, Config.ALTAR_PICKUP_HOLD_TICKS).
+var purify_on: bool = false
+var channel_tick: int = 0
+var channel_cell: Vector2i = Vector2i.ZERO
+var carrying_altar: bool = false
+var altar_hold_ticks: int = 0
+## M5-fix: this carrier went down and no place allowed the altar (AltarMove.set_down_fallback); it keeps it and nobody
+## searches again until it is up (Main.check_carriers, SessionHost._check_carriers).
+var altar_set_down_failed: bool = false
+var altar_mark: AltarMark
+var _channel_pending: bool = false
 var ui_locked: bool = false
 var action_slot: int = 0
 var action_grade: int = ItemDB.Grade.NONE
@@ -133,6 +170,8 @@ func _init() -> void:
 	add_child(character)
 	effect_marks = EffectMarks.new()
 	add_child(effect_marks)
+	altar_mark = AltarMark.new()
+	add_child(altar_mark)
 
 
 func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = RigData.Dir.SOUTH) -> void:
@@ -146,6 +185,10 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	action_anim = -1
 	action_tick = 0
 	vitals = Vitals.new()
+	channel_tick = 0
+	carrying_altar = false
+	altar_hold_ticks = 0
+	altar_set_down_failed = false
 	_sync_view()
 
 
@@ -204,6 +247,22 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 	step_frame(f, delta)
 	if f.op == NetProtocol.Op.USE and f.anim < 0:
 		place_requested.emit(f.slot, f.cell)
+	if f.altar_place:
+		altar_place_requested.emit(f.cell)  # M5b: Main puts the carried altar down (or says why not)
+
+
+## M5b: puts the purification channel into the next frame (Main, on F with nothing to pick up; the frame starts it
+## when Purify.channel_refusal allows and the player stands free, PlayerSim.step).
+func request_channel() -> void:
+	_channel_pending = true
+
+
+## M5b: this player carries the altar now (Main: picked up / put down), shown over its head.
+func set_carrying_altar(on: bool) -> void:
+	carrying_altar = on
+	altar_hold_ticks = 0
+	altar_set_down_failed = false
+	_sync_view()
 
 
 ## One tick of local input as an input frame (seq 0: a session numbers it). Updates the aim from the
@@ -230,7 +289,19 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	aim_cell = Aim.target_cell(sim_position, aim_sector)
 	var free: bool = vitals.alive() and not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
 	var selected: ItemStack = inventory.selected_stack()
-	if free and potions_on and skill:
+	if _channel_pending:
+		_channel_pending = false
+		if purify_on and free and not carrying_altar and data != null \
+				and Purify.channel_refusal(data, class_id(), sim_position).is_empty():
+			f.channel = true
+	if carrying_altar:
+		# M5b: the click is the altar's (Main puts it down); nothing is used or thrown meanwhile. M5c: in a session the
+		# click is the ALTAR_PLACE request (the host puts it down where it allows).
+		f.altar_place = use_pressed and vitals.alive()
+		f.cell = aim_cell
+		if f.altar_place:
+			f.op = NetProtocol.Op.ALTAR_PLACE
+	elif free and potions_on and skill:
 		var why_throw: String = Potions.throw_refusal(class_id(), selected)
 		if why_throw.is_empty():
 			f.op = NetProtocol.Op.THROW  # M6b: its own request (the point it is thrown at rides on the wire)
@@ -253,6 +324,17 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.item = selected.id
 		else:
 			potion_refused.emit("drink", why_drink)
+	elif free and purify_on and use_pressed and selected != null and Purify.is_holy_water(selected.id):
+		# M5b: holy water is poured on the target tile (a click, not repeated); it works on its effect frame (Main).
+		var why_pour: String = Purify.holy_water_refusal(data, sim_position, aim_cell) if data != null else Purify.WHY_NOTHING
+		if why_pour.is_empty():
+			f.op = NetProtocol.Op.USE
+			f.slot = inventory.selected
+			f.cell = aim_cell
+			f.anim = Config.HOLY_WATER_ANIM
+			f.item = selected.id
+		else:
+			purify_refused.emit("holy water", why_pour)
 	elif free and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
 		var anim: int = WorldItems.use_action(sim_position, inventory, inventory.selected, aim_cell)
 		if anim >= 0:
@@ -261,14 +343,23 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.cell = aim_cell
 			f.anim = anim
 			f.item = inventory.selected_stack().id
-		elif use_pressed and WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
+		elif use_pressed and (WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
+				or (farming_on and Farming.seed_kind_in(inventory, inventory.selected) != Farming.KIND_NONE)) \
 				and WorldItems.in_reach(sim_position, aim_cell):
+			# M5a: seeds go down the same way (a click, offline Main plants them: place_requested).
 			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
 			# action: the host (or offline Main) places it; nothing is predicted.
 			f.op = NetProtocol.Op.USE
 			f.slot = inventory.selected
 			f.cell = aim_cell
 			f.item = inventory.selected_stack().id
+	if f.channel:
+		# M5c: the channel is a request of its own in a session (CHANNEL; the host decides it again); a frame that
+		# already carries another request (a click this tick) starts no channel.
+		if f.op == NetProtocol.Op.NONE and f.anim < 0:
+			f.op = NetProtocol.Op.CHANNEL
+		else:
+			f.channel = false
 	_aim_input = aiming or use_held
 	f.look = Aim.facing(to_mouse, facing) if (_aim_input or f.anim >= 0) else -1
 	return f
@@ -282,9 +373,10 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 	interact_held = frame.interact
 	var before: int = action_anim
 	var poison_amount: int = vitals.poison_damage
+	var was_channel: bool = channel_tick > 0
 	var st: PlayerSim = to_sim()
 	var events: int = st.step(data, frame.dir, frame.look, frame.anim, frame.cell, delta, frame.dash, frame.interact,
-		frame.aim)
+		frame.aim, frame.channel)
 	load_sim(st)
 	if events & PlayerSim.STARTED:
 		action_item = frame.item
@@ -301,6 +393,15 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 		action_started.emit(action_item, action_anim, action_cell)
 	if action_anim >= 0 and action_tick == impact_tick_of(action_item, action_anim):
 		action_impact.emit(action_item, action_anim, action_cell)
+	if events & PlayerSim.CHANNEL_STARTED:
+		channel_started.emit(channel_cell)
+	if events & PlayerSim.CHANNEL_DONE:
+		channel_done.emit(channel_cell)
+	elif was_channel and channel_tick == 0:
+		var why: String = "down"
+		if events & PlayerSim.CHANNEL_BROKEN:
+			why = "dash" if frame.dash else ("use" if RigData.is_action(frame.anim) else "moved")
+		channel_broken.emit(why)
 	if events & PlayerSim.POISON_TICK:
 		hurt.emit(poison_amount, events & PlayerSim.DOWNED != 0)
 	if events & PlayerSim.DIED:
@@ -311,10 +412,15 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 
 
 ## The tick of an action played with `item` on which it lands: a weapon's hit frame (Combat.impact_tick),
-## M6a: a potion's effect / release frame (Potions.impact_tick).
+## M6a: a potion's effect / release frame (Potions.impact_tick). M5b: holy water's effect frame (Purify.impact_tick).
 static func impact_tick_of(item: StringName, anim: int) -> int:
 	if Potions.is_potion(item):
 		return Potions.impact_tick(anim)
+	if Purify.is_holy_water(item):
+		return Purify.impact_tick()
+	var farm_tick: int = Farming.impact_tick(item)  # M5a: the hoe tills, the watering can waters on their own frame
+	if farm_tick >= 0:
+		return farm_tick
 	return Combat.impact_tick(item)
 
 
@@ -340,6 +446,8 @@ func to_sim() -> PlayerSim:
 	st.action_cell = action_cell
 	st.action_aim = action_aim
 	st.vit = vitals.copy()
+	st.channel_tick = channel_tick
+	st.channel_cell = channel_cell
 	return st
 
 
@@ -353,17 +461,22 @@ func load_sim(st: PlayerSim) -> void:
 	action_cell = st.action_cell
 	action_aim = st.action_aim
 	vitals = st.vit
+	channel_tick = st.channel_tick
+	channel_cell = st.channel_cell
 
 
 ## M4a: a hit of `amount` (PlayerSim.hurt: nothing while down, dead or invulnerable). Returns the
 ## PlayerSim event bits (HURT, DOWNED; 0 = it did not land).
 func take_hit(amount: int) -> int:
 	var st: PlayerSim = to_sim()
+	var was_channel: bool = channel_tick > 0
 	var events: int = st.hurt(amount)
 	if events == 0:
 		return 0
 	load_sim(st)
 	_sync_view()
+	if was_channel:
+		channel_broken.emit("down" if events & PlayerSim.DOWNED else "hit")  # M5b
 	hurt.emit(amount, events & PlayerSim.DOWNED != 0)
 	return events
 
@@ -480,8 +593,9 @@ func apply_input(input: Vector2i, delta: float) -> void:
 ## a correction moves the whole step and an unchanged state changes nothing.
 ## `p_action` / `p_action_tick` (M2b): the body action shown (-1 = none) and its frames so far.
 ## `p_vitals` (M4b): the vitals shown (a copy is kept; null = at rest: full and up).
+## `p_channel` (M5c): the purification channel's ticks shown (0 = none; it purifies around the feet tile).
 func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false, p_action: int = -1,
-		p_action_tick: int = 0, p_vitals: Vitals = null) -> void:
+		p_action_tick: int = 0, p_vitals: Vitals = null, p_channel: int = 0) -> void:
 	if not tick:
 		tick_from += pos - sim_position
 	sim_position = pos
@@ -490,6 +604,9 @@ func show_state(pos: Vector2, p_facing: int, p_walking: bool, tick: bool = false
 	action_anim = p_action if RigData.is_action(p_action) else -1
 	action_tick = p_action_tick if action_anim >= 0 else 0
 	vitals = p_vitals.copy() if p_vitals != null else Vitals.new()
+	channel_tick = maxi(p_channel, 0) if action_anim < 0 else 0
+	if channel_tick > 0:
+		channel_cell = Aim.feet_cell(pos)
 	_sync_view()
 
 
@@ -505,6 +622,7 @@ func set_world(p_data: WorldData, feet: Vector2) -> void:
 	facing = RigData.Dir.SOUTH
 	vitals.dash_ticks = 0
 	vitals.dash_dir = Vector2i.ZERO
+	channel_tick = 0  # M5b: another map ends a purification channel
 	teleport(feet)
 
 
@@ -546,8 +664,17 @@ func _sync_view() -> void:
 			RigData.frame_count(RigData.Anim.HURT) - 1))
 	elif action_anim >= 0:
 		character.show_action(action_anim, action_frame())
+	elif channel_tick > 0:
+		character.show_action(Config.PURIFY_ANIM, channel_frame(channel_tick))  # M5b: a placeholder pose, looped
 	else:
 		character.end_action()
+	altar_mark.visible = carrying_altar  # M5b
+
+
+## M5b: the frame of Config.PURIFY_ANIM a channel `ticks` in shows (the action looped, Config.ACTION_FRAME_TICKS a
+## frame).
+static func channel_frame(ticks: int) -> int:
+	return ((maxi(ticks, 1) - 1) / Config.ACTION_FRAME_TICKS) % RigData.frame_count(Config.PURIFY_ANIM)
 
 
 ## The move_* actions (WASD / arrows) as an 8-way input.
