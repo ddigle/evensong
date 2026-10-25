@@ -476,6 +476,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	elif frame.op == NetProtocol.Op.USE and frame.slot >= 0 and frame.slot < p.inventory.size() \
 			and p.inventory.stack_at(frame.slot) != null and Purify.is_holy_water(p.inventory.stack_at(frame.slot).id):
 		_pour_start(m, frame)  # M5c
+	elif frame.op == NetProtocol.Op.USE and p.gear_on and frame.slot >= 0 and frame.slot < p.inventory.size() \
+			and Gear.unusable(p.inventory.stack_at(frame.slot)):
+		_refuse_op(m, frame, Gear.WHY_BROKEN)  # M7-fix: Config.GEAR_BROKEN_UNUSABLE is the host's rule too (Player.make_frame)
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)
@@ -697,7 +700,8 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var extra: Array[Vector2] = []
 	if m.map_id == Config.MAP_SURFACE:
 		extra = carried_reserved_feet()
-	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies, extra)
+	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies, extra,
+		others_on(m.map_id, p))
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return
@@ -1866,13 +1870,16 @@ func _build(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 
 
 ## DEMOLISH (right-click): request rate, not while carrying the altar (offline Main.demolish), then Building.demolish on the
-## member's map (anyone's piece, in reach; a dungeon wall is mined, not taken down; the refund must fit).
+## member's map (anyone's piece, in reach; a dungeon wall is mined, not taken down; M7-fix: the refund that does not fit is
+## a drop at the feet, and an open door under a wall comes down only as a closing door would: the host's bodies and the
+## other players' clearance).
 func _demolish(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
 		return
-	var o: WorldItems.Outcome = Building.demolish(p.data, p.sim_position, p.inventory, frame.cell)
+	var o: WorldItems.Outcome = Building.demolish(p.data, p.sim_position, p.inventory, frame.cell, bodies_but(m.map_id, p),
+		others_on(m.map_id, p))
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return

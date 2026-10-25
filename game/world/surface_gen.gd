@@ -243,10 +243,12 @@ static func entrance_rect(data: WorldData) -> Rect2i:
 ## M7b: whether a tree's trunk may take tile `c` (step 6): clean grass at least Config.TREE_EDGE_TILES from the map's sides
 ## and bottom and Config.TREE_TOP_TILES from its top (the crown rises about 4.4 tiles), its centre at least
 ## Config.TREE_LIGHT_CLEARANCE_TILES beyond the safe radius, no ash within Config.TREE_ASH_CLEARANCE_TILES, nothing growing
-## (a gatherable, soil) and no placeable in the crown's and the trunk's surroundings (2 tiles to either side, from 4 above
-## to 1 below), not within 3 tiles of the entrance, and no other tree within Config.TREE_SPACING_TILES.
+## (a gatherable, soil) and no placeable in the crown's and the trunk's surroundings (Config.TREE_CLEAR_SIDE_TILES to either
+## side, from Config.TREE_CLEAR_ABOVE_TILES above to Config.TREE_CLEAR_BELOW_TILES below), not within
+## Config.TREE_ENTRANCE_CLEARANCE_TILES of the entrance, and no other tree within Config.TREE_SPACING_TILES.
 static func tree_spot_ok(data: WorldData, c: Vector2i) -> bool:
-	if c.x < Config.TREE_EDGE_TILES or c.x >= data.size.x - Config.TREE_EDGE_TILES or c.y < Config.TREE_TOP_TILES 			or c.y >= data.size.y - Config.TREE_EDGE_TILES:
+	if c.x < Config.TREE_EDGE_TILES or c.x >= data.size.x - Config.TREE_EDGE_TILES or c.y < Config.TREE_TOP_TILES \
+			or c.y >= data.size.y - Config.TREE_EDGE_TILES:
 		return false
 	if data.terrain_at(c) != Terrain.GRASS:
 		return false
@@ -258,15 +260,15 @@ static func tree_spot_ok(data: WorldData, c: Vector2i) -> bool:
 		for x: int in range(c.x - ash, c.x + ash + 1):
 			if data.terrain_at(Vector2i(x, y)) == Terrain.ASH or data.get_value(WorldData.Layer.CORRUPTION, Vector2i(x, y)) != 0:
 				return false
-	for y2: int in range(c.y - 4, c.y + 2):
-		for x2: int in range(c.x - 2, c.x + 3):
+	for y2: int in range(c.y - Config.TREE_CLEAR_ABOVE_TILES, c.y + Config.TREE_CLEAR_BELOW_TILES + 1):
+		for x2: int in range(c.x - Config.TREE_CLEAR_SIDE_TILES, c.x + Config.TREE_CLEAR_SIDE_TILES + 1):
 			var t: Vector2i = Vector2i(x2, y2)
 			if data.get_value(WorldData.Layer.VEGETATION, t) != 0 or data.terrain_at(t) == Terrain.SOIL:
 				return false
 			if data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE:
 				return false
 	var way: Rect2i = entrance_rect(data)
-	if way.has_area() and way.grow(3).has_point(c):
+	if way.has_area() and way.grow(Config.TREE_ENTRANCE_CLEARANCE_TILES).has_point(c):
 		return false
 	var gap: int = Config.TREE_SPACING_TILES
 	for y3: int in range(c.y - gap, c.y + gap + 1):

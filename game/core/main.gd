@@ -79,23 +79,23 @@ extends Node2D
 ## requests (a seed's or holy water's USE, CHANNEL, ALTAR_LIFT, ALTAR_PLACE: net/session_host.gd) and the host decides.
 ## Main shows what this machine has: the channels' motes (_show_purify, from the players' states) and the ghost while
 ## the local player carries the altar (from the host's state).
-## M7a (offline; in a session the stations, the chest, the new recipes and armour are refused and nothing wears until
-## M7c): the workbench, the anvil and the relic bench are stations like the alchemy table (Tab next to one); Tab away from
-## every station opens the hand recipes once one is unlocked (the workbench from logs). A weapon's hit frame attacks with
+## M7a (offline first; M7c below brings it to sessions): the workbench, the anvil and the relic bench are stations like
+## the alchemy table (Tab next to one); the hand recipes open once one is unlocked (M7a: Tab away from every station;
+## M7-fix: their own key C, toggle_hand, so Tab stays the walkable inventory). A weapon's hit frame attacks with
 ## its tier-1 damage (Gear.attack_damage) and wears it (Gear.wear_weapon); a click with armour selected puts it on (a
 ## click on the armour slot of the open inventory takes it off); a death wears every item with durability (Gear.
 ## wear_on_death). F at a storage chest opens the chest panel (ui/chest_panel.gd) with the inventory: a click moves a
 ## stack between them (Storage.store / take).
-## M7b (offline; in a session the host refuses building, right-click and the door's F do nothing and the axe swings without
-## chopping until M7c): a click with a build piece selected puts it on the target tile (Building.build: the stone wall, the
-## door, the floor, the lantern post, cheaper in the altar's light); right-click takes a built piece down (Building.demolish,
-## a piece back); F on a door opens or closes it (Building.toggle_door); the axe's landing frame chops the tree it is aimed
+## M7b (offline first; M7c below brings it to sessions): a click with a build piece selected puts it on the target tile
+## (Building.build: the stone wall, the door, the floor, the lantern post, cheaper in the altar's light); right-click takes
+## a built piece down (Building.demolish, a piece back); F on a door opens or closes it (Building.toggle_door); the axe's
+## landing frame chops the tree it is aimed
 ## at (Forest.chop: logs, the stump); every map has a Forest whose stumps grow back (step_forests, like the farms). A
 ## BuildGhost shows where the selected piece would go and whether it may. --test-build puts pieces down at the start.
 ## M7c (sessions): the same keys send requests the host decides (net/session_host.gd): a click with a station, the chest or a
 ## piece is a USE, right-click DEMOLISH, F on a door DOOR (SessionHost.attach_local_op), the armour click and the armour slot
 ## ARMOR, a click in the chest panel CHEST; F at a chest opens its panel here (NetSession.chest_wanted) on this machine's
-## world, whose chest slots the host's edits keep; Tab away from every station opens the hand recipes (a CRAFT request).
+## world, whose chest slots the host's edits keep; C opens the hand recipes (a CRAFT request; M7-fix: their own key).
 ## The build ghost is drawn from this machine's world (gold or red is this machine's answer; the host decides again).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
@@ -342,7 +342,7 @@ func spawn(local_class: String) -> void:
 	player.potions_on = true  # M6a: offline only until M6b
 	player.farming_on = true  # M5a (M5c: a session's local player too, _on_local_player_ready)
 	player.purify_on = true  # M5b (M5c: likewise)
-	player.gear_on = true  # M7a: offline only until M7c
+	player.gear_on = true  # M7a (M7c: a session's local player too)
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
 	_connect_gear(player)
@@ -448,6 +448,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		select_hotbar(1)
 	elif event.is_action_pressed(&"toggle_inventory"):
 		toggle_tab()
+	elif event.is_action_pressed(&"craft_hand"):
+		toggle_hand()  # M7-fix
 	elif event.is_action_pressed(&"interact"):
 		pick_up()
 	elif event.is_action_pressed(&"debug_drop"):
@@ -892,7 +894,8 @@ func _on_place_requested(slot: int, cell: Vector2i) -> void:
 	if arenas.has(current_map):
 		for h: HereticSim in arenas[current_map].heretics:
 			bodies.append(h.pos)
-	_apply_offline(WorldItems.place(current_world().data, player.sim_position, player.inventory, slot, cell, bodies),
+	_apply_offline(WorldItems.place(current_world().data, player.sim_position, player.inventory, slot, cell, bodies,
+		[] as Array[Vector2], _other_players()),
 		"place", cell)
 
 
@@ -946,7 +949,8 @@ func demolish() -> void:
 		net.queue_op(request(NetProtocol.Op.DEMOLISH))
 		return
 	var w: GameWorld = current_world()
-	var o: WorldItems.Outcome = Building.demolish(w.data, player.sim_position, player.inventory, cell)
+	var o: WorldItems.Outcome = Building.demolish(w.data, player.sim_position, player.inventory, cell, _other_bodies(),
+		_other_players())
 	if not o.ok():
 		print("EVENSONG_BUILD demolish refused at=%d,%d: %s" % [cell.x, cell.y, o.why])
 		return
@@ -1056,7 +1060,8 @@ func crafting_open() -> bool:
 
 ## Tab: closes the crafting panel when it is open; next to a station (Crafting.station_near; M6b: in a session
 ## too, on the map the local player has) opens it, else shows / hides the inventory as before (M2a). M7a: closes the
-## chest panel; away from every station, offline, opens the hand recipes once one is unlocked (else the inventory).
+## chest panel. (M7a opened the hand recipes with Tab away from every station once one was unlocked; M7-fix moved them to
+## their own key, toggle_hand.)
 func toggle_tab() -> void:
 	if crafting_open():
 		close_crafting()
@@ -1069,10 +1074,27 @@ func toggle_tab() -> void:
 		if at != null:
 			open_crafting(at)
 			return
-		if not hud.open and not Crafting.shown_recipes(Crafting.HAND, player.inventory).is_empty():
-			open_crafting(Crafting.hand_station(current_map))
-			return
 	hud.toggle_open()
+
+
+## M7-fix (PROVISIONAL README "M7-fix 손 제작 창"): C (input `craft_hand`) = the hand recipes (Crafting.HAND) with the
+## inventory, anywhere, once one is unlocked (the player stands while the panel is open, like a station's); C, Tab or Esc
+## closes it. Tab stays the inventory and the stations' panels (M2a, M6a): M7a opened the hand panel with Tab away from the
+## stations, so after the first stone (the axe's recipe) Tab never showed the walkable inventory again. In a session a row
+## is a CRAFT request (M7c).
+func toggle_hand() -> void:
+	if crafting_open():
+		close_crafting()
+		return
+	if chest_open():
+		close_chest()
+		return
+	if player == null or not player.vitals.alive():
+		return
+	if Crafting.shown_recipes(Crafting.HAND, player.inventory).is_empty():
+		print("EVENSONG_CRAFT hand: nothing unlocked")
+		return
+	open_crafting(Crafting.hand_station(current_map))
 
 
 func open_crafting(at: Crafting.StationAt) -> void:
@@ -1149,7 +1171,8 @@ func _crafting_input(event: InputEvent) -> void:
 		hud.crafting.move_selection(1)
 	elif event.is_action_pressed(&"interact") or _is_enter(event):
 		craft_row(hud.crafting.selected)
-	elif event.is_action_pressed(&"toggle_inventory") or event.is_action_pressed(&"ui_cancel"):
+	elif event.is_action_pressed(&"toggle_inventory") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"craft_hand"):
 		close_crafting()
 	elif event.is_action_pressed(&"hotbar_prev"):
 		select_hotbar(-1)

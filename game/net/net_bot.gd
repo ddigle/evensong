@@ -320,7 +320,8 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.count = -1 if args[2] == "soil" else args[2].to_int()
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
 		"waitwall":
-			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not WALL_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or not WALL_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
 				return "expected waitwall:<x>,<y>,<%s>[,<ticks>]" % "|".join(WALL_NAMES.keys())
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.count = WALL_NAMES[args[2]]
@@ -330,18 +331,21 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				return "expected heretic:<x>,<y>"
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 		"waitat":
-			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or (args.size() == 3 and not _whole(args[2], 1)):
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitat:<x>,<y>[,<ticks>]"
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.ticks = args[2].to_int() if args.size() == 3 else WAITMAP_LIMIT_TICKS
 		"waitplaced":
-			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not WorldData.PLACEABLE_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or not WorldData.PLACEABLE_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
 				return "expected waitplaced:<x>,<y>,<placeable>[,<ticks>]"
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.count = WorldData.PLACEABLE_NAMES.find(args[2])
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
 		"waitchest":
-			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not ItemDB.has(StringName(args[2])) or (args.size() == 4 and not _whole(args[3], 1)):
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or not ItemDB.has(StringName(args[2])) or (args.size() == 4 and not _whole(args[3], 1)):
 				return "expected waitchest:<x>,<y>,<item>[,<ticks>]"
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.item = StringName(args[2])

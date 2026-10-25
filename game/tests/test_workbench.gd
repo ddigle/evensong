@@ -101,7 +101,6 @@ func _check_recipes() -> void:
 		check(r.classes.is_empty(), "%s: anyone (● §3.5 tier 1 anyone's at the anvil)" % r.id)
 		for c: String in Config.CLASSES:
 			check(r.allows(c), "%s allowed for %s" % [r.id, c])
-		check(Crafting.is_m7(r), "%s is an M7 recipe (a session refuses it)" % r.id)
 		check(ItemDB.has(r.output), "%s output is an item" % r.id)
 	# The chain: each station made at the one before it.
 	check_eq(String(Crafting.recipe(&"workbench").station), "hand", "the workbench by hand")
@@ -117,7 +116,6 @@ func _check_recipes() -> void:
 	check_eq(Crafting.index_of(&"potion_poison_fine"), 5, "the potions keep their CRAFT indices")
 	check_eq(Crafting.index_of(&"workbench"), 6, "the chain comes after them")
 	check_eq(Crafting.recipes_for(Crafting.HAND).size(), 2, "two hand recipes (M7b: + the axe)")
-	check(not Crafting.is_m7(Crafting.recipe(&"potion_healing_common")), "a potion is no M7 recipe")
 
 
 ## Unlock on first get (○ §3.5): nothing shows without its inputs; logs open the hand workbench, then planks; stone,
@@ -173,7 +171,7 @@ static func _is_m7b(r: Crafting.Recipe) -> bool:
 ## input short of any one = missing inputs, nothing changes; a full inventory whose inputs free no slot = no room.
 func _check_atomic() -> void:
 	for r: Crafting.Recipe in Crafting.recipes():
-		if not Crafting.is_m7(r) or r.is_repair():
+		if r.station == Crafting.ALCHEMY or r.is_repair():
 			continue
 		var inv: Inventory = inv_for(r)
 		inv.add(&"mushroom_a", 3)  # something the recipe does not touch
@@ -430,13 +428,23 @@ func _check_main() -> void:
 	main.toggle_tab()
 	check(main.hud.open and not main.crafting_open(), "Tab with nothing: the inventory")
 	main.toggle_tab()
+	check(not main.hud.open and not main.crafting_open(), "Tab again: closed")
+	main.toggle_hand()
+	check(not main.crafting_open() and not main.hud.open, "C with no hand recipe unlocked: nothing opens")
 	p.inventory.add(&"log", 9)
 	p.inventory.add(&"stone_a", 10)
 	p.inventory.add(&"ore_iron", 6)
 	p.inventory.add(&"ore_copper", 4)
+	# M7-fix (PROVISIONAL README "M7-fix 손 제작 창"): Tab stays the inventory away from stations (the player walks), the
+	# hand recipes have their own key C (Main.toggle_hand).
 	main.toggle_tab()
-	if not check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.HAND and p.ui_locked,
-			"Tab with logs had, away from stations: the hand recipes"):
+	check(main.hud.open and not main.crafting_open() and not p.ui_locked,
+		"Tab with hand recipes unlocked, away from stations: the inventory alone, still walking (M2a)")
+	main.toggle_tab()
+	check(not main.hud.open and not main.crafting_open(), "Tab again: closed")
+	main.toggle_hand()
+	if not check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.HAND and p.ui_locked and main.hud.open,
+			"C: the hand recipes with the inventory (standing)"):
 		return
 	check_eq(_ids(main.hud.crafting.recipes), [&"workbench"], "one hand row: the workbench")
 	main.craft_row(0)
@@ -444,6 +452,10 @@ func _check_main() -> void:
 	check_eq(p.inventory.count_of(&"log"), 5, "four logs used")
 	main.toggle_tab()
 	check(not main.crafting_open() and not p.ui_locked, "Tab closes the hand panel")
+	main.toggle_hand()
+	check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.HAND, "C again: the hand panel")
+	main.toggle_hand()
+	check(not main.crafting_open() and not main.hud.open and not p.ui_locked, "C closes it")
 	# Put the workbench down south of the player at (60, 51).
 	_place(main, p, &"workbench", Vector2i(60, 51))
 	check_eq(main.world.data.footprints(WorldData.PLACEABLE_WORKBENCH).size(), 1, "a click put the workbench down")

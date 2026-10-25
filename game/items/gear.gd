@@ -22,8 +22,12 @@ const WHY_EMPTY: String = "empty slot"
 const WHY_NO_ARMOR: String = "no armour worn"
 const WHY_FULL: String = "inventory full"
 const WHY_BROKEN: String = "broken"
-## M7a: a session refused wearing armour until M7c (no longer used: M7c's host puts it on, the ARMOR request).
-const WHY_OFFLINE: String = "gear offline only"
+
+## M7-fix: Config.GEAR_BROKEN_UNUSABLE as unusable() reads it (tests turn it on to check the host refuses a broken item's
+## use, and put it back).
+static var broken_unusable: bool = Config.GEAR_BROKEN_UNUSABLE
+## M7-fix: Config.GEAR_REPAIR_AT_ANVIL as Crafting reads it (tests turn it on to check repairing, and put it back).
+static var repair_on: bool = Config.GEAR_REPAIR_AT_ANVIL
 
 
 ## The basic item `item` stands for (a tier-1 weapon's base weapon; any other item itself).
@@ -133,7 +137,7 @@ static func death_wear_points(item: StringName) -> int:
 
 ## Whether `stack` may not be used now (broken while Config.GEAR_BROKEN_UNUSABLE).
 static func unusable(stack: ItemStack) -> bool:
-	return Config.GEAR_BROKEN_UNUSABLE and stack != null and stack.broken()
+	return broken_unusable and stack != null and stack.broken()
 
 
 ## Why hotbar slot `slot` of `inv` cannot be put on ("" = it can): armour, in the hotbar.

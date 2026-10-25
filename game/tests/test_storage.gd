@@ -352,6 +352,17 @@ func _check_main() -> void:
 		p.begin_tick()
 		p.tick_controls(Vector2i(1, 0), p.sim_position + Vector2(30, 0), true, true, true, TICK, true, true)
 	check_eq(p.sim_position, before, "no walking while the chest is open")
+	# M7-fix: a chest slot edit from elsewhere (in a session, the host's for another player's click) redraws the open panel
+	# (Main._redraw_chest, which a session's _physics_process calls): the panel draws the world's chest.
+	var key: Vector2i = panel.rect.position
+	var seen_edits: int = main.world.chest_edits
+	check(main.world.apply_edit(EditLog.WorldEdit.chest_slot(key, 5, ItemStack.new(&"ingot_iron", 3, ItemDB.Grade.NONE))),
+		"a chest slot edit applied to the world")
+	check_eq(main.world.chest_edits, seen_edits + 1, "counted as a chest edit")
+	main._redraw_chest()
+	check(main._chest_edits_seen == main.world.chest_edits and str(main.world.data.chest_at(key).slots[5]) == "ingot_iron x3"
+		and panel.chest == main.world.data.chest_at(key), "the open panel redrawn for it: it draws the world's chest")
+	main.world.apply_edit(EditLog.WorldEdit.chest_slot(key, 5, null))
 	main._chest_input(_action_event(&"toggle_inventory"))
 	check(not main.chest_open() and not main.hud.open and not p.ui_locked, "Tab closes it")
 	p.aim_sector = Aim.Sector.NORTH  # the locked frames above still turned the aim east

@@ -143,7 +143,7 @@ func _check_recipes() -> void:
 		check_eq(r.inputs.size(), ins.size(), "%s inputs" % id)
 		for ing: Crafting.Ingredient in r.inputs:
 			check_eq(ing.count, ins.get(ing.item, -1), "%s input %s" % [id, ing.item])
-		check(r.classes.is_empty() and Crafting.is_m7(r), "%s anyone's, an M7 recipe (a session refuses it)" % id)
+		check(r.classes.is_empty() and r.station != Crafting.ALCHEMY, "%s anyone's, not the alchemy table's" % id)
 	check_eq(Crafting.index_of(&"potion_poison_fine"), 5, "the potions keep 0-5")
 	check_eq(Crafting.index_of(&"torch"), 19, "the chain keeps 6-19")
 	check_eq(Crafting.index_of(&"repair_sickle_t1"), 25, "the repairs keep 20-25")
@@ -437,6 +437,183 @@ func _check_sealing() -> void:
 		for c6: Vector2i in [Vector2i(5 + i, 3), Vector2i(5 + i, 7), Vector2i(3, 5 + i), Vector2i(7, 5 + i)]:
 			box[c6] = true
 	check(not Building.reaches(p, Vector2i(5, 5), box), "extra blocked cells around it: walled in")
+	_check_sealing_others()
+	_check_seals_same_answer()
+	_check_seal_cost()
+
+
+## M7-fix (PROVISIONAL README "M7-fix 다른 사람 가두기"): the other players' feet walk like the spots where players appear:
+## a ring around someone else may not close without a door (Building.refusal's `others`, WorldItems.place's too).
+func _check_sealing_others() -> void:
+	var d: WorldData = _plain(Vector2i(40, 40))
+	var b: Vector2 = on(Vector2i(20, 21))
+	var gap: Vector2i = Vector2i(20, 17)
+	ring(d, 17, 17, 23, 23, [gap])
+	var me: Vector2 = on(gap + Vector2i(-1, -1))
+	var others: Array[Vector2] = [b]
+	check(Building.reaches(d, Aim.feet_cell(b), {} as Dictionary[Vector2i, bool]), "the other player walks out of the north gap")
+	check_eq(Building.refusal(d, me, &"stone_wall", gap, 9, others, [] as Array[Vector2], others), Building.WHY_SEALS,
+		"the wall closing a ring round another player: refused (it would wall them in)")
+	check_eq(Building.refusal(d, me, &"stone_wall", gap, 9), "", "with nobody inside it closes (M7b)")
+	check_eq(Building.refusal(d, me, &"door", gap, 9, others, [] as Array[Vector2], others), "", "a door there: allowed")
+	var d2: WorldData = _plain(Vector2i(40, 40))
+	ring(d2, 17, 17, 23, 23, [Vector2i(19, 17), Vector2i(20, 17), Vector2i(21, 17)])
+	var o2: WorldItems.Outcome = WorldItems.place(d2, on(Vector2i(20, 16)), inv_with([[&"workbench", 1]]), 0, Vector2i(20, 17),
+		others, [] as Array[Vector2], others)
+	check_eq(o2.why, Building.WHY_SEALS, "a workbench closing a ring round another player: refused")
+	var o3: WorldItems.Outcome = WorldItems.place(d2, on(Vector2i(20, 16)), inv_with([[&"workbench", 1]]), 0, Vector2i(20, 17))
+	check(o3.ok(), "with nobody inside: put down (%s)" % o3.why)
+
+
+## M7b's breadth-first sealing walk, written out (the reference the M7-fix walk must agree with).
+static func _ref_pass(data: WorldData, c: Vector2i, extra: Dictionary[Vector2i, bool]) -> bool:
+	if not data.in_bounds(c) or extra.has(c):
+		return false
+	if Walls.is_door(data, c) or (not Walls.is_wall(data, c) and Walls.is_door(data, c + UP)):
+		return true
+	return not Movement.is_blocked(data, c)
+
+
+static func _ref_reaches(data: WorldData, start: Vector2i, extra: Dictionary[Vector2i, bool]) -> bool:
+	var r: int = Config.BUILD_SEAL_REACH_TILES
+	if not _ref_pass(data, start, extra):
+		return false
+	var seen: Dictionary[Vector2i, bool] = {start: true}
+	var queue: Array[Vector2i] = [start]
+	var i: int = 0
+	while i < queue.size():
+		var c: Vector2i = queue[i]
+		i += 1
+		for st: Vector2i in DungeonGen.STEPS:
+			var n: Vector2i = c + st
+			if seen.has(n) or not _ref_pass(data, n, extra):
+				continue
+			if maxi(absi(n.x - start.x), absi(n.y - start.y)) >= r:
+				return true
+			seen[n] = true
+			queue.append(n)
+	return false
+
+
+static func _ref_seals(data: WorldData, cells: Array[Vector2i], spots: Array[Vector2]) -> bool:
+	var extra: Dictionary[Vector2i, bool] = {}
+	for c: Vector2i in cells:
+		extra[c] = true
+	var none: Dictionary[Vector2i, bool] = {}
+	var r: int = Config.BUILD_SEAL_REACH_TILES
+	for s: Vector2 in spots:
+		var start: Vector2i = Aim.feet_cell(s)
+		var near: bool = false
+		for c2: Vector2i in cells:
+			if maxi(absi(c2.x - start.x), absi(c2.y - start.y)) <= r + 1:
+				near = true
+		if near and not _ref_reaches(data, start, extra) and _ref_reaches(data, start, none):
+			return true
+	return false
+
+
+## M7-fix: the cheaper sealing walk (Building.seals: the ring detour, deepest first, the shut-in region shared) gives M7b's
+## answer: random walls, doors and gaps on a 30x30 map, random spots, every wall / lantern / 3x1 station tried on random
+## open tiles; reaches() alike from random starts.
+func _check_seals_same_answer() -> void:
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	var same: int = 0
+	var differ: int = 0
+	var sealed: int = 0
+	var fast: int = 0
+	for layout: int in 6:
+		rng.seed = 7700 + layout
+		var d: WorldData = _plain(Vector2i(30, 30))
+		var density: float = 0.12 + 0.05 * layout
+		for i: int in roundi(900 * density):
+			var c: Vector2i = Vector2i(rng.randi_range(0, 29), rng.randi_range(0, 29))
+			put(d, c, Walls.KIND_DOOR if rng.randf() < 0.1 else Walls.KIND_STONE)
+		if layout % 2 == 1:
+			ring(d, 6, 6, 22, 20, [Vector2i(14, 6)])
+		var spots: Array[Vector2] = []
+		while spots.size() < 6:
+			var sc: Vector2i = Vector2i(rng.randi_range(1, 28), rng.randi_range(1, 28))
+			if not Movement.is_blocked(d, sc):
+				spots.append(on(sc))
+		for t: int in 120:
+			var c2: Vector2i = Vector2i(rng.randi_range(0, 29), rng.randi_range(0, 29))
+			var cells: Array[Vector2i] = []
+			match t % 3:
+				0:
+					cells = Building.blocked_cells(d, Building.STONE_WALL, c2)
+				1:
+					cells = [c2]
+				2:
+					cells = [c2, c2 + Vector2i(1, 0), c2 + Vector2i(2, 0)]
+			var want: bool = _ref_seals(d, cells, spots)
+			var got: bool = Building.seals(d, cells, spots)
+			if want == got:
+				same += 1
+			else:
+				differ += 1
+				if differ <= 3:
+					check(false, "layout %d, cells %s: seals %s, M7b's walk %s" % [layout, cells, got, want])
+			sealed += 1 if want else 0
+			fast += 1 if Building.detours(d, cells) else 0
+			var start: Vector2i = Vector2i(rng.randi_range(0, 29), rng.randi_range(0, 29))
+			var ex: Dictionary[Vector2i, bool] = {}
+			for c3: Vector2i in cells:
+				ex[c3] = true
+			if Building.reaches(d, start, ex) != _ref_reaches(d, start, ex):
+				differ += 1
+				if differ <= 3:
+					check(false, "layout %d: reaches from %s differs" % [layout, start])
+	check(differ == 0 and same == 720, "the walk agrees with M7b's on %d of 720 tries (%d seal, %d take the detour)" % [
+		same, sealed, fast])
+	# A dead-end corridor whose last tile is exactly the reach from the spot: blocking that tile walls the spot in, though
+	# the ring round it is one run (seals walks it: no open ring tile is that far). Trees block without faces.
+	var cor: WorldData = _plain(Vector2i(30, 12))
+	for y: int in 12:
+		for x: int in 30:
+			if not (y == 5 and x >= 5 and x <= 5 + Config.BUILD_SEAL_REACH_TILES):
+				cor.set_value(WorldData.Layer.PLACEABLE, Vector2i(x, y), WorldData.PLACEABLE_TREE)
+	var end: Vector2i = Vector2i(5 + Config.BUILD_SEAL_REACH_TILES, 5)
+	var at_start: Array[Vector2] = [on(Vector2i(5, 5))]
+	check(Building.detours(cor, [end] as Array[Vector2i]), "the corridor's end: one run round it")
+	check(_ref_seals(cor, [end] as Array[Vector2i], at_start) and Building.seals(cor, [end] as Array[Vector2i], at_start),
+		"blocking a corridor's end exactly the reach away walls its spot in (M7b's walk and seals agree)")
+	var short: Array[Vector2i] = [end + Vector2i(-1, 0)]
+	check(Building.seals(cor, short, at_start) and _ref_seals(cor, short, at_start), "one short of it too (two runs: walked)")
+	check(sealed >= 10 and fast >= 100, "the tries cover both answers and the detour (%d sealed, %d detour)" % [sealed, fast])
+
+
+## M7-fix (README "M7-fix 봉쇄 검사 비용"): what the seal check costs near the altar's nine spawn slots on seed 1, where M7b
+## paid about 16 ms a call (the build ghost and every build request): every tile of the 23x23 box round the altar, open
+## ground and with a ring of walls round the light that has one gap. Mean and worst are noted; the guard is the mean.
+func _check_seal_cost() -> void:
+	var results: PackedStringArray = []
+	var worst_mean: float = 0.0
+	for layout: int in 2:
+		var d: WorldData = _seed_world()
+		if layout == 1:
+			ring(d, 56, 39, 70, 57, [Vector2i(56, 48), Vector2i(56, 49)])
+		var spots: Array[Vector2] = WorldItems.reserved_feet(d)
+		var centre: Vector2i = Aim.cell_of(d.altar_center_px())
+		var n: int = 0
+		var total: int = 0
+		var worst: int = 0
+		for y: int in range(centre.y - 11, centre.y + 12):
+			for x: int in range(centre.x - 11, centre.x + 12):
+				var c: Vector2i = Vector2i(x, y)
+				if Movement.is_blocked(d, c):
+					continue
+				var cells: Array[Vector2i] = Building.blocked_cells(d, Building.STONE_WALL, c)
+				var t0: int = Time.get_ticks_usec()
+				Building.seals(d, cells, spots)
+				var dt: int = Time.get_ticks_usec() - t0
+				total += dt
+				worst = maxi(worst, dt)
+				n += 1
+		var mean: float = float(total) / maxf(1.0, float(n)) / 1000.0
+		worst_mean = maxf(worst_mean, mean)
+		results.append("%s: %d tiles, mean %.3f ms, worst %.2f ms" % ["open" if layout == 0 else "ring", n, mean, worst / 1000.0])
+	note("seal check near the spawn slots (seed 1): %s (M7b: about 16 ms a call)" % "; ".join(results))
+	check(worst_mean < 2.0, "the seal check near the spawn slots averages under 2 ms a call (%.3f ms)" % worst_mean)
 
 
 # --- collision -----------------------------------------------------------------------------------------
@@ -563,30 +740,71 @@ func _check_heretics_and_shots() -> void:
 	# A shot stops at a built wall (the arrow's grid walk, Combat.blocks_line).
 	check(Combat.blocks_line(d, Vector2i(8, 10)) and Combat.blocks_line(d, Vector2i(9, 9)), "walls and faces stop shots")
 	check(not Combat.blocks_line(d, Vector2i(12, 14)) and not Combat.blocks_line(d, Vector2i(12, 15)), "an open doorway does not")
-	# The arena's spawn tiles follow building (Arena.sync_world: the built counts changed).
+	_check_spawn_tiles()
+
+
+## M7-fix: the spawn tiles are the map's own terrain (Arena.terrain_blocked) and never follow building; the live world is
+## checked when a heretic is put down (Arena.spawn_ok: no built wall under it, in no doorway). M7b walked the dungeon from its
+## arrival through closed doors and noticed building by counts: a legal door-and-walls ring around the arrival room, its door
+## shut, left the dungeon without a spawn tile (443 -> 0 on seed 1).
+func _check_spawn_tiles() -> void:
 	var w: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	var arena: Arena = Arena.new()
 	arena.setup(w, 1)
+	var cells0: Array[Vector2i] = arena.spawn_cells.duplicate()
 	var spawn: Vector2i = arena.spawn_cells[arena.spawn_cells.size() / 2]
-	check(not arena.sync_world(), "nothing changed: no sync")
+	check(arena.spawn_ok(Arena.spawn_feet(spawn), []), "a spawn tile: a heretic may appear there")
 	put(w, spawn, Walls.KIND_STONE)
-	check(arena.sync_world() and not arena.spawn_cells.has(spawn), "a wall on a spawn tile: worked out again, the tile gone")
+	check(not arena.sync_world() and arena.spawn_cells == cells0, "a wall on a spawn tile: the spawn tiles stay (terrain)")
+	check_eq(Arena.surface_spawn_cells(w, SafeZone.for_world(w)), cells0, "worked out from scratch with the wall: the same")
+	check(not arena.spawn_ok(Arena.spawn_feet(spawn), []), "but no heretic appears in the wall (spawn_ok: the live world)")
+	check(not arena.spawn_ok(Arena.spawn_feet(spawn + DOWN), []), "nor on its face")
+	put(w, spawn, Walls.KIND_DOOR_OPEN)
+	check(not arena.spawn_ok(Arena.spawn_feet(spawn), []) and not arena.spawn_ok(Arena.spawn_feet(spawn + DOWN), []),
+		"an open door: none in its doorway (it could not close on one)")
+	put(w, spawn, Walls.KIND_FLOOR)
+	check(arena.spawn_ok(Arena.spawn_feet(spawn), []), "a floor piece: open ground")
 	put(w, spawn, Walls.KIND_NONE)
-	check(arena.sync_world() and arena.spawn_cells.has(spawn), "taken down: the tile back")
+	check(arena.spawn_ok(Arena.spawn_feet(spawn), []) and arena.spawn_cells == cells0, "taken down: as before")
+	check_eq(Arena.surface_spawn_cells(w, SafeZone.for_world(w)), cells0, "worked out from scratch: the same tiles")
+	# The dungeon: walls and a door around the arrival room (Chebyshev 3), the door shut.
 	var dun: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
 	var dun_arena: Arena = Arena.new()
 	dun_arena.setup(dun, 1)
-	var before: int = dun_arena.spawn_cells.size()
+	var before: Array[Vector2i] = dun_arena.spawn_cells.duplicate()
 	var f: Vector2i = Aim.feet_cell(DungeonGen.arrival_point(dun))
-	var sealed: Array[Vector2i] = []
-	for x: int in range(f.x - 12, f.x + 13):
-		for y: int in range(f.y - 12, f.y + 13):
+	var ring_cells: Array[Vector2i] = []
+	for x: int in range(f.x - 3, f.x + 4):
+		for y: int in range(f.y - 3, f.y + 4):
 			var c: Vector2i = Vector2i(x, y)
-			if maxi(absi(x - f.x), absi(y - f.y)) == 3 and dun.in_bounds(c) and not Walls.is_wall(dun, c):
-				put(dun, c, Walls.KIND_STONE)
-				sealed.append(c)
-	check(dun_arena.sync_world() and dun_arena.spawn_cells.size() < before,
-		"the dungeon's arrival walled in: its spawn tiles worked out again (%d -> %d)" % [before, dun_arena.spawn_cells.size()])
+			if maxi(absi(x - f.x), absi(y - f.y)) == 3 and dun.in_bounds(c) and not Walls.is_wall(dun, c) \
+					and not Walls.is_face(dun, c):
+				ring_cells.append(c)
+	var door_at: Vector2i = Walls.NO_CELL
+	for c2: Vector2i in ring_cells:
+		if c2.y == f.y + 3 and door_at == Walls.NO_CELL and not Walls.is_wall(dun, c2 + DOWN):
+			door_at = c2
+	for c3: Vector2i in ring_cells:
+		put(dun, c3, Walls.KIND_DOOR if c3 == door_at else Walls.KIND_STONE)
+	check(door_at != Walls.NO_CELL, "a ring of %d walls and a door at %s round the arrival room" % [ring_cells.size(), door_at])
+	dun_arena.sync_world()
+	check_eq(dun_arena.spawn_cells, before, "the door shut: the dungeon's spawn tiles are as before (%d)" % before.size())
+	check_eq(Arena.dungeon_spawn_cells(dun), before, "worked out from scratch: the same (the terrain only)")
+	check(dun_arena.spawns_now(), "and it spawns")
+	var deep: Player = Player.new()
+	deep.setup(dun, "paladin", DungeonGen.arrival_point(dun), Config.SPAWN_FACING)
+	_nodes.append(deep)
+	var spawned: int = 0
+	for i: int in 30:
+		if dun_arena.try_spawn([deep] as Array[Player]) != null:
+			spawned += 1
+	check(spawned > 0, "heretics still appear in the dungeon with the arrival room shut (%d of 30 tries)" % spawned)
+	var on_built: int = 0
+	for h: HereticSim in dun_arena.heretics:
+		for cell: Vector2i in Arena.cells_under(Movement.feet_box(h.pos)):
+			if Walls.kind_at(dun, cell) != Walls.KIND_NONE or Building.door_cell(dun, cell) != Walls.NO_CELL:
+				on_built += 1
+	check_eq(on_built, 0, "none on a built tile or in the doorway")
 
 
 # --- taking down -------------------------------------------------------------------------------------
@@ -618,15 +836,54 @@ func _check_demolish() -> void:
 		[1, 1, 1, 1], "one piece of each back")
 	check(Walls.kind_at(d, Vector2i(11, 9)) == 0 and Walls.kind_at(d, Vector2i(9, 9)) == 0 and Walls.kind_at(d, Vector2i(9, 11)) == 0
 		and d.get_value(WorldData.Layer.PLACEABLE, Vector2i(11, 11)) == 0, "all gone")
-	# A full inventory refuses (nothing changes).
+	# M7-fix (README "M7-fix 철거"): a full inventory takes it down too; the piece lies at the feet (M7b refused: someone
+	# walled in with a full inventory could not get out).
 	put(d, Vector2i(11, 9), Walls.KIND_STONE)
 	var full: Inventory = Inventory.new()
 	for i: int in full.size():
 		full.add(&"sword", 1)
-	check_eq(Building.demolish(d, feet, full, Vector2i(11, 9)).why, WorldItems.WHY_FULL, "a full inventory")
-	check_eq(Walls.kind_at(d, Vector2i(11, 9)), Walls.KIND_STONE, "the wall stays")
+	var fo: WorldItems.Outcome = Building.demolish(d, feet, full, Vector2i(11, 9))
+	check(fo.ok() and fo.edits.size() == 2 and fo.edits[1].drop != null and fo.edits[1].drop.item == &"stone_wall"
+		and fo.edits[1].drop.count == Config.BUILD_REFUND and fo.edits[1].drop.cell() == Aim.feet_cell(feet),
+		"a full inventory: taken down, the piece a drop at the feet (%s)" % fo.why)
+	apply(d, fo.edits)
+	check(Walls.kind_at(d, Vector2i(11, 9)) == Walls.KIND_NONE and d.drops_at(Aim.feet_cell(feet)).size() == 1,
+		"the wall gone, the drop there")
+	check_eq(full.count_of(&"sword"), full.size(), "the inventory as it was")
+	put(d, Vector2i(11, 9), Walls.KIND_STONE)
 	# Anyone's: another class, the same wall.
 	check(Building.demolish(d, on(Vector2i(12, 10)), Inventory.new(), Vector2i(11, 9)).ok(), "anyone takes any piece down")
+	# Which piece a right-click on a face tile with a floor piece takes: the wall above first (built_at's order), then the
+	# floor piece.
+	var pr: WorldData = _plain()
+	put(pr, Vector2i(5, 5), Walls.KIND_STONE)
+	put(pr, Vector2i(5, 6), Walls.KIND_FLOOR)
+	var first: WorldItems.Outcome = Building.demolish(pr, on(Vector2i(6, 7)), Inventory.new(), Vector2i(5, 6))
+	check(first.ok() and first.item == &"stone_wall" and first.edits[0].cell == Vector2i(5, 5),
+		"a face tile with a floor piece: the wall above comes down first (%s)" % first.item)
+	apply(pr, first.edits)
+	var second: WorldItems.Outcome = Building.demolish(pr, on(Vector2i(6, 7)), Inventory.new(), Vector2i(5, 6))
+	check(second.ok() and second.item == &"stone_floor" and second.edits[0].cell == Vector2i(5, 6), "then the floor piece")
+	# M7-fix: an open door right below a wall leaves that wall's face on its tile, which blocks: it comes down only as a
+	# closing door would (nobody in it, no other player within the clearance).
+	var dw: WorldData = _plain()
+	put(dw, Vector2i(10, 9), Walls.KIND_STONE)
+	put(dw, Vector2i(10, 10), Walls.KIND_DOOR_OPEN)
+	var in_door: Vector2 = on(Vector2i(10, 10))
+	check(Movement.can_stand(dw, in_door), "someone can stand in the open door (a doorway)")
+	var from: Vector2 = on(Vector2i(11, 10))
+	check_eq(Building.demolish(dw, from, Inventory.new(), Vector2i(10, 10), [in_door] as Array[Vector2]).why,
+		Building.WHY_DOORWAY, "taking down an open door under a wall with someone in it: refused (its tile would block)")
+	check_eq(Building.demolish(dw, from, Inventory.new(), Vector2i(10, 10), [] as Array[Vector2],
+		[on(Vector2i(10, 11))] as Array[Vector2]).why, Building.WHY_NEAR, "another player just below it: someone is too close")
+	var gone: WorldItems.Outcome = Building.demolish(dw, from, Inventory.new(), Vector2i(10, 10))
+	check(gone.ok() and gone.item == &"door", "nobody near: it comes down")
+	apply(dw, gone.edits)
+	check(Movement.is_blocked(dw, Vector2i(10, 10)), "its tile is the wall's face now (blocks)")
+	var dw2: WorldData = _plain()
+	put(dw2, Vector2i(10, 10), Walls.KIND_DOOR_OPEN)
+	check(Building.demolish(dw2, from, Inventory.new(), Vector2i(10, 10), [in_door] as Array[Vector2]).ok(),
+		"an open door with no wall above: its tile opens, nothing to check")
 
 
 # --- doors ---------------------------------------------------------------------------------------------
@@ -666,6 +923,27 @@ func _check_doors() -> void:
 # --- mining ----------------------------------------------------------------------------------------------
 
 func _check_mining() -> void:
+	# M7-fix: the pickaxe aimed at an open door or its doorway attacks (open ground, Walls.blocks false): the miner hits a
+	# heretic standing there. A closed door is still a mining swing ("too hard").
+	var od: WorldData = _plain()
+	put(od, Vector2i(10, 10), Walls.KIND_DOOR_OPEN)
+	for item: StringName in [&"pickaxe", &"pickaxe_t1"]:
+		check(not Combat.is_mining_swing(od, item, Vector2i(10, 10)) and not Combat.is_mining_swing(od, item, Vector2i(10, 11)),
+			"%s at an open door and its doorway: an attack, no mining" % item)
+	put(od, Vector2i(10, 10), Walls.KIND_DOOR)
+	check(Combat.is_mining_swing(od, &"pickaxe", Vector2i(10, 10)) and Combat.is_mining_swing(od, &"pickaxe", Vector2i(10, 11)),
+		"a closed door and its face: a mining swing (too hard)")
+	put(od, Vector2i(10, 10), Walls.KIND_DOOR_OPEN)
+	var oa: Arena = Arena.new()
+	oa.setup(od, 1)
+	oa.spawning = false
+	var hh: HereticSim = oa.spawn_heretic(on(Vector2i(10, 11)))
+	var miner: Player = Player.new()
+	miner.setup(od, "miner", on(Vector2i(10, 12)), Config.SPAWN_FACING)
+	_nodes.append(miner)
+	var hp0: int = hh.hp
+	oa.player_attack(miner, &"pickaxe", Combat.aim_code(hh.pos - miner.sim_position), [miner] as Array[Player])
+	check(hh.hp < hp0, "the miner's pickaxe hits a heretic in the open doorway (%d -> %d)" % [hp0, hh.hp])
 	var d: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
 	var f: Vector2i = Aim.feet_cell(DungeonGen.arrival_point(d))
 	# A built wall in the arrival room: a pickaxe swing at it or its face does nothing.
@@ -830,6 +1108,29 @@ func _check_main() -> void:
 	_aim(main, p, Vector2i(66, 51))
 	check(main.build_ghost.visible and main.build_ghost.allowed and main.build_ghost.piece == &"stone_wall"
 		and main.build_ghost.position == Vector2(66 * 16, 51 * 16), "the ghost: the wall, allowed, on the aimed tile")
+	# M7-fix: bodies move without a world edit: the ghost judges again every GHOST_RECHECK_TICKS (a heretic onto the face).
+	var ha: Arena = main.arenas[Config.MAP_SURFACE]
+	var hh: HereticSim = ha.spawn_heretic(on(Vector2i(66, 52)))
+	var turned: int = -1
+	for i: int in Main.GHOST_RECHECK_TICKS + 1:
+		_aim(main, p, Vector2i(66, 51))
+		if turned < 0 and not main.build_ghost.allowed:
+			turned = i
+	check(turned >= 0 and turned <= Main.GHOST_RECHECK_TICKS, "a heretic stepped onto its face: red within %d ticks (%d)" % [
+		Main.GHOST_RECHECK_TICKS, turned])
+	ha.heretics.erase(hh)
+	for i2: int in Main.GHOST_RECHECK_TICKS + 1:
+		_aim(main, p, Vector2i(66, 51))
+	check(main.build_ghost.allowed, "gone again: gold")
+	# M7-fix: the ghost's cost next to the spawn slots, the aim moving every tick (M7b: about 13 ms a tick).
+	p.teleport(on(Vector2i(63, 52)))
+	var t0: int = Time.get_ticks_usec()
+	for i3: int in 60:
+		_aim(main, p, Vector2i(62, 53) if i3 % 2 == 0 else Vector2i(64, 53))
+	var per: float = (Time.get_ticks_usec() - t0) / 60.0 / 1000.0
+	note("build ghost next to the spawn slots, the aim moving every tick: %.3f ms a tick" % per)
+	check(per < 3.0, "the build ghost next to the spawn slots costs under 3 ms a tick (%.3f ms)" % per)
+	p.teleport(on(Vector2i(65, 52)))
 	data.set_value(WorldData.Layer.VEGETATION, Vector2i(66, 51), WorldItems.value_of(&"stone_a"))
 	main.world.revision += 1
 	_aim(main, p, Vector2i(66, 51))

@@ -27,15 +27,17 @@ extends RefCounted
 ## out; then the inputs leave (from the last slots first, so hotbar stacks stay longest) and the output goes
 ## in. Anything missing refuses it and changes nothing (PROVISIONAL: no room = refused, nothing dropped).
 ##
-## M7a, the workbench chain (○ gameplay-design §3.5 "기본 작업대 → 모루(대장간) → 성물 제작대"; the slice's "2~3단계" ●
+## M7a, the workbench chain (○ gameplay-design §3.5 "기본 작업대 → 모루(대장간) → 성물 제작대"; the slice's "2~3단계",
 ## game-concept §12; PROVISIONAL README "임시값" M7a 작업대 체인): three more stations, the basic workbench, the anvil and the
-## relic bench (WorldData.PLACEABLE_WORKBENCH / ANVIL / RELIC), and hand recipes (HAND: no station; Main opens them with Tab
-## away from every station once one is unlocked, offline). Their recipes are Config.STATION_RECIPES (anyone may craft
-## them: ● §3.5 tier 1 is anyone's at the anvil, and nothing else in the chain is a class's), appended after the potions so
-## a CRAFT request's index (M6b) keeps its meaning. Each station is made at the one before it (the workbench by hand).
+## relic bench (WorldData.PLACEABLE_WORKBENCH / ANVIL / RELIC), and hand recipes (HAND: no station; Main opens them once one
+## is unlocked: M7a with Tab away from every station, M7-fix with their own key C, Main.toggle_hand). Their recipes are
+## Config.STATION_RECIPES (anyone may craft them: ● §3.0 R11 tier 1 is anyone's at the anvil, and nothing else in the chain
+## is a class's), appended after the potions so a CRAFT request's index (M6b) keeps its meaning. Each station is made at the
+## one before it (the workbench by hand). M7c: a session's host crafts every one of them (CRAFT, net/session_host.gd).
 ## Repair recipes (one per item with durability, at the anvil, Config.GEAR_REPAIR_MATERIAL): one material gives the most
 ## worn one of that item the player carries its full durability back (Gear.most_worn; nothing worn = refused, "nothing to
-## repair"); they show only while there is something to repair. A session refuses every M7 recipe until M7c (WHY_OFFLINE).
+## repair"); they show only while there is something to repair. M7-fix: only with Gear.repair_on
+## (Config.GEAR_REPAIR_AT_ANVIL, off: ● §2.6 R12 repair is the engineer's work; WHY_NO_REPAIR, never shown).
 ## M7b: the build pieces at the basic workbench and the axe by hand (Config.BUILD_RECIPES, PROVISIONAL README "임시값" M7b),
 ## appended after the repairs (26..30), anyone's.
 
@@ -61,9 +63,10 @@ const WHY_CLASS: String = "herbalist only"
 const WHY_MISSING: String = "missing inputs"
 const WHY_NO_ROOM: String = "no room"
 const WHY_BAD_RECIPE: String = "no such recipe"
-## M7a: a repair recipe with no worn item of its kind; a session's M7 recipe or station (until M7c).
+## M7a: a repair recipe with no worn item of its kind.
 const WHY_NOTHING_TO_REPAIR: String = "nothing to repair"
-const WHY_OFFLINE: String = "workbench chain offline only"
+## M7-fix: a repair while Gear.repair_on is off (Config.GEAR_REPAIR_AT_ANVIL: repair is the engineer's work, ● §2.6 R12).
+const WHY_NO_REPAIR: String = "repair is the engineer's work"
 
 
 ## One input of a recipe: `count` of `item` at `grade` (-1 = any grade).
@@ -254,22 +257,16 @@ static func unlocked(r: Recipe, inv: Inventory) -> bool:
 
 
 ## The recipes of station `kind` the panel shows for `inv` (the unlocked ones, in order). M7a: a repair recipe only while
-## `inv` holds a worn one of its item.
+## `inv` holds a worn one of its item; M7-fix: and only with Gear.repair_on.
 static func shown_recipes(kind: StringName, inv: Inventory) -> Array[Recipe]:
 	var out: Array[Recipe] = []
 	for r: Recipe in recipes_for(kind):
-		if unlocked(r, inv) and (not r.is_repair() or Gear.most_worn(inv, r.repair) != null):
+		if unlocked(r, inv) and (not r.is_repair() or (Gear.repair_on and Gear.most_worn(inv, r.repair) != null)):
 			out.append(r)
 	return out
 
 
-## M7a: whether recipe `r` belongs to the workbench chain (a station other than the alchemy table, or a repair): a session
-## refuses it until M7c.
-static func is_m7(r: Recipe) -> bool:
-	return r != null and r.station != ALCHEMY
-
-
-## M7a: the hand "station" on map `map_id` (no fixture: Tab away from every station opens it, offline).
+## M7a: the hand "station" on map `map_id` (no fixture: Main.toggle_hand opens it, M7-fix's key C).
 static func hand_station(map_id: int) -> StationAt:
 	var at: StationAt = StationAt.new()
 	at.kind = HAND
@@ -368,6 +365,8 @@ static func have(inv: Inventory, item: StringName, grade: int) -> int:
 static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
 	if r == null:
 		return WHY_BAD_RECIPE
+	if r.is_repair() and not Gear.repair_on:
+		return WHY_NO_REPAIR  # M7-fix: Config.GEAR_REPAIR_AT_ANVIL off
 	if not unlocked(r, inv):
 		return WHY_LOCKED
 	if not r.allows(class_id):

@@ -20,8 +20,6 @@ const WHY_CHEST_FULL: String = "chest full"
 const WHY_FULL: String = "inventory full"
 const WHY_EMPTY: String = "empty slot"
 const WHY_REACH: String = "out of reach"
-## M7a: a session refused the chest until M7c (no longer used: M7c's host moves stacks with transfer()).
-const WHY_OFFLINE: String = "storage offline only"
 
 
 ## What a move did: how many of which item went over (0 = refused, `why` says why). M7c: the chest slot edits it made

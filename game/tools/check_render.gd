@@ -2698,8 +2698,10 @@ func _check_gear_hud() -> void:
 
 ## M7a: the chest panel (above the open inventory grid) and the anvil's crafting panel with rows of one, two and three
 ## inputs and a repair row: every opaque pixel they draw on its place (frames, header icons and underlines, slot frames,
-## icons, counts left out, the durability bars), the slots and arrows placed by the layout written out here.
+## icons, counts left out, the durability bars), the slots and arrows placed by the layout written out here. M7-fix: the
+## repair row shows only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL, off by default): on for this part, put back.
 func _check_m7_panels() -> void:
+	Gear.repair_on = true
 	world.lighting.set_evening(false)
 	_look_at(Vector2i(400, 400))
 	var hud: Hud = Hud.new()
@@ -2799,6 +2801,7 @@ func _check_m7_panels() -> void:
 	var rows: int = cp.recipes.size()
 	root.remove_child(hud)
 	hud.free()
+	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
 	var line: String = "chest_pixels=%d chest_mismatches=%d chest_place=%s anvil_rows=%d three_input_rows=%d repair_rows=%d anvil_pixels=%d anvil_mismatches=%d width=%d" % [
 		want.size(), bad_chest, str(chest_ok), rows, three_rows, repair_rows, free_want.size(), bad_panel, pr.size.x]
 	if bad_chest == 0 and chest_ok and bad_panel == 0 and layout_ok and repair_rows == 1 and three_rows >= 1 and rows == 10:
@@ -2916,6 +2919,14 @@ func _check_builds_net() -> void:
 	var host_vs_client: int = 0
 	var drawn: int = 0
 	var shots: Array[Image] = []
+	# M7-fix: the relic bench's candle animates by time and the worlds are captured one after the other, so every flame is
+	# held on frame 0 (like `stations`): a first M7-fix run differed by 3 px there, the candle's frame.
+	for fw: GameWorld in [host_w, client_w, bare_w]:
+		fw.fixtures.set_process(false)
+		for anchor: Vector2i in fw.fixtures.nodes:
+			var flame: Sprite2D = fw.fixtures.nodes[anchor].get_node_or_null(^"Flame") as Sprite2D
+			if flame != null:
+				flame.frame = 0
 	for spot: Vector2i in spots:
 		var imgs: Array[Image] = []
 		for w: GameWorld in [host_w, client_w, bare_w]:

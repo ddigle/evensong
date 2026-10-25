@@ -283,7 +283,7 @@ static func _check_items(r: Report) -> void:
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
 	r.expect_eq(tools, 13, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons; M7b: + the axe)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash", "skill_1", "demolish"]:
+			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:

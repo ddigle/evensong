@@ -60,12 +60,13 @@ extends Node2D
 ## M5c, in a session: the channel goes as the CHANNEL request (SessionHost.attach_local_op turns F with nothing to pick up
 ## into it), the click while carrying as ALTAR_PLACE; `carrying_altar` comes from the host's state (its held byte); the
 ## channel of a player drawn from states comes with show_state().
-## M7a (`gear_on`, offline; a session's players have it off until M7c): a click with armour selected asks to put it on
-## (equip_requested; Main, items/gear.gd); a heretic's knife hit (take_hit with `armored`) is lessened by the worn armour
-## and wears it; with Config.GEAR_BROKEN_UNUSABLE a broken item makes no frame (gear_refused).
+## M7a (`gear_on`: offline Main's player; M7c: a session's local player and the host's members too): a click with armour
+## selected asks to put it on (equip_requested; Main, items/gear.gd; M7c: an ARMOR request); a heretic's knife hit (take_hit
+## with `armored`) is lessened by the worn armour and wears it; with Config.GEAR_BROKEN_UNUSABLE a broken item makes no
+## frame (gear_refused; M7-fix: the host refuses its USE too).
 ## M7b: a click with a build piece selected is a USE without an action like a torch's (place_requested: offline Main builds,
-## items/building.gd; a session's host refuses it until M7c); the axe plays its own body action and lands on
-## Forest.impact_tick (action_impact: offline Main chops).
+## items/building.gd; M7c: the host builds from the USE); the axe plays its own body action and lands on
+## Forest.impact_tick (action_impact: offline Main chops; M7c: the host).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -140,7 +141,7 @@ var farming_on: bool = false
 ## channel_tick / channel_cell), whether this player carries the altar (Main sets it; AltarMove) and how long F has been
 ## held aimed at the altar (Main counts it, Config.ALTAR_PICKUP_HOLD_TICKS).
 var purify_on: bool = false
-## M7a: armour, its defence and its wear on knife hits (Main turns it on offline; off in a session until M7c).
+## M7a: armour, its defence and its wear on knife hits (Main turns it on offline; M7c: the session's players too).
 var gear_on: bool = false
 var channel_tick: int = 0
 var channel_cell: Vector2i = Vector2i.ZERO

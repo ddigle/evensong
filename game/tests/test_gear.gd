@@ -293,9 +293,27 @@ func _check_death_wear() -> void:
 
 ## Repair at the anvil: one material gives the most worn one of the item (the worn armour included) its full durability;
 ## nothing worn = refused, nothing changes; missing material = refused; never seen = locked; the panel shows a repair row
-## only while something is worn.
+## only while something is worn. M7-fix: all of it only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL, off: ● §2.6 R12
+## repair is the engineer's work): off, no repair row ever shows and a repair is refused with nothing changed.
 func _check_repair() -> void:
 	var r: Crafting.Recipe = Crafting.recipe(&"repair_sword_t1")
+	check_eq(Gear.repair_on, Config.GEAR_REPAIR_AT_ANVIL, "the repair switch starts as Config has it")
+	check(not Config.GEAR_REPAIR_AT_ANVIL, "Config: nobody repairs in the slice (the engineer's work, ● §2.6 R12; README \"M7-fix 수리\")")
+	var off: Inventory = Inventory.new()
+	off.add(&"sword_t1", 1)
+	off.add(&"ingot_iron", 3)
+	off.stack_at(0).durability = 30
+	Gear.repair_on = false
+	var off_before: String = off.describe()
+	check(not Crafting.shown_recipes(Crafting.ANVIL, off).has(r), "switch off: a worn sword shows no repair row")
+	check_eq(Crafting.craft(r, "cleric", off).why, Crafting.WHY_NO_REPAIR, "switch off: the repair is refused (the engineer's work)")
+	check_eq(off.describe(), off_before, "nothing changed")
+	Gear.repair_on = true  # the rule itself, as M7a made it (put back below)
+	_check_repair_on(r)
+	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
+
+
+func _check_repair_on(r: Crafting.Recipe) -> void:
 	check(r != null and r.is_repair() and r.station == Crafting.ANVIL and r.repair == &"sword_t1", "the sword's repair at the anvil")
 	check_eq(r.inputs[0].item, &"ingot_iron", "one iron ingot")
 	check_eq(r.inputs[0].count, 1, "just one")

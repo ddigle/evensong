@@ -121,6 +121,8 @@ func _session_house() -> void:
 	check(welcome.contains(" walls=%d doors=1 open_doors=0 " % HOUSE_WALLS), "house/c2 (late): its snapshot had the room and its closed door (%s)" % welcome)
 	var p1: Dictionary = c1.result.get("prediction", {})
 	check(_num(p1, "corrections", 99.0) == 0.0, "house/c1: never pulled back (walked through, into the closed door; %s)" % p1)
+	# M7-fix: as shown (Prediction.replay_jumps: a pull-back caused by an edit does not show as a correction).
+	check(_num(p1, "replay_jumps", 99.0) == 0.0, "house/c1: its shown position never jumped on a replay (%s)" % p1)
 	_fight_traffic_notes("house", host, c1)
 	for key: String in host.result.get("stats", {}):
 		if key.begins_with("req") or key.begins_with("1/") or key.begins_with("2/"):

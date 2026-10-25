@@ -55,6 +55,7 @@ func run() -> Array[String]:
 	await _check_chop_requests()
 	await _check_room_flow()
 	await _check_door_opens_on_pusher()
+	await _check_clearance_needed()
 	await _check_chest_flow()
 	await _check_gear_flow()
 	await _check_chop_flow()
@@ -64,6 +65,14 @@ func run() -> Array[String]:
 
 
 # --- helpers -----------------------------------------------------------------------------------------------------------
+
+## M7-fix: the client's shown position never jumped on a replay (Prediction.replay_jumps: the counters check_prediction
+## reads compare the host with a prediction already replayed on the edited world, so an edit-caused pull-back passes them).
+func check_no_jump(label: String, c: Client) -> void:
+	var p: Prediction = c.s.client.prediction
+	check(p.replay_jumps == 0, "%s: the shown position never jumped on a replay (%d jumps, largest %.2f px)" % [label,
+		p.replay_jumps, p.max_replay_jump_px])
+
 
 ## Every cell of the room's walls (the door left out), row by row.
 static func room_walls() -> Array[Vector2i]:
@@ -476,9 +485,18 @@ func _check_build_requests() -> void:
 	refill(m)
 	run_one(r, m, req(NetProtocol.Op.DEMOLISH, Aim.feet_cell(m.player.sim_position) + Vector2i(-1, 0)))
 	check_eq(m.refused(Building.WHY_NOT_BUILT), 1, "right-click on bare grass: nothing built there")
+	# M7-fix: exact counts (the reach refusals above already made ">= n" true) and the wrong map.
+	var reach_d: int = m.refused(WorldItems.WHY_REACH)
 	refill(m)
 	run_one(r, m, req(NetProtocol.Op.DEMOLISH, Vector2i(67, 55) + Vector2i(3, 0)))
-	check(m.refused(WorldItems.WHY_REACH) >= 4, "right-click 3 tiles off: out of reach")
+	check_eq(m.refused(WorldItems.WHY_REACH) - reach_d, 1, "right-click 3 tiles off: out of reach (from the host's player)")
+	var wrong_d: int = m.refused(WorldItems.WHY_WRONG_MAP)
+	var dmap: NetProtocol.InputFrame = req(NetProtocol.Op.DEMOLISH, Vector2i(67, 55))
+	dmap.map = Config.MAP_DUNGEON
+	refill(m)
+	run_one(r, m, dmap)
+	check(m.refused(WorldItems.WHY_WRONG_MAP) - wrong_d == 1 and Walls.kind_at(data, Vector2i(67, 55)) == Walls.KIND_STONE,
+		"a right-click aimed on the dungeon: wrong map, the wall stands")
 	refill(m)
 	run_one(r, m, req(NetProtocol.Op.DEMOLISH, Vector2i(67, 55)))
 	check(Walls.kind_at(data, Vector2i(67, 55)) == Walls.KIND_NONE and m.player.inventory.count_of(&"stone_wall") >= 39,
@@ -504,9 +522,53 @@ func _check_build_requests() -> void:
 	refill(m)
 	run_one(r, m, req(NetProtocol.Op.DOOR, Vector2i(67, 53)))
 	check(Walls.is_door(data, Vector2i(67, 53)) and not Walls.is_open_door(data, Vector2i(67, 53)), "farther away: it closes")
+	var reach_f: int = m.refused(WorldItems.WHY_REACH)
+	m.player.teleport(feet_in(Vector2i(67, 56)))
 	refill(m)
-	run_one(r, m, req(NetProtocol.Op.DOOR, Vector2i(67, 53) + Vector2i(0, -3)))
-	check(m.refused(WorldItems.WHY_REACH) >= 5, "F on a door 3 tiles off: out of reach")
+	run_one(r, m, req(NetProtocol.Op.DOOR, Vector2i(67, 53)))
+	check(m.refused(WorldItems.WHY_REACH) - reach_f == 1 and not Walls.is_open_door(data, Vector2i(67, 53)),
+		"F on a door 3 tiles off: out of reach (from the host's player), still closed")
+	m.player.teleport(feet_in(Vector2i(66, 54)))
+	var wrong_f: int = m.refused(WorldItems.WHY_WRONG_MAP)
+	var fmap: NetProtocol.InputFrame = req(NetProtocol.Op.DOOR, Vector2i(67, 53))
+	fmap.map = Config.MAP_DUNGEON
+	refill(m)
+	run_one(r, m, fmap)
+	check(m.refused(WorldItems.WHY_WRONG_MAP) - wrong_f == 1 and not Walls.is_open_door(data, Vector2i(67, 53)),
+		"F on a door aimed on the dungeon: wrong map, still closed")
+	# M7-fix: a wall on a live heretic's feet (bodies_but: the heretics too) and on the spawn slots around where a carried
+	# altar was picked up (carried_reserved_feet) is refused on the host.
+	var arena: Arena = r.host.arenas[Config.MAP_SURFACE]
+	var h: HereticSim = arena.spawn_heretic(feet_in(Vector2i(68, 58)))
+	m.player.teleport(feet_in(Vector2i(67, 58)))
+	var body_before: int = m.refused(WorldItems.WHY_BODY)
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.USE, Vector2i(68, 57), 0))
+	check(m.refused(WorldItems.WHY_BODY) - body_before == 1 and Walls.kind_at(data, Vector2i(68, 57)) == Walls.KIND_NONE,
+		"a wall whose face covers a live heretic's feet: someone stands there")
+	h.hp = 0
+	arena.heretics.erase(h)
+	r.host.altar_home = data.altar_rect
+	var home_slot: Vector2i = Walls.NO_CELL
+	for sf: Vector2 in AltarMove.slot_feet(data.altar_rect):
+		var taken: bool = false
+		for q: Player in r.host.players_on(Config.MAP_SURFACE):
+			taken = taken or Aim.feet_cell(q.sim_position).distance_to(Aim.feet_cell(sf)) < 3.0
+		if not taken and home_slot == Walls.NO_CELL:
+			home_slot = Aim.feet_cell(sf)
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		r.host.apply_world_edit(e, Config.MAP_SURFACE)
+	check(not r.host.carried_reserved_feet().is_empty(), "the altar carried: its home's spawn slots are kept clear")
+	m.player.teleport(feet_in(home_slot + Vector2i(1, -1)))
+	var res_before: int = m.refused(WorldItems.WHY_RESERVED)
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.USE, home_slot, 0))
+	check(m.refused(WorldItems.WHY_RESERVED) - res_before == 1 and Walls.kind_at(data, home_slot) == Walls.KIND_NONE,
+		"a wall on a spawn slot of the carried altar's home %s: where players appear (%s)" % [home_slot, m.ops_refused])
+	for e2: EditLog.WorldEdit in AltarMove.place_edits(r.host.altar_home):
+		r.host.apply_world_edit(e2, Config.MAP_SURFACE)
+	r.host.altar_home = Rect2i()
+	m.player.teleport(feet_in(Vector2i(66, 54)))
 	# Carrying the altar: a right-click is refused (offline Main.demolish refuses it too).
 	refill(m)
 	run_one(r, m, req(NetProtocol.Op.USE, Vector2i(65, 55), 0))
@@ -581,12 +643,49 @@ func _check_gear_requests() -> void:
 	check(m.player.inventory.armor == null and m.refused(SessionHost.WHY_DOWN) == down_before + 1,
 		"down: taking it off works, putting it on is refused (down)")
 	m.player.revive_now()
-	# Repairs at an anvil the host placed: nothing worn, no material, then done.
+	# M7-fix: putting it on while an action plays (busy) or while carrying the altar is refused on the host (offline the
+	# click puts it on only when free too).
+	m.player.inventory.clear()
+	give(m, &"sword", 1)
+	give(m, &"armor_t1", 1)
+	var arm: int = slot_of(m.player.inventory, &"armor_t1")
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.USE, Aim.feet_cell(m.player.sim_position) + Vector2i(1, 0),
+		slot_of(m.player.inventory, &"sword")))
+	var busy_before: int = m.refused(SessionHost.WHY_BUSY)
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.ARMOR, Vector2i.ZERO, arm))
+	check(m.player.action_anim >= 0 and m.player.inventory.armor == null and m.refused(SessionHost.WHY_BUSY) == busy_before + 1,
+		"armour on while a sword swing plays: busy, not worn")
+	run_empty(r, m, PlayerSim.action_ticks(RigData.Anim.SWORD))
+	m.player.set_carrying_altar(true)
+	var carry_before: int = m.refused(AltarMove.WHY_CARRYING)
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.ARMOR, Vector2i.ZERO, arm))
+	check(m.player.inventory.armor == null and m.refused(AltarMove.WHY_CARRYING) == carry_before + 1,
+		"armour on while carrying the altar: refused, not worn")
+	m.player.set_carrying_altar(false)
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.ARMOR, Vector2i.ZERO, arm))
+	check(m.player.inventory.armor != null, "free again: worn")
+	# Repairs at an anvil the host placed. M7-fix: with Config.GEAR_REPAIR_AT_ANVIL off (the engineer's work) the host
+	# refuses every repair; then the rule itself (Gear.repair_on for these checks, put back): nothing worn, no material,
+	# far from the anvil, then done.
 	r.host.apply_world_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(62, 51), WorldData.PLACEABLE_ANVIL))
 	r.host.apply_world_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(63, 51), WorldData.PLACEABLE_ANVIL))
 	m.player.inventory.clear()
 	give(m, &"sword_t1", 1)
 	give(m, &"ingot_iron", 1)
+	m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability = 40
+	m.player.teleport(feet_in(Vector2i(63, 52)))
+	Gear.repair_on = false
+	refill(m)
+	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
+	check(m.refused(Crafting.WHY_NO_REPAIR) == 1 and m.player.inventory.count_of(&"ingot_iron") == 1
+		and m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability == 40,
+		"repair off: refused at the anvil (the engineer's work), the sword and the ingot as they were")
+	Gear.repair_on = true
+	m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability = 120
 	m.player.inventory.remove(slot_of(m.player.inventory, &"ingot_iron"), 1)  # seen, not held
 	refill(m)
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
@@ -606,6 +705,20 @@ func _check_gear_requests() -> void:
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
 	check(m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability == 120
 		and m.player.inventory.count_of(&"ingot_iron") == 0, "at the anvil: repaired to 120 for the ingot")
+	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
+	# M7-fix: Config.GEAR_BROKEN_UNUSABLE is the host's rule too (turned on for this check through Gear.broken_unusable, put
+	# back): a broken tier-1 sword's USE is refused on the host; off, it swings as the basic sword.
+	var bs: int = slot_of(m.player.inventory, &"sword_t1")
+	m.player.inventory.stack_at(bs).durability = 0
+	Gear.broken_unusable = true
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.USE, Aim.feet_cell(m.player.sim_position) + Vector2i(1, 0), bs))
+	check(m.refused(Gear.WHY_BROKEN) == 1 and m.player.action_anim < 0, "broken unusable on: the broken sword's swing refused (broken)")
+	Gear.broken_unusable = Config.GEAR_BROKEN_UNUSABLE
+	refill(m)
+	run_one(r, m, req(NetProtocol.Op.USE, Aim.feet_cell(m.player.sim_position) + Vector2i(1, 0), bs))
+	check(m.player.action_anim >= 0 and m.refused(Gear.WHY_BROKEN) == 1, "off (Config): it swings, as the basic sword")
+	run_empty(r, m, PlayerSim.action_ticks(RigData.Anim.SWORD))
 	# A hand recipe needs no station (the axe from two stones, anywhere).
 	give(m, &"stone_a", 2)
 	m.player.teleport(feet_in(Vector2i(70, 60)))
@@ -767,6 +880,7 @@ func _check_room_flow() -> void:
 		Aim.feet_cell(c.s.local.player.sim_position)])
 	check_eq(Aim.feet_cell(hp.sim_position), Vector2i(62, 60), "the host walked in too")
 	check_prediction("room: walking in", c)
+	check_no_jump("room: building and walking in", c)
 	# The door does not close on the client near it; it closes once the client is farther; the client walks into it.
 	bot_run(r, c, "walkto:%d,%d;walkto:%d,%d;walkto:%d,%d" % [INSIDE_DOOR.x, INSIDE_DOOR.y, OUTSIDE_NEAR.x, OUTSIDE_NEAR.y,
 		OUTSIDE_NEAR.x, OUTSIDE_NEAR.y], 600)
@@ -788,6 +902,7 @@ func _check_room_flow() -> void:
 		c.s.local.player.sim_position, blocked_at])
 	check_eq(c.s.client.prediction.corrections - corrections_before, 0, "not pulled back: no correction (the rule, README \"M7c 예측\")")
 	check_prediction("room: the door closed on it", c)
+	check_no_jump("room: the door closed on it, walked into it", c)
 	# The host opens (the client waits for the edit: README "M7c 예측", a door opening on someone pushing at it is the other
 	# check), the client comes in to the far corner, the host closes again; a heretic outside never gets in.
 	press(r, f_at(DOOR_CELL))
@@ -815,6 +930,7 @@ func _check_room_flow() -> void:
 		"the client's last enemy batch has the heretic, outside the room")
 	check(worlds_agree(r), "worlds agree at the end")
 	check_prediction("room: the heretic outside", c)
+	check_no_jump("room: the heretic outside", c)
 	_free_rig(r)
 
 
@@ -822,6 +938,8 @@ func _check_room_flow() -> void:
 ## it gets after the opening through while the client's prediction had them blocked until the edit came, so the next states
 ## pull the client forward once: at most the walk of a round trip plus the input buffering (README "M7c 예측": no rule
 ## keeps a door shut for someone at it; a door never closes on anyone near, that one is the rule). Measured here.
+## M7-fix: measured as the player sees it (Prediction.replay_jumps / max_replay_jump_px, the replay's move of the shown
+## position) and also every tick (the largest step beyond one walking step).
 func _check_door_opens_on_pusher() -> void:
 	var r: Rig = _rig("paladin")
 	r.delay = 3
@@ -836,21 +954,78 @@ func _check_door_opens_on_pusher() -> void:
 	_tick(r, 80)
 	var p: Prediction = c.s.client.prediction
 	var corr: int = p.corrections
+	var jumps: int = p.replay_jumps
+	check_eq(jumps, 0, "pushing at the closed door: no replay jump yet")
 	var at_door: Vector2 = hm(r, c).player.sim_position
 	r.action = f_at(DOOR_CELL)
 	_tick(r)
 	r.action = null
-	_tick(r, 40)
+	var step_px: float = Config.WALK_SPEED / Config.NET_TICK_RATE
+	var last: float = p.pos.y
+	var seen: float = 0.0
+	for i: int in 40:
+		_tick(r)
+		seen = maxf(seen, last - p.pos.y - step_px)
+		last = p.pos.y
 	c.action = null
 	_tick(r, 2 * r.delay + 4)
-	var bound: float = Config.WALK_SPEED / Config.NET_TICK_RATE * (2 * r.delay + 3) + 0.01
-	note("a door opening on a client pushing at it (one-way %d ticks): %d corrections, largest error so far %.2f px (bound %.1f)" % [
-		r.delay, p.corrections - corr, p.max_error_px, bound])
+	var bound: float = step_px * (2 * r.delay + 3) + 0.01
+	note(("a door opening on a client pushing at it (one-way %d ticks): %d corrections, largest error so far %.2f px; " +
+		"shown: %d replay jumps, largest %.2f px; per tick beyond one step %.2f px (bound %.1f)") % [r.delay,
+		p.corrections - corr, p.max_error_px, p.replay_jumps - jumps, p.max_replay_jump_px, seen, bound])
 	check(at_door.y < (DOOR_CELL.y + 3) * Config.TILE and hm(r, c).player.sim_position.y < (DOOR_CELL.y) * Config.TILE + 4.0,
 		"it pushed at the door, then walked through once it opened (%s -> %s)" % [at_door, hm(r, c).player.sim_position])
 	check(p.corrections - corr <= 2 and p.max_error_px <= bound,
 		"pulled forward at most twice and at most %.1f px (%d, %.2f px)" % [bound, p.corrections - corr, p.max_error_px])
+	check(p.replay_jumps - jumps >= 1 and p.replay_jumps - jumps <= 2 and p.max_replay_jump_px <= bound and seen <= bound,
+		"as shown: jumped forward once or twice, at most %.1f px (%d, %.2f px; per tick %.2f px)" % [bound,
+		p.replay_jumps - jumps, p.max_replay_jump_px, seen])
 	check_eq(c.s.local.player.sim_position, hm(r, c).player.sim_position, "and then where the host has it")
+	_free_rig(r)
+
+
+## M7-fix: the clearance (Config.BLOCK_CLEARANCE_PX, README "M7c 막기 여유") is what keeps a closing door from pulling a
+## walker back, and replay_jumps sees it when it is missing: with Building.clearance_px 0 (put back after) the host closes the
+## open door on a client walking north into it when the host's copy of it is under 3 px short of the doorway (one-way 3
+## ticks). The client's prediction was already in the doorway: the edit's replay pulls it back (several px), while the
+## corrections and the position error stay small (the replayed prediction matches the next states).
+func _check_clearance_needed() -> void:
+	var r: Rig = _rig("paladin")
+	r.delay = 3
+	await await_frames(1)
+	put_room(r, true)
+	r.s.local.player.teleport(feet_in(INSIDE_DOOR))
+	var c: Client = _join(r, 101, "miner", feet_in(OUTSIDE_FAR), false)
+	var m: NetMember = hm(r, c)
+	_tick(r, 2 * r.delay + 2)
+	var p: Prediction = c.s.client.prediction
+	var push: NetBot.Action = NetBot.Action.new()
+	push.dir = Vector2i(0, -1)
+	c.action = push
+	var edge: float = (DOOR_CELL.y + 2) * Config.TILE + Config.FEET_HEIGHT
+	Building.clearance_px = 0.0
+	var closed: bool = false
+	var corr: int = p.corrections
+	for i: int in 240:
+		var gap: float = m.player.sim_position.y - edge
+		if not closed and gap >= 0.0 and gap < 3.0:
+			r.action = f_at(DOOR_CELL)
+			_tick(r)
+			r.action = null
+			closed = Walls.is_door(r.surface.data, DOOR_CELL) and not Walls.is_open_door(r.surface.data, DOOR_CELL)
+			continue
+		_tick(r)
+	Building.clearance_px = Config.BLOCK_CLEARANCE_PX
+	c.action = null
+	_tick(r, 2 * r.delay + 4)
+	note("clearance 0, the door closed on a walker (one-way %d ticks): corrections %d, max error %.2f px; shown: %d replay jumps, largest %.2f px" % [
+		r.delay, p.corrections - corr, p.max_error_px, p.replay_jumps, p.max_replay_jump_px])
+	check(closed, "with the clearance 0 the host closed the door with the client just short of the doorway")
+	check(p.replay_jumps >= 1 and p.max_replay_jump_px > 2.0,
+		"the replay pulled the shown position back (%d jumps, largest %.2f px): replay_jumps sees what the rule prevents" % [
+		p.replay_jumps, p.max_replay_jump_px])
+	check_eq(c.s.local.player.sim_position, m.player.sim_position, "and the client ends where the host has it")
+	check_eq(Building.clearance_px, Config.BLOCK_CLEARANCE_PX, "the clearance put back")
 	_free_rig(r)
 
 

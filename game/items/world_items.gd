@@ -77,10 +77,6 @@ const WHY_RESERVED: String = "where players appear"
 const FOOTPRINT_OF: Dictionary[int, Vector2i] = {WorldData.PLACEABLE_ALCHEMY: Config.ALCHEMY_FOOTPRINT,
 	WorldData.PLACEABLE_WORKBENCH: Config.WORKBENCH_FOOTPRINT, WorldData.PLACEABLE_ANVIL: Config.ANVIL_FOOTPRINT,
 	WorldData.PLACEABLE_RELIC: Config.RELIC_BENCH_FOOTPRINT, WorldData.PLACEABLE_CHEST: Config.CHEST_FOOTPRINT}
-## M7a: the placeables a session refuses until M7c (the three stations, the storage chest), and why.
-const M7_PLACEABLES: Dictionary[int, String] = {WorldData.PLACEABLE_WORKBENCH: Crafting.WHY_OFFLINE,
-	WorldData.PLACEABLE_ANVIL: Crafting.WHY_OFFLINE, WorldData.PLACEABLE_RELIC: Crafting.WHY_OFFLINE,
-	WorldData.PLACEABLE_CHEST: Storage.WHY_OFFLINE}
 ## M7a: a worn item (less than full durability) is not dropped with the debug drop (a drop keeps no durability: picking it
 ## up would repair it).
 const WHY_WORN: String = "worn gear stays"
@@ -460,9 +456,10 @@ static func reserved_feet(data: WorldData) -> Array[Vector2]:
 ## players, heretics) and may not touch another of its kind (WorldData.footprint_at would merge them).
 ## M6-fix: nor a feet box at a point where players appear (reserved_feet: arrivals and the altar's spawn slots).
 ## M5-fix: `reserved_extra` = more such points the caller knows of (the host: the spawn slots around where a carried
-## altar was picked up, where joiners appear meanwhile: SessionHost.carried_reserved_feet).
+## altar was picked up, where joiners appear meanwhile: SessionHost.carried_reserved_feet). M7b: a blocking one may not wall
+## those points in either (Building.seals); M7-fix: nor the feet of `others` (the other players).
 static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
-		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = []) -> Outcome:
+		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = [], others: Array[Vector2] = []) -> Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
 		return Outcome.refused(WHY_BAD_SLOT)
 	var stack: ItemStack = inv.stack_at(slot)
@@ -503,12 +500,15 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		for r: Vector2 in spots:
 			if px.intersects(Movement.feet_box(r)):
 				return Outcome.refused(WHY_RESERVED)
-		# M7b: nor wall a spot where players appear in (Building.seals, PROVISIONAL Config.BUILD_SEAL_REACH_TILES).
+		# M7b: nor wall a spot where players appear in (Building.seals, PROVISIONAL Config.BUILD_SEAL_REACH_TILES). M7-fix:
+		# nor another player (`others`: their feet, as Building.refusal; PROVISIONAL README "M7-fix 다른 사람 가두기").
 		var cells: Array[Vector2i] = []
 		for y4: int in range(rect.position.y, rect.end.y):
 			for x4: int in range(rect.position.x, rect.end.x):
 				cells.append(Vector2i(x4, y4))
-		if Building.seals(data, cells, spots):
+		var walkers: Array[Vector2] = spots.duplicate()
+		walkers.append_array(others)
+		if Building.seals(data, cells, walkers):
 			return Outcome.refused(Building.WHY_SEALS)
 		for y2: int in range(rect.position.y - 1, rect.end.y + 1):
 			for x2: int in range(rect.position.x - 1, rect.end.x + 1):

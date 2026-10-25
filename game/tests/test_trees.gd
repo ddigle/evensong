@@ -239,6 +239,16 @@ func _check_regrowth() -> void:
 		none = none and f3.step().is_empty()
 	check(none, "no regrowth with 0")
 	check_eq(d3.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_STUMP, "the stump stays")
+	# M7-fix: a forest set up with 0 over a world that already has stumps (a received or swapped-in world) times none of
+	# them (M7b timed them with 0 ticks: all grew back on the next tick).
+	var f5: Forest = Forest.new()
+	f5.regrow_ticks = 0
+	f5.setup(d3)
+	var none5: bool = true
+	for tick5: int in 100:
+		none5 = none5 and f5.step().is_empty()
+	check(f5.regrow.is_empty() and none5 and d3.get_value(WorldData.Layer.PLACEABLE, t) == WorldData.PLACEABLE_STUMP,
+		"set up with 0 over a stump: not timed, it stays")
 
 
 # --- the axe's action ------------------------------------------------------------------------------------------

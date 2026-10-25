@@ -3,7 +3,7 @@ extends RefCounted
 ## Some of one item in one inventory slot: id, count (1..stack_max) and grade (ItemDB.Grade).
 ## M7a: `durability` = the points an item with durability has left (ItemDB.ItemDef.durability is its full value: the
 ## tier-1 gear, Config.GEAR_DURABILITY; 0 for every other item). Such items stack one to a slot, so stacks never mix
-## two durabilities. Not on the wire yet (M7c): a session has no wear in M7a.
+## two durabilities. M7c: the inventory message carries it (u16 after an item with durability).
 
 var id: StringName
 var count: int

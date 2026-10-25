@@ -333,7 +333,8 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 			"test-durability":
 				for part: String in value.split("/", false):
 					var kv: PackedStringArray = part.split(":")
-					if kv.size() != 2 or not kv[0].is_valid_int() or not kv[1].is_valid_int() or kv[0].to_int() < 1 							or kv[0].to_int() > Config.INVENTORY_SLOTS or kv[1].to_int() < 0 or kv[1].to_int() > 65535:
+					if kv.size() != 2 or not kv[0].is_valid_int() or not kv[1].is_valid_int() or kv[0].to_int() < 1 \
+							or kv[0].to_int() > Config.INVENTORY_SLOTS or kv[1].to_int() < 0 or kv[1].to_int() > 65535:
 						o.errors.append("%s: expected --test-durability=<1..%d>:<points>[/...]" % [raw, Config.INVENTORY_SLOTS])
 						break
 					o.test_durability.append(Vector2i(kv[0].to_int() - 1, kv[1].to_int()))

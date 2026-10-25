@@ -573,11 +573,10 @@ const ALTAR_CARRIED_JOIN_AT_HOME: bool = true
 const ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES: bool = true
 
 # --- PROVISIONAL, M7a (the workbench chain, tier-1 gear, durability, shared storage) ---------------------------------
-# Offline first (M7a); in a session the new stations, the chest, the new recipes and wearing armour are refused and
-# gear does not wear until M7c (as M5a / M6a did). README "임시값" M7a.
+# M7a added these offline first; M7c's host runs the same rules in sessions. README "임시값" M7a.
 
 ## PROVISIONAL (○ gameplay-design §3.5 "기본 작업대 → 모루(대장간) → 성물 제작대 → (이후 티어)"; the slice takes "작업대 체인
-## 2~3단계", ● game-concept §12): the footprints (tiles) of the three stations and the storage chest. Each 48x32 / 32x32
+## 2~3단계", game-concept §12, a proposal there too): the footprints (tiles) of the three stations and the storage chest. Each 48x32 / 32x32
 ## 04-env picture stands on its footprint with its opaque bottom row on the footprint's bottom row of pixels (like the
 ## alchemy table, M6a). The anvil's picture is 28 px wide: two tiles; the others are 42-44 px: three.
 const WORKBENCH_FOOTPRINT: Vector2i = Vector2i(3, 1)
@@ -588,7 +587,7 @@ const CHEST_FOOTPRINT: Vector2i = Vector2i(3, 1)
 ## [station kind, output item, output count, [[input item, count], ...]]. Stations: "hand" (no station: Tab away from
 ## every station once a hand recipe is unlocked), "workbench", "anvil", "relic". The chain: the basic workbench from logs
 ## by hand -> planks, the anvil and the storage chest at the workbench -> smelting ore into ingots (1 : 1, no furnace:
-## the docs name none), the tier-1 gear (● §3.5 "1티어는 누구나 모루에서", so no class limit) and the relic bench at the
+## the docs name none), the tier-1 gear (● §3.0 R11 "누구나 모루에서 1~2티어 제작", so no class limit) and the relic bench at the
 ## anvil -> at the relic bench only the torch (the slice has no relic yet: prayer M10, the altar upgrade M12, the
 ## collection M11 are what a relic bench would make; the torch's placed picture is the 04-env brass lantern, the relic
 ## bench's picture shows a brass lamp being made, and lights are anyone's to build, ○ §3.3). Logs come from --give until
@@ -609,7 +608,7 @@ const STATION_RECIPES: Array = [
 	["anvil", &"relic_bench", 1, [[&"planks", 4], [&"ingot_copper", 2], [&"ingot_iron", 1]]],
 	["relic", &"torch", 4, [[&"ingot_copper", 1], [&"planks", 1]]],
 ]
-## PROVISIONAL (● gameplay-design §3.5 / §3.0 R11: tier 1 is anyone's at the anvil; the items, numbers and kinds are not
+## PROVISIONAL (● gameplay-design §3.0 R11: tier 1 is anyone's at the anvil, ○ §3.5 too; the items, numbers and kinds are not
 ## in the docs): each tier-1 weapon is its class's basic weapon made better (Config.CLASS_WEAPONS: same body action, same
 ## attack shape, the miner's pickaxe mines exactly as the pickaxe does), by base item. Gear never changes looks (● game-concept
 ## §12 R21 default looks): the picture is the base weapon's.
@@ -644,9 +643,13 @@ const GEAR_DEATH_WEAR_PCT: int = 20
 ## PROVISIONAL (not in docs): what a broken item (durability 0) does. False = it still works as its base item (a broken
 ## sword_t1 hits like the basic sword, broken armour takes nothing off); true = it cannot be used at all.
 const GEAR_BROKEN_UNUSABLE: bool = false
-## PROVISIONAL (● §2.6 "기술자 수리 = 기술자 일감"; the engineer is not in the slice, so the ● §3.0 fallback "누구나 … 낮은
-## 효율" is taken: anyone repairs at the anvil): repairing one item at the anvil costs one of this material and gives it full
-## durability (the most worn one of that item the player carries, the worn armour included).
+## PROVISIONAL (? ● gameplay-design §2.6 R12 "(기술자 수리 = 기술자 일감)": repair is the engineer's work, and the engineer is
+## not in the slice; README "M7-fix 수리" asks the human): whether anyone may repair at the anvil. False (M7-fix: following the
+## ● line, nobody repairs in the slice; worn gear works on as its base item at 0, GEAR_BROKEN_UNUSABLE off): the repair rows
+## are never shown and a repair craft is refused (Crafting.WHY_NO_REPAIR). True = M7a's rule: anyone, below.
+const GEAR_REPAIR_AT_ANVIL: bool = false
+## PROVISIONAL (with GEAR_REPAIR_AT_ANVIL on; not in the docs): repairing one item at the anvil costs one of this material and
+## gives it full durability (the most worn one of that item the player carries, the worn armour included).
 const GEAR_REPAIR_MATERIAL: Dictionary[StringName, StringName] = {
 	&"sword_t1": &"ingot_iron", &"pickaxe_t1": &"ingot_iron", &"armor_t1": &"ingot_iron",
 	&"bow_t1": &"ingot_copper", &"holy_light_t1": &"ingot_copper", &"sickle_t1": &"ingot_copper",
@@ -659,8 +662,7 @@ const CHEST_SLOTS: int = 16
 const CHEST_ONLY_IN_LIGHT: bool = true
 
 # --- PROVISIONAL, M7b (building, the tree and the axe) ---------------------------------------------------------------
-# Offline first (M7b); in a session the host refuses the build pieces, the axe swings without chopping and right-click
-# and the door's F do nothing until M7c (as M7a did). README "임시값" M7b.
+# M7b added these offline first; M7c's host runs the same rules in sessions. README "임시값" M7b.
 
 ## PROVISIONAL (○ gameplay-design §3.3 "제단 반경 안은 건설 비용 감소 또는 즉시 건설"; the chosen half is the cost: a
 ## piece goes down at once everywhere): how many of a build piece one tile takes, inside the altar's light (every corner of
@@ -668,7 +670,8 @@ const CHEST_ONLY_IN_LIGHT: bool = true
 const BUILD_COST_IN_LIGHT: int = 1
 const BUILD_COST_OUTSIDE_LIGHT: int = 2
 ## PROVISIONAL (○ §3.3 "우클릭 철거"; what it gives back is not in the docs): right-click takes any built piece down (anyone's:
-## the docs track no owner) and gives this many of its piece back (a full inventory refuses it: nothing changes).
+## the docs track no owner) and gives this many of its piece back (M7b: a full inventory refused it; M7-fix: what does not
+## fit lies at the feet as a drop, README "M7-fix 철거").
 const BUILD_REFUND: int = 1
 ## PROVISIONAL (○ §3.1 the surface is "사는 층", building is listed there; whether the dungeon allows it is not in the docs):
 ## build pieces may go down in the dungeon too (outside the light, so at BUILD_COST_OUTSIDE_LIGHT).
@@ -678,6 +681,8 @@ const BUILD_IN_DUNGEON: bool = true
 ## the altar's spawn slots, the arrival point below the way in) unable to walk this many tiles (Chebyshev) away from its
 ## tile, when it could before. Doors count as open (anyone opens them); trees, walls and blocking placeables block. 12 is
 ## more than the light's radius + the spawn slots' reach, so a closed ring without a door can not wall the light in.
+## M7-fix: the other players' feet walk the same way (a piece or a station may not wall another player in; README "M7-fix
+## 다른 사람 가두기").
 const BUILD_SEAL_REACH_TILES: int = 12
 ## PROVISIONAL (○ gameplay-design §1 F "상호작용 (… 문 …)"; who opens is not in the docs): any player opens and closes a
 ## door with F (heretics never do: a closed door is a wall to them). False = only the player who built it (not modelled
@@ -706,14 +711,20 @@ const LANTERN_LIGHT_ENERGY: float = 0.95
 ## centre: the start's meadow stays open for building and for moving the altar a screen away; wood is a walk out of the
 ## light), no ash within TREE_ASH_CLEARANCE_TILES (corruption zones and the heretics'
 ## spawn band around them have no trees), at least TREE_EDGE_TILES from the map's sides and TREE_TOP_TILES from its top
-## (the crown), nothing growing, lying or standing in the crown's tiles and around the trunk (TREE_CLEAR_AREA), not near
-## the entrance. Its own random stream (TREE_SALT), so the M1-M3 steps are as they were.
+## (the crown), nothing growing, lying or standing in the crown's tiles and around the trunk (TREE_CLEAR_SIDE_TILES to
+## either side, from TREE_CLEAR_ABOVE_TILES above to TREE_CLEAR_BELOW_TILES below the trunk; M7-fix named them, the values
+## are M7b's), not within TREE_ENTRANCE_CLEARANCE_TILES of the entrance's footprint. Its own random stream (TREE_SALT), so
+## the M1-M3 steps are as they were.
 const TREE_COUNT: int = 30
 const TREE_SPACING_TILES: int = 4
 const TREE_LIGHT_CLEARANCE_TILES: int = 13
 const TREE_ASH_CLEARANCE_TILES: int = 3
 const TREE_EDGE_TILES: int = 3
 const TREE_TOP_TILES: int = 6
+const TREE_CLEAR_SIDE_TILES: int = 2
+const TREE_CLEAR_ABOVE_TILES: int = 4
+const TREE_CLEAR_BELOW_TILES: int = 1
+const TREE_ENTRANCE_CLEARANCE_TILES: int = 3
 const TREE_SALT: int = 0x7EE5
 ## PROVISIONAL (○ game-concept §12 "○ 벌목 도구는 도끼"; numbers not in the docs): only the axe chops (any class: ● R37
 ## anyone; another tool aimed at a trunk does what it always did); a tree falls after TREE_CHOP_HITS swings that land

@@ -12,7 +12,8 @@ extends RefCounted
 ## - split: moves part of a stack to the first empty slot; nothing happens when the inventory is full.
 ## - move: onto an empty slot moves, onto the same item and grade merges what fits, otherwise swaps.
 ## M7a: `armor` = the one armour slot (items/gear.gd: a click with armour selected puts it on, PROVISIONAL README "M7a
-## 갑옷"). It is not one of `slots` (the death bag, crafting and the wire never see it; M7a has no armour in a session).
+## 갑옷"). It is not one of `slots` (the death bag and crafting never see it; M7c: the inventory message carries it after
+## the 24 slots).
 ## add_stack() puts a stack in as it is (its durability kept: the chest, taking armour off).
 
 signal changed

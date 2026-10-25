@@ -201,8 +201,11 @@ static func melee_hits_rect(data: WorldData, from: Vector2, dir: Vector2, rect: 
 
 ## The miner's rule: a pickaxe swing whose target tile is a wall or a wall's face mines (and hits
 ## nobody); every other weapon swing is an attack. M7a: the tier-1 pickaxe is a pickaxe here (mining power unchanged).
+## M7-fix: only where a wall blocks (Walls.blocks, the collision): an open door and its doorway are open ground that
+## players, heretics and shots pass, so a pickaxe aimed there attacks (a heretic in the doorway can be hit). A closed door
+## or a built wall still takes the swing as mining ("too hard", like bedrock).
 static func is_mining_swing(data: WorldData, item: StringName, target: Vector2i) -> bool:
-	return Gear.base(item) == Mining.PICKAXE and Walls.owner_of(data, target) != Walls.NO_CELL
+	return Gear.base(item) == Mining.PICKAXE and Walls.blocks(data, target) and Walls.owner_of(data, target) != Walls.NO_CELL
 
 
 ## The light enemies keep out of (Config.HERETIC_ENTERS_LIGHT false): the altar's safe zone, plus every

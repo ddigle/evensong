@@ -1,6 +1,6 @@
 class_name Forest
 extends RefCounted
-## M7b: one map's trees (offline first; a session's axe swings without chopping until M7c). ● game-concept §12 R37: one
+## M7b: one map's trees (offline Main and, M7c, the host: one Forest per map). ● game-concept §12 R37: one
 ## tree species is the wood source and anyone chops it; ○ the tool is the axe. The tree is a placeable (WorldData.
 ## PLACEABLE_TREE, the trunk's one tile, blocking; SurfaceGen step 6 puts them down); a felled tree leaves its stump
 ## (PLACEABLE_STUMP, the same picture's trunk base, world/fixture_view.gd).
@@ -16,8 +16,6 @@ extends RefCounted
 const AXE: StringName = &"axe"
 const WHY_NO_TREE: String = "no tree there"
 const WHY_NOT_AXE: String = "the axe chops"
-## A session's axe (M7c turns chopping on).
-const WHY_OFFLINE: String = "chopping offline only"
 
 
 ## What one swing did: ok or why not, the edits (the stump, a drop of what did not fit), the swings the tree has taken, and
@@ -61,12 +59,15 @@ func _init(p_data: WorldData = null) -> void:
 
 
 ## Timers for `p_data` (generated, received or swapped in): no tree has taken a swing, every stump waits the whole time
-## (the timers are not part of the world).
+## (the timers are not part of the world). M7-fix: with regrowth off (regrow_on false) no stump is timed (M7b timed them
+## with 0 ticks: every stump grew back on the next tick).
 func setup(p_data: WorldData) -> void:
 	data = p_data
 	hits.clear()
 	regrow.clear()
 	stats.clear()
+	if not regrow_on():
+		return
 	var grid: PackedByteArray = data.layers[WorldData.Layer.PLACEABLE]
 	for i: int in grid.size():
 		if grid[i] == WorldData.PLACEABLE_STUMP:
@@ -124,16 +125,23 @@ func chop(feet: Vector2, inv: Inventory, item: StringName, c: Vector2i) -> Resul
 				ItemDB.normalize_grade(&"log"), centre)))
 		else:
 			r.lost = left
-	if Config.TREE_REGROW_TICKS > 0 and regrow_ticks > 0:
+	if regrow_on():
 		regrow[c] = regrow_ticks
 	return r
 
 
+## Whether stumps grow back (Config.TREE_REGROW_TICKS and regrow_ticks above 0; 0 = never).
+func regrow_on() -> bool:
+	return Config.TREE_REGROW_TICKS > 0 and regrow_ticks > 0
+
+
 ## One tick: every stump's time runs down (row by row); a stump at 0 grows back (its edit). A tile that is no stump any
-## more (changed by an edit from elsewhere) is forgotten.
+## more (changed by an edit from elsewhere) is forgotten. Nothing while regrowth is off (regrow_on). PROVISIONAL
+## Config.TREE_STUMP_BLOCKS: the trunk comes back without looking for bodies or spots where players appear on the tile; that
+## is safe only while a stump blocks too (nobody stands on one; README "M7b 그루터기").
 func step() -> Array[EditLog.WorldEdit]:
 	var out: Array[EditLog.WorldEdit] = []
-	if data == null or regrow.is_empty():
+	if data == null or regrow.is_empty() or not regrow_on():
 		return out
 	var keys: Array[Vector2i] = []
 	keys.assign(regrow.keys())
