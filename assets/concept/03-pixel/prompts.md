@@ -444,3 +444,57 @@ brief §5.6 ? 동작 중 다른 표식(R25)을 정하기 위해, 5~7차 표식 �
   - `RigData`는 지금 기본 몸 시트만 읽는다. 적은 자기 시트 표를 두거나 `RigData`가 몸 묶음을 받게 해야 한다. 이단은 레이어(표식)가 없어 앵커(`RigAnchors`·`RigMeasure`)와 v01 → v02 `SHIFT` 표를 쓰지 않는다
   - 서쪽은 플레이어처럼 동쪽 줄을 좌우 반전(`scale.x = -1`)한다. 공격·피격·사망 프레임 시간은 임시값으로 game/README.md 표에 적어야 한다
 - 판정: 지적 14건 중 11건을 생성 없이 고쳤고, 3건(공격 칼 크기, 걷기 남 발 줄, game/ 연결)은 검토 판단대로 두고 기록했다. 채택 후보이고 사람의 확인을 기다린다
+
+## PixelLab 14차 (2026-10-25, M7 도끼질 동작, 5회 사용)
+
+슬라이스 M7의 벌목 동작(brief §5.7 범위 표 "나무": ● 나무 1종과 벌목 동작, ○ 도구는 도끼)을 기본 몸 동작 시트와 같은 배치로 만들었다. 사람이 이 일 전체(나무·그루터기·도끼질)에 12회를 승인했고(2026-10-25), 이 일에서 8회를 썼다: 나무 3회(04-env/prompts.md "M7 나무·그루터기"), 도끼질 5회(이 절, 잔액 1,706 → 1,701). 4회는 검토 뒤 다시 뽑기용으로 남겼다. 같은 시각에 PixelLab을 쓴 다른 작업은 없었고, 생성 호출마다 앞뒤로 `get_balance`를 불렀다(남 a판은 끝난 직후 잔액이 그대로였다가 1분쯤 뒤에 1회가 빠졌다. 값은 끝난 뒤 조금 늦게 빠진다). 힉스필드는 쓰지 않았고, 생성 도구에 넣은 그림은 우리 기본 몸 걷기 첫 프레임뿐이다.
+
+공통: 5차 기본 몸(character 7b5aed6a-683a-474e-91b2-fa7caffe75a6), `animate_character`, `mode: "v3"`, 방향마다 따로, `frame_count: 6`(Tiny Farm 도끼·낫 6프레임, brief §5.6. `keep_first_frame` 기본값이라 시작 그림 + 6 = 7장 저장), `custom_start_frame_base64` = `base_body_v01_walk.png`의 그 방향 첫 프레임(10차와 같음). 동·북은 `end_frame_base64`도 같은 시작 그림(12차 요령: 옆·뒷모습을 지킴), 남은 끝 그림 없음(10차 낫 남과 같음). 응답의 생성 canvas는 세 방향 모두 32×48, 받은 프레임 크기는 아래 표(움직임에 맞춰 다시 잰다). 값은 모두 방향당 1회. 원본은 `base_body_v01_axe_<판>_<방향>.png` (7장 가로 줄, 첫 장 = 시작 그림, 버린 판도 남김).
+
+| 판 | 방향 | 값 (잔액) | job | animation (group, 이름) | 프레임 | 판정 |
+|---|---|---|---|---|---|---|
+| a | 남 | 1 (1,706 → 1,705) | e0bbd6bc-2ff0-41f1-ad1f-05c8d0fa33a3 | 13bfc21f-5a70-4373-9698-45be4b343a53 (21cd00ba-7260-40fb-b38c-307d7f09b8e0, `axe_a`) | 40×48 | **채택**. 1번은 시작 그림과 거의 같고(78px 다름, 도끼 없음) 2번 그림 오른쪽 어깨 옆으로 날을 들고, 3번 오른쪽 아래, 4번 발 앞으로 내리찍고, 5·6번 왼쪽 아래·허리로 휘둘러 지나간다. 위 → 앞 → 옆으로 크게 휘두르는 도끼질로 읽힌다 |
+| a | 동 | 1 (→ 1,704) | 7678e50a-73bf-4711-963b-03fc46893550 | c1203f86-c64f-4713-8c17-2dde8a545a1a (같은 group) | 48×48 | 버림. 내리치는 3번에 손에 도끼가 없고, 4번은 도끼가 둘(머리 뒤 + 허리 앞)이며 앞 날이 캔버스 오른쪽 끝에서 잘림 |
+| a | 북 | 1 (→ 1,703) | 1f7b0fab-4b77-4d2b-8ec1-c13d39651485 | 0975e934-0d2e-456c-8fcb-6de4e5f99247 (같은 group) | 36×48 | 버림. 1·2번은 설명대로 오른쪽 어깨 옆에 날이 있지만 3~5번에 머리 왼쪽 위로 날이 하나 더 남는다(도끼 둘). 내리치는 곳이 발치 |
+| b | 동 | 1 (→ 1,702) | 7953a630-bf4b-479f-ba05-6fc177f235d5 | b1f7b9c3-6e22-435c-9660-ef585bc58d4f (8da7dcaf-5423-467a-b578-d6cf115c1c6c, `axe_b`) | 36×48 | **채택**. 1번 머리 뒤로 날, 2번 머리 뒤에서 수평으로 들어 올림, 3번 허리 높이 앞으로 내리침(날이 세로), 4번 발치까지 따라 내림, 5번 다리 앞, 6번 = 시작 그림(픽셀까지 같음). 옆모습을 지키고 도끼가 한 자루 |
+| b | 북 | 1 (→ 1,701) | aea854af-39eb-4588-8e3f-3728e7f3bbd9 | e35e827c-4162-4762-9923-5d1dc4dc9cdf (같은 group) | 40×52 | **채택**. 1~3번 머리 왼쪽 위로 날이 올라오고(설명의 "오른쪽 어깨"와 반대), 4·5번 오른쪽 아래 발치로 내리친다. 머리 위를 넘어 대각선으로 한 번 내리치는 동작(13차 이단 공격 북 b와 같은 꼴). 뒷모습을 지키고 도끼가 한 자루. 6번은 시작 그림과 2px 다름 |
+
+- action_description
+  - a 남: "facing the viewer, holding a wood-cutting axe with a wedge-shaped grey iron blade on a short wooden handle in both hands, raising it back up over the right shoulder, then chopping it hard forward and down in front of the body at waist height, then pulling it back up; the axe head clearly visible outside the body in every frame; same clothes and colours throughout"
+  - a 동: "seen from the side facing right the whole time, holding a wood-cutting axe with a wedge-shaped grey iron blade on a short wooden handle in both hands, swinging it back up behind the shoulder, then chopping it hard forward to the right at waist height, then pulling it back; the axe head clearly visible outside the body in every frame; the body and face stay in side view, never turning toward the viewer; same clothes and colours throughout"
+  - a 북: "seen from behind the whole time, holding a wood-cutting axe with a wedge-shaped grey iron blade on a short wooden handle off to the right side of the body, raising it high beside the right shoulder so the axe head shows above and to the right of the head, then chopping it hard forward and down at waist height, then raising it again; the axe head clearly visible outside the body in every frame; the back stays toward the viewer, never turning around; same clothes and colours throughout"
+  - b 동: "seen from the side facing right the whole time, gripping one wood-cutting axe with both hands, a short wooden handle with a small wedge-shaped grey iron blade, lifting it up high behind the head, then swinging it down and forward in one hard chop that stops at waist height just in front of the body, then lowering it back down; one single axe that stays in the hands and is clearly visible in every frame; the body and face stay in side view, never turning toward the viewer; same clothes and colours throughout"
+  - b 북: "seen from behind the whole time, gripping one wood-cutting axe with both hands, a short wooden handle with a small wedge-shaped grey iron blade, lifting it up high beside the right shoulder so the blade shows above and to the right of the head, then swinging it down and forward in one hard chop that stops at waist height on the right side of the body, then lowering it back down; one single axe that stays in the hands and is clearly visible in every frame; the back stays toward the viewer, never turning around; same clothes and colours throughout"
+- 요령
+  - 끝 그림(= 빈손 시작 그림)을 넣은 a판 동·북은 빈손으로 돌아가는 사이에 도끼를 둘 그리거나 한 장에서 빠뜨렸다. "one single axe that stays in the hands"와 "just in front of the body", "small ... blade"를 쓴 b판은 도끼가 한 자루뿐이고 캔버스 안에 머물렀다(끝 그림은 그대로 넣음)
+  - "into a tree trunk"는 쓰지 않았다. 10차 괭이에서 "into the soil"이 흙을 그려 넣었듯 장면이 그려질 수 있어서다. 그래서 "어디를 치는지"는 글로 정하지 못했고, 남·북은 발치까지 내려친다
+  - "same clothes and colours throughout"을 붙인 다섯 판 모두 옷 색이 바뀌지 않았다
+
+### 손질 (생성 없음, 무료)
+
+`uv run -q --python 3.14.6 --script tools/art/m7_tree_axe.py axe` (고정 버전 `tools/art/m7_tree_axe.py.lock`, 또는 `--with pillow==11.3.0 --with numpy==2.3.3 python -I`). 다시 돌리면 같은 파일.
+
+- 배치: 10차와 같다. v3 첫 장에서 걷기 v01 첫 프레임이 놓인 자리를 찾아(남 (4, 8), 동 (2, 8), 북 (4, 10). 세 판 모두 픽셀까지 일치) 64칸 (16, 16 + 걷기 발 맞춤 남 4·동 3·북 4)에 맞췄다. 칸 이동은 남 (12, 12), 동 (14, 11), 북 (12, 10). 첫 열은 걷기 v02 첫 프레임과 픽셀까지 같다(스크립트가 확인하고 다르면 멈춘다)
+- 끝 그림: 시작 그림과 8px 이하로 다른 열(동 6열 0px, 북 6열 2px)은 시작 그림으로 바꿨다(13차 `END_SAME`과 같은 규칙)
+- 쇠 색: v3가 칠한 날의 회색·흰색 중 기본 몸에 없는 색(최대−최소 24 이하, HLS L > 0.15, 23색. 남 a의 푸르스름한 #bac7c8·#ccd1d4·#f0f6f7·#6b6a70 등)을 04-env 철 사다리에 밝기(L)로 맞췄다: 광석 철·모루 v02의 #34302d #5e5953 #a39d92에 중간 #807a71·#c4bdae와 반짝임 #ddd6c6(밝기 214.3, 생활 쪽 하이라이트 215 이하)을 더한 6단. 북 b의 크림빛 날 #e4d5b7·#c4bba2(채도 때문에 회색 조건에 안 걸림)도 같은 밝기의 철 색 #ddd6c6·#c4bdae로. 세 방향 날이 같은 쇠로 보인다. 시트에 파란 기운 회색 0
+- 눈 반짝임: v3가 남쪽 눈 반짝임도 차가운 흰색(#f0f6f7)으로 칠해 쇠 조건에 걸린다. 주변 8칸에 다른 쇠 후보가 없는 외딴 밝은 픽셀(L > 0.85)은 기본 몸 눈 반짝임 #f1e4e8로 (남 1~6열 프레임당 1~2px)
+- 외곽선: 도구 픽셀(기본 몸에 없는 색)의 실루엣 가장자리만 몸 시트의 외곽선 색 #000000으로 닫았다(남 3px 더함·1px 바꿈, 북 1px·1px. 동은 이미 닫혀 있음). 발 줄 아래로는 더하지 않는다. 떨어진 점(3px 이하 덩어리)은 없었다
+- 결과: `base_body_v02_axe.png` 448×192 = 낫·곡괭이 시트와 같은 배치(64칸 7열, 줄 남·동·북, 첫 열 = 시작 그림 = 걷기 첫 프레임, 32 프레임을 (16, 16)에 둔 좌표, 발 줄 y 47). 날은 발 줄 아래로 남 4열 3px(y 50), 동 4열 3px, 북 4열 4px(y 51)까지 나간다(곡괭이처럼 64칸 안). 94색(낫 시트 135색)
+- 미리보기: `base_body_v02_axe_preview.gif` (줄 남·동·북·서(동 반전), 칸 도끼 | 낫, 6장, 3배, 프레임당 130ms, 풀 색 바탕). 04-env `tree_v02_board.png` 아래 두 판이 도끼 시트와 낫 시트 2배(크기 비교), 위 띠들이 나무 옆 도끼질 1배·3배 낮·저녁
+
+### 판정과 남은 흠
+
+- 세 방향 모두 도끼가 몸 밖으로 크게 보이고(쐐기 쇠 날 + 나무 자루), 들어 올렸다 내리치는 동작으로 읽힌다. 동·북은 옆·뒷모습을 지킨다. 키·발 자리는 걷기와 같다(첫 열 = 걷기 첫 프레임)
+- 남은 흠
+  - 남 1열은 시작 그림과 거의 같아 도끼가 한 장(0.1초) 늦게 나타난다. 남 6열은 도끼가 왼쪽 허리에 있는 채로 끝나, 걷기·idle로 돌아갈 때 도끼가 사라진다(낫 남쪽과 같음)
+  - 남쪽 날이 양날처럼 넓고, 5·6열 다리가 검은 외곽선 덩어리다
+  - 북쪽은 머리 왼쪽 위로 들었다가 오른쪽 발치로 내려 도끼가 손을 바꾼 것처럼 보일 수 있고, 내려치는 곳이 몸 앞(줄기 쪽)이 아니라 옆 발치다(뒷모습에서는 앞이 몸에 가린다). 남쪽도 발 앞까지 내리찍는다. 줄기를 치는 높이(허리)는 동쪽 3열만 맞다
+  - 세 방향 날 모양이 조금씩 다르다(남 넓은 양날, 동 쐐기, 북 굽은 날)
+  - 손질로 더 고치기 어렵다. 원하면 방향당 1회로 다시 뽑을 수 있다(승인 12회 중 4회 남음)
+
+### M7b에 넘길 것 (game/은 고치지 않았다)
+
+- 그림: `base_body_v02_axe.png`를 game/art/chars/로 바이트 그대로 복사하고, game/README.md "그림 출처" 표와 `test_actors.gd`의 md5 목록에 더한다
+- `RigData`: `Anim`에 AXE, `ANIM_NAMES` "axe", `SHEETS`·`SHEET_PATHS`, `FRAME_COUNTS` 6, `CELLS` 64, `FIRST_COLUMN` 1, `SHIFT` [4, 3, 4](64칸 동작은 걷기 값). `is_action()`은 지금 `PICKAXE`~`THROW` 범위라, AXE를 맨 끝(DEATH 뒤)에 붙이면 `is_action`·`ACTION_ANIMS`를 같이 고쳐야 하고, SICKLE 뒤에 넣으면 뒤 번호와 `RigAnchors` 표 순서가 바뀐다(어느 쪽이든 `tools/build_rig_anchors.gd`로 `actors/rig_anchors.gd`를 다시 만들고, `test_actions.gd`의 시트 표·발 맞춤 표에 한 줄씩)
+- 표식(● R27): 도끼는 어느 클래스의 표식도 아니라 `HELD_SIGNATURE`에 더하지 않는다. 다른 표식은 걷기용 레이어를 기준점에 붙인다(자동으로 재는 기준점이 새 시트에도 맞는지는 M7b 테스트로 본다)
+- 아이템: 도끼 도구(`ItemDB._tool(&"axe", RigData.Anim.AXE)`), 아이콘(`ItemIcons` 코드 그림), 맞는 순간(`Player.impact_tick_of`, `Config` 무기 표)은 임시값이다. 맞는 열 후보: 남 4열(발 앞), 동 3열(허리 앞, 날이 줄기에 닿음), 북 4열(오른쪽 아래). 지금 동작 프레임 시간(6틱 = 0.1초)이면 0.6초 동작으로 곡괭이·낫과 같다. 서쪽은 동쪽 줄 좌우 반전(● R19)
