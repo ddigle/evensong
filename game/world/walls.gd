@@ -21,7 +21,16 @@ extends RefCounted
 const KIND_NONE: int = 0
 const KIND_ROCK: int = 1
 const KIND_BEDROCK: int = 2
-const KIND_NAMES: PackedStringArray = ["none", "rock", "bedrock"]
+## M7b, built pieces (● gameplay-design §3.3 R37: a built wall is the same layer as the dungeon's walls, above the floor;
+## stone only; items/building.gd): a stone wall, a door (closed / open: one cell edit opens or closes it) and a laid stone
+## floor piece. A floor piece is no wall (it does not block and casts no face): it lives in this byte so the ground's
+## terrain under it stays (IMPL: the FLOOR layer is the ground's dual-grid terrain, grass / soil / ash), and one tile holds
+## either a wall or a floor piece. Built pieces carry no hits (mining does not break them: right-click takes them down).
+const KIND_STONE: int = 3
+const KIND_DOOR: int = 4
+const KIND_DOOR_OPEN: int = 5
+const KIND_FLOOR: int = 6
+const KIND_NAMES: PackedStringArray = ["none", "rock", "bedrock", "stone", "door", "door_open", "floor"]
 const KIND_MASK: int = 0x0f
 const HITS_SHIFT: int = 4
 const HITS_MAX: int = 15
@@ -63,8 +72,43 @@ static func ore_at(data: WorldData, c: Vector2i) -> int:
 	return data.get_value(WorldData.Layer.ORE, c)
 
 
+## A wall on tile `c`: a dungeon wall (rock, bedrock) or (M7b) a built one (stone wall, door open or closed). It has a top
+## and casts a face on the tile below when that one is no wall. A floor piece is no wall.
 static func is_wall(data: WorldData, c: Vector2i) -> bool:
-	return kind_at(data, c) != KIND_NONE
+	return is_wall_kind(kind_at(data, c))
+
+
+static func is_wall_kind(kind: int) -> bool:
+	return kind != KIND_NONE and kind != KIND_FLOOR
+
+
+## M7b: a dungeon wall (the generator's rock and bedrock: the cave view draws it, mining breaks it).
+static func is_natural(data: WorldData, c: Vector2i) -> bool:
+	var k: int = kind_at(data, c)
+	return k == KIND_ROCK or k == KIND_BEDROCK
+
+
+## M7b: a built wall piece on tile `c` (a stone wall or a door, open or closed; the build view draws it).
+static func is_built(data: WorldData, c: Vector2i) -> bool:
+	return is_built_kind(kind_at(data, c))
+
+
+static func is_built_kind(kind: int) -> bool:
+	return kind == KIND_STONE or kind == KIND_DOOR or kind == KIND_DOOR_OPEN
+
+
+static func is_door(data: WorldData, c: Vector2i) -> bool:
+	var k: int = kind_at(data, c)
+	return k == KIND_DOOR or k == KIND_DOOR_OPEN
+
+
+static func is_open_door(data: WorldData, c: Vector2i) -> bool:
+	return kind_at(data, c) == KIND_DOOR_OPEN
+
+
+## M7b: a laid floor piece on tile `c` (it does not block).
+static func is_floor_piece(data: WorldData, c: Vector2i) -> bool:
+	return kind_at(data, c) == KIND_FLOOR
 
 
 ## A floor tile with a wall right above it: the wall's front face is drawn here (blocked).
@@ -72,9 +116,12 @@ static func is_face(data: WorldData, c: Vector2i) -> bool:
 	return data.in_bounds(c) and not is_wall(data, c) and is_wall(data, c + Vector2i(0, -1))
 
 
-## Blocked for walking by a wall: the wall itself or its face.
+## Blocked for walking by a wall: the wall itself or its face. M7b: an open door and its face let everyone through (players,
+## heretics, shots: what is drawn there is the open doorway); a closed door blocks like a wall.
 static func blocks(data: WorldData, c: Vector2i) -> bool:
-	return is_wall(data, c) or is_face(data, c)
+	if is_wall(data, c):
+		return kind_at(data, c) != KIND_DOOR_OPEN
+	return is_face(data, c) and kind_at(data, c + Vector2i(0, -1)) != KIND_DOOR_OPEN
 
 
 ## The wall a hit on tile `c` lands on: `c` itself if it is a wall, the wall above if `c` is a face,
@@ -92,10 +139,10 @@ static func owner_of(data: WorldData, c: Vector2i) -> Vector2i:
 ## does not protect it: the torch falls with its wall (Mining.strike).
 static func hardness(data: WorldData, c: Vector2i) -> int:
 	var kind: int = kind_at(data, c)
-	if kind == KIND_NONE:
+	if not is_wall_kind(kind):
 		return 0
-	if kind == KIND_BEDROCK:
-		return UNBREAKABLE
+	if kind == KIND_BEDROCK or is_built_kind(kind):
+		return UNBREAKABLE  # M7b: a built piece is taken down with right-click, never mined (Building.demolish)
 	var under: Vector2i = c + Vector2i(0, 1)
 	if not is_wall(data, under) and WorldData.placeable_blocks(data.get_value(WorldData.Layer.PLACEABLE, under)):
 		return UNBREAKABLE
@@ -131,12 +178,15 @@ static func crack_stage(hits: int, max: int) -> int:
 ## FACE is exactly is_face() (M3-fix: a floor tile in row 0 was drawn as a face of the wall outside the
 ## map but was open for walking; now it draws as floor, so what is drawn is what blocks. Generated
 ## dungeons never have it: their bedrock ring cannot be broken).
+## M7b: only the dungeon's own walls count here (the cave view draws them); a built wall's tile reads as floor (the build
+## view draws the piece over it). A built wall never stands on a dungeon wall's face tile (Building), so a natural face is
+## never a built wall.
 static func vertex(data: WorldData, v: Vector2i) -> int:
 	if not data.in_bounds(v):
 		return V_WALL
-	if is_wall(data, v):
+	if is_natural(data, v):
 		return V_WALL
-	if is_face(data, v):
+	if is_natural(data, v + Vector2i(0, -1)) and not is_wall(data, v):
 		return V_FACE
 	return V_FLOOR
 
@@ -146,7 +196,7 @@ static func wall_cells(data: WorldData) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	var grid: PackedByteArray = data.layers[WorldData.Layer.WALL]
 	for i: int in grid.size():
-		if grid[i] & KIND_MASK != KIND_NONE:
+		if is_wall_kind(grid[i] & KIND_MASK):
 			out.append(Vector2i(i % data.size.x, i / data.size.x))
 	return out
 

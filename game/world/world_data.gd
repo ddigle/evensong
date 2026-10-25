@@ -54,8 +54,13 @@ const PLACEABLE_WORKBENCH: int = 10
 const PLACEABLE_ANVIL: int = 11
 const PLACEABLE_RELIC: int = 12
 const PLACEABLE_CHEST: int = 13
+## M7b: a tree (the trunk's one tile; SurfaceGen step 6, world/forest.gd), the stump a felled tree leaves (it grows back,
+## Config.TREE_REGROW_TICKS) and a built lantern post (the light piece of building, items/building.gd). All three block.
+const PLACEABLE_TREE: int = 14
+const PLACEABLE_STUMP: int = 15
+const PLACEABLE_LANTERN: int = 16
 const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch", "bag",
-	"shrine_broken", "alchemy", "workbench", "anvil", "relic_bench", "chest"]
+	"shrine_broken", "alchemy", "workbench", "anvil", "relic_bench", "chest", "tree", "stump", "lantern"]
 
 var size: Vector2i = Vector2i.ZERO
 var world_seed: int = 0
@@ -224,8 +229,11 @@ func soil_ash_contacts() -> int:
 ## Whether placeable value `p` blocks walking (M3a: everything but a torch; a wall torch sits on a
 ## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block"). M4a: a
 ## death bag does not block; the broken shrine does (PROVISIONAL, README "임시값" M4a). M6a: the alchemy table
-## blocks, like the other fixtures; M7a: so do the three stations and the storage chest.
+## blocks, like the other fixtures; M7a: so do the three stations and the storage chest. M7b: the tree's trunk and the
+## lantern post block; the stump while Config.TREE_STUMP_BLOCKS (PROVISIONAL).
 static func placeable_blocks(p: int) -> bool:
+	if p == PLACEABLE_STUMP:
+		return Config.TREE_STUMP_BLOCKS
 	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH and p != PLACEABLE_BAG
 
 

@@ -281,8 +281,8 @@ func _update_overlays(c: Vector2i) -> void:
 			var sprite: Sprite2D = item
 			_free(sprite)
 		cracks.erase(c)
-	if not data.in_bounds(c) or not Walls.is_wall(data, c):
-		return
+	if not data.in_bounds(c) or not Walls.is_natural(data, c):
+		return  # M7b: a built piece has no ore and no cracks (the build view draws it)
 	var faced: bool = Walls.is_face(data, c + Vector2i(0, 1))
 	var ore: int = Walls.ore_at(data, c)
 	if ore != Walls.ORE_NONE:

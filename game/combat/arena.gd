@@ -141,6 +141,8 @@ var _shrine_data: WorldData = null
 ## (sync_world).
 var _synced_altar: Rect2i = Rect2i()
 var _synced_corruption: int = 0
+## M7b: how many built walls, closed doors, open doors and lantern posts stood when the spawn tiles were worked out.
+var _synced_built: Vector4i = Vector4i.ZERO
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -175,6 +177,15 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	spawn_cells = surface_spawn_cells(data, safe) if map_id == Config.MAP_SURFACE else dungeon_spawn_cells(data)
 	_synced_altar = data.altar_rect
 	_synced_corruption = Purify.corrupted_count(data)
+	_synced_built = built_count(data)
+
+
+## M7b: the counts of built walls, closed doors, open doors and lantern posts on `p_data` (what building changes that the
+## spawn tiles read: Movement.is_blocked). Cheap (three counts of the WALL layer, one of PLACEABLE).
+static func built_count(p_data: WorldData) -> Vector4i:
+	var walls: PackedByteArray = p_data.layers[WorldData.Layer.WALL]
+	return Vector4i(walls.count(Walls.KIND_STONE), walls.count(Walls.KIND_DOOR), walls.count(Walls.KIND_DOOR_OPEN),
+		p_data.layers[WorldData.Layer.PLACEABLE].count(WorldData.PLACEABLE_LANTERN))
 
 
 ## M5b: the world the arena reads changed where it caches: the altar moved (picked up: no light; put down: a new light)
@@ -186,13 +197,17 @@ func sync_world() -> bool:
 	if data == null:
 		return false
 	var corrupted: int = Purify.corrupted_count(data)
-	if data.altar_rect == _synced_altar and corrupted == _synced_corruption:
+	var built: Vector4i = built_count(data)
+	if data.altar_rect == _synced_altar and corrupted == _synced_corruption and built == _synced_built:
 		return false
 	_synced_altar = data.altar_rect
 	_synced_corruption = corrupted
+	_synced_built = built
 	safe = SafeZone.for_world(data)
 	if map_id == Config.MAP_SURFACE:
 		spawn_cells = surface_spawn_cells(data, safe)
+	else:
+		spawn_cells = dungeon_spawn_cells(data)  # M7b: built walls and doors change which tiles the arrival room reaches
 	count("world_synced")
 	return true
 

@@ -29,11 +29,15 @@ extends RefCounted
 ## M7a also adds the wood and the ingots (MATERIAL), the three stations and the storage chest (PLACEABLE, items/crafting.gd,
 ## items/storage.gd) and the tier-1 weapons (TOOL: each plays its base weapon's action, Config.GEAR_T1_BASE), all at the
 ## end of the table (the wire sends items by index).
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR }
+## M7b: BUILD = a build piece (items/building.gd: a click puts one down on the target tile, at the light's cost; right-click
+## takes a built one down): the stone wall, the door, the stone floor and the lantern post. The axe (TOOL, its own body
+## action RigData.Anim.AXE) chops trees (world/forest.gd). Both appended at the end.
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
-const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable", "armor"]
+const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable", "armor",
+	"build"]
 ## M7a: the icons of the wood and the ingots (04-env 묶음 2 #62 log, #46 planks, #42 / #44 ingots: the 3/4 icons v02, like the
 ## stone block and the ores; whether material icons are 3/4 v02 or front v03 is ○ brief §5.7).
 const WOOD_ICONS: Dictionary[StringName, String] = {
@@ -47,6 +51,18 @@ const STATION_ITEMS: Dictionary[StringName, Array] = {
 	&"anvil": [WorldData.PLACEABLE_ANVIL, "res://art/env/anvil_v03.png"],
 	&"relic_bench": [WorldData.PLACEABLE_RELIC, "res://art/env/relic_bench_v03.png"],
 	&"storage_chest": [WorldData.PLACEABLE_CHEST, "res://art/env/storage_chest_v02.png"],
+}
+## M7b: the build pieces' icons (PLACEHOLDERS composed from our art: no icon art exists): parts of the build sheet
+## (04-env build_stone_candA_v02: the stone wall = the lone wall top's upper rows over the lone face's lower rows, the door =
+## the closed door's arch over its threshold rows, the floor = floor piece A) and of the lantern post (its lantern head), as
+## [source rect, place in the 16x16 icon] pairs (ItemIcons.texture_for).
+const BUILD_SHEET: String = "res://art/env/build_stone_candA_v02.png"
+const LANTERN_POST: String = "res://art/env/prop_lantern_post_c_v03_lit.png"
+const BUILD_ICONS: Dictionary[StringName, Array] = {
+	&"stone_wall": [BUILD_SHEET, [[Rect2i(0, 0, 16, 7), Vector2i(0, 0)], [Rect2i(0, 63, 16, 9), Vector2i(0, 7)]]],
+	&"door": [BUILD_SHEET, [[Rect2i(64, 48, 16, 8), Vector2i(0, 0)], [Rect2i(64, 64, 16, 8), Vector2i(0, 8)]]],
+	&"stone_floor": [BUILD_SHEET, [[Rect2i(64, 32, 16, 16), Vector2i(0, 0)]]],
+	&"lantern": [LANTERN_POST, [[Rect2i(8, 5, 16, 16), Vector2i(0, 0)]]],
 }
 ## M5b: holy water's icon (04-env 묶음 2 #58 "a small glass vial of holy water", 판정 좋음; the a / b / c vials are
 ## candidates, a is the first of the two marked good).
@@ -95,6 +111,8 @@ class ItemDef:
 	var base: StringName = &""
 	var tier: int = 0
 	var icon_fit: bool = false
+	## M7b: the icon is composed from parts of icon_path ([Rect2i source, Vector2i place] pairs; empty = none).
+	var icon_parts: Array = []
 
 	func _init(p_id: StringName, p_kind: int, p_stack: int, p_graded: bool = false, p_action: int = -1) -> void:
 		id = p_id
@@ -112,6 +130,10 @@ class ItemDef:
 	## M7a: worn in the armour slot.
 	func is_armor() -> bool:
 		return kind == Kind.ARMOR
+
+	## M7b: a build piece (items/building.gd).
+	func is_build() -> bool:
+		return kind == Kind.BUILD
 
 
 static var _table: Dictionary[StringName, ItemDef] = {}
@@ -297,6 +319,18 @@ static func _build() -> void:
 	armor.tier = 1
 	armor.durability = Config.GEAR_DURABILITY.get(&"armor_t1", 0)
 	_add(armor)
+	# M7b (appended): the axe (○ game-concept §12 R37 "벌목 도구는 도끼"; a hand recipe from stones, Config.BUILD_RECIPES): a
+	# hand tool with its own body action (03-pixel base_body_v02_axe, ● brief §5.6 R25: the tool is drawn into the action).
+	# Icon drawn in code (PLACEHOLDER, no axe icon art).
+	_tool(&"axe", RigData.Anim.AXE)
+	# M7b: the four build pieces (○ gameplay-design §3.3 "벽·바닥·문·작업대·조명은 공용"; ● R37 walls are stone only), made at
+	# the basic workbench (Config.BUILD_RECIPES). Stack Config.STACK_MATERIAL. Icons composed from the build art (BUILD_ICONS).
+	for piece_id: StringName in BUILD_ICONS:
+		var b: ItemDef = ItemDef.new(piece_id, Kind.BUILD, Config.STACK_MATERIAL)
+		var spec: Array = BUILD_ICONS[piece_id]
+		b.icon_path = spec[0]
+		b.icon_parts = spec[1]
+		_add(b)
 
 
 static func _tool(id: StringName, action: int) -> void:

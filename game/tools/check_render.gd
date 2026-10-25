@@ -104,6 +104,20 @@ extends SceneTree
 ##   m7_panels (M7a) the chest panel over the open inventory (its place, frames, header, slots, icons, counts, a worn bow's
 ##            bar) and the anvil's crafting panel with one-, two- and three-input rows and the repair row of a worn sword
 ##            (the widened panel's place, the slots and arrows at the layout written out here), every opaque pixel.
+##   builds   (M7b) evening off, the entities hidden: built pieces put down through the world's edits (a room of stone walls
+##            with a closed door and floor pieces inside, an open door, an L, a vertical run, a lone wall, a pair): the
+##            screen equals the background plus a CPU composite from the build sheet PNG by the sheet's assembly rule written
+##            out here (floor pieces first by the variant rule; then row by row from the north: each wall's top by its
+##            neighbour mask, its inner corner dots, its face from the tile below's top when that is no wall, its kind by the
+##            west / east neighbours' faces, a door's face the door), pixel for pixel. Then a lantern post (its PNG at its
+##            tile's bottom, centred) with the entities shown.
+##   trees    (M7b) evening off, the seed's trees on screen (the other entities hidden): the screen equals the background
+##            plus each tree's PNG at (x*16 + 8 - 32, (y+1)*16 - 1 - 72), pasted in the order of their feet (the y-sort); then
+##            one felled (a stump edit): its stump PNG at the same place.
+##   build_ghost (M7b) evening on, the build ghost on a tile: allowed = the piece's own pixels (the lone top over the lone
+##            face for a wall, the post for a lantern) on the world's even checkerboard squares and the blocked tiles'
+##            1 px outline in faith gold; refused = the same squares and outline in deep red; unshaded (their colours in
+##            the evening), on their exact pixels (rules written out here).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -143,6 +157,12 @@ func _run() -> void:
 	world.auto_generate = false
 	root.add_child(world)
 	world.generate(Config.DEFAULT_SEED)
+	# M7b: the quiet spot most parts look at, (400, 400), stays open meadow as it was before the trees: the trees whose
+	# pictures could reach that screen are taken away from this check's world (the trees part looks elsewhere).
+	var quiet: Rect2i = Rect2i(Vector2i(400, 400) - Config.VIEW_SIZE / 2 - Vector2i(48, 16), Config.VIEW_SIZE + Vector2i(96, 112))
+	for t: Vector2i in Forest.tree_cells(world.data):
+		if quiet.has_point(t * Config.TILE):
+			world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, t, WorldData.PLACEABLE_NONE))
 	world.overlay.visible = false
 	world.camera.set_process(false)
 	world.camera.make_current()
@@ -171,6 +191,9 @@ func _run() -> void:
 		await _check_stations()
 		await _check_gear_hud()
 		await _check_m7_panels()
+		await _check_builds()
+		await _check_trees()
+		await _check_build_ghost()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -2076,6 +2099,259 @@ func _surface_world(generate: bool = true) -> GameWorld:
 	if w.purify_view != null:
 		w.purify_view.auto_tick = false  # the flashes age only by hand here (both worlds show the same age)
 	return w
+
+
+# --- M7b ----------------------------------------------------------------------------------------------------------------
+
+const BUILD_PNG: String = "env/build_stone_candA_v02.png"
+
+
+## The sheet's assembly rule, written out here (04-env/prompts.md "건설 벽·문·바닥 후보" 조립), from the data: what tile `c`
+## of `d` draws (built walls and doors; the floor piece is drawn apart): [sheet rect, world px] pairs in order.
+static func build_parts(d: WorldData, c: Vector2i) -> Array[Array]:
+	var out: Array[Array] = []
+	var k: int = Walls.kind_at(d, c)
+	if k != Walls.KIND_STONE and k != Walls.KIND_DOOR and k != Walls.KIND_DOOR_OPEN:
+		return out
+	var built: Callable = func(t: Vector2i) -> bool:
+		var kk: int = Walls.kind_at(d, t)
+		return kk == Walls.KIND_STONE or kk == Walls.KIND_DOOR or kk == Walls.KIND_DOOR_OPEN
+	var walled: Callable = func(t: Vector2i) -> bool:
+		var kk: int = Walls.kind_at(d, t)
+		return kk != Walls.KIND_NONE and kk != Walls.KIND_FLOOR
+	var m: int = (1 if built.call(c + Vector2i(0, -1)) else 0) + (2 if built.call(c + Vector2i(1, 0)) else 0) \
+		+ (4 if built.call(c + Vector2i(0, 1)) else 0) + (8 if built.call(c + Vector2i(-1, 0)) else 0)
+	out.append([Rect2i((m % 8) * 16, (m / 8) * 16, 16, 16), c * 16])
+	# Dots: NE, NW, SE, SW at x 0, 16, 32, 48 of row 32.
+	var corners: Array = [[1, -1], [-1, -1], [1, 1], [-1, 1]]
+	for i: int in 4:
+		var dx: int = corners[i][0]
+		var dy: int = corners[i][1]
+		if built.call(c + Vector2i(dx, 0)) and built.call(c + Vector2i(0, dy)) and not built.call(c + Vector2i(dx, dy)):
+			out.append([Rect2i(i * 16, 32, 16, 16), c * 16])
+	var face: Callable = func(t: Vector2i) -> bool:
+		return built.call(t) and d.in_bounds(t + Vector2i(0, 1)) and not walled.call(t + Vector2i(0, 1))
+	if face.call(c):
+		var src_x: int = 0
+		if k == Walls.KIND_DOOR:
+			src_x = 64
+		elif k == Walls.KIND_DOOR_OPEN:
+			src_x = 80
+		else:
+			var w: bool = face.call(c + Vector2i(-1, 0))
+			var e: bool = face.call(c + Vector2i(1, 0))
+			src_x = 32 if (w and e) else (16 if e else (48 if w else 0))
+		out.append([Rect2i(src_x, 48, 16, 24), (c + Vector2i(0, 1)) * 16])
+	return out
+
+
+func _check_builds() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(560, 1200))
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var bg: Image = await _capture()
+	var o: Vector2i = origin / 16 + Vector2i(3, 2)
+	var walls: Array[Vector2i] = []
+	for x: int in range(0, 6):
+		walls.append(o + Vector2i(x, 0))
+		walls.append(o + Vector2i(x, 5))
+	for y: int in range(1, 5):
+		walls.append(o + Vector2i(0, y))
+		walls.append(o + Vector2i(5, y))
+	for t: Vector2i in [Vector2i(9, 2), Vector2i(10, 2), Vector2i(9, 3), Vector2i(9, 4), Vector2i(13, 1), Vector2i(13, 2),
+			Vector2i(13, 3), Vector2i(16, 4), Vector2i(19, 6), Vector2i(20, 6), Vector2i(22, 3), Vector2i(23, 3), Vector2i(24, 3)]:
+		walls.append(o + t)
+	var edits: Array[Array] = []
+	for c: Vector2i in walls:
+		edits.append([c, Walls.KIND_STONE])
+	edits.append([o + Vector2i(2, 5), Walls.KIND_DOOR])
+	edits.append([o + Vector2i(23, 3), Walls.KIND_DOOR_OPEN])
+	for y2: int in range(1, 5):
+		for x2: int in range(1, 5):
+			edits.append([o + Vector2i(x2, y2), Walls.KIND_FLOOR])
+	edits.append([o + Vector2i(11, 7), Walls.KIND_FLOOR])
+	edits.append([o + Vector2i(12, 7), Walls.KIND_FLOOR])
+	for e: Array in edits:
+		var ec: Vector2i = e[0]
+		var ek: int = e[1]
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, ec, Walls.pack(ek, 0)))
+	var sheet: Image = _png(BUILD_PNG)
+	var expected: Image = bg.duplicate() as Image
+	var d: WorldData = world.data
+	var cells: Array[Vector2i] = []
+	for e2: Array in edits:
+		var c2: Vector2i = e2[0]
+		if not cells.has(c2):
+			cells.append(c2)
+	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	for c3: Vector2i in cells:
+		if Walls.kind_at(d, c3) == Walls.KIND_FLOOR:
+			var v: int = posmod(c3.x * 7 + c3.y * 13 + (c3.x / 3) * 5, 3)
+			_paste_at(expected, sheet.get_region(Rect2i(64 + v * 16, 32, 16, 16)), c3 * 16 - origin)
+	for c4: Vector2i in cells:
+		for part: Array in build_parts(d, c4):
+			var src: Rect2i = part[0]
+			var at: Vector2i = part[1]
+			_paste_at(expected, sheet.get_region(src), at - origin)
+	await _frames(1)
+	var got: Image = await _capture()
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "builds_got.png")
+		_save(expected, "builds_expected.png")
+	# The lantern post among the entities (shown again), its picture at its tile's bottom, centred.
+	var post_at: Vector2i = o + Vector2i(16, 8)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, post_at, WorldData.PLACEABLE_LANTERN))
+	var with_post: Image = got.duplicate() as Image
+	var post: Image = _png("env/prop_lantern_post_c_v03_lit.png")
+	_paste_at(with_post, post, Vector2i(post_at.x * 16 + 8 - 16, (post_at.y + 1) * 16 - 1 - 46) - origin)
+	var got2: Image = await _capture()
+	var n2: int = count_diff(got2, with_post)
+	if n2 > 0 or save_all:
+		_save(got2, "builds_post_got.png")
+		_save(with_post, "builds_post_expected.png")
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, post_at, WorldData.PLACEABLE_NONE))
+	for e3: Array in edits:
+		var c5: Vector2i = e3[0]
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, c5, 0))
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	var line: String = "pieces=%d drawn=%d mismatches=%d post_mismatches=%d" % [cells.size(), drawn, n, n2]
+	if n == 0 and n2 == 0 and drawn > 5000:
+		print("EVENSONG_RENDER builds ok %s" % line)
+	else:
+		_fail("builds", line)
+
+
+func _check_trees() -> void:
+	world.lighting.set_evening(false)
+	var d: WorldData = world.data
+	var trees: Array[Vector2i] = Forest.tree_cells(d)
+	# The screen with the most trees on it (their pictures wholly inside), by a 16 px grid of centres.
+	var best: Vector2i = Vector2i.ZERO
+	var best_n: int = -1
+	for cy: int in range(Config.VIEW_SIZE.y / 2, d.size.y * 16 - Config.VIEW_SIZE.y / 2, 32):
+		for cx: int in range(Config.VIEW_SIZE.x / 2, d.size.x * 16 - Config.VIEW_SIZE.x / 2, 32):
+			var view: Rect2i = Rect2i(Vector2i(cx, cy) - Config.VIEW_SIZE / 2, Config.VIEW_SIZE)
+			var n0: int = 0
+			for t: Vector2i in trees:
+				if view.encloses(Rect2i(Vector2i(t.x * 16 + 8 - 32, (t.y + 1) * 16 - 1 - 72), Vector2i(64, 80))):
+					n0 += 1
+			if n0 > best_n:
+				best_n = n0
+				best = Vector2i(cx, cy)
+	var origin: Vector2i = _look_at(best)
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var bg: Image = await _capture()
+	var on_screen: Array[Vector2i] = []
+	for t2: Vector2i in trees:
+		if Rect2i(origin, Config.VIEW_SIZE).intersects(Rect2i(Vector2i(t2.x * 16 + 8 - 32, (t2.y + 1) * 16 - 1 - 72), Vector2i(64, 80))):
+			on_screen.append(t2)
+			var node: CanvasItem = world.fixtures.nodes[t2] as CanvasItem
+			node.visible = true
+	on_screen.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	var tree_img: Image = _png("env/tree_v02.png")
+	var stump_img: Image = _png("env/stump_v01.png")
+	var expected: Image = bg.duplicate() as Image
+	for t3: Vector2i in on_screen:
+		_paste_at(expected, tree_img, Vector2i(t3.x * 16 + 8 - 32, (t3.y + 1) * 16 - 1 - 72) - origin)
+	var got: Image = await _capture()
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "trees_got.png")
+		_save(expected, "trees_expected.png")
+	# One felled: the stump on the same canvas and place.
+	var felled: Vector2i = on_screen[0] if not on_screen.is_empty() else trees[0]
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, felled, WorldData.PLACEABLE_STUMP))
+	var expected2: Image = bg.duplicate() as Image
+	for t4: Vector2i in on_screen:
+		_paste_at(expected2, stump_img if t4 == felled else tree_img, Vector2i(t4.x * 16 + 8 - 32, (t4.y + 1) * 16 - 1 - 72) - origin)
+	var got2: Image = await _capture()
+	var n2: int = count_diff(got2, expected2)
+	if n2 > 0 or save_all:
+		_save(got2, "trees_stump_got.png")
+		_save(expected2, "trees_stump_expected.png")
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, felled, WorldData.PLACEABLE_TREE))
+	for ci: CanvasItem in hidden:
+		if is_instance_valid(ci):
+			ci.visible = true  # (the felled tree's node was replaced: its new one is visible)
+	var line: String = "trees=%d drawn=%d mismatches=%d stump_mismatches=%d" % [on_screen.size(), drawn, n, n2]
+	if n == 0 and n2 == 0 and on_screen.size() >= 2 and drawn > 2 * 1500:
+		print("EVENSONG_RENDER trees ok %s" % line)
+	else:
+		_fail("trees", line)
+
+
+## The ghost's pixels (rules written out here): the piece's picture's opaque pixels on even (x + y) world squares (the tile's
+## top-left is even) in their colours (allowed) or deep red (refused), and the blocked tiles' border in gold / deep red.
+static func ghost_pixels(piece: StringName, cell: Vector2i, allowed: bool) -> Dictionary[Vector2i, Color]:
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var red: Color = Color8(0x5c, 0x10, 0x10)
+	var want: Dictionary[Vector2i, Color] = {}
+	var pic: Image
+	var at: Vector2i = cell * 16
+	var tall: bool = false
+	if piece == &"lantern":
+		pic = _png("env/prop_lantern_post_c_v03_lit.png")
+		at = Vector2i(cell.x * 16 + 8 - 16, (cell.y + 1) * 16 - 1 - 46)
+	else:
+		var sheet: Image = _png(BUILD_PNG)
+		pic = Image.create_empty(16, 40, false, Image.FORMAT_RGBA8)
+		pic.blit_rect(sheet, Rect2i(0, 0, 16, 16), Vector2i.ZERO)
+		pic.blend_rect(sheet, Rect2i(0, 48, 16, 24), Vector2i(0, 16))
+		tall = true
+	for y: int in pic.get_height():
+		for x: int in pic.get_width():
+			var p: Vector2i = at + Vector2i(x, y)
+			var px: Color = pic.get_pixel(x, y)
+			if px.a8 >= 128 and posmod(p.x + p.y, 2) == 0:
+				want[p] = Color(px.r, px.g, px.b, 1.0) if allowed else red
+	var h: int = 32 if tall else 16
+	for x2: int in 16:
+		want[cell * 16 + Vector2i(x2, 0)] = gold if allowed else red
+		want[cell * 16 + Vector2i(x2, h - 1)] = gold if allowed else red
+	for y2: int in range(1, h - 1):
+		want[cell * 16 + Vector2i(0, y2)] = gold if allowed else red
+		want[cell * 16 + Vector2i(15, y2)] = gold if allowed else red
+	return want
+
+
+func _check_build_ghost() -> void:
+	world.lighting.set_evening(true)
+	var origin: Vector2i = _look_at(Vector2i(560, 1200))
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var ghost: BuildGhost = BuildGhost.new()
+	world.add_child(ghost)
+	world.move_child(ghost, world.entities.get_index())
+	var cell: Vector2i = origin / 16 + Vector2i(10, 6)
+	var bad: int = 0
+	var pixels: int = 0
+	for spec: Array in [[&"stone_wall", true], [&"stone_wall", false], [&"lantern", true], [&"lantern", false]]:
+		var piece: StringName = spec[0]
+		var allowed: bool = spec[1]
+		ghost.show_at(piece, cell, allowed)
+		var got: Image = await _capture()
+		var want: Dictionary[Vector2i, Color] = ghost_pixels(piece, cell, allowed)
+		var shifted: Dictionary[Vector2i, Color] = {}
+		for p: Vector2i in want:
+			shifted[p - origin] = want[p]
+		var wrong: int = _count_wrong(got, shifted)
+		pixels += want.size()
+		bad += wrong
+		if wrong > 0 or save_all:
+			_save(got, "ghost_%s_%s_got.png" % [piece, allowed])
+	ghost.get_parent().remove_child(ghost)
+	ghost.free()
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	world.lighting.set_evening(false)
+	var line: String = "pixels=%d mismatches=%d" % [pixels, bad]
+	if bad == 0 and pixels > 600:
+		print("EVENSONG_RENDER build_ghost ok %s" % line)
+	else:
+		_fail("build_ghost", line)
 
 
 ## A still player for the check (no input, no idle animation) on world `w`.

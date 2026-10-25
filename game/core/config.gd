@@ -658,6 +658,76 @@ const GEAR_REPAIR_MATERIAL: Dictionary[StringName, StringName] = {
 const CHEST_SLOTS: int = 16
 const CHEST_ONLY_IN_LIGHT: bool = true
 
+# --- PROVISIONAL, M7b (building, the tree and the axe) ---------------------------------------------------------------
+# Offline first (M7b); in a session the host refuses the build pieces, the axe swings without chopping and right-click
+# and the door's F do nothing until M7c (as M7a did). README "임시값" M7b.
+
+## PROVISIONAL (○ gameplay-design §3.3 "제단 반경 안은 건설 비용 감소 또는 즉시 건설"; the chosen half is the cost: a
+## piece goes down at once everywhere): how many of a build piece one tile takes, inside the altar's light (every corner of
+## the tile inside the safe zone, the field rule Farming.in_light) and outside it (and in the dungeon, which has no altar).
+const BUILD_COST_IN_LIGHT: int = 1
+const BUILD_COST_OUTSIDE_LIGHT: int = 2
+## PROVISIONAL (○ §3.3 "우클릭 철거"; what it gives back is not in the docs): right-click takes any built piece down (anyone's:
+## the docs track no owner) and gives this many of its piece back (a full inventory refuses it: nothing changes).
+const BUILD_REFUND: int = 1
+## PROVISIONAL (○ §3.1 the surface is "사는 층", building is listed there; whether the dungeon allows it is not in the docs):
+## build pieces may go down in the dungeon too (outside the light, so at BUILD_COST_OUTSIDE_LIGHT).
+const BUILD_IN_DUNGEON: bool = true
+## PROVISIONAL (not in the docs; the task's "never sealing the spawn slots or arrival points"): a piece (or any other blocking
+## thing put down: a station, the chest, the altar) may not leave a spot where players appear (WorldItems.reserved_feet:
+## the altar's spawn slots, the arrival point below the way in) unable to walk this many tiles (Chebyshev) away from its
+## tile, when it could before. Doors count as open (anyone opens them); trees, walls and blocking placeables block. 12 is
+## more than the light's radius + the spawn slots' reach, so a closed ring without a door can not wall the light in.
+const BUILD_SEAL_REACH_TILES: int = 12
+## PROVISIONAL (○ gameplay-design §1 F "상호작용 (… 문 …)"; who opens is not in the docs): any player opens and closes a
+## door with F (heretics never do: a closed door is a wall to them). False = only the player who built it (not modelled
+## yet: there is no owner, so false would mean nobody).
+const DOOR_ANYONE: bool = true
+## PROVISIONAL (○ §3.3 "벽·바닥·문·작업대·조명은 공용"; recipes and amounts are not in the docs; ● R37 walls are stone only):
+## the build pieces made at the basic workbench, rows like STATION_RECIPES ([station, output, count, [[input, count]]]),
+## appended after the repairs (a CRAFT index keeps its meaning). The stone wall, door, floor and lantern post are the four
+## pieces of §3.3 (the brief's build sheet build_stone_candA: wall, door, floor; the 04-env lantern post c with its stone
+## base and wooden pole = the light). The axe (○ game-concept §12 R37 "벌목 도구는 도끼") is a hand recipe from stones:
+## the tree needs the axe before any log exists (the workbench needs logs), and stone_a lies on the surface.
+const BUILD_RECIPES: Array = [
+	["workbench", &"stone_wall", 2, [[&"stone_a", 2]]],
+	["workbench", &"door", 1, [[&"planks", 3], [&"stone_a", 2]]],
+	["workbench", &"stone_floor", 4, [[&"stone_a", 2]]],
+	["workbench", &"lantern", 1, [[&"planks", 2], [&"stone_a", 1]]],
+	["hand", &"axe", 1, [[&"stone_a", 2]]],
+]
+## PROVISIONAL (○ brief §5.7 "랜턴(건설 조명)"; its reach is not in the docs: the 04-env mockup draws a small pool): the lantern
+## post's light (light/torch_light.gd, the placed torch's hard steps). Light only: the safe zone is still the altar's alone.
+const LANTERN_LIGHT_RADIUS_PX: int = 80
+const LANTERN_LIGHT_ENERGY: float = 0.95
+## PROVISIONAL (● game-concept §12 R37 "나무 1종을 누구나 벤다"; how many, where and how far apart are not in the docs):
+## SurfaceGen step 6 puts this many trees (each the trunk's one tile) on clean grass, at least TREE_SPACING_TILES apart
+## (Chebyshev), every trunk centre at least TREE_LIGHT_CLEARANCE_TILES beyond the safe radius (20 tiles from the altar's
+## centre: the start's meadow stays open for building and for moving the altar a screen away; wood is a walk out of the
+## light), no ash within TREE_ASH_CLEARANCE_TILES (corruption zones and the heretics'
+## spawn band around them have no trees), at least TREE_EDGE_TILES from the map's sides and TREE_TOP_TILES from its top
+## (the crown), nothing growing, lying or standing in the crown's tiles and around the trunk (TREE_CLEAR_AREA), not near
+## the entrance. Its own random stream (TREE_SALT), so the M1-M3 steps are as they were.
+const TREE_COUNT: int = 30
+const TREE_SPACING_TILES: int = 4
+const TREE_LIGHT_CLEARANCE_TILES: int = 13
+const TREE_ASH_CLEARANCE_TILES: int = 3
+const TREE_EDGE_TILES: int = 3
+const TREE_TOP_TILES: int = 6
+const TREE_SALT: int = 0x7EE5
+## PROVISIONAL (○ game-concept §12 "○ 벌목 도구는 도끼"; numbers not in the docs): only the axe chops (any class: ● R37
+## anyone; another tool aimed at a trunk does what it always did); a tree falls after TREE_CHOP_HITS swings that land
+## (Config.AXE_IMPACT_FRAME of the axe action) and gives TREE_LOGS logs (what does not fit lies on the trunk tile as a
+## drop), leaving its stump. The stump blocks like the trunk (TREE_STUMP_BLOCKS) and grows back into a tree after
+## TREE_REGROW_TICKS (0 = never: the stump stays).
+const TREE_CHOP_HITS: int = 5
+const TREE_LOGS: int = 4
+const TREE_REGROW_TICKS: int = 5 * 60 * 60
+const TREE_STUMP_BLOCKS: bool = true
+## PROVISIONAL (03-pixel 14차 "M7b에 넘길 것": every direction strikes on sheet column 4 = frame index 3, like the pickaxe
+## and the hoe): the axe's swing lands on this frame of its action.
+const AXE_IMPACT_FRAME: int = 3
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

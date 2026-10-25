@@ -36,6 +36,8 @@ extends RefCounted
 ## Repair recipes (one per item with durability, at the anvil, Config.GEAR_REPAIR_MATERIAL): one material gives the most
 ## worn one of that item the player carries its full durability back (Gear.most_worn; nothing worn = refused, "nothing to
 ## repair"); they show only while there is something to repair. A session refuses every M7 recipe until M7c (WHY_OFFLINE).
+## M7b: the build pieces at the basic workbench and the axe by hand (Config.BUILD_RECIPES, PROVISIONAL README "임시값" M7b),
+## appended after the repairs (26..30), anyone's.
 
 ## Station kinds. M7a: the workbench, the anvil, the relic bench, and HAND (no station).
 const ALCHEMY: StringName = &"alchemy"
@@ -162,7 +164,21 @@ static func _build_potions() -> void:
 ## M7a: the workbench chain's recipes (Config.STATION_RECIPES, anyone's), then one repair recipe per item with durability
 ## (at the anvil, Config.GEAR_REPAIR_MATERIAL), after the potions (a CRAFT index of M6b keeps its meaning).
 static func _build_chain() -> void:
-	for row: Array in Config.STATION_RECIPES:
+	_add_rows(Config.STATION_RECIPES)
+	for item: StringName in Config.GEAR_REPAIR_MATERIAL:
+		var rr: Recipe = Recipe.new()
+		rr.id = StringName("repair_%s" % item)
+		rr.station = ANVIL
+		rr.repair = item
+		rr.inputs.append(Ingredient.new(Config.GEAR_REPAIR_MATERIAL[item], 1))
+		rr.output = item
+		_recipes.append(rr)
+	_add_rows(Config.BUILD_RECIPES)  # M7b
+
+
+## Recipes from rows [station, output, count, [[input, count], ...]] (Config.STATION_RECIPES, BUILD_RECIPES), anyone's.
+static func _add_rows(rows: Array) -> void:
+	for row: Array in rows:
 		var r: Recipe = Recipe.new()
 		var station_name: String = row[0]
 		var out_item: StringName = row[1]
@@ -177,14 +193,6 @@ static func _build_chain() -> void:
 			var in_count: int = pair[1]
 			r.inputs.append(Ingredient.new(in_item, in_count))
 		_recipes.append(r)
-	for item: StringName in Config.GEAR_REPAIR_MATERIAL:
-		var rr: Recipe = Recipe.new()
-		rr.id = StringName("repair_%s" % item)
-		rr.station = ANVIL
-		rr.repair = item
-		rr.inputs.append(Ingredient.new(Config.GEAR_REPAIR_MATERIAL[item], 1))
-		rr.output = item
-		_recipes.append(rr)
 
 
 ## ● gameplay-design §3.0 R11 herbalist row: FINE potions and the status (poison) potion are the herbalist's;

@@ -86,6 +86,12 @@ extends Node2D
 ## click on the armour slot of the open inventory takes it off); a death wears every item with durability (Gear.
 ## wear_on_death). F at a storage chest opens the chest panel (ui/chest_panel.gd) with the inventory: a click moves a
 ## stack between them (Storage.store / take).
+## M7b (offline; in a session the host refuses building, right-click and the door's F do nothing and the axe swings without
+## chopping until M7c): a click with a build piece selected puts it on the target tile (Building.build: the stone wall, the
+## door, the floor, the lantern post, cheaper in the altar's light); right-click takes a built piece down (Building.demolish,
+## a piece back); F on a door opens or closes it (Building.toggle_door); the axe's landing frame chops the tree it is aimed
+## at (Forest.chop: logs, the stump); every map has a Forest whose stumps grow back (step_forests, like the farms). A
+## BuildGhost shows where the selected piece would go and whether it may. --test-build puts pieces down at the start.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -119,6 +125,10 @@ var altar_moves: int = 0
 var _respawn_waiting: Dictionary[int, bool] = {}
 var _gave: bool = false
 var _debug_action: int = 0
+## M7b (offline): a forest per map (its trees' swings, its stumps' regrowth); the selected piece's ghost.
+var forests: Dictionary[int, Forest] = {}
+var trees_on: bool = false
+var build_ghost: BuildGhost
 
 @onready var world: GameWorld = $World
 @onready var camera: PlayerCamera = $Camera
@@ -140,6 +150,9 @@ func _ready() -> void:
 	ghost = AltarGhost.new()
 	world.add_child(ghost)
 	world.move_child(ghost, world.entities.get_index())  # M5b: where the carried altar would go
+	build_ghost = BuildGhost.new()
+	world.add_child(build_ghost)
+	world.move_child(build_ghost, world.entities.get_index())  # M7b: where the selected build piece would go
 	world.altar_moved.connect(_on_altar_moved)
 	worlds[Config.MAP_SURFACE] = world
 	if options.host or options.join:
@@ -158,6 +171,7 @@ func _ready() -> void:
 	spawn(options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS)
 	setup_combat()
 	setup_farming()
+	setup_forests()  # M7b
 	purify_on = true  # M5b (offline; M5c: a session's is the host's)
 	_apply_test_options(options)
 	if not options.bot.is_empty():
@@ -206,6 +220,12 @@ func _show_map(to: int) -> void:
 		w.add_child(marker)
 	w.move_child(marker, w.entities.get_index())
 	marker.map_cells = w.data.size
+	if build_ghost != null:
+		if build_ghost.get_parent() != w:
+			build_ghost.get_parent().remove_child(build_ghost)
+			w.add_child(build_ghost)
+		w.move_child(build_ghost, w.entities.get_index())  # M7b: the build ghost goes with the local player's map
+		build_ghost.hide_ghost()
 
 
 ## M3a: takes the local player to map `to` (offline): its arrival point there (the dungeon: south of
@@ -240,6 +260,8 @@ func _physics_process(delta: float) -> void:
 	if _in_session():
 		_show_altar_ghost(player)  # M5c: where the carried altar would go down (the host decides)
 		_show_purify()  # M5c: the channels under way, from the players' states
+		if build_ghost != null:
+			build_ghost.hide_ghost()  # M7b: no building in a session until M7c
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -247,7 +269,9 @@ func _physics_process(delta: float) -> void:
 	step_combat(delta)
 	check_carriers()  # M5-fix: after the combat, like the host (SessionHost.tick: arenas, then _check_carriers)
 	step_farms()
+	step_forests()  # M7b
 	_show_purify()
+	_show_build_ghost()  # M7b
 
 
 func _bot_tick(delta: float) -> void:
@@ -273,6 +297,8 @@ func _bot_tick(delta: float) -> void:
 		chest_take(a.take_slot)
 	if a.unequip:
 		unequip_armor()
+	if a.demolish:
+		demolish()  # M7b: right-click
 	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill)
 	if a.op == null:
 		return
@@ -418,6 +444,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		give_debug_kit()
 	elif event.is_action_pressed(&"debug_action"):
 		debug_next_action()
+	elif event.is_action_pressed(&"demolish"):
+		demolish()  # M7b: right-click takes a built piece down
 
 
 func _in_session() -> bool:
@@ -478,6 +506,9 @@ func pick_up() -> void:
 	var chest_rect: Rect2i = Storage.chest_for(data, player.sim_position, cell)
 	if chest_rect.has_area():
 		open_chest(chest_rect)  # M7a: F at a storage chest opens it (nothing lies on a chest tile to pick up)
+		return
+	if Building.door_cell(data, cell) != Walls.NO_CELL:
+		toggle_door(cell)  # M7b: F on a door (or its face) opens or closes it
 		return
 	var o: WorldItems.Outcome = WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell)
 	if not o.ok() and o.why == WorldItems.WHY_NOTHING and purify_on and not player.carrying_altar \
@@ -565,6 +596,9 @@ func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 	var w: GameWorld = current_world()
 	if farming_on and (item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(w.data, item, target)):
 		farm_impact(player, item, target)  # M5a: the sickle aimed at a crop harvests instead of attacking
+		return
+	if Gear.base(item) == Forest.AXE:
+		chop_impact(player, item, target)  # M7b: the axe chops the tree it is aimed at
 		return
 	if Combat.attack_for(item) != null and not Combat.is_mining_swing(w.data, item, target):
 		_attack(player, item)
@@ -806,6 +840,8 @@ func _go_offline_combat() -> void:
 	# M7a: and gear (its wear starts from what the host's inventory had: full, the wire carries no durability yet).
 	player.gear_on = true
 	_connect_gear(player)
+	# M7b: and the trees' regrowth (building and chopping are offline Main's from now on).
+	setup_forests()
 
 
 ## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
@@ -831,6 +867,9 @@ func add_ally(class_id: String, down: bool) -> Player:
 func _on_place_requested(slot: int, cell: Vector2i) -> void:
 	if _in_session() or player == null:
 		return
+	if not Building.piece_in(player.inventory, slot).is_empty():
+		build(slot, cell)  # M7b
+		return
 	if farming_on and Farming.seed_kind_in(player.inventory, slot) != Farming.KIND_NONE:
 		if ensure_farm(current_map):
 			_apply_farm(farms[current_map], farms[current_map].plant(player.sim_position, player.class_id(), player.inventory,
@@ -845,6 +884,145 @@ func _on_place_requested(slot: int, cell: Vector2i) -> void:
 			bodies.append(h.pos)
 	_apply_offline(WorldItems.place(current_world().data, player.sim_position, player.inventory, slot, cell, bodies),
 		"place", cell)
+
+
+# --- M7b: building, doors, trees (offline) ---------------------------------------------------------------
+
+## The other bodies on the local player's map: the other players' feet and the heretics' (what a blocking piece may not
+## cover).
+func _other_bodies() -> Array[Vector2]:
+	var bodies: Array[Vector2] = []
+	for p: Player in players_on(current_map):
+		if p != player:
+			bodies.append(p.sim_position)
+	if arenas.has(current_map):
+		for h: HereticSim in arenas[current_map].heretics:
+			if h.alive():
+				bodies.append(h.pos)
+	return bodies
+
+
+## A click with the piece in hotbar slot `slot` on tile `cell` (Building.build; offline).
+func build(slot: int, cell: Vector2i) -> void:
+	var w: GameWorld = current_world()
+	var o: WorldItems.Outcome = Building.build(w.data, player.sim_position, player.inventory, slot, cell, _other_bodies())
+	if not o.ok():
+		print("EVENSONG_BUILD place refused at=%d,%d: %s" % [cell.x, cell.y, o.why])
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		w.apply_edit(e)
+	print("EVENSONG_BUILD place piece=%s cost=%d at=%d,%d map=%s" % [o.item, o.count, cell.x, cell.y, Config.MAP_NAMES[w.map_id]])
+
+
+## Right-click: take the built piece on the target tile down (Building.demolish; offline; a session: M7c).
+func demolish() -> void:
+	if player == null or not player.vitals.alive() or player.carrying_altar or player.ui_locked:
+		return
+	var cell: Vector2i = Aim.target_cell(player.sim_position, player.aim_sector)
+	if _in_session():
+		print("EVENSONG_BUILD demolish refused at=%d,%d: %s" % [cell.x, cell.y, Building.WHY_OFFLINE])
+		return
+	var w: GameWorld = current_world()
+	var o: WorldItems.Outcome = Building.demolish(w.data, player.sim_position, player.inventory, cell)
+	if not o.ok():
+		print("EVENSONG_BUILD demolish refused at=%d,%d: %s" % [cell.x, cell.y, o.why])
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		w.apply_edit(e)
+	print("EVENSONG_BUILD demolish piece=%s refund=%d at=%d,%d" % [o.item, o.count, cell.x, cell.y])
+
+
+## F on a door (or its face) on tile `cell`: open or close it (Building.toggle_door; offline).
+func toggle_door(cell: Vector2i) -> void:
+	var w: GameWorld = current_world()
+	var o: WorldItems.Outcome = Building.toggle_door(w.data, player.sim_position, cell, _other_bodies())
+	if not o.ok():
+		print("EVENSONG_BUILD door refused at=%d,%d: %s" % [cell.x, cell.y, o.why])
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		w.apply_edit(e)
+	print("EVENSONG_BUILD door %s at=%d,%d" % [o.item, o.edits[0].cell.x, o.edits[0].cell.y])
+
+
+## A forest for every map (offline only, like the farms).
+func setup_forests() -> void:
+	trees_on = true
+	for id: int in worlds:
+		ensure_forest(id)
+
+
+## Map `id`'s forest, (re)made when missing or when its world got other data (tests swap worlds).
+func ensure_forest(id: int) -> bool:
+	var w: GameWorld = _live_world(id)
+	if not trees_on or w == null or w.data == null:
+		return false
+	if not forests.has(id) or forests[id].data != w.data:
+		forests[id] = Forest.new(w.data)
+	return true
+
+
+## One forest tick on every map (stumps grow back), in map order.
+func step_forests() -> void:
+	if not trees_on:
+		return
+	var ids: Array[int] = []
+	ids.assign(worlds.keys())
+	ids.sort()
+	for id: int in ids:
+		if not ensure_forest(id):
+			continue
+		var w: GameWorld = worlds[id]
+		for e: EditLog.WorldEdit in forests[id].step():
+			w.apply_edit(e)
+			print("EVENSONG_TREE regrown at=%d,%d map=%s" % [e.cell.x, e.cell.y, Config.MAP_NAMES[id]])
+
+
+## The axe's landing frame for player `p` aimed at tile `target` (Forest.chop; offline).
+func chop_impact(p: Player, item: StringName, target: Vector2i) -> void:
+	if not ensure_forest(current_map):
+		return
+	var w: GameWorld = current_world()
+	var r: Forest.Result = forests[current_map].chop(p.sim_position, p.inventory, item, target)
+	if not r.ok():
+		if r.why != Forest.WHY_NO_TREE:
+			print("EVENSONG_TREE chop refused at=%d,%d: %s" % [target.x, target.y, r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		w.apply_edit(e)
+	if r.felled:
+		print("EVENSONG_TREE felled at=%d,%d who=%s %s" % [target.x, target.y, p.name, r.describe()])
+	else:
+		w.fixtures.shake(target)
+		print("EVENSONG_TREE chop at=%d,%d hits=%d/%d" % [target.x, target.y, r.hits, Config.TREE_CHOP_HITS])
+
+
+## The build ghost (offline): the selected piece on the target tile while the local player aims, gold where it may go.
+## The answer is worked out again when the tile, the piece, the world or the pieces held change, and every
+## GHOST_RECHECK_TICKS (bodies move).
+const GHOST_RECHECK_TICKS: int = 10
+var _ghost_ticks: int = 0
+
+
+func _show_build_ghost() -> void:
+	if build_ghost == null:
+		return
+	_ghost_ticks += 1
+	var st: ItemStack = player.inventory.selected_stack()
+	var piece: StringName = st.id if st != null and Building.is_piece(st.id) else &""
+	if piece.is_empty() or not player.aim_active or not player.vitals.alive() or player.carrying_altar \
+			or player.ui_locked or player.action_anim >= 0:
+		build_ghost.hide_ghost()
+		return
+	var w: GameWorld = current_world()
+	var cell: Vector2i = player.aim_cell
+	var key: Array = [cell, piece, w.revision, st.count, player.inventory.count_of(piece), _ghost_ticks / GHOST_RECHECK_TICKS,
+		Aim.feet_cell(player.sim_position)]
+	if build_ghost.visible and build_ghost.key == key:
+		return
+	build_ghost.key = key
+	var why: String = Building.refusal(w.data, player.sim_position, piece, cell, player.inventory.count_of(piece),
+		_other_bodies())
+	build_ghost.show_at(piece, cell, why.is_empty())
 
 
 # --- M6a: crafting and potions (offline) ----------------------------------------------------------------
@@ -1474,6 +1652,14 @@ func _apply_test_options(options: CliOptions) -> void:
 		combat_views[current_map].sync(players_on(current_map))
 	if not options.test_fields.is_empty():
 		apply_test_fields(options.test_fields)  # M5a
+	for entry: Array in options.test_build:
+		var bc: Vector2i = entry[0]
+		var bpiece: StringName = entry[1]
+		var bw: GameWorld = current_world()
+		var be: EditLog.WorldEdit = Building.edit_for(bpiece, bc)
+		if bpiece == &"door_open":
+			be = EditLog.WorldEdit.new(WorldData.Layer.WALL, bc, Walls.pack(Walls.KIND_DOOR_OPEN, 0))
+		bw.apply_edit(be)  # M7b: pieces put down without the rules (screenshots, tests)
 	for d: Vector2i in options.test_durability:
 		var st: ItemStack = player.inventory.stack_at(d.x)  # M7a: a worn item for screenshots and tests
 		if st != null and st.max_durability() > 0:

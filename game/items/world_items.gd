@@ -242,10 +242,11 @@ static func open_bag(data: WorldData, inv: Inventory, c: Vector2i) -> Outcome:
 	return o
 
 
-## M4a: a free tile for a death bag: on the map, nothing blocking, no placeable, no gatherable, no drop.
+## M4a: a free tile for a death bag: on the map, nothing blocking, no placeable, no gatherable, no drop. M7b: nor an open door
+## or its doorway (a wall still: closing it would cover the bag).
 static func bag_spot_ok(data: WorldData, c: Vector2i) -> bool:
-	return data.in_bounds(c) and not Movement.is_blocked(data, c) \
-		and data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_NONE \
+	return data.in_bounds(c) and not Movement.is_blocked(data, c) and not Walls.is_wall(data, c) \
+		and not Walls.is_face(data, c) and data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_NONE \
 		and data.get_value(WorldData.Layer.VEGETATION, c) == 0 and data.drops_at(c).is_empty()
 
 
@@ -340,8 +341,9 @@ static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, coun
 		return Outcome.refused(WHY_OUTSIDE)
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
-	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE or Walls.blocks(data, c):
-		return Outcome.refused(WHY_BLOCKED)
+	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE or Walls.blocks(data, c) \
+			or Walls.is_wall(data, c) or Walls.is_face(data, c):
+		return Outcome.refused(WHY_BLOCKED)  # M7b: nor an open door or its doorway
 	if data.drops.size() >= Config.MAX_DROPS:
 		return Outcome.refused(WHY_TOO_MANY)
 	if stack.worn():
@@ -483,7 +485,9 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 	for y: int in range(rect.position.y, rect.end.y):
 		for x: int in range(rect.position.x, rect.end.x):
 			var t: Vector2i = Vector2i(x, y)
-			if Walls.blocks(data, t) or data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE \
+			# M7b: an open door is still a wall (and its face tile its doorway): nothing goes on them.
+			if Walls.blocks(data, t) or Walls.is_wall(data, t) or Walls.is_face(data, t) \
+					or data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE \
 					or data.get_value(WorldData.Layer.VEGETATION, t) != 0 \
 					or (rect.size != Vector2i.ONE and not data.drops_at(t).is_empty()):
 				return Outcome.refused(WHY_NOT_OPEN)
@@ -499,6 +503,13 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 		for r: Vector2 in spots:
 			if px.intersects(Movement.feet_box(r)):
 				return Outcome.refused(WHY_RESERVED)
+		# M7b: nor wall a spot where players appear in (Building.seals, PROVISIONAL Config.BUILD_SEAL_REACH_TILES).
+		var cells: Array[Vector2i] = []
+		for y4: int in range(rect.position.y, rect.end.y):
+			for x4: int in range(rect.position.x, rect.end.x):
+				cells.append(Vector2i(x4, y4))
+		if Building.seals(data, cells, spots):
+			return Outcome.refused(Building.WHY_SEALS)
 		for y2: int in range(rect.position.y - 1, rect.end.y + 1):
 			for x2: int in range(rect.position.x - 1, rect.end.x + 1):
 				if data.get_value(WorldData.Layer.PLACEABLE, Vector2i(x2, y2)) == value:

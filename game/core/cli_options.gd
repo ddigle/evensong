@@ -138,6 +138,9 @@ var test_crop_ticks: int = 0
 ## (1-based, 0 = none) is put on at the start.
 var test_durability: Array[Vector2i] = []
 var test_wear: int = 0
+## M7b test flag: [tile (Vector2i), piece (StringName: a build piece's item id, or &"door_open")] per piece put down at the
+## start without the building rules.
+var test_build: Array[Array] = []
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -332,6 +335,8 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 						o.errors.append("%s: expected --test-durability=<1..%d>:<points>[/...]" % [raw, Config.INVENTORY_SLOTS])
 						break
 					o.test_durability.append(Vector2i(kv[0].to_int() - 1, kv[1].to_int()))
+			"test-build":
+				o.test_build = _parse_build(value, raw, o.errors)
 			"test-wear":
 				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.HOTBAR_SLOTS:
 					o.errors.append("%s: expected --test-wear=<1..%d>" % [raw, Config.HOTBAR_SLOTS])
@@ -389,6 +394,27 @@ static func _parse_fields(value: String, raw: String, errors: PackedStringArray)
 				errors.append(usage)
 				return [] as Array[Array]
 		out.append([tiles[0], kind, stage, is_wet, fast])
+	return out
+
+
+## M7b: --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...].
+const TEST_BUILD_PIECES: Dictionary[String, StringName] = {"wall": &"stone_wall", "door": &"door", "door_open": &"door_open",
+	"floor": &"stone_floor", "lantern": &"lantern"}
+
+
+static func _parse_build(value: String, raw: String, errors: PackedStringArray) -> Array[Array]:
+	var out: Array[Array] = []
+	var usage: String = "%s: expected --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...]" % raw
+	for part: String in value.split("/"):
+		var bits: PackedStringArray = part.split(":")
+		if bits.size() != 2 or not TEST_BUILD_PIECES.has(bits[1]):
+			errors.append(usage)
+			return [] as Array[Array]
+		var tiles: Array[Vector2i] = _parse_tiles(bits[0], raw, errors)
+		if tiles.size() != 1:
+			errors.append(usage)
+			return [] as Array[Array]
+		out.append([tiles[0], TEST_BUILD_PIECES[bits[1]]])
 	return out
 
 

@@ -30,6 +30,14 @@ extends Node
 ##   relic bench  04-env relic_bench_v03 (its candle's flame is the shared flame_small_v01 at (37, -4) of the picture,
 ##             4 frames looped, unshaded, like the wall torch's large flame; no light of its own: PROVISIONAL)
 ##   storage chest  04-env storage_chest_v02 (the long low chest, adoption candidate)
+## M7b (one tile each, the node at the tile's bottom edge for the y-sort):
+##   tree     04-env tree_v02 (64x80, adoption candidate): its opaque bottom row 72 on the tile's bottom row of pixels, its
+##            column 32 on the tile's centre (the art notes' rule: top-left = (x*16 + 8 - 32, (y+1)*16 - 1 - 72)); the crown
+##            rises about 4.4 tiles and is only drawn (it blocks nothing). World light. A chop shakes it (shake(): the
+##            picture 1 px aside for a few frames, a PLACEHOLDER drawn in code: no shake or fall frames exist)
+##   stump    04-env stump_v01 (the same canvas and place as the tree: felling swaps the texture)
+##   lantern  04-env prop_lantern_post_c_v03_lit (the lantern post with a stone base, lit) with its glowing pixels
+##            (prop_lantern_post_c_v03_emissive) unshaded and a light like the placed torch's (Config.LANTERN_LIGHT_*)
 
 const ARCH: Texture2D = preload("res://art/env/dungeon_entrance_v02.png")
 const STAIRS: Texture2D = preload("res://art/env/dungeon_entrance_stairs_v01.png")
@@ -85,6 +93,23 @@ const FLAME_FRAME_MS: int = 140
 ## Ground lantern (24x24): opaque bottom row 21, centre column 12, glass centre (12, 14).
 const LANTERN_BOTTOM_ROW: int = 21
 const LANTERN_GLOW_AT: Vector2i = Vector2i(12, 14)
+## M7b: the tree and its stump (64x80, one canvas): opaque bottom row 72, the trunk on column 32 (the art notes: the trunk's
+## outline x 30-36); the lantern post (32x48): opaque bottom row 46, centre column 16, glass centre (16, 14).
+const TREE: Texture2D = preload("res://art/env/tree_v02.png")
+const STUMP: Texture2D = preload("res://art/env/stump_v01.png")
+const TREE_BOTTOM_ROW: int = 72
+const TREE_CENTRE_X: int = 32
+const POST: Texture2D = preload("res://art/env/prop_lantern_post_c_v03_lit.png")
+const POST_EMISSIVE: Texture2D = preload("res://art/env/prop_lantern_post_c_v03_emissive.png")
+const POST_BOTTOM_ROW: int = 46
+const POST_CENTRE_X: int = 16
+const POST_GLOW_AT: Vector2i = Vector2i(16, 14)
+## M7b, PLACEHOLDER: a chopped tree's picture moves this many px aside, one step every SHAKE_STEP_MS (then stands).
+const SHAKE_STEPS: PackedInt32Array = [1, -1, 1, 0]
+const SHAKE_STEP_MS: int = 40
+## Placeables drawn one tile at a time (update_cell).
+const TILE_FIXTURES: Array[int] = [WorldData.PLACEABLE_TORCH, WorldData.PLACEABLE_WALL_TORCH, WorldData.PLACEABLE_BAG,
+	WorldData.PLACEABLE_TREE, WorldData.PLACEABLE_STUMP, WorldData.PLACEABLE_LANTERN]
 
 var data: WorldData
 var entities: Node2D
@@ -97,7 +122,10 @@ var debris: Dictionary[Vector2i, Sprite2D] = {}
 var _flames: Array[Sprite2D] = []
 
 static var _glow: ImageTexture
+static var _post_glow: ImageTexture
 static var _unshaded: CanvasItemMaterial
+## M7b: trees being shaken (tile -> the msec the shake started).
+var _shakes: Dictionary[Vector2i, int] = {}
 
 
 func setup(p_data: WorldData, p_entities: Node2D, p_decals: Node2D, p_lights: Node2D) -> void:
@@ -114,8 +142,7 @@ func setup(p_data: WorldData, p_entities: Node2D, p_decals: Node2D, p_lights: No
 	_add_tables()
 	var grid: PackedByteArray = data.layers[WorldData.Layer.PLACEABLE]
 	for i: int in grid.size():
-		if grid[i] == WorldData.PLACEABLE_TORCH or grid[i] == WorldData.PLACEABLE_WALL_TORCH \
-				or grid[i] == WorldData.PLACEABLE_BAG:
+		if TILE_FIXTURES.has(grid[i]):
 			update_cell(Vector2i(i % data.size.x, i / data.size.x))
 
 
@@ -130,6 +157,7 @@ func clear() -> void:
 	light_nodes.clear()
 	debris.clear()
 	_flames.clear()
+	_shakes.clear()
 
 
 ## Shows what the data has on torch tile `c` now (a placed torch or a wall torch, or nothing). M4a: a
@@ -142,8 +170,7 @@ func update_cell(c: Vector2i) -> void:
 	if FURNITURE.has(p) or _anchor_with(&"table_rect", c) != Walls.NO_CELL:
 		_add_tables()  # M6a: a table is three tile edits; each redraws the tables (M7a: every station and chest)
 		return
-	if nodes.has(c) and (p == WorldData.PLACEABLE_TORCH or p == WorldData.PLACEABLE_WALL_TORCH or p == WorldData.PLACEABLE_NONE
-			or p == WorldData.PLACEABLE_BAG):
+	if nodes.has(c) and (TILE_FIXTURES.has(p) or p == WorldData.PLACEABLE_NONE):
 		var old_flame: Sprite2D = nodes[c].get_node_or_null(^"Flame") as Sprite2D
 		if old_flame != null:
 			_flames.erase(old_flame)
@@ -159,6 +186,10 @@ func update_cell(c: Vector2i) -> void:
 			_add_wall_torch(c)
 		WorldData.PLACEABLE_BAG:
 			_add_bag(c)
+		WorldData.PLACEABLE_TREE, WorldData.PLACEABLE_STUMP:
+			_add_tree(c, p == WorldData.PLACEABLE_STUMP)
+		WorldData.PLACEABLE_LANTERN:
+			_add_lantern(c)
 
 
 ## M4a: the anchor (top-left) of a shrine node whose footprint holds tile `c`, or Walls.NO_CELL.
@@ -242,11 +273,83 @@ static func furniture_origin(p: int, rect: Rect2i) -> Vector2i:
 
 
 func _process(_delta: float) -> void:
-	var t: int = Time.get_ticks_msec() / FLAME_FRAME_MS
+	var now: int = Time.get_ticks_msec()
+	var t: int = now / FLAME_FRAME_MS
 	for f: Sprite2D in _flames:
 		if is_instance_valid(f):
 			var phase: int = f.get_meta(&"phase", 0)
 			f.frame = (t + phase) % FLAME_LOOP
+	for c: Vector2i in _shakes.keys():
+		var sprite: Sprite2D = _tree_sprite(c)
+		var step: int = (now - _shakes[c]) / SHAKE_STEP_MS
+		if sprite == null or step >= SHAKE_STEPS.size():
+			_shakes.erase(c)
+			if sprite != null:
+				sprite.position.x = tree_rest_x(c)
+			continue
+		sprite.position.x = tree_rest_x(c) + SHAKE_STEPS[step]
+
+
+## M7b: a chop landed on the tree on tile `c`: its picture shakes (PLACEHOLDER, SHAKE_STEPS).
+func shake(c: Vector2i) -> void:
+	if _tree_sprite(c) != null:
+		_shakes[c] = Time.get_ticks_msec()
+
+
+func _tree_sprite(c: Vector2i) -> Sprite2D:
+	if not nodes.has(c) or not is_instance_valid(nodes[c]):
+		return null
+	return nodes[c].get_node_or_null(^"Sprite") as Sprite2D
+
+
+## The tree sprite's x (relative to its node) when it stands still.
+static func tree_rest_x(c: Vector2i) -> float:
+	return float(tree_origin(c).x) - (c.x * Config.TILE + Config.TILE / 2)
+
+
+## M7b: top-left (world px) of the tree / stump picture on tile `c`.
+static func tree_origin(c: Vector2i) -> Vector2i:
+	return Vector2i(c.x * Config.TILE + Config.TILE / 2 - TREE_CENTRE_X, (c.y + 1) * Config.TILE - 1 - TREE_BOTTOM_ROW)
+
+
+func _add_tree(c: Vector2i, stump: bool) -> void:
+	var foot: Vector2 = Vector2(c.x * Config.TILE + Config.TILE / 2, (c.y + 1) * Config.TILE)
+	var n: Node2D = _node(c, "%s_%d_%d" % ["Stump" if stump else "Tree", c.x, c.y], foot)
+	_sprite(n, STUMP if stump else TREE, Vector2(tree_origin(c)), foot, Config.LIGHT_LAYER_WORLD).name = &"Sprite"
+
+
+## M7b: top-left (world px) of the lantern post picture on tile `c`.
+static func post_origin(c: Vector2i) -> Vector2i:
+	return Vector2i(c.x * Config.TILE + Config.TILE / 2 - POST_CENTRE_X, (c.y + 1) * Config.TILE - 1 - POST_BOTTOM_ROW)
+
+
+func _add_lantern(c: Vector2i) -> void:
+	var foot: Vector2 = Vector2(c.x * Config.TILE + Config.TILE / 2, (c.y + 1) * Config.TILE)
+	var n: Node2D = _node(c, "Lantern_%d_%d" % [c.x, c.y], foot)
+	var origin: Vector2i = post_origin(c)
+	_sprite(n, POST, Vector2(origin), foot, Config.LIGHT_LAYER_ACTORS).name = &"Sprite"
+	var g: Sprite2D = _sprite(n, post_glow_texture(), Vector2(origin), foot, Config.LIGHT_LAYER_ACTORS)
+	g.name = &"Glow"
+	g.material = unshaded_material()
+	var l: PointLight2D = TorchLight.make(Config.LANTERN_LIGHT_RADIUS_PX, Config.LANTERN_LIGHT_ENERGY,
+		Vector2(origin + POST_GLOW_AT))
+	l.name = StringName("LanternLight_%d_%d" % [c.x, c.y])
+	lights.add_child(l)
+	light_nodes[c] = l
+
+
+## M7b: the lantern post's glowing pixels (where its emissive mask is opaque), drawn unshaded.
+static func post_glow_texture() -> ImageTexture:
+	if _post_glow == null:
+		var lit: Image = LightGen.to_rgba8(POST.get_image())
+		var em: Image = LightGen.to_rgba8(POST_EMISSIVE.get_image())
+		var out: Image = Image.create_empty(lit.get_width(), lit.get_height(), false, Image.FORMAT_RGBA8)
+		for y: int in lit.get_height():
+			for x: int in lit.get_width():
+				if em.get_pixel(x, y).a8 >= 128:
+					out.set_pixel(x, y, lit.get_pixel(x, y))
+		_post_glow = ImageTexture.create_from_image(out)
+	return _post_glow
 
 
 ## Top-left (world px) of an arch drawn on footprint `rect` with its bottom row at `bottom_y`.
@@ -418,13 +521,21 @@ func verify() -> Dictionary[String, int]:
 				bad += 1
 	var torches: int = 0
 	var bags: int = 0
+	var trees: int = 0
 	var grid: PackedByteArray = data.layers[WorldData.Layer.PLACEABLE]
 	for i: int in grid.size():
 		var c: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
-		if grid[i] == WorldData.PLACEABLE_TORCH or grid[i] == WorldData.PLACEABLE_WALL_TORCH:
+		if grid[i] == WorldData.PLACEABLE_TORCH or grid[i] == WorldData.PLACEABLE_WALL_TORCH \
+				or grid[i] == WorldData.PLACEABLE_LANTERN:
 			want += 1
 			torches += 1
 			if not nodes.has(c) or not light_nodes.has(c):
+				bad += 1
+		elif grid[i] == WorldData.PLACEABLE_TREE or grid[i] == WorldData.PLACEABLE_STUMP:
+			want += 1
+			trees += 1  # M7b
+			var tex: Texture2D = STUMP if grid[i] == WorldData.PLACEABLE_STUMP else TREE
+			if not nodes.has(c) or light_nodes.has(c) or _tree_sprite(c) == null or _tree_sprite(c).texture != tex:
 				bad += 1
 		elif grid[i] == WorldData.PLACEABLE_BAG:
 			want += 1
@@ -432,7 +543,8 @@ func verify() -> Dictionary[String, int]:
 			if not nodes.has(c) or light_nodes.has(c):
 				bad += 1
 	bad += maxi(nodes.size() - want, 0)
-	return {"fixtures": nodes.size(), "torches": torches, "bags": bags, "lights": light_nodes.size(), "mismatches": bad}
+	return {"fixtures": nodes.size(), "torches": torches, "bags": bags, "trees": trees, "lights": light_nodes.size(),
+		"mismatches": bad}
 
 
 func _free(n: Node) -> void:

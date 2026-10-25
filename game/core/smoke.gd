@@ -84,6 +84,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_farm(r)
 	_check_purify(r)
 	_check_chain(r)
+	_check_build(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -280,9 +281,9 @@ static func _check_items(r: Report) -> void:
 		if def.is_tool():
 			tools += 1
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
-	r.expect_eq(tools, 12, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons)")
+	r.expect_eq(tools, 13, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons; M7b: + the axe)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash", "skill_1"]:
+			"interact", "debug_drop", "dash", "skill_1", "demolish"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -559,6 +560,70 @@ static func _check_chain(r: Report) -> void:
 	r.expect(before != empty_chest and empty_chest != data.content_hash(), "the chest and its contents are in the hash")
 	r.fields.append("chain=%d/%d gear=%d/%d/%d chest=%d" % [Crafting.recipes().size() - Crafting.recipes_for(Crafting.ALCHEMY).size(),
 		crafts, dmg, knife, sword.durability, c.slots.size() if c != null else 0])
+
+
+## M7b: the build and tree art, the seed's trees (count, trunks block), a stone wall and a door south of the altar (one piece
+## each in the light, two outside), the wall and its face block and the closed door blocks until opened, right-click
+## gives a piece back, an axe fells a tree in Config.TREE_CHOP_HITS swings into logs and a stump that grows back. Field
+## `build=<pieces put down>/<cost in the light>/<cost outside> trees=<count>/<logs from one>`.
+static func _check_build(r: Report) -> void:
+	for path: String in ["res://art/env/build_stone_candA_v02.png", "res://art/env/tree_v02.png", "res://art/env/stump_v01.png",
+			"res://art/env/prop_lantern_post_c_v03_lit.png", "res://art/env/prop_lantern_post_c_v03_emissive.png",
+			"res://art/chars/base_body_v02_axe.png"]:
+		r.expect(ResourceLoader.exists(path), "%s missing" % path)
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var trees: Array[Vector2i] = Forest.tree_cells(data)
+	r.expect_eq(trees.size(), Config.TREE_COUNT, "the seed's trees")
+	r.expect(not trees.is_empty() and Movement.is_blocked(data, trees[0]), "a trunk blocks")
+	var inv: Inventory = Inventory.new()
+	inv.add(&"stone_wall", 4)
+	inv.add(&"door", 1)
+	var feet: Vector2 = Arena.spawn_feet(Vector2i(62, 51))
+	var placed: int = 0
+	var wall: WorldItems.Outcome = Building.build(data, feet, inv, 0, Vector2i(61, 52))
+	r.expect(wall.ok(), "a wall south-west of the altar refused: %s" % wall.why)
+	for e: EditLog.WorldEdit in wall.edits:
+		EditLog.apply_to_data(data, e)
+	placed += 1 if wall.ok() else 0
+	r.expect(Movement.is_blocked(data, Vector2i(61, 52)) and Movement.is_blocked(data, Vector2i(61, 53)), "the wall and its face block")
+	var door: WorldItems.Outcome = Building.build(data, feet, inv, 1, Vector2i(62, 52))
+	r.expect(door.ok(), "a door next to it refused: %s" % door.why)
+	for e2: EditLog.WorldEdit in door.edits:
+		EditLog.apply_to_data(data, e2)
+	placed += 1 if door.ok() else 0
+	r.expect(Movement.is_blocked(data, Vector2i(62, 52)), "a closed door blocks")
+	var opened: WorldItems.Outcome = Building.toggle_door(data, feet, Vector2i(62, 52))
+	for e3: EditLog.WorldEdit in opened.edits:
+		EditLog.apply_to_data(data, e3)
+	r.expect(opened.ok() and not Movement.is_blocked(data, Vector2i(62, 52)) and not Movement.is_blocked(data, Vector2i(62, 53)),
+		"an open door and its face let through")
+	var cost_in: int = Building.cost_at(data, Vector2i(61, 52))
+	var cost_out: int = Building.cost_at(data, trees[0] + Vector2i(1, 0)) if not trees.is_empty() else 0
+	r.expect(cost_in < cost_out, "cheaper in the light (%d) than outside (%d)" % [cost_in, cost_out])
+	var down: WorldItems.Outcome = Building.demolish(data, feet, inv, Vector2i(61, 52))
+	r.expect(down.ok() and down.item == &"stone_wall", "right-click takes the wall down: %s" % down.why)
+	var logs: int = 0
+	if not trees.is_empty():
+		var t: Vector2i = trees[0]
+		var forest: Forest = Forest.new(data)
+		forest.regrow_ticks = 3
+		var axe: Inventory = Inventory.new()
+		axe.add(&"axe", 1)
+		var at: Vector2 = Arena.spawn_feet(t + Vector2i(0, 1))
+		var res: Forest.Result = null
+		for i: int in Config.TREE_CHOP_HITS:
+			res = forest.chop(at, axe, &"axe", t)
+			for e4: EditLog.WorldEdit in res.edits:
+				EditLog.apply_to_data(data, e4)
+		r.expect(res != null and res.felled and data.get_value(WorldData.Layer.PLACEABLE, t) == WorldData.PLACEABLE_STUMP,
+			"felled in %d swings: a stump" % Config.TREE_CHOP_HITS)
+		logs = axe.count_of(&"log")
+		r.expect_eq(logs, Config.TREE_LOGS, "logs from a tree")
+		for i2: int in 3:
+			for e5: EditLog.WorldEdit in forest.step():
+				EditLog.apply_to_data(data, e5)
+		r.expect_eq(data.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_TREE, "the stump grows back")
+	r.fields.append("build=%d/%d/%d trees=%d/%d" % [placed, cost_in, cost_out, trees.size(), logs])
 
 
 static func _check_light(r: Report) -> void:

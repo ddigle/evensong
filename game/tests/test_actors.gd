@@ -109,6 +109,13 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/env/relic_bench_v03.png": "assets/concept/04-env/relic_bench_v03.png",
 	"res://art/env/storage_chest_v02.png": "assets/concept/04-env/storage_chest_v02.png",
 	"res://art/env/flame_small_v01.png": "assets/concept/04-env/flame_small_v01.png",
+	# M7b: the axe chop sheet, the tree and its stump, the build sheet (● R37 stone candidate, touch-up v02), the lantern post.
+	"res://art/chars/base_body_v02_axe.png": "assets/concept/03-pixel/base_body_v02_axe.png",
+	"res://art/env/tree_v02.png": "assets/concept/04-env/tree_v02.png",
+	"res://art/env/stump_v01.png": "assets/concept/04-env/stump_v01.png",
+	"res://art/env/build_stone_candA_v02.png": "assets/concept/04-env/build_stone_candA_v02.png",
+	"res://art/env/prop_lantern_post_c_v03_lit.png": "assets/concept/04-env/prop_lantern_post_c_v03_lit.png",
+	"res://art/env/prop_lantern_post_c_v03_emissive.png": "assets/concept/04-env/prop_lantern_post_c_v03_emissive.png",
 	"res://art/items/item_log_v02.png": "assets/concept/04-env/item_log_v02.png",
 	"res://art/items/item_planks_a_v02.png": "assets/concept/04-env/item_planks_a_v02.png",
 	"res://art/items/item_ingot_copper_a_v02.png": "assets/concept/04-env/item_ingot_copper_a_v02.png",
@@ -140,7 +147,7 @@ const ORDER: Dictionary[String, Array] = {
 ## +4 +4 +3; the 64 cell actions sit on walk frame 0, "10차"; M4a: "8차" hurt +4 +5 +4, death +3 +4 +5) x
 ## (south, east, north).
 const PIVOT: Array[Array] = [[4, 3, 4], [5, 2, 3], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4], [4, 3, 4],
-	[4, 3, 4], [4, 4, 3], [4, 5, 4], [3, 4, 5]]
+	[4, 3, 4], [4, 4, 3], [4, 5, 4], [3, 4, 5], [4, 3, 4]]  # M7b: + the axe (the walk values, like the other 64 cells)
 const TICK: float = 1.0 / 60.0
 
 
@@ -344,7 +351,10 @@ func _check_animation() -> void:
 
 
 func _open_world() -> WorldData:
-	return SurfaceGen.generate(Config.DEFAULT_SEED)
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	for c: Vector2i in Forest.tree_cells(data):
+		data.set_value(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_NONE)  # M7b: open ground (no trees)
+	return data
 
 
 func _run_ticks(data: WorldData, pos: Vector2, input: Vector2i, ticks: int) -> Vector2:
@@ -849,5 +859,6 @@ func _check_main_scene() -> void:
 		dummy_classes.append(d.class_id)
 	check_eq(dummy_classes, PackedStringArray(["paladin", "miner", "archer", "herbalist"]), "dummies are the other classes")
 	var items: int = world.items.plants.size() + world.items.drops.size()
-	check_eq(world.entities.get_child_count() - items, 1 + 1 + 4 + 1,
-		"entities: altar + player + 4 dummies (old ones freed) + the dungeon entrance (M3a) besides the %d gatherables and drops (M2b)" % items)
+	var trees: int = Forest.tree_cells(world.data).size()
+	check_eq(world.entities.get_child_count() - items - trees, 1 + 1 + 4 + 1,
+		"entities: altar + player + 4 dummies (old ones freed) + the dungeon entrance (M3a) besides the %d gatherables and drops (M2b) and the %d trees (M7b)" % [items, trees])

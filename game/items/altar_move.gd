@@ -33,6 +33,8 @@ const WHY_NOT_OPEN: String = "not open ground"
 const WHY_CORRUPTED: String = "corrupted ground"
 const WHY_GROWING: String = "something grows there"
 const WHY_SLOTS: String = "no room around it"
+## M7b: a spawn slot of the new place would be walled in (built walls around it, no door).
+const WHY_WALLED_IN: String = "its spawn slots would be walled in"
 const WHY_HERETIC: String = "a heretic is in the light"
 ## M5-fix, only with Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION off: a corrupted tile within its light (+ the M1 margin).
 const WHY_LIGHT_CORRUPTED: String = "corruption in its light"
@@ -125,6 +127,7 @@ static func _refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2], here
 		for x: int in range(rect.position.x, rect.end.x):
 			var c: Vector2i = Vector2i(x, y)
 			if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE or Walls.blocks(data, c) \
+					or Walls.is_wall(data, c) or Walls.is_face(data, c) \
 					or not data.drops_at(c).is_empty():
 				return WHY_NOT_OPEN
 			if data.get_value(WorldData.Layer.CORRUPTION, c) != 0 or data.terrain_at(c) == Terrain.ASH:
@@ -141,6 +144,15 @@ static func _refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2], here
 	for s: Vector2 in slot_feet(rect):
 		if not Movement.can_stand(data, s) or px.intersects(Movement.feet_box(s)):
 			return WHY_SLOTS
+	# M7b: built walls (or anything that blocks) may not wall the new spawn slots in (Building.reaches, PROVISIONAL
+	# Config.BUILD_SEAL_REACH_TILES; doors count as open).
+	var cells: Dictionary[Vector2i, bool] = {}
+	for y2: int in range(rect.position.y, rect.end.y):
+		for x2: int in range(rect.position.x, rect.end.x):
+			cells[Vector2i(x2, y2)] = true
+	for s2: Vector2 in slot_feet(rect):
+		if not Building.reaches(data, Aim.feet_cell(s2), cells):
+			return WHY_WALLED_IN
 	if _lights_a_heretic(data, rect, heretics):
 		return WHY_HERETIC
 	if not Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION:

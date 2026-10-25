@@ -82,7 +82,7 @@ static func inv_for(r: Crafting.Recipe, times: int = 1) -> Inventory:
 func _check_recipes() -> void:
 	var chain: Array[Crafting.Recipe] = []
 	for r: Crafting.Recipe in Crafting.recipes():
-		if r.station != Crafting.ALCHEMY and not r.is_repair():
+		if r.station != Crafting.ALCHEMY and not r.is_repair() and not _is_m7b(r):  # M7b's rows: test_building.gd
 			chain.append(r)
 	check_eq(chain.size(), WANT.size(), "M7a: %d chain recipes" % WANT.size())
 	for r: Crafting.Recipe in chain:
@@ -116,7 +116,7 @@ func _check_recipes() -> void:
 	# Indices: the potions keep theirs (a CRAFT index of M6b).
 	check_eq(Crafting.index_of(&"potion_poison_fine"), 5, "the potions keep their CRAFT indices")
 	check_eq(Crafting.index_of(&"workbench"), 6, "the chain comes after them")
-	check_eq(Crafting.recipes_for(Crafting.HAND).size(), 1, "one hand recipe")
+	check_eq(Crafting.recipes_for(Crafting.HAND).size(), 2, "two hand recipes (M7b: + the axe)")
 	check(not Crafting.is_m7(Crafting.recipe(&"potion_healing_common")), "a potion is no M7 recipe")
 
 
@@ -151,11 +151,22 @@ func _check_chain_unlocks() -> void:
 	check_eq(Crafting.shown_recipes(Crafting.ANVIL, inv).size(), 8, "the unlocks stay when the items are gone")
 
 
+## The ids of `list` without the M7b build pieces and the axe (Config.BUILD_RECIPES: test_building.gd checks those): the
+## M7a chain as this file wrote it out.
 static func _ids(list: Array[Crafting.Recipe]) -> Array[StringName]:
 	var out: Array[StringName] = []
 	for r: Crafting.Recipe in list:
-		out.append(r.id)
+		if not _is_m7b(r):
+			out.append(r.id)
 	return out
+
+
+static func _is_m7b(r: Crafting.Recipe) -> bool:
+	for row: Array in Config.BUILD_RECIPES:
+		var out_item: StringName = row[1]
+		if r.id == out_item:
+			return true
+	return false
 
 
 ## Every chain recipe: with its inputs exactly, it makes its output and takes every input (nothing else changes); one
@@ -393,7 +404,7 @@ func _check_drawn() -> void:
 		else:
 			check(flame == null, "%s has no flame" % WorldData.PLACEABLE_NAMES[p])
 	check_eq(world.fixtures.verify()["mismatches"], 0, "fixture view = data with three stations")
-	check_eq(world.fixtures.verify()["fixtures"], 4, "three stations + the entrance")
+	check_eq(world.fixtures.verify()["fixtures"] - world.fixtures.verify()["trees"], 4, "three stations + the entrance (M7b: besides the trees)")
 
 
 static func _tiles(rect: Rect2i) -> Array[Vector2i]:

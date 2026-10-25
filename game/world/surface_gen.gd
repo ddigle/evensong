@@ -22,6 +22,10 @@ extends RefCounted
 ##      centre beyond the safe radius + 1 tile, the footprint and the tiles around it inside the map
 ##      (2 tiles from the edge) with no gatherable, no placeable and no soil. Placed after step 4 and
 ##      without random numbers, so the gatherables are where they were in M2b.
+##   6. Trees (M7b, PLACEABLE_TREE, ● game-concept §12 R37 one species; the rest PROVISIONAL Config "M7b"): Config.TREE_COUNT
+##      trunk tiles on clean grass (tree_spot_ok: away from the light, the ash, the edges, the entrance, every gatherable and
+##      placeable around the crown, and each other), from their own random stream (Config.TREE_SALT), after step 5, so
+##      steps 1-5 are as they were (the gatherables, the entrance).
 ##   Everything else is grass. Soil and ash never share a display cell (WorldData.set_terrain
 ##   refuses it, and the distances keep them far apart anyway).
 
@@ -31,8 +35,9 @@ const MAX_ATTEMPTS: int = 200
 ## and --smoke on another machine shows whether that machine generates the same world); whether
 ## the rules hold is checked separately over many seeds. When the generator or its constants
 ## change on purpose, update it (the failure prints the new value). M3a changed it on purpose: step 5
-## puts the dungeon entrance into the PLACEABLE layer (the gatherables did not move).
-const GOLDEN_HASH: String = "1d9f92c7b5ef2a715f95cc32d7424b36"
+## puts the dungeon entrance into the PLACEABLE layer (the gatherables did not move). M7b changed it on purpose: step 6 puts
+## the trees into the PLACEABLE layer (1d9f92c7b5ef2a715f95cc32d7424b36 before; nothing else moved).
+const GOLDEN_HASH: String = "0da8e0d26ded851fff02fabdaa33c3ad"
 ## Cells kept free between a gatherable and the map edge (PROVISIONAL, Config).
 const GATHER_EDGE: int = Config.GATHER_EDGE_TILES
 
@@ -54,6 +59,7 @@ static func generate(world_seed: int, size: Vector2i = Config.MAP_SIZE) -> World
 	_place_gatherables(data, rng, Config.GATHER_ON_GRASS, Terrain.GRASS)
 	_place_gatherables(data, rng, Config.GATHER_ON_ASH, Terrain.ASH)
 	_place_entrance(data)
+	_place_trees(data)
 	return data
 
 
@@ -232,3 +238,55 @@ static func _place_entrance(data: WorldData) -> void:
 static func entrance_rect(data: WorldData) -> Rect2i:
 	var all: Array[Rect2i] = data.footprints(WorldData.PLACEABLE_ENTRANCE)
 	return all[0] if not all.is_empty() else Rect2i()
+
+
+## M7b: whether a tree's trunk may take tile `c` (step 6): clean grass at least Config.TREE_EDGE_TILES from the map's sides
+## and bottom and Config.TREE_TOP_TILES from its top (the crown rises about 4.4 tiles), its centre at least
+## Config.TREE_LIGHT_CLEARANCE_TILES beyond the safe radius, no ash within Config.TREE_ASH_CLEARANCE_TILES, nothing growing
+## (a gatherable, soil) and no placeable in the crown's and the trunk's surroundings (2 tiles to either side, from 4 above
+## to 1 below), not within 3 tiles of the entrance, and no other tree within Config.TREE_SPACING_TILES.
+static func tree_spot_ok(data: WorldData, c: Vector2i) -> bool:
+	if c.x < Config.TREE_EDGE_TILES or c.x >= data.size.x - Config.TREE_EDGE_TILES or c.y < Config.TREE_TOP_TILES 			or c.y >= data.size.y - Config.TREE_EDGE_TILES:
+		return false
+	if data.terrain_at(c) != Terrain.GRASS:
+		return false
+	var min_px: float = Config.safe_radius_px() + Config.TREE_LIGHT_CLEARANCE_TILES * Config.TILE
+	if data.altar_rect.has_area() and ((Vector2(c) + Vector2(0.5, 0.5)) * Config.TILE).distance_to(data.altar_center_px()) < min_px:
+		return false
+	var ash: int = Config.TREE_ASH_CLEARANCE_TILES
+	for y: int in range(c.y - ash, c.y + ash + 1):
+		for x: int in range(c.x - ash, c.x + ash + 1):
+			if data.terrain_at(Vector2i(x, y)) == Terrain.ASH or data.get_value(WorldData.Layer.CORRUPTION, Vector2i(x, y)) != 0:
+				return false
+	for y2: int in range(c.y - 4, c.y + 2):
+		for x2: int in range(c.x - 2, c.x + 3):
+			var t: Vector2i = Vector2i(x2, y2)
+			if data.get_value(WorldData.Layer.VEGETATION, t) != 0 or data.terrain_at(t) == Terrain.SOIL:
+				return false
+			if data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE:
+				return false
+	var way: Rect2i = entrance_rect(data)
+	if way.has_area() and way.grow(3).has_point(c):
+		return false
+	var gap: int = Config.TREE_SPACING_TILES
+	for y3: int in range(c.y - gap, c.y + gap + 1):
+		for x3: int in range(c.x - gap, c.x + gap + 1):
+			if data.get_value(WorldData.Layer.PLACEABLE, Vector2i(x3, y3)) == WorldData.PLACEABLE_TREE:
+				return false
+	return true
+
+
+## M7b, step 6: Config.TREE_COUNT trees (random grass tiles from the trees' own stream, Config.TREE_SALT; a tree that finds
+## no spot in MAX_ATTEMPTS tries is left out).
+static func _place_trees(data: WorldData) -> void:
+	if data.size.x <= 2 * Config.TREE_EDGE_TILES or data.size.y <= Config.TREE_TOP_TILES + Config.TREE_EDGE_TILES:
+		return
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = hash([data.world_seed, Config.TREE_SALT])
+	for n: int in Config.TREE_COUNT:
+		for attempt: int in MAX_ATTEMPTS:
+			var c: Vector2i = Vector2i(rng.randi_range(Config.TREE_EDGE_TILES, data.size.x - Config.TREE_EDGE_TILES - 1),
+				rng.randi_range(Config.TREE_TOP_TILES, data.size.y - Config.TREE_EDGE_TILES - 1))
+			if tree_spot_ok(data, c):
+				data.set_value(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_TREE)
+				break

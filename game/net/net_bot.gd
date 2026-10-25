@@ -53,11 +53,13 @@ extends RefCounted
 ##   store:<n>                    click inventory slot <n> (1 = the hotbar's first) of the open chest panel: store it
 ##   take:<n>                     click chest slot <n> (1 = the top left) of the open chest panel: take it
 ##   unequip                      click the armour slot (the open inventory): take the worn armour off
+## M7b (offline: Main handles it; building is a click with a piece selected = use, a door is F = pick):
+##   wreck                        right-click this tick: take the built piece on the target tile down
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
-	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip"]
+	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -112,6 +114,8 @@ class Action:
 	var store_slot: int = -1
 	var take_slot: int = -1
 	var unequip: bool = false
+	## M7b: right-click this tick (take a built piece down).
+	var demolish: bool = false
 
 
 var commands: Array[Command] = []
@@ -247,7 +251,7 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimfoe":
 			if args.size() != 0:
 				return "aimfoe takes no arguments"
-		"tab", "throw", "unequip":
+		"tab", "throw", "unequip", "wreck":
 			if args.size() != 0:
 				return "%s takes no arguments" % c.op
 		"store", "take":
@@ -433,6 +437,10 @@ func _advance(a: Action, feet: Vector2) -> void:
 				return
 			"unequip":
 				a.unequip = true
+				_next()
+				return
+			"wreck":
+				a.demolish = true
 				_next()
 				return
 			"hold":

@@ -49,8 +49,8 @@ static func inv_text(inv: Inventory) -> String:
 func _check_recipes() -> void:
 	var all: Array[Crafting.Recipe] = Crafting.recipes().slice(0, 6)  # M7a: the workbench chain's come after (test_workbench.gd)
 	check_eq(Crafting.recipes_for(Crafting.ALCHEMY).size(), 6, "six alchemy recipes: three potions x two grades")
-	check_eq(Crafting.recipes().size(), 6 + Config.STATION_RECIPES.size() + Config.GEAR_REPAIR_MATERIAL.size(),
-		"M7a: after them the chain's recipes and the repairs")
+	check_eq(Crafting.recipes().size(), 6 + Config.STATION_RECIPES.size() + Config.GEAR_REPAIR_MATERIAL.size()
+		+ Config.BUILD_RECIPES.size(), "M7a: after them the chain's recipes and the repairs (M7b: then the build pieces, the axe)")
 	var want: Dictionary[StringName, Array] = {  # id: [herb, potion, grade, herbalist only]
 		&"potion_healing_common": [&"wild_healing", &"potion_healing", ItemDB.Grade.COMMON, not Config.COMMON_POTIONS_ANYONE],
 		&"potion_healing_fine": [&"wild_healing", &"potion_healing", ItemDB.Grade.FINE, true],

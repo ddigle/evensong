@@ -63,6 +63,9 @@ extends Node2D
 ## M7a (`gear_on`, offline; a session's players have it off until M7c): a click with armour selected asks to put it on
 ## (equip_requested; Main, items/gear.gd); a heretic's knife hit (take_hit with `armored`) is lessened by the worn armour
 ## and wears it; with Config.GEAR_BROKEN_UNUSABLE a broken item makes no frame (gear_refused).
+## M7b: a click with a build piece selected is a USE without an action like a torch's (place_requested: offline Main builds,
+## items/building.gd; a session's host refuses it until M7c); the axe plays its own body action and lands on
+## Forest.impact_tick (action_impact: offline Main chops).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -357,8 +360,10 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.anim = anim
 			f.item = inventory.selected_stack().id
 		elif use_pressed and (WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
-				or (farming_on and Farming.seed_kind_in(inventory, inventory.selected) != Farming.KIND_NONE)) \
+				or (farming_on and Farming.seed_kind_in(inventory, inventory.selected) != Farming.KIND_NONE) \
+				or not Building.piece_in(inventory, inventory.selected).is_empty()) \
 				and WorldItems.in_reach(sim_position, aim_cell):
+			# M7b: a build piece goes down the same way (a click; offline Main builds it: place_requested).
 			# M5a: seeds go down the same way (a click, offline Main plants them: place_requested).
 			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
 			# action: the host (or offline Main) places it; nothing is predicted.
@@ -434,6 +439,8 @@ static func impact_tick_of(item: StringName, anim: int) -> int:
 	var farm_tick: int = Farming.impact_tick(item)  # M5a: the hoe tills, the watering can waters on their own frame
 	if farm_tick >= 0:
 		return farm_tick
+	if Gear.base(item) == Forest.AXE:
+		return Forest.impact_tick()  # M7b: the axe's chop
 	return Combat.impact_tick(item)
 
 

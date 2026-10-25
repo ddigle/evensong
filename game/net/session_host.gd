@@ -433,6 +433,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_altar_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
+	elif frame.op == NetProtocol.Op.USE and not Building.piece_in(p.inventory, frame.slot).is_empty():
+		_refuse_op(m, frame, Building.WHY_OFFLINE)  # M7b: building waits for M7c
 	elif frame.op == NetProtocol.Op.USE and _potion_in(p, frame.slot):
 		_drink(m, frame)
 	elif frame.op == NetProtocol.Op.USE and Farming.seed_kind_in(p.inventory, frame.slot) != Farming.KIND_NONE:
@@ -492,6 +494,9 @@ func _impact(m: NetMember) -> void:
 		return
 	if item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(p.data, item, p.action_cell):
 		_farm_impact(m, item)  # M5c: the sickle aimed at a crop harvests instead of attacking (M5a's rule)
+		return
+	if Gear.base(item) == Forest.AXE:
+		m.count_refused(Forest.WHY_OFFLINE)  # M7b: the axe swings, nothing is chopped until M7c
 		return
 	# M7a: a tier-1 pickaxe mines as the pickaxe (Gear.base); in a session it attacks as its base weapon too (no tier-1
 	# damage, no wear until M7c: Arena.player_attack gets no damage of its own here).
