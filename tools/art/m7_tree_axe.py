@@ -12,7 +12,8 @@
 
   tree     04-env tree_v01_b.png (raw) -> tree_v02.png (64x80), 그 줄기 밑동을 잘라 stump_v01.png (같은 64x80 캔버스, 같은 자리)
   axe      03-pixel base_body_v01_axe_<판>_<방향>.png (raw, v3 7장 가로 줄) -> base_body_v02_axe.png
-           (64칸 7열, 줄 남·동·북, 첫 열 = 시작 그림 = 걷기 첫 프레임, 발 줄 y=47. 낫·곡괭이 시트와 같은 배치)
+           (64칸 7열, 줄 남·동·북, 첫 열 = 시작 그림 = 걷기 첫 프레임, 발 줄 y=47. 낫·곡괭이 시트와 같은 배치.
+           열 1~6은 COLUMNS 표의 raw 프레임: 세 방향 모두 4열에서 내리친다. 14차 검토)
   preview  03-pixel base_body_v02_axe_preview.gif (줄 남·동·북·서(동 반전), 칸 도끼 | 낫, 3배, 130ms)
            04-env tree_v02_board.png (1배·3배 낮·저녁, 후보 셋, 도끼 시트와 낫 시트 2배)
   mockup   04-env stage4_tree_mockup_v01_day.png / _eve.png (3배) + _1x (480x270, 4단계 목업 코드로 바닥·제단·빛)
@@ -237,8 +238,14 @@ def stump(tree_img):
 # 도끼질 몸 동작 (base_body_v01_axe_<판>_<방향> -> base_body_v02_axe)
 # =====================================================================================
 DIRS = ("south", "east", "north")
-AXE_PICK = {"south": "a", "east": "b", "north": "b"}   # 03-pixel/prompts.md 14차 판정
+AXE_PICK = {"south": "a", "east": "b", "north": "b"}   # 03-pixel/prompts.md 14차 판정 (북 c·d 다시 뽑기는 버림)
 FRAMES = 7             # 시작 그림 + 6
+# 시트 열 1~6에 놓을 raw 프레임 번호 (14차 검토). 세 방향 모두 4열(프레임 번호 3, 곡괭이·괭이의 맞는 프레임 3과 같음)에서
+# 내리친다. 남: raw 1은 시작 그림과 거의 같고 도끼가 없어(도끼가 0.1초 늦게 나타남) 빼고, 어깨 위로 든 raw 2를 두 번(들어 올려
+# 잡음). 동: 머리 뒤로 수평으로 든 raw 2를 두 번(잡음) 두어 허리 높이 내리침(raw 3)을 4열로. 끝 그림(= 시작 그림)인 raw 6은 빠진다.
+# 북: 그대로(4열 = 오른쪽 아래로 내리침)
+COLUMNS = {"south": (2, 2, 3, 4, 5, 6), "east": (1, 2, 2, 3, 4, 5), "north": (1, 2, 3, 4, 5, 6)}
+HIT_COLUMN = 4
 CELL, ACT = 32, 64
 FLOOR = 47
 WALK_SHIFT = (4, 3, 4)  # 걷기 v01 -> v02 발 맞춤 (03-pixel/prompts.md "발 맞춤"). 64칸 동작은 같은 값
@@ -293,6 +300,29 @@ def components(op):
                         stack.append((yy, xx))
         out.append(comp)
     return out
+
+
+def body_feet(cell):
+    """몸의 발 줄: 도구(쇠 사다리 색)와 그에 붙은 외곽선을 뺀 픽셀의 맨 아래 줄. 손잡이 나무는 몸 색과 섞여 빼지 않는다
+    (발보다 아래로 내려간 손잡이가 없어서 잴 수 있다)"""
+    op = cell[..., 3] > 0
+    iron = np.zeros_like(op)
+    for y, x in zip(*np.nonzero(op)):
+        iron[y, x] = col(cell, x, y) in IRON
+    near = np.zeros_like(op)
+    near[1:] |= iron[:-1]
+    near[:-1] |= iron[1:]
+    near[:, 1:] |= iron[:, :-1]
+    near[:, :-1] |= iron[:, 1:]
+    near[1:, 1:] |= iron[:-1, :-1]
+    near[1:, :-1] |= iron[:-1, 1:]
+    near[:-1, 1:] |= iron[1:, :-1]
+    near[:-1, :-1] |= iron[1:, 1:]
+    body = op & ~iron
+    for y, x in zip(*np.nonzero(body & near)):
+        if lstar(col(cell, x, y)) < DARK_L:      # 쇠에 붙은 어두운 픽셀 = 날의 외곽선 (북 b판은 검정이 아닌 짙은 갈색)
+            body[y, x] = False
+    return int(np.nonzero(body.any(axis=1))[0].max())
 
 
 def axe():
@@ -361,10 +391,27 @@ def axe():
                 elif c not in body:
                     tool[y, x] = True       # 손잡이 나무 등 기본 몸에 없는 색
             cell, recol, added = outline(cell, BODY_OUT, floor=FLOOR, only=tool)
+            # 발 줄 아래의 몸 외곽선: 위 칸도 외곽선이고 쇠에 닿지 않으면 두 겹 외곽선이라 지운다(남 raw 5 왼다리 덩어리 밑 1px)
+            iron = np.zeros((ACT, ACT), bool)
+            for y, x in zip(*np.nonzero(cell[..., 3] > 0)):
+                iron[y, x] = col(cell, x, y) in IRON
+            thick = 0
+            for y in range(FLOOR + 1, ACT):
+                for x in range(ACT):
+                    if (cell[y, x, 3] and col(cell, x, y) == BODY_OUT and cell[y - 1, x, 3]
+                            and col(cell, x, y - 1) == BODY_OUT and not iron[max(0, y - 1):y + 2, max(0, x - 1):x + 2].any()):
+                        cell[y, x] = 0
+                        thick += 1
+            if thick:
+                print(f"axe {d} {i}: {thick} doubled outline px below the feet line removed")
+            feet = body_feet(cell)
             print(f"axe {d} {i}: {n} metal px -> iron ramp, {eyes} eye glint px -> body eye glint, "
-                  f"outline +{added} / {recol} recoloured")
+                  f"outline +{added} / {recol} recoloured, body feet row {feet}")
+            if feet != FLOOR:
+                raise SystemExit(f"axe {d} {i}: body feet on row {feet}, not {FLOOR}")
             frames.append(cell)
-        rows.append(frames)
+        rows.append([frames[0]] + [frames[k] for k in COLUMNS[d]])
+        print(f"axe {d}: sheet columns 1-6 = raw {COLUMNS[d]}")
         print(f"axe {d}: pick {AXE_PICK[d]}, start picture at ({sx}, {sy}) in the v3 canvas ({fw}x{strip.shape[0]}), "
               f"cell offset ({ox}, {oy})")
     for c, t in sorted(metal_map.items()):
@@ -431,7 +478,7 @@ def tree_origin(tile_x, tile_y, img):
     return tile_x * 16 + 8 - TREE_TRUNK_X, (tile_y + 1) * 16 - 1 - TREE_BOTTOM_ROW
 
 
-TREE_TRUNK_X = 32      # 줄기 가운데 (tree_v02 x 28~35 외곽선 포함 = 칸 가운데 x 8에 x 32가 온다)
+TREE_TRUNK_X = 32      # 줄기 가운데 (tree_v02 줄기 외곽선 포함 x 30~36(y 53~62), 밑동 x 29~36(y 63~64). 그림 x 32를 칸 가운데 x 8에)
 TREE_BOTTOM_ROW = TREE_FLOOR
 
 
@@ -454,12 +501,12 @@ def strip_scene(tree_img, stump_img, axe_sheet, idle):
     for tx, img in ((3, tree_img), (8, stump_img), (12, tree_img)):
         x, y = tree_origin(tx, ty, img)
         items.append(((ty + 1) * 16, 0, x, y, img))
-    fx, fy = 2 * 16 + 8, (ty + 1) * 16          # 나무(3, 5) 서쪽 칸에서 동쪽을 봄, 도끼가 줄기에 닿는 3열
-    items.append((fy, 1, *char_origin(fx, fy), ax[1][3]))
+    fx, fy = 2 * 16 + 8, (ty + 1) * 16          # 나무(3, 5) 서쪽 칸에서 동쪽을 봄, 허리 높이로 내리친 4열
+    items.append((fy, 1, *char_origin(fx, fy), ax[1][HIT_COLUMN]))
     fx2 = 9 * 16 + 8                              # 그루터기 동쪽 칸, 남쪽을 보는 idle
     items.append((fy, 1, *char_origin(fx2, fy, CELL), idle))
     fx3 = 12 * 16 + 8                             # 나무(12, 5) 바로 아래 칸에서 북쪽을 봄, 도끼를 내리친 4열
-    items.append((fy + 16, 1, *char_origin(fx3, fy + 16), ax[2][4]))
+    items.append((fy + 16, 1, *char_origin(fx3, fy + 16), ax[2][HIT_COLUMN]))
     for _, _, x, y, a in sorted(items, key=lambda t: (t[0], t[1])):
         put(im, a, x, y)
     return im
@@ -546,15 +593,15 @@ def mockup(tree_img, stump_img, axe_sheet):
     for tx, ty in STUMPS:
         x, y = tree_origin(tx, ty, stump_img)
         items.append(((ty + 1) * 16, 0, x, y, stump_img, None))
-    # 나무 (13, 3) 서쪽 칸에서 동쪽을 보고 도끼질 (3열 = 줄기를 침)
+    # 나무 (13, 3) 서쪽 칸에서 동쪽을 보고 도끼질 (4열 = 허리 높이로 내리침)
     fy = 4 * 16
-    items.append((fy, 1, *char_origin(12 * 16 + 8, fy), ax[1][3], None))
+    items.append((fy, 1, *char_origin(12 * 16 + 8, fy), ax[1][HIT_COLUMN], None))
     # 나무 (23, 4) 동쪽 칸에서 서쪽을 보고 도끼를 든 순간 (동 2열 좌우 반전)
     fy = 5 * 16
     items.append((fy, 1, *char_origin(24 * 16 + 8, fy), ax[1][2][:, ::-1].copy(), None))
     # 나무 (16, 13) 아래 칸에서 북쪽을 보고 내리침 (북 4열)
     fy = 15 * 16
-    items.append((fy, 1, *char_origin(16 * 16 + 8, fy), ax[2][4], None))
+    items.append((fy, 1, *char_origin(16 * 16 + 8, fy), ax[2][HIT_COLUMN], None))
     # 그루터기 (21, 7) 옆에서 남쪽을 보는 idle, 길을 걷는 캐릭터
     items.append((8 * 16, 1, *char_origin(22 * 16 + 8, 8 * 16, CELL), idle[0][0], None))
     items.append((11 * 16 - 4, 1, *char_origin(5 * 16, 11 * 16 - 4, CELL), walk[1][2], None))
@@ -601,19 +648,33 @@ def check():
     same = all(np.array_equal(sh[r * ACT + 16:r * ACT + 48, 16:48], walk2[r * CELL:(r + 1) * CELL, 0:CELL]) and
                not sh[r * ACT:(r + 1) * ACT, 0:ACT][..., 3].sum() - walk2[r * CELL:(r + 1) * CELL, 0:CELL][..., 3].sum()
                for r in range(3))
-    feet = []
+    feet, low, has_iron = [], [], []
     for r in range(3):
-        for c in range(1, FRAMES):
+        for c in range(0, FRAMES):
             blk = sh[r * ACT:(r + 1) * ACT, c * ACT:(c + 1) * ACT]
             ys = np.nonzero((blk[..., 3] > 0).any(axis=1))[0]
-            feet.append(int(ys.max()))
+            feet.append(body_feet(blk))
+            low.append(int(ys.max()))
+            has_iron.append(any(col(blk, x, y) in IRON for y, x in zip(*np.nonzero(blk[..., 3] > 0))))
     cs = colours(sh)
     hi_iron = max(luma(c) for c in IRON)
     bluegrey = [c for c in cs if max(c) - min(c) <= 24 and c[2] > c[0] + 3 and sum(c) > 120]
+    alpha = set(np.unique(sh[..., 3]).tolist())
+    # 도끼가 없는 재생 열. 마지막 열은 시작 그림(끝 그림 = 시작 그림, 12차 요령)이면 도끼가 없어도 된다
+    no_axe = []
+    for i, h in enumerate(has_iron):
+        r, c = divmod(i, FRAMES)
+        if h or c == 0:
+            continue
+        if c == FRAMES - 1 and np.array_equal(sh[r * ACT:(r + 1) * ACT, c * ACT:(c + 1) * ACT], sh[r * ACT:(r + 1) * ACT, 0:ACT]):
+            continue
+        no_axe.append(f"{'SEN'[r]}{c}")
     print(f"base_body_v02_axe.png: {sh.shape[1]}x{sh.shape[0]} (sickle {sk.shape[1]}x{sk.shape[0]}), start column = walk "
-          f"v02 frame 0: {same}, lowest opaque row per frame {feet} (feet line 47), {len(cs)} colours, "
+          f"v02 frame 0: {same}, body feet row per frame (columns 0-6, rows S E N) {feet}, lowest opaque row {low}, "
+          f"played columns without the axe {no_axe}, {len(cs)} colours, alpha {sorted(alpha)}, "
           f"blue-grey colours {bluegrey}, iron max luma {hi_iron:.1f}")
-    ok &= sh.shape == sk.shape and same and not bluegrey
+    ok &= (sh.shape == sk.shape and same and not bluegrey and all(f == FLOOR for f in feet) and alpha <= {0, 255}
+           and not no_axe)
     print("check:", "OK" if ok else "FAILED")
     return ok
 
