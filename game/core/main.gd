@@ -92,6 +92,11 @@ extends Node2D
 ## a piece back); F on a door opens or closes it (Building.toggle_door); the axe's landing frame chops the tree it is aimed
 ## at (Forest.chop: logs, the stump); every map has a Forest whose stumps grow back (step_forests, like the farms). A
 ## BuildGhost shows where the selected piece would go and whether it may. --test-build puts pieces down at the start.
+## M7c (sessions): the same keys send requests the host decides (net/session_host.gd): a click with a station, the chest or a
+## piece is a USE, right-click DEMOLISH, F on a door DOOR (SessionHost.attach_local_op), the armour click and the armour slot
+## ARMOR, a click in the chest panel CHEST; F at a chest opens its panel here (NetSession.chest_wanted) on this machine's
+## world, whose chest slots the host's edits keep; Tab away from every station opens the hand recipes (a CRAFT request).
+## The build ghost is drawn from this machine's world (gold or red is this machine's answer; the host decides again).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -162,6 +167,8 @@ func _ready() -> void:
 		net.local_map_changed.connect(_on_local_map_changed)
 		net.ended.connect(_on_net_ended)
 		net.bot_ui.connect(_on_bot_ui)  # M6b: a bot's tab / craft in a session
+		net.chest_wanted.connect(open_chest)  # M7c: F at a chest opens its panel here
+		net.bot_gear.connect(_on_bot_gear)  # M7c: a bot's chest panel / armour slot clicks
 		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
 			net.worlds[id] = worlds[id]
@@ -260,8 +267,8 @@ func _physics_process(delta: float) -> void:
 	if _in_session():
 		_show_altar_ghost(player)  # M5c: where the carried altar would go down (the host decides)
 		_show_purify()  # M5c: the channels under way, from the players' states
-		if build_ghost != null:
-			build_ghost.hide_ghost()  # M7b: no building in a session until M7c
+		_show_build_ghost()  # M7c: from this machine's world (the host decides)
+		_redraw_chest()  # M7c: the host's chest slot edits change an open panel
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -299,6 +306,9 @@ func _bot_tick(delta: float) -> void:
 		unequip_armor()
 	if a.demolish:
 		demolish()  # M7b: right-click
+	if a.heretic != null and ensure_combat(current_map):
+		var hc: Vector2i = a.heretic
+		arenas[current_map].spawn_heretic(Arena.spawn_feet(hc))  # M7c, test only (bot "heretic")
 	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill)
 	if a.op == null:
 		return
@@ -400,6 +410,7 @@ func _on_local_player_ready(p: Player) -> void:
 	p.potions_on = true  # M6b: drinking and throwing in sessions (the host decides the effect)
 	p.farming_on = true  # M5c: farming, purifying and carrying the altar in sessions (the host decides the result)
 	p.purify_on = true
+	p.gear_on = true  # M7c: the armour click is an ARMOR request (the host puts it on, wears it, sends its durability)
 	for pair: Array in [[p.action_started, _on_action_started], [p.action_impact, _on_action_impact],
 			[p.place_requested, _on_place_requested], [p.potion_refused, _on_potion_refused]]:
 		var sig: Signal = pair[0]
@@ -408,6 +419,7 @@ func _on_local_player_ready(p: Player) -> void:
 			sig.connect(handler)
 	_follow(p)
 	_bind(p)
+	_connect_gear(p)  # M7c
 
 
 ## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
@@ -732,10 +744,8 @@ func _attack(p: Player, item: StringName) -> void:
 		return
 	var a: Arena = arenas[current_map]
 	var before: int = a.stats.get("heretic_hits", 0) + a.stats.get("shrine_hits", 0)
-	# M7a: the stack that plays it (its tier-1 damage while not broken), then its use wear.
-	var stack: ItemStack = p.inventory.stack_at(p.action_slot)
-	if stack != null and stack.id != item:
-		stack = null
+	# M7a: the stack that plays it (its tier-1 damage while not broken), then its use wear (M7c: the host's rule too).
+	var stack: ItemStack = Gear.playing_stack(p.inventory, p.action_slot, item)
 	var damage: int = Gear.attack_damage(stack, Combat.attack_for(item).damage) if p.gear_on else -1
 	var edits: Array[EditLog.WorldEdit] = a.player_attack(p, item, p.action_aim, players_on(current_map), 255, damage)
 	if p.gear_on and stack != null and stack.max_durability() > 0:
@@ -837,7 +847,7 @@ func _go_offline_combat() -> void:
 	player.purify_on = true
 	purify_on = true
 	_connect_purify(player)
-	# M7a: and gear (its wear starts from what the host's inventory had: full, the wire carries no durability yet).
+	# M7a: and gear (M7c: its wear goes on from the durability the host's last inventory carried).
 	player.gear_on = true
 	_connect_gear(player)
 	# M7b: and the trees' regrowth (building and chopping are offline Main's from now on).
@@ -895,17 +905,29 @@ func _other_bodies() -> Array[Vector2]:
 	for p: Player in players_on(current_map):
 		if p != player:
 			bodies.append(p.sim_position)
-	if arenas.has(current_map):
+	if _in_session():
+		bodies.append_array(net.bots.foe_positions())  # M7c: the heretics as this machine has them (the build ghost)
+	elif arenas.has(current_map):
 		for h: HereticSim in arenas[current_map].heretics:
 			if h.alive():
 				bodies.append(h.pos)
 	return bodies
 
 
+## M7c: the other players' feet on the local player's map (the clearance of Building.clear_of_others; offline the allies).
+func _other_players() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for p: Player in players_on(current_map):
+		if p != player:
+			out.append(p.sim_position)
+	return out
+
+
 ## A click with the piece in hotbar slot `slot` on tile `cell` (Building.build; offline).
 func build(slot: int, cell: Vector2i) -> void:
 	var w: GameWorld = current_world()
-	var o: WorldItems.Outcome = Building.build(w.data, player.sim_position, player.inventory, slot, cell, _other_bodies())
+	var o: WorldItems.Outcome = Building.build(w.data, player.sim_position, player.inventory, slot, cell, _other_bodies(),
+		[] as Array[Vector2], _other_players())
 	if not o.ok():
 		print("EVENSONG_BUILD place refused at=%d,%d: %s" % [cell.x, cell.y, o.why])
 		return
@@ -914,13 +936,14 @@ func build(slot: int, cell: Vector2i) -> void:
 	print("EVENSONG_BUILD place piece=%s cost=%d at=%d,%d map=%s" % [o.item, o.count, cell.x, cell.y, Config.MAP_NAMES[w.map_id]])
 
 
-## Right-click: take the built piece on the target tile down (Building.demolish; offline; a session: M7c).
+## Right-click: take the built piece on the target tile down (Building.demolish; offline. M7c: in a session a DEMOLISH request
+## aimed at the target tile when its frame is built, SessionHost.attach_local_op).
 func demolish() -> void:
 	if player == null or not player.vitals.alive() or player.carrying_altar or player.ui_locked:
 		return
 	var cell: Vector2i = Aim.target_cell(player.sim_position, player.aim_sector)
 	if _in_session():
-		print("EVENSONG_BUILD demolish refused at=%d,%d: %s" % [cell.x, cell.y, Building.WHY_OFFLINE])
+		net.queue_op(request(NetProtocol.Op.DEMOLISH))
 		return
 	var w: GameWorld = current_world()
 	var o: WorldItems.Outcome = Building.demolish(w.data, player.sim_position, player.inventory, cell)
@@ -935,7 +958,7 @@ func demolish() -> void:
 ## F on a door (or its face) on tile `cell`: open or close it (Building.toggle_door; offline).
 func toggle_door(cell: Vector2i) -> void:
 	var w: GameWorld = current_world()
-	var o: WorldItems.Outcome = Building.toggle_door(w.data, player.sim_position, cell, _other_bodies())
+	var o: WorldItems.Outcome = Building.toggle_door(w.data, player.sim_position, cell, _other_bodies(), _other_players())
 	if not o.ok():
 		print("EVENSONG_BUILD door refused at=%d,%d: %s" % [cell.x, cell.y, o.why])
 		return
@@ -1021,7 +1044,7 @@ func _show_build_ghost() -> void:
 		return
 	build_ghost.key = key
 	var why: String = Building.refusal(w.data, player.sim_position, piece, cell, player.inventory.count_of(piece),
-		_other_bodies())
+		_other_bodies(), [] as Array[Vector2], _other_players())
 	build_ghost.show_at(piece, cell, why.is_empty())
 
 
@@ -1046,8 +1069,7 @@ func toggle_tab() -> void:
 		if at != null:
 			open_crafting(at)
 			return
-		if not hud.open and not _in_session() \
-				and not Crafting.shown_recipes(Crafting.HAND, player.inventory).is_empty():
+		if not hud.open and not Crafting.shown_recipes(Crafting.HAND, player.inventory).is_empty():
 			open_crafting(Crafting.hand_station(current_map))
 			return
 	hud.toggle_open()
@@ -1158,8 +1180,13 @@ func _connect_gear(p: Player) -> void:
 
 
 ## A click with armour selected in hotbar slot `slot`: put it on (Gear.equip; the piece worn before goes to that slot).
+## M7c: in a session an ARMOR request (the host puts it on; its inventory comes back).
 func equip_armor(slot: int) -> void:
-	if _in_session() or player == null or not player.gear_on:
+	if player == null or not player.gear_on:
+		return
+	if _in_session():
+		net.queue_op(request(NetProtocol.Op.ARMOR, slot))
+		print("EVENSONG_GEAR equip request slot=%d" % slot)
 		return
 	var why: String = Gear.equip(player.inventory, slot)
 	if why.is_empty():
@@ -1171,7 +1198,11 @@ func equip_armor(slot: int) -> void:
 
 ## A click on the armour slot of the open inventory: take the worn armour off (Gear.unequip).
 func unequip_armor() -> void:
-	if _in_session() or player == null or not player.gear_on:
+	if player == null or not player.gear_on:
+		return
+	if _in_session():
+		net.queue_op(request(NetProtocol.Op.ARMOR, NetProtocol.ARMOR_OFF))  # M7c
+		print("EVENSONG_GEAR unequip request")
 		return
 	var why: String = Gear.unequip(player.inventory)
 	print("EVENSONG_GEAR unequip %s" % ("done" if why.is_empty() else "refused: " + why))
@@ -1185,10 +1216,10 @@ func chest_open() -> bool:
 	return hud != null and hud.chest.is_open()
 
 
-## F at the storage chest on footprint `rect` (offline; a session has none until M7c): its panel with the inventory, the
-## player stands while it is open.
+## F at the storage chest on footprint `rect`: its panel with the inventory, the player stands while it is open. M7c: in a
+## session on this machine's world (NetSession.chest_wanted), whose chest slots follow the host's edits.
 func open_chest(rect: Rect2i) -> void:
-	if _in_session() or crafting_open():
+	if crafting_open() or chest_open() or player == null or not player.vitals.alive():
 		return
 	var chest: WorldData.Chest = current_world().data.chest_at(rect.position)
 	if chest == null:
@@ -1206,20 +1237,62 @@ func close_chest() -> void:
 		player.ui_locked = false
 
 
-## A click on inventory slot `slot` while the chest is open: store that stack (as much as fits).
+## A click on inventory slot `slot` while the chest is open: store that stack (as much as fits). M7c: in a session a CHEST
+## request (the host moves it; its chest slot edits and the inventory come back).
 func chest_store(slot: int) -> void:
 	if not chest_open():
+		return
+	if _in_session():
+		_chest_request(false, slot)
 		return
 	var m: Storage.Moved = Storage.store(hud.chest.chest, player.inventory, slot)
 	_log_chest("store", m)
 
 
-## A click on chest slot `slot` while it is open: take that stack (as much as fits).
+## A click on chest slot `slot` while it is open: take that stack (as much as fits). M7c: a CHEST request in a session.
 func chest_take(slot: int) -> void:
 	if not chest_open():
 		return
+	if _in_session():
+		_chest_request(true, slot)
+		return
 	var m: Storage.Moved = Storage.take(hud.chest.chest, player.inventory, slot)
 	_log_chest("take", m)
+
+
+## M7c: a CHEST request for the open chest (its footprint's top-left tile): take chest slot `slot` or store inventory slot
+## `slot`.
+func _chest_request(take_it: bool, slot: int) -> void:
+	var f: NetProtocol.InputFrame = request(NetProtocol.Op.CHEST, slot)
+	f.cell = hud.chest.rect.position
+	f.chest_take = take_it
+	net.queue_op(f)
+	print("EVENSONG_CHEST %s request slot=%d at=%d,%d" % ["take" if take_it else "store", slot, f.cell.x, f.cell.y])
+
+
+## M7c: an open chest panel draws again when the host's chest slot edits changed this machine's world.
+var _chest_edits_seen: int = -1
+
+
+func _redraw_chest() -> void:
+	if not chest_open():
+		return
+	var w: GameWorld = current_world()
+	if w != null and w.chest_edits != _chest_edits_seen:
+		_chest_edits_seen = w.chest_edits
+		hud.chest.queue_redraw()
+
+
+## M7c: a bot's chest panel click (store / take, -1 = none) or armour slot click in a session (NetSession.bot_gear).
+func _on_bot_gear(store_slot: int, take_slot: int, unequip: bool) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	if store_slot >= 0:
+		chest_store(store_slot)
+	if take_slot >= 0:
+		chest_take(take_slot)
+	if unequip:
+		unequip_armor()
 
 
 func _log_chest(what: String, m: Storage.Moved) -> void:
@@ -1460,7 +1533,33 @@ func _show_altar_ghost(p: Player) -> void:
 		ghost.show_at(Rect2i(), false)
 		return
 	var rect: Rect2i = AltarMove.place_rect(p.sim_position, p.aim_cell)
-	ghost.show_at(rect, AltarMove.place_refusal(w.data, rect, bodies_on(w.map_id), heretics_on(w.map_id)).is_empty())
+	# M7c: worked out again only when the footprint, the world, a body's or a heretic's tile change, and every
+	# GHOST_RECHECK_TICKS (like the build ghost): M7b's seal check (Building.reaches from the nine new spawn slots) takes
+	# about 24 ms, and done every tick it held the host below 60 ticks a second while someone carried the altar (its
+	# clients' clocks then ran ahead of its states: the M5c `altar` session's other players were drawn past their newest
+	# state). The host still decides the put down with the full rule (SessionHost._altar_place).
+	var bodies: Array[Vector2] = bodies_on(w.map_id)
+	var heretics: Array[Vector2] = heretics_on(w.map_id)
+	_altar_ghost_ticks += 1
+	var key: Array = [rect, w.revision, _altar_ghost_ticks / GHOST_RECHECK_TICKS, _cells_of(bodies), _cells_of(heretics)]
+	if key != _altar_ghost_key:
+		_altar_ghost_key = key
+		_altar_ghost_ok = AltarMove.place_refusal(w.data, rect, bodies, heretics).is_empty()
+	ghost.show_at(rect, _altar_ghost_ok)
+
+
+## M7c: the carried altar's ghost: the answer, what it was worked out for, the ticks shown.
+var _altar_ghost_key: Array = []
+var _altar_ghost_ok: bool = false
+var _altar_ghost_ticks: int = 0
+
+
+## M7c: the tiles of feet `points` (a ghost's cache key).
+static func _cells_of(points: Array[Vector2]) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for pt: Vector2 in points:
+		out.append(Aim.feet_cell(pt))
+	return out
 
 
 ## Player `p` takes the altar out of the world and carries it (AltarMove.pickup_edits).
@@ -1652,14 +1751,7 @@ func _apply_test_options(options: CliOptions) -> void:
 		combat_views[current_map].sync(players_on(current_map))
 	if not options.test_fields.is_empty():
 		apply_test_fields(options.test_fields)  # M5a
-	for entry: Array in options.test_build:
-		var bc: Vector2i = entry[0]
-		var bpiece: StringName = entry[1]
-		var bw: GameWorld = current_world()
-		var be: EditLog.WorldEdit = Building.edit_for(bpiece, bc)
-		if bpiece == &"door_open":
-			be = EditLog.WorldEdit.new(WorldData.Layer.WALL, bc, Walls.pack(Walls.KIND_DOOR_OPEN, 0))
-		bw.apply_edit(be)  # M7b: pieces put down without the rules (screenshots, tests)
+	put_test_build(current_world(), options.test_build)  # M7b: pieces put down without the rules (screenshots, tests)
 	for d: Vector2i in options.test_durability:
 		var st: ItemStack = player.inventory.stack_at(d.x)  # M7a: a worn item for screenshots and tests
 		if st != null and st.max_durability() > 0:
@@ -1672,6 +1764,18 @@ func _apply_test_options(options: CliOptions) -> void:
 			arenas[Config.MAP_DUNGEON].spawn_heretic(Arena.spawn_feet(c))
 		combat_views[Config.MAP_DUNGEON].sync(players_on(Config.MAP_DUNGEON))
 	marker.refresh()
+
+
+## M7b: --test-build's pieces (entries [tile, piece item id or &"door_open"]) into world `w` without the building rules.
+## M7c: a session's host does the same before anyone joins (SessionHost._setup_forests).
+static func put_test_build(w: GameWorld, entries: Array[Array]) -> void:
+	for entry: Array in entries:
+		var bc: Vector2i = entry[0]
+		var bpiece: StringName = entry[1]
+		var be: EditLog.WorldEdit = Building.edit_for(bpiece, bc)
+		if bpiece == &"door_open":
+			be = EditLog.WorldEdit.new(WorldData.Layer.WALL, bc, Walls.pack(Walls.KIND_DOOR_OPEN, 0))
+		w.apply_edit(be)
 
 
 ## The local class doing every body action, frozen at `frame` (-1 = each action's middle frame): a

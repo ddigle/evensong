@@ -726,6 +726,7 @@ static func _check_net(r: Report) -> void:
 	_check_net_combat(r, s)
 	_check_net_potions(r, s)
 	_check_net_fields(r)
+	_check_net_builds(r)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -909,6 +910,63 @@ static func _check_net_fields(r: Report) -> void:
 		"a farm's growth and its withering once the altar left reach a client's world as edits (M5c: %s)" % (
 		f.describe() if f != null else "none"))
 	r.fields.append("fields_wire=%dB/%dB" % [state_bytes, edit_bytes])
+
+
+## M7c: stations, gear, the chest, building and trees on the wire: the four new requests round trip, an inventory with a
+## worn tier-1 sword and the armour, and a host world with a built wall, an open door, a stump, an anvil and a chest holding
+## something reaches a client as the snapshot (the same hash) and the edits after it (a chest slot, the door closing).
+static func _check_net_builds(r: Report) -> void:
+	var frames: Array[NetProtocol.InputFrame] = []
+	for op: int in [NetProtocol.Op.DEMOLISH, NetProtocol.Op.DOOR, NetProtocol.Op.ARMOR, NetProtocol.Op.CHEST]:
+		var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(40 + frames.size(), Vector2i.ZERO)
+		f.op = op
+		f.cell = Vector2i(61, 61) if op != NetProtocol.Op.ARMOR else Vector2i.ZERO  # ARMOR names a slot, no tile
+		f.slot = 3 if op == NetProtocol.Op.ARMOR or op == NetProtocol.Op.CHEST else 0  # DEMOLISH and DOOR carry no slot
+		f.chest_take = op == NetProtocol.Op.CHEST
+		frames.append(f)
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs(frames))
+	var same: bool = up.ok and up.frames.size() == frames.size()
+	for i: int in frames.size():
+		same = same and up.frames[i].same_request(frames[i])
+	r.expect(same, "DEMOLISH, DOOR, ARMOR and CHEST round trip (M7c)")
+	var inv: Inventory = Inventory.new()
+	inv.add(&"sword_t1", 1)
+	inv.stack_at(0).durability = 57
+	inv.wear(ItemStack.new(&"armor_t1", 1, ItemDB.Grade.NONE, 33))
+	var inv_bytes: PackedByteArray = NetProtocol.encode_inventory(inv, 5)
+	var ib: NetProtocol.InventoryState = NetProtocol.decode_inventory(inv_bytes)
+	r.expect(ib.ok and ib.stacks[0] != null and ib.stacks[0].durability == 57 and ib.armor != null and ib.armor.durability == 33,
+		"an inventory with durability and the armour round trips (M7c)")
+	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var tree: Vector2i = Forest.tree_cells(host)[0]
+	for e: EditLog.WorldEdit in [Building.edit_for(Building.STONE_WALL, Vector2i(66, 56)),
+			EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_DOOR_OPEN, 0)),
+			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, tree, WorldData.PLACEABLE_STUMP),
+			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(62, 51), WorldData.PLACEABLE_ANVIL),
+			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(63, 51), WorldData.PLACEABLE_ANVIL)]:
+		EditLog.apply_to_data(host, e)
+	host.put_placeable(Rect2i(62, 44, 3, 1), WorldData.PLACEABLE_CHEST)
+	host.chest_at(Vector2i(62, 44)).slots[2] = ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 9)
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host)
+	var client: WorldData = WorldSnapshot.unpack(packed.bytes, packed.raw_size)
+	r.expect(client != null and client.content_hash() == host.content_hash(),
+		"a built world (wall, open door, stump, anvil, a chest holding a worn sword) reaches a client as its snapshot (M7c)")
+	if client == null:
+		return
+	var later: Array[EditLog.WorldEdit] = [EditLog.WorldEdit.chest_slot(Vector2i(62, 44), 2, null),
+		EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_DOOR, 0))]
+	var edit_bytes: int = 0
+	for i: int in later.size():
+		EditLog.apply_to_data(host, later[i])
+		var wire: PackedByteArray = EditLog.encode_one(later[i], i, Config.MAP_SURFACE)
+		edit_bytes += wire.size()
+		var got: Array = EditLog.decode_one(wire)
+		var ge: EditLog.WorldEdit = got[1]
+		EditLog.apply_to_data(client, ge)
+	r.expect(client.content_hash() == host.content_hash() and Walls.is_door(client, Vector2i(64, 56))
+		and not Walls.is_open_door(client, Vector2i(64, 56)) and client.chest_at(Vector2i(62, 44)).is_empty(),
+		"a chest slot edit and the door closing follow (M7c)")
+	r.fields.append("builds_wire=%dB/%dB/%dB" % [inv_bytes.size(), packed.bytes.size(), edit_bytes])
 
 
 ## Applies `edits` to `data` and returns them.

@@ -74,6 +74,8 @@ extends RefCounted
 ##   --test-crop-ticks=<n>        ticks of growth per crop stage in place of Config.CROP_STAGE_TICKS (1..that; the
 ##                                herbalist's crops still grow Config.CROP_HERBALIST_GROWTH_PCT faster): a session test
 ##                                sees a crop ripen in seconds
+## M7b (offline) / M7c (a host puts them into its surface at the start; late joiners get them):
+##   --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...]   built pieces on those tiles, past the building rules
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.

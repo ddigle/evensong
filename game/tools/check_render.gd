@@ -118,6 +118,11 @@ extends SceneTree
 ##            face for a wall, the post for a lantern) on the world's even checkerboard squares and the blocked tiles'
 ##            1 px outline in faith gold; refused = the same squares and outline in deep red; unshaded (their colours in
 ##            the evening), on their exact pixels (rules written out here).
+##   builds_net (M7c) a session's built world on a client: the host's world with a room of stone walls, an open door, a
+##            floor piece, a lantern post, the three stations and the chest, the client's from a surface snapshot plus the
+##            rest as edits through the wire codec (a wall, the door closing, a chest slot, a tree felled to a stump), and
+##            a miner's axe swing from a state batch: around the room, the stations, the stump and the swing both screens are
+##            the same pixels, differ from the bare world, and the client's build and fixture views equal its data.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -194,6 +199,7 @@ func _run() -> void:
 		await _check_builds()
 		await _check_trees()
 		await _check_build_ghost()
+		await _check_builds_net()  # M7c
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -2830,3 +2836,114 @@ static func _slot_pixels(want: Dictionary[Vector2i, Color], o: Vector2i, stack: 
 			for bx: int in 14:
 				var px: Vector2i = o + Vector2i(2 + bx, 14 + by)
 				want[px] = rust if l <= 0 else (c if bx < w else Color8(0x1a, 0x17, 0x14))
+
+
+# --- M7c ----------------------------------------------------------------------------------------------------------------
+
+## M7c: a session's built world drawn on a client = the host's. The host's world gets a closed room with an open door, a
+## floor piece and a lantern post south of the light, the three stations and the chest by the altar, a stump where a tree
+## was, by edits; a client's world loads a surface snapshot taken half way and takes the rest as edits through the wire
+## codec (EditLog.encode_one / decode_one: another wall, the door closing, a chest slot, a tree felled). A miner swinging the
+## axe on the host and its copy from a state batch on the client (the axe action's frame from the wire). Around the room,
+## the stations and the stump both screens must be the same pixels and differ from the bare world.
+func _check_builds_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _surface_world()
+	var client_w: GameWorld = _surface_world(false)
+	var bare_w: GameWorld = _surface_world()
+	var d: WorldData = host_w.data
+	var edits: Array[EditLog.WorldEdit] = []
+	var room: Array[Vector2i] = []
+	for x: int in range(60, 66):
+		room.append(Vector2i(x, 57))
+	for y: int in range(58, 61):
+		room.append_array([Vector2i(60, y), Vector2i(65, y)])
+	for x2: int in [60, 62, 63, 64]:
+		room.append(Vector2i(x2, 61))
+	for c: Vector2i in room:
+		edits.append(Building.edit_for(Building.STONE_WALL, c))
+	edits.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(61, 61), Walls.pack(Walls.KIND_DOOR_OPEN, 0)))
+	edits.append(Building.edit_for(Building.STONE_FLOOR, Vector2i(62, 59)))
+	edits.append(Building.edit_for(Building.LANTERN, Vector2i(67, 60)))
+	for st: Array in [[WorldData.PLACEABLE_WORKBENCH, Rect2i(59, 51, 3, 1)], [WorldData.PLACEABLE_ANVIL, Rect2i(62, 51, 2, 1)],
+			[WorldData.PLACEABLE_RELIC, Rect2i(65, 51, 3, 1)], [WorldData.PLACEABLE_CHEST, Rect2i(62, 44, 3, 1)]]:
+		var value: int = st[0]
+		var rect: Rect2i = st[1]
+		for y3: int in range(rect.position.y, rect.end.y):
+			for x3: int in range(rect.position.x, rect.end.x):
+				edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(x3, y3), value))
+	var trees: Array[Vector2i] = Forest.tree_cells(d)
+	var tree: Vector2i = Vector2i(83, 52)
+	for e: EditLog.WorldEdit in edits:
+		host_w.apply_edit(e)
+	_load_surface_snapshot(host_w, client_w)
+	if client_w.data == null:
+		_fail("builds_net", "no client world")
+		return
+	var snap: int = edits.size()
+	var later: Array[EditLog.WorldEdit] = [Building.edit_for(Building.STONE_WALL, Vector2i(65, 61)),
+		EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(61, 61), Walls.pack(Walls.KIND_DOOR, 0)),
+		EditLog.WorldEdit.chest_slot(Vector2i(62, 44), 0, ItemStack.new(&"stone_a", 30, ItemDB.Grade.NONE)),
+		EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, tree, WorldData.PLACEABLE_STUMP)]
+	var wired: int = 0
+	for i: int in later.size():
+		host_w.apply_edit(later[i])
+		edits.append(later[i])
+		var got: Array = EditLog.decode_one(EditLog.encode_one(later[i], snap + i, Config.MAP_SURFACE))
+		var ge: EditLog.WorldEdit = got[1]
+		if ge != null and client_w.apply_edit(ge):
+			wired += 1
+	var same_data: bool = client_w.data.content_hash() == d.content_hash()
+	# A miner swinging the axe beside another tree: the host's player, and the client's from a state batch.
+	var other: Vector2i = trees[1] if trees[1] != tree else trees[2]
+	var axe_feet: Vector2 = Arena.spawn_feet(other + Vector2i(1, 1))
+	var hp: Player = _still_player(host_w, "miner", axe_feet)
+	var axe_frame: int = 3
+	hp.show_state(axe_feet, RigData.Dir.WEST, false, false, RigData.Anim.AXE, axe_frame * Config.ACTION_FRAME_TICKS)
+	var s: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	s.pos = hp.sim_position
+	s.facing = hp.facing
+	s.action = hp.action_anim
+	s.action_tick = hp.action_tick
+	s.held = &"axe"
+	var batch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(1, [s] as Array[NetProtocol.PlayerState]))
+	var cp: Player = _still_player(client_w, "miner", axe_feet)
+	if batch.ok:
+		var st2: NetProtocol.PlayerState = batch.states[0]
+		cp.show_state(st2.pos, st2.facing, st2.walking, false, st2.action, st2.action_tick)
+	var spots: Array[Vector2i] = [Vector2i(63 * Config.TILE, 58 * Config.TILE), Vector2i(63 * Config.TILE, 48 * Config.TILE),
+		Vector2i(tree.x * Config.TILE, (tree.y - 1) * Config.TILE), Vector2i(other.x * Config.TILE, (other.y - 1) * Config.TILE)]
+	var host_vs_client: int = 0
+	var drawn: int = 0
+	var shots: Array[Image] = []
+	for spot: Vector2i in spots:
+		var imgs: Array[Image] = []
+		for w: GameWorld in [host_w, client_w, bare_w]:
+			for o: GameWorld in [host_w, client_w, bare_w]:
+				o.visible = o == w
+			w.camera.make_current()
+			_cave_look_at(w, spot)
+			imgs.append(await _capture())
+		host_vs_client += count_diff(imgs[0], imgs[1])
+		drawn += count_diff(imgs[1], imgs[2])
+		shots.append_array(imgs)
+	var b: Dictionary = SessionReport.builds_of(client_w.data)
+	var view: Dictionary[String, int] = client_w.builds.verify()
+	var fx: Dictionary[String, int] = client_w.fixtures.verify()
+	var line: String = "%d edits (%d after the client's snapshot, %d through the wire), same data %s, walls %d doors %d open %d stumps %d chests %s, build view %s, fixtures %s, axe frame %d, host vs client %d, drawn %d" % [
+		edits.size(), edits.size() - snap, wired, same_data, b["walls"], b["doors"], b["open_doors"], b["stumps"], b["chests"],
+		view, fx, cp.action_tick / Config.ACTION_FRAME_TICKS, host_vs_client, drawn]
+	if host_vs_client > 0 or save_all:
+		for i2: int in shots.size():
+			_save(shots[i2], "builds_net_%d.png" % i2)
+	var mism: int = view.get("mismatches", -1) + fx.get("mismatches", -1)
+	if same_data and wired == later.size() and host_vs_client == 0 and drawn > 4000 and mism == 0 and b["walls"] == room.size() + 1 \
+			and b["doors"] == 1 and b["stumps"] == 1 and cp.action_anim == RigData.Anim.AXE and cp.action_tick == hp.action_tick:
+		print("EVENSONG_RENDER builds_net ok %s" % line)
+	else:
+		_fail("builds_net", line)
+	for w2: GameWorld in [host_w, client_w, bare_w]:
+		root.remove_child(w2)
+		w2.free()
+	world.visible = true
+	world.camera.make_current()

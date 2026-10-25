@@ -495,8 +495,9 @@ func _place(main: Main, p: Player, id: StringName, target: Vector2i) -> void:
 	main.step_combat(TICK)
 
 
-## A session (M7a): the host refuses a station and the chest ("... offline only") and every M7 recipe, even at a station
-## that is there (a world edit past the rules), and keeps the potions as they were.
+## A session (M7c, changed on purpose: M7a's host refused the stations, the chest and every M7 recipe): the host places the
+## three stations and the chest with the offline rules (three edits each, the chest north of the altar in the light) and
+## smelts at the anvil it placed (a CRAFT of the chain).
 func _check_session() -> void:
 	var world: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
 	world.auto_generate = false
@@ -515,27 +516,31 @@ func _check_session() -> void:
 	var m: NetMember = s.add_member(2, 7, "miner", start, RigData.Dir.NORTH)
 	m.gate = InputGate.new()
 	var seq: int = 1
-	for id: StringName in [&"workbench", &"anvil", &"relic_bench", &"storage_chest"]:
+	var spots: Array[Array] = [[&"workbench", Vector2i(60, 51), Vector2i(60, 52)], [&"anvil", Vector2i(63, 51), Vector2i(63, 52)],
+		[&"relic_bench", Vector2i(66, 51), Vector2i(66, 52)], [&"storage_chest", Vector2i(63, 44), Vector2i(63, 43)]]
+	for spot: Array in spots:
+		var id: StringName = spot[0]
+		var at: Vector2i = spot[1]
+		var feet: Vector2i = spot[2]
+		m.player.teleport(Arena.spawn_feet(feet))
 		m.player.inventory.clear()
 		m.player.inventory.add(id, 1)
 		var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(seq, Vector2i.ZERO)
 		seq += 1
 		f.op = NetProtocol.Op.USE
 		f.slot = 0
-		f.cell = Vector2i(63, 51)
+		f.cell = at
 		f.map = Config.MAP_SURFACE
 		m.player.begin_tick()
 		host.run_frame(m, f)
+		check_eq(m.player.inventory.count_of(id), 0, "%s placed by the host (refusals %s)" % [id, m.ops_refused])
 		for t: int in Config.NET_OP_INTERVAL_TICKS:
 			m.refill_ops()  # the host's ticks between two requests
-	check_eq(m.refused(Crafting.WHY_OFFLINE), 3, "the three stations: workbench chain offline only")
-	check_eq(m.refused(Storage.WHY_OFFLINE), 1, "the chest: storage offline only")
-	check_eq(s.log_for(Config.MAP_SURFACE).size(), 0, "no edit on the host's map")
-	# A station put there past the rules; every M7 recipe still refused.
-	world.data.put_placeable(Rect2i(62, 50, 2, 1), WorldData.PLACEABLE_ANVIL)
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 11, "one edit per footprint tile on the host's map (3 + 2 + 3 + 3)")
+	check_eq(world.data.footprints(WorldData.PLACEABLE_CHEST).size(), 1, "the chest stands in the light")
+	m.player.teleport(start)
 	m.player.inventory.clear()
 	m.player.inventory.add(&"ore_iron", 5)
-	var refused_before: int = m.refused(Crafting.WHY_OFFLINE)
 	var c: NetProtocol.InputFrame = NetProtocol.InputFrame.new(seq, Vector2i.ZERO)
 	seq += 1
 	c.op = NetProtocol.Op.CRAFT
@@ -546,9 +551,9 @@ func _check_session() -> void:
 	m.player.begin_tick()
 	c.seq = seq
 	host.run_frame(m, c)
-	check_eq(m.refused(Crafting.WHY_OFFLINE), refused_before + 1, "smelting at an anvil: workbench chain offline only")
-	check_eq(m.player.inventory.count_of(&"ingot_iron"), 0, "nothing smelted")
-	check_eq(m.player.inventory.count_of(&"ore_iron"), 5, "the ore kept")
+	check_eq(m.player.inventory.count_of(&"ingot_iron"), 1, "smelted at the anvil the host placed (M7c)")
+	check_eq(m.player.inventory.count_of(&"ore_iron"), 4, "one ore used")
+	check(m.inventory_dirty, "the owner gets its inventory")
 
 
 ## The same chain twice (fresh worlds and inventories): the same inventory text and world hash after each step.

@@ -22,7 +22,7 @@ const WHY_EMPTY: String = "empty slot"
 const WHY_NO_ARMOR: String = "no armour worn"
 const WHY_FULL: String = "inventory full"
 const WHY_BROKEN: String = "broken"
-## M7a: a session refuses wearing armour until M7c (as M5a / M6a refused their new things).
+## M7a: a session refused wearing armour until M7c (no longer used: M7c's host puts it on, the ARMOR request).
 const WHY_OFFLINE: String = "gear offline only"
 
 
@@ -80,6 +80,13 @@ static func wear(stack: ItemStack, points: int) -> bool:
 		return false
 	stack.durability = maxi(stack.durability - points, 0)
 	return stack.durability == 0
+
+
+## M7c: the stack an action played with `item` from hotbar slot `slot` of `inv` plays (null when the slot no longer holds
+## that item): its tier-1 damage and its wear (offline Main._attack and the host's SessionHost._attack).
+static func playing_stack(inv: Inventory, slot: int, item: StringName) -> ItemStack:
+	var stack: ItemStack = inv.stack_at(slot)
+	return stack if stack != null and stack.id == item else null
 
 
 ## A weapon's use wear: the stack in `slot` of `inv` (if it still holds `item`) loses Config.GEAR_WEAR_PER_ATTACK. Returns

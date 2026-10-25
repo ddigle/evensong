@@ -58,8 +58,9 @@ var fields: FieldView
 var purify_view: PurifyView
 ## M7b: the built pieces (world/build_view.gd), above the decals, below the purification view and the entities.
 var builds: BuildView
-## M7b: edits applied since this world was loaded.
+## M7b: edits applied since this world was loaded. M7c: chest slot edits applied (an open chest panel redraws on them).
 var revision: int = 0
+var chest_edits: int = 0
 var generation_ms: float = 0.0
 var view_ms: float = 0.0
 
@@ -213,6 +214,8 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 	match edit.kind:
 		EditLog.Kind.DROP_PUT, EditLog.Kind.DROP_REMOVE:
 			items.update_drop(edit.drop_id)
+		EditLog.Kind.CHEST:
+			chest_edits += 1  # M7c: a chest's slot (nothing drawn in the world; an open chest panel reads WorldData.chests)
 		_:
 			if edit.layer == WorldData.Layer.FLOOR:
 				if cave == null:

@@ -728,6 +728,19 @@ const TREE_STUMP_BLOCKS: bool = true
 ## and the hoe): the axe's swing lands on this frame of its action.
 const AXE_IMPACT_FRAME: int = 3
 
+# --- PROVISIONAL, M7c (sessions: building, doors, trees, stations, gear, the chest) ----------------------------------
+# M7c brings M7a and M7b into sessions (the host decides every result). README "임시값" M7c.
+
+## PROVISIONAL (not in the docs; README "임시값" M7c 막기 여유): a door that closes and a new wall, door or lantern post block at
+## once on the host, but a client walking there meets them a round trip later (its frames reach the host first, the edit
+## comes back after), so its prediction would walk where the host does not and be pulled back. So a door does not close, and
+## a blocking piece does not go down, while another player's feet box is within this many px of the tiles that would block:
+## no frame that player predicted before the edit arrived can reach them. 24 px is what a walk covers (Config.WALK_SPEED
+## 72 px/s) in 333 ms: a round trip plus the host's input buffering up to about 280 ms (a dash covers 40 px: README "M7c 예측").
+## The closer's or the builder's own feet keep the M7b rules (not in the doorway, not under the piece); heretics too (nobody
+## predicts them). Offline the same rule holds against the other players there (--test-ally).
+const BLOCK_CLEARANCE_PX: float = 24.0
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

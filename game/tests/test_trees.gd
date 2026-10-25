@@ -429,11 +429,19 @@ func _check_session() -> void:
 		m.refill_ops()
 		if m.player.action_anim >= 0 and m.player.action_tick == 0:
 			anims.append(m.player.action_anim)
+	# M7c (changed on purpose: M7b's host swung the axe without chopping): the host chops with the offline rules.
 	check(anims.size() >= Config.TREE_CHOP_HITS and anims.has(RigData.Anim.AXE), "the host plays the axe's swings (%d)" % anims.size())
-	check_eq(world.data.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_TREE, "the tree stands")
-	check(m.refused(Forest.WHY_OFFLINE) >= Config.TREE_CHOP_HITS, "each swing counted: chopping offline only")
-	check_eq(s.log_for(Config.MAP_SURFACE).size(), 0, "no edit on the host's map")
-	check_eq(m.player.inventory.count_of(&"log"), 0, "no log")
+	check_eq(world.data.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_STUMP, "the tree fell: a stump (M7c)")
+	check_eq(m.ops_done.get("chop", 0), Config.TREE_CHOP_HITS, "every swing chopped")
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 1, "one edit on the host's map (the stump)")
+	check_eq(m.player.inventory.count_of(&"log"), Config.TREE_LOGS, "the logs in the member's inventory")
+	check(m.inventory_dirty, "its owner gets them")
+	var f2: Forest = host.forest_of(Config.MAP_SURFACE)
+	f2.regrow[t] = 3
+	for i2: int in 3:
+		host._step_forests()
+	check_eq(world.data.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_TREE, "the host's forest grows it back")
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 2, "as an edit of the map")
 
 
 ## The same chopping twice: the same world hash and inventory.

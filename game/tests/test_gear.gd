@@ -491,8 +491,9 @@ func _check_main_mining() -> void:
 	check_eq(hashes[0], hashes[1], "the tier-1 pickaxe mines exactly as the pickaxe (same world after 240 ticks)")
 
 
-## A session (M7a): the host lets a tier-1 sword swing as the basic sword (14, no wear), a host player's armour takes
-## nothing off (gear off), the session's local player has gear off.
+## A session (M7c, changed on purpose: M7a's host swung a tier-1 sword as the basic one, wore nothing and left the armour
+## off): a member the host equips (SessionHost._equip) has gear on; its tier-1 sword lands 21 and wears 1 (the owner's
+## inventory goes out); the worn armour takes 4 off a knife and wears 1 (the inventory goes out again).
 func _check_session() -> void:
 	var world: GameWorld = (load("res://scenes/world.tscn") as PackedScene).instantiate() as GameWorld
 	world.auto_generate = false
@@ -513,9 +514,12 @@ func _check_session() -> void:
 	var out: Vector2 = world.data.altar_center_px() + Vector2(0, Config.safe_radius_px() + 40.0)
 	var m: NetMember = s.add_member(2, 7, "paladin", out, RigData.Dir.EAST)
 	m.gate = InputGate.new()
-	check(not m.player.gear_on, "a session's player has gear off")
+	check(not m.player.gear_on, "a bare member has gear off")
+	host._equip(m)
+	check(m.player.gear_on, "the host's member has gear on (M7c)")
 	m.player.inventory.clear()
 	m.player.inventory.add(&"sword_t1", 1)
+	m.inventory_dirty = false
 	var h: HereticSim = host.arenas[Config.MAP_SURFACE].spawn_heretic(out + Vector2(14, 0))
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(1, Vector2i.ZERO)
 	f.op = NetProtocol.Op.USE
@@ -530,11 +534,15 @@ func _check_session() -> void:
 		f.map = Config.MAP_SURFACE
 		if h.hp < Config.HERETIC_HP:
 			break
-	check_eq(Config.HERETIC_HP - h.hp, 14, "the host's tier-1 sword hits as the basic sword (M7c brings its damage)")
-	check_eq(m.player.inventory.stack_at(0).durability, 120, "and does not wear")
+	check_eq(Config.HERETIC_HP - h.hp, 21, "the host's tier-1 sword lands its tier-1 damage (M7c)")
+	check_eq(m.player.inventory.stack_at(0).durability, 119, "and wears 1")
+	check(m.inventory_dirty, "its owner gets the inventory with the durability")
 	m.player.inventory.wear(ItemStack.new(&"armor_t1", 1, 0))
+	m.inventory_dirty = false
 	m.player.take_hit(Config.HERETIC_DAMAGE, true)
-	check_eq(m.player.vitals.hp, 88, "a host player's armour takes nothing off")
+	check_eq(m.player.vitals.hp, 92, "a host player's armour takes 4 off a knife (M7c)")
+	check_eq(m.player.inventory.armor.durability, 99, "and wears 1")
+	check(m.inventory_dirty, "the owner gets its inventory again")
 
 
 ## The same armoured fight twice: the same HP, heretic HP and durabilities every 25 ticks.

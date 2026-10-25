@@ -57,7 +57,9 @@ const WHY_NATURAL: String = "a dungeon wall is mined"
 const WHY_NO_DOOR: String = "no door there"
 const WHY_DOORWAY: String = "someone stands in the doorway"
 const WHY_DOOR_ANYONE: String = "not your door"
-## A session refuses building, taking down, doors (M7c turns them on).
+## M7c: another player's feet are within Config.BLOCK_CLEARANCE_PX of the tiles a new piece or a closing door would block.
+const WHY_NEAR: String = "someone is too close"
+## M7b: a session refused building, taking down, doors (no longer used: M7c's host builds with the same rules).
 const WHY_OFFLINE: String = "building offline only"
 
 
@@ -125,8 +127,10 @@ static func _growing(data: WorldData, c: Vector2i) -> bool:
 
 ## Why piece `id` may not go down on tile `c` for feet at `feet` with `have` of it ("" = it may). `bodies` = other feet
 ## (players, heretics), `reserved_extra` = more spots where players appear (the host's carried-altar slots, M5-fix).
+## M7c: `others` = the other players' feet (not the heretics'): none of them within Config.BLOCK_CLEARANCE_PX of a tile a
+## blocking piece would block (clear_of_others; PROVISIONAL README "M7c 막기 여유").
 static func refusal(data: WorldData, feet: Vector2, id: StringName, c: Vector2i, have: int,
-		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = []) -> String:
+		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = [], others: Array[Vector2] = []) -> String:
 	if not is_piece(id):
 		return WHY_NOT_PIECE
 	if not data.in_bounds(c):
@@ -176,15 +180,31 @@ static func refusal(data: WorldData, feet: Vector2, id: StringName, c: Vector2i,
 		for r: Vector2 in spots:
 			if px.intersects(Movement.feet_box(r)):
 				return WorldItems.WHY_RESERVED
+	if not clear_of_others(cells, others):
+		return WHY_NEAR  # M7c: no other player's prediction may walk into it before the edit reaches it
 	if kind != Walls.KIND_DOOR and seals(data, cells, spots):
 		return WHY_SEALS  # a door never seals: anyone opens it
 	return ""
 
 
+## M7c (PROVISIONAL Config.BLOCK_CLEARANCE_PX, README "M7c 막기 여유"): whether no feet box of `others` (the other players)
+## comes within the clearance of any of `cells` (tiles that start blocking now). A player farther away cannot walk into
+## them in the round trip before their edit reaches its machine, so its prediction and the host agree.
+static func clear_of_others(cells: Array[Vector2i], others: Array[Vector2]) -> bool:
+	var grow: float = Config.BLOCK_CLEARANCE_PX
+	for cell: Vector2i in cells:
+		var px: Rect2 = Rect2(Vector2(cell * Config.TILE), Vector2(Config.TILE, Config.TILE)).grow(grow)
+		for o: Vector2 in others:
+			if px.intersects(Movement.feet_box(o)):
+				return false
+	return true
+
+
 ## A click with the piece in hotbar slot `slot` on tile `c`: its cost (cost_at) leaves the inventory (that slot first) and
-## the piece goes down (one WALL or PLACEABLE cell edit). `count` = the pieces used.
+## the piece goes down (one WALL or PLACEABLE cell edit). `count` = the pieces used. M7c: `others` = the other players' feet
+## (refusal).
 static func build(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
-		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = []) -> WorldItems.Outcome:
+		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = [], others: Array[Vector2] = []) -> WorldItems.Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
 		return WorldItems.Outcome.refused(WorldItems.WHY_BAD_SLOT)
 	if inv.stack_at(slot) == null:
@@ -192,7 +212,7 @@ static func build(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 	var id: StringName = piece_in(inv, slot)
 	if id.is_empty():
 		return WorldItems.Outcome.refused(WHY_NOT_PIECE)
-	var why: String = refusal(data, feet, id, c, inv.count_of(id), bodies, reserved_extra)
+	var why: String = refusal(data, feet, id, c, inv.count_of(id), bodies, reserved_extra, others)
 	if not why.is_empty():
 		return WorldItems.Outcome.refused(why)
 	var cost: int = cost_at(data, c)
@@ -278,8 +298,11 @@ static func door_cell(data: WorldData, c: Vector2i) -> Vector2i:
 
 ## F on tile `c` (a door or its face) for feet at `feet`: opens a closed door, closes an open one (one WALL cell edit).
 ## Closing is refused while a body (`feet` and `bodies`) or a placeable (a death bag) is in the doorway (the door tile and
-## its face tile). `item` of the outcome = "open" / "closed".
-static func toggle_door(data: WorldData, feet: Vector2, c: Vector2i, bodies: Array[Vector2] = []) -> WorldItems.Outcome:
+## its face tile). `item` of the outcome = "open" / "closed". M7c: closing is also refused while another player (`others`)
+## is within Config.BLOCK_CLEARANCE_PX of the doorway (clear_of_others: a door never closes on someone a round trip away
+## from it; opening has no such rule).
+static func toggle_door(data: WorldData, feet: Vector2, c: Vector2i, bodies: Array[Vector2] = [],
+		others: Array[Vector2] = []) -> WorldItems.Outcome:
 	if not data.in_bounds(c):
 		return WorldItems.Outcome.refused(WorldItems.WHY_OUTSIDE)
 	if not WorldItems.in_reach(feet, c):
@@ -300,6 +323,8 @@ static func toggle_door(data: WorldData, feet: Vector2, c: Vector2i, bodies: Arr
 			for b: Vector2 in all:
 				if px.intersects(Movement.feet_box(b)):
 					return WorldItems.Outcome.refused(WHY_DOORWAY)
+		if not clear_of_others([d, d + DOWN] as Array[Vector2i], others):
+			return WorldItems.Outcome.refused(WHY_NEAR)  # M7c
 		o.item = &"closed"
 		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, d, Walls.pack(Walls.KIND_DOOR, 0)))
 	else:

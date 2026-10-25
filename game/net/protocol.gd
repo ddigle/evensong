@@ -33,6 +33,11 @@ extends RefCounted
 ##                 ALTAR_LIFT  u8 map, s16 x, s16 y (an altar tile)            M5c: F held Config.ALTAR_PICKUP_HOLD_TICKS
 ##                         (the host counts the F-held frames itself)
 ##                 ALTAR_PLACE u8 map, s16 x, s16 y (the target tile)          M5c: the carrier's click
+##                 DEMOLISH u8 map, s16 x, s16 y (the target tile)             M7c: right-click (take a built piece down)
+##                 DOOR    u8 map, s16 x, s16 y (a door or its face tile)      M7c: F on a door (open / close it)
+##                 ARMOR   u8 hotbar slot (put on the armour there) or 255 (ARMOR_OFF: take it off)   M7c: the armour click
+##                 CHEST   u8 map, s16 x, s16 y (a tile of the chest), u8 move (0 = store, 1 = take), u8 slot (store:
+##                         the inventory slot, take: the chest slot)                M7c: a click in the open chest panel
 ##               M3b: a request aimed at a tile names the map it was aimed on (the map the sender
 ##               was on when it made the frame); the host refuses it on any other map ("wrong map").
 ##               M6b: a USE of a potion is a drink (the host resolves it from the slot, like a tool).
@@ -78,6 +83,8 @@ extends RefCounted
 ## Inventory     host -> its owner only (M2b): u32 ack (the owner's last frame the host handled when it
 ##               sent this), u8 selected hotbar slot, u8 slot count, per slot u8 item (0 = empty, else
 ##               index + 1), u8 count, u8 grade
+##               M7c: an item with durability (ItemDB.ItemDef.durability > 0: the tier-1 gear) adds u16 durability left
+##               after its grade; after the slots the armour slot in the same form (u8 item 0 = none worn; armour only)
 ## Map entry     host -> the player who went to another map (M3b), after that map's world chunks:
 ##               u8 map, u32 edit position (that map's edits already in the snapshot), u32 raw size,
 ##               u32 packed size, u32 chunk count, 16 B packed md5, 16 B world md5, then the
@@ -112,7 +119,11 @@ extends RefCounted
 ## 7 (M5c): farming, purification and moving the altar in sessions: CHANNEL, ALTAR_LIFT and ALTAR_PLACE requests, the
 ## channel in a state's action bits, the carried altar in its held-item byte (fields, crops, purified ground and the
 ## altar's place are world edits and snapshot layers as before).
-const VERSION: int = 7
+## 8 (M7c): building, doors, trees, stations, gear and the storage chest in sessions: DEMOLISH, DOOR, ARMOR and CHEST
+## requests, durability and the armour slot in the inventory message, the chest slot edit (net/edit_log.gd) and the chests'
+## contents in the world snapshot (net/world_snapshot.gd). Built walls, doors, floor pieces, lanterns, trees, stumps and
+## stations are cell edits and snapshot layers as before.
+const VERSION: int = 8
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -124,12 +135,19 @@ enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO }
 const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "class_taken", "bad_hello"]
 
 ## Requests riding on input frames (M2b). M6b: THROW (the skill key 1), CRAFT (the crafting panel). M5c: CHANNEL (the
-## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click).
-enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE }
+## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click). M7c: DEMOLISH
+## (right-click), DOOR (F on a door), ARMOR (put the armour on / take it off), CHEST (store / take in the chest panel).
+enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE, DEMOLISH, DOOR, ARMOR,
+	CHEST }
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
-	"altar_lift", "altar_place"]
+	"altar_lift", "altar_place", "demolish", "door", "armor", "chest"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5]
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5, 5, 5, 1, 7]
+## M7c: an ARMOR request's slot that takes the worn armour off (any other is the hotbar slot whose armour goes on).
+const ARMOR_OFF: int = 255
+## M7c: a CHEST request's move byte.
+const CHEST_STORE: int = 0
+const CHEST_TAKE: int = 1
 ## M5c: a state's action bits while the purification channel runs (no RigData action is 15), and the held-item byte's
 ## flag of the altar carrier (item indices stay far below 128).
 const CHANNEL_ACTION: int = 15
@@ -173,6 +191,8 @@ const MAP_ENTRY_SIZE: int = 1 + 4 + 4 + 4 + 4 + 16 + 16 + STATE_SIZE
 ## Where the map entry's state starts (its fixed head; named in M4-fix).
 const MAP_ENTRY_STATE_AT: int = MAP_ENTRY_SIZE - STATE_SIZE
 const INVENTORY_SLOT_BYTES: int = 3
+## M7c: the durability an item that has it adds to its slot (u16).
+const DURABILITY_BYTES: int = 2
 ## Directions (9) x looks (none + 4 facings) x dash (M4b) x F held (M4b).
 const CODE_COUNT: int = 180
 const DIR_CODES: int = 9
@@ -217,6 +237,8 @@ class InputFrame:
 	## requests (the host decides `channel` again from its own state, SessionHost.run_frame).
 	var channel: bool = false
 	var altar_place: bool = false
+	## M7c: a CHEST request takes chest slot `slot` (else it stores inventory slot `slot`); its `cell` is a tile of the chest.
+	var chest_take: bool = false
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq
@@ -226,7 +248,8 @@ class InputFrame:
 	func same_request(o: InputFrame) -> bool:
 		return o != null and op == o.op and slot == o.slot and cell == o.cell and count == o.count \
 			and item_index == o.item_index and grade == o.grade and (map == o.map or not NetProtocol.op_has_map(op)) \
-			and (op != Op.THROW or throw_to == o.throw_to) and (op != Op.CRAFT or recipe == o.recipe)
+			and (op != Op.THROW or throw_to == o.throw_to) and (op != Op.CRAFT or recipe == o.recipe) \
+			and (op != Op.CHEST or chest_take == o.chest_take)
 
 	func describe_op() -> String:
 		match op:
@@ -253,6 +276,14 @@ class InputFrame:
 				return "altar_lift map=%d at=%d,%d" % [map, cell.x, cell.y]
 			Op.ALTAR_PLACE:
 				return "altar_place map=%d at=%d,%d" % [map, cell.x, cell.y]
+			Op.DEMOLISH:
+				return "demolish map=%d at=%d,%d" % [map, cell.x, cell.y]
+			Op.DOOR:
+				return "door map=%d at=%d,%d" % [map, cell.x, cell.y]
+			Op.ARMOR:
+				return "armor off" if slot == ARMOR_OFF else "armor slot=%d" % slot
+			Op.CHEST:
+				return "chest map=%d at=%d,%d %s slot=%d" % [map, cell.x, cell.y, "take" if chest_take else "store", slot]
 		return "none"
 
 
@@ -360,6 +391,8 @@ class InventoryState:
 	var ack: int = 0
 	var selected: int = 0
 	var stacks: Array[ItemStack] = []
+	## M7c: the armour worn (null = none). Every stack keeps its durability.
+	var armor: ItemStack = null
 
 
 ## M4b: one heretic as the host sends it (HereticSim's drawn part).
@@ -453,7 +486,8 @@ static func dir_from_code(code: int) -> Vector2i:
 ## Whether requests of kind `op` carry a map (they aim at a tile of it; M6b: a throw, a craft at a station of it).
 static func op_has_map(op: int) -> bool:
 	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT \
-		or op == Op.CHANNEL or op == Op.ALTAR_LIFT or op == Op.ALTAR_PLACE
+		or op == Op.CHANNEL or op == Op.ALTAR_LIFT or op == Op.ALTAR_PLACE or op == Op.DEMOLISH or op == Op.DOOR \
+		or op == Op.CHEST
 
 
 static func valid_map(map: int) -> bool:
@@ -509,11 +543,18 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_s16(at + 1, f.cell.x)
 			out.encode_s16(at + 3, f.cell.y)
 			out.encode_u8(at + 5, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
-		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE:
+		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE, Op.DEMOLISH, Op.DOOR:
 			out.encode_s16(at, f.cell.x)
 			out.encode_s16(at + 2, f.cell.y)
 		Op.SELECT:
 			out.encode_u8(at, f.slot)
+		Op.ARMOR:
+			out.encode_u8(at, clampi(f.slot, 0, 255))
+		Op.CHEST:
+			out.encode_s16(at, f.cell.x)
+			out.encode_s16(at + 2, f.cell.y)
+			out.encode_u8(at + 4, CHEST_TAKE if f.chest_take else CHEST_STORE)
+			out.encode_u8(at + 5, clampi(f.slot, 0, 255))
 		Op.DROP:
 			out.encode_u8(at, f.slot)
 			out.encode_u8(at + 1, f.count)
@@ -548,9 +589,20 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
 			f.aim = bytes.decode_u8(at + 5)
 			return f.slot < Config.HOTBAR_SLOTS
-		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE:
+		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE, Op.DEMOLISH, Op.DOOR:
 			f.cell = Vector2i(bytes.decode_s16(at), bytes.decode_s16(at + 2))
 			return true
+		Op.ARMOR:
+			f.slot = bytes.decode_u8(at)
+			return f.slot < Config.HOTBAR_SLOTS or f.slot == ARMOR_OFF
+		Op.CHEST:
+			f.cell = Vector2i(bytes.decode_s16(at), bytes.decode_s16(at + 2))
+			var move: int = bytes.decode_u8(at + 4)
+			f.chest_take = move == CHEST_TAKE
+			f.slot = bytes.decode_u8(at + 5)
+			if move != CHEST_STORE and move != CHEST_TAKE:
+				return false
+			return f.slot < (Config.CHEST_SLOTS if f.chest_take else Config.INVENTORY_SLOTS)
 		Op.CHANNEL:
 			f.channel = true  # M5c: what the sender asks for; the host decides it again (SessionHost.run_frame)
 			return true
@@ -915,48 +967,83 @@ static func decode_map_entry(bytes: PackedByteArray) -> MapEntry:
 
 static func encode_inventory(inv: Inventory, ack: int) -> PackedByteArray:
 	var out: PackedByteArray = PackedByteArray()
-	out.resize(INVENTORY_HEADER + INVENTORY_SLOT_BYTES * inv.size())
+	out.resize(INVENTORY_HEADER)
 	out.encode_u32(0, ack)
 	out.encode_u8(4, inv.selected)
 	out.encode_u8(5, inv.size())
 	for i: int in inv.size():
-		var st: ItemStack = inv.stack_at(i)
-		var at: int = INVENTORY_HEADER + INVENTORY_SLOT_BYTES * i
-		if st != null:
-			out.encode_u8(at, ItemDB.index_of(st.id) + 1)
-			out.encode_u8(at + 1, st.count)
-			out.encode_u8(at + 2, st.grade)
+		write_slot(out, inv.stack_at(i))
+	write_slot(out, inv.armor)  # M7c: the armour slot after the slots
 	return out
 
 
-## The inventory, or ok = false for a malformed one (slot count, selection, item, count within its
-## stack size, a grade the item can have, an empty slot with fields).
+## M7c: one slot (u8 item + 1 or 0, u8 count, u8 grade; u16 durability for an item that has it) at the end of `out`.
+static func write_slot(out: PackedByteArray, st: ItemStack) -> void:
+	var at: int = out.size()
+	var with_durability: bool = st != null and st.max_durability() > 0
+	out.resize(at + INVENTORY_SLOT_BYTES + (DURABILITY_BYTES if with_durability else 0))
+	if st == null:
+		return
+	out.encode_u8(at, ItemDB.index_of(st.id) + 1)
+	out.encode_u8(at + 1, st.count)
+	out.encode_u8(at + 2, st.grade)
+	if with_durability:
+		out.encode_u16(at + INVENTORY_SLOT_BYTES, clampi(st.durability, 0, st.max_durability()))
+
+
+## M7c: the slot at `at`: [the stack (null = empty), its size in bytes], or [null, -1] for a malformed one (the item, a
+## count within its stack size, a grade the item can have, an empty slot with fields, durability above its full value).
+static func read_slot(bytes: PackedByteArray, at: int) -> Array:
+	if at < 0 or bytes.size() < at + INVENTORY_SLOT_BYTES:
+		return [null, -1]
+	var item: int = bytes.decode_u8(at)
+	var count: int = bytes.decode_u8(at + 1)
+	var grade: int = bytes.decode_u8(at + 2)
+	if item == 0:
+		return [null, INVENTORY_SLOT_BYTES] if count == 0 and grade == 0 else [null, -1]
+	var id: StringName = ItemDB.id_at(item - 1)
+	var def: ItemDB.ItemDef = ItemDB.get_def(id)
+	if def == null or count < 1 or count > def.stack_max or not ItemDB.valid_grade(id, grade):
+		return [null, -1]
+	if def.durability <= 0:
+		return [ItemStack.new(id, count, grade), INVENTORY_SLOT_BYTES]
+	if bytes.size() < at + INVENTORY_SLOT_BYTES + DURABILITY_BYTES:
+		return [null, -1]
+	var left: int = bytes.decode_u16(at + INVENTORY_SLOT_BYTES)
+	if left > def.durability:
+		return [null, -1]
+	return [ItemStack.new(id, count, grade, left), INVENTORY_SLOT_BYTES + DURABILITY_BYTES]
+
+
+## The inventory, or ok = false for a malformed one (slot count, selection, a malformed slot; M7c: an armour slot holding
+## something that is no armour, bytes left over).
 static func decode_inventory(bytes: PackedByteArray) -> InventoryState:
 	var inv: InventoryState = InventoryState.new()
 	if bytes.size() < INVENTORY_HEADER:
 		return inv
 	var slots: int = bytes.decode_u8(5)
-	if slots != Config.INVENTORY_SLOTS or bytes.size() != INVENTORY_HEADER + INVENTORY_SLOT_BYTES * slots:
+	if slots != Config.INVENTORY_SLOTS or bytes.size() < INVENTORY_HEADER + INVENTORY_SLOT_BYTES * (slots + 1):
 		return inv
 	inv.ack = bytes.decode_u32(0)
 	inv.selected = bytes.decode_u8(4)
 	if inv.selected >= Config.HOTBAR_SLOTS:
 		return inv
-	for i: int in slots:
-		var at: int = INVENTORY_HEADER + INVENTORY_SLOT_BYTES * i
-		var item: int = bytes.decode_u8(at)
-		var count: int = bytes.decode_u8(at + 1)
-		var grade: int = bytes.decode_u8(at + 2)
-		if item == 0:
-			if count != 0 or grade != 0:
-				return inv
-			inv.stacks.append(null)
-			continue
-		var id: StringName = ItemDB.id_at(item - 1)
-		var def: ItemDB.ItemDef = ItemDB.get_def(id)
-		if def == null or count < 1 or count > def.stack_max or not ItemDB.valid_grade(id, grade):
+	var at: int = INVENTORY_HEADER
+	for i: int in slots + 1:
+		var got: Array = read_slot(bytes, at)
+		var n: int = got[1]
+		if n < 0:
 			return inv
-		inv.stacks.append(ItemStack.new(id, count, grade))
+		var st: ItemStack = got[0]
+		at += n
+		if i < slots:
+			inv.stacks.append(st)
+		elif st != null and not Gear.is_armor(st.id):
+			return inv
+		else:
+			inv.armor = st
+	if at != bytes.size():
+		return inv
 	inv.ok = true
 	return inv
 

@@ -55,11 +55,25 @@ extends RefCounted
 ##   unequip                      click the armour slot (the open inventory): take the worn armour off
 ## M7b (offline: Main handles it; building is a click with a piece selected = use, a door is F = pick):
 ##   wreck                        right-click this tick: take the built piece on the target tile down
+## M7c (sessions: store / take / unequip go to Main through NetSession.bot_gear and become CHEST / ARMOR requests, wreck a
+## DEMOLISH; the world as this machine has it, `world`):
+##   waitwall:<x>,<y>,<none|wall|door|open|floor>[,<ticks>]   stand until tile x,y's wall layer holds that (a built stone
+##                                wall, a closed door, an open door, a floor piece, nothing; default 1800 ticks)
+##   heretic:<x>,<y>              test only, offline and the host: a heretic on tile x,y of the local player's map now
+##   waitat:<x>,<y>[,<ticks>]     stand until another player on this map (as this machine has it, `others`) has its feet
+##                                on tile x,y (default 1800 ticks)
+##   waitplaced:<x>,<y>,<placeable>[,<ticks>]   stand until tile x,y holds that placeable (WorldData.PLACEABLE_NAMES:
+##                                chest, anvil, stump, tree ...; default 1800 ticks)
+##   waitchest:<x>,<y>,<item>[,<ticks>]   stand until the chest with a tile at x,y holds that item (default 1800 ticks)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
-	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck"]
+	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
+	"waitplaced", "waitchest"]
+## M7c: waitwall's kinds by name (Walls.KIND_*).
+const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
+	"open": Walls.KIND_DOOR_OPEN, "floor": Walls.KIND_FLOOR}
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -116,6 +130,8 @@ class Action:
 	var unequip: bool = false
 	## M7b: right-click this tick (take a built piece down).
 	var demolish: bool = false
+	## M7c (test only): put a heretic on this tile of the local player's map this tick (Vector2i, or null).
+	var heretic: Variant = null
 
 
 var commands: Array[Command] = []
@@ -128,6 +144,8 @@ var life: int = Vitals.Life.ALIVE
 var downed: Array[Vector2] = []
 ## M5c: the local player's map's world as this machine has it (waitfield).
 var world: WorldData
+## M7c: the other players' feet on the local player's map as this machine has them (waitat).
+var others: Array[Vector2] = []
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -301,6 +319,33 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.count = -1 if args[2] == "soil" else args[2].to_int()
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
+		"waitwall":
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not WALL_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
+				return "expected waitwall:<x>,<y>,<%s>[,<ticks>]" % "|".join(WALL_NAMES.keys())
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.count = WALL_NAMES[args[2]]
+			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
+		"heretic":
+			if args.size() != 2 or not _whole(args[0], 0) or not _whole(args[1], 0):
+				return "expected heretic:<x>,<y>"
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+		"waitat":
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or (args.size() == 3 and not _whole(args[2], 1)):
+				return "expected waitat:<x>,<y>[,<ticks>]"
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.ticks = args[2].to_int() if args.size() == 3 else WAITMAP_LIMIT_TICKS
+		"waitplaced":
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not WorldData.PLACEABLE_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
+				return "expected waitplaced:<x>,<y>,<placeable>[,<ticks>]"
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.count = WorldData.PLACEABLE_NAMES.find(args[2])
+			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
+		"waitchest":
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not ItemDB.has(StringName(args[2])) or (args.size() == 4 and not _whole(args[3], 1)):
+				return "expected waitchest:<x>,<y>,<item>[,<ticks>]"
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.item = StringName(args[2])
+			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
 		"waitmap":
 			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitmap:<players>,<map>[,<ticks>]"
@@ -460,6 +505,24 @@ func _advance(a: Action, feet: Vector2) -> void:
 				if field_ready(world, c.cell, c.count) or _left <= 0:
 					_next()
 				return
+			"waitwall":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if (world != null and world.in_bounds(c.cell) and Walls.kind_at(world, c.cell) == c.count) or _left <= 0:
+					_next()
+				return
+			"heretic":
+				a.heretic = c.cell
+				_next()
+				return
+			"waitat", "waitplaced", "waitchest":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if _waited(c) or _left <= 0:
+					_next()
+				return
 			"waitmap":
 				if _left < 0:
 					_left = c.ticks
@@ -579,6 +642,28 @@ static func field_ready(data: WorldData, c: Vector2i, stage: int) -> bool:
 		return true
 	var f: Farming.Field = Farming.field_at(data, c)
 	return f != null and f.kind != Farming.KIND_NONE and not f.withered and f.stage >= stage
+
+
+## M7c: whether the condition of a waitat / waitplaced / waitchest command holds now.
+func _waited(c: Command) -> bool:
+	match c.op:
+		"waitat":
+			for o: Vector2 in others:
+				if Aim.feet_cell(o) == c.cell:
+					return true
+			return false
+		"waitplaced":
+			return world != null and world.get_value(WorldData.Layer.PLACEABLE, c.cell) == c.count
+		"waitchest":
+			if world == null or world.get_value(WorldData.Layer.PLACEABLE, c.cell) != WorldData.PLACEABLE_CHEST:
+				return false
+			var key: Vector2i = world.footprint_at(c.cell).position
+			if not world.chests.has(key):
+				return false
+			for st: ItemStack in world.chests[key].slots:
+				if st != null and st.id == c.item:
+					return true
+	return false
 
 
 ## M4b: the nearest live heretic's feet to `feet` (Vector2), or null when none is there.

@@ -53,6 +53,14 @@ extends RefCounted
 ## fields, crops, purified ground and the altar's place come as edits (a corrupted tile made clean flashes here), the
 ## carried altar in the states (the carrier's mark, this player's own carrying), the respawn at the slot of the altar
 ## where this world has it.
+##
+## M7c (stations, gear, the chest, building, doors, trees): the own player places stations and the chest, builds (a USE of a
+## piece), takes pieces down (DEMOLISH), opens and closes doors (F: DOOR), puts the armour on and off (ARMOR), moves stacks in
+## an open chest panel (CHEST) and chops (the axe's USE) with the offline controls; the axe swing is predicted like any body
+## action, nothing it or the requests change is: pieces, doors, stumps and stations come as cell edits, a chest's slots as
+## chest slot edits (an open panel reads them), the gear's durability and the armour with the host's inventory. The
+## prediction walks this machine's world, built walls and closed doors included (Walls.blocks), as the host does; a door
+## never closes and a piece never goes down within Config.BLOCK_CLEARANCE_PX of another player (README "M7c 예측").
 
 var s: NetSession
 var prediction: Prediction
@@ -205,14 +213,17 @@ func on_welcome(payload: PackedByteArray) -> void:
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
 	var fields: Dictionary = SessionReport.fields_of(data)  # M5c: what the snapshot brought of the fields and the altar
 	var crops: Dictionary = fields["crops"]
+	var built: Dictionary = SessionReport.builds_of(data)  # M7c: and of the built pieces, doors, stumps, stations, chests
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
 		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d elsewhere=%d altar=%s tilled=%d crops=%d withered=%d " +
-		"corrupted=%d generator=%s") % [w.slot, s.local.class_id,
+		"corrupted=%d walls=%d doors=%d open_doors=%d stumps=%d stations=%d chests=%d chest_items=%d generator=%s") % [w.slot,
+		s.local.class_id,
 		s.members.size(), w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size,
 		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
 		others_on_welcome, "%d,%d" % [data.altar_rect.position.x, data.altar_rect.position.y] if data.altar_rect.has_area() else "none",
-		fields["tilled"], crops.size(), fields["withered"], Purify.corrupted_count(data),
-		"match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12), host_generator_hash.left(12)]])
+		fields["tilled"], crops.size(), fields["withered"], Purify.corrupted_count(data), built["walls"], built["doors"],
+		built["open_doors"], built["stumps"], built["workbenches"] + built["anvils"] + built["relic_benches"], built["chest_count"],
+		_chest_items(data), "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12), host_generator_hash.left(12)]])
 	for info2: NetProtocol.PlayerInfo in w.players:
 		if info2.state.vitals != null and info2.state.vitals.has_effects():
 			effects_on_welcome[str(info2.state.slot)] = info2.state.vitals.describe()
@@ -275,6 +286,16 @@ func on_map_entry(payload: PackedByteArray) -> void:
 		Config.MAP_NAMES[e.map], data.content_hash().left(12), e.packed_size, e.raw_size, e.chunk_count, e.edit_position,
 		data.drops.size(), data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH), _cracked(data), ms])
 	s.local_map_changed.emit(e.map)
+
+
+## M7c: the items lying in every chest of `data` (the stacks' counts summed).
+static func _chest_items(data: WorldData) -> int:
+	var n: int = 0
+	for key: Vector2i in data.chests:
+		for st: ItemStack in data.chests[key].slots:
+			if st != null:
+				n += st.count
+	return n
 
 
 static func _cracked(data: WorldData) -> int:
@@ -391,11 +412,15 @@ func on_inventory(payload: PackedByteArray) -> void:
 
 
 ## The host's inventory `inv` into `mine` with hotbar slot `selected`. M6b: what it holds counts as had here (the
-## recipes' unlock, Inventory.seen) before the load tells the crafting panel to read it again.
+## recipes' unlock, Inventory.seen) before the load tells the crafting panel to read it again. M7c: the stacks keep the
+## host's durability, and the armour worn is the host's.
 static func take_inventory(mine: Inventory, inv: NetProtocol.InventoryState, selected: int) -> void:
 	for st: ItemStack in inv.stacks:
 		if st != null:
 			mine.seen[st.id] = true
+	if inv.armor != null:
+		mine.seen[inv.armor.id] = true
+	mine.armor = inv.armor.copy() if inv.armor != null else null
 	mine.load_state(inv.stacks, selected)
 
 
@@ -472,6 +497,8 @@ func tick(action: NetBot.Action) -> void:
 			Time.get_ticks_msec())
 	if action.edit != null:
 		s.log_event("bot", "edit ignored: only the host edits the world")
+	if action.heretic != null:
+		s.log_event("bot", "heretic ignored: only the host has the heretics")
 	if not action.mark.is_empty():
 		s.bots.mark(action.mark)
 	if action.stall_ms > 0:

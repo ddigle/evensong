@@ -20,17 +20,19 @@ const WHY_CHEST_FULL: String = "chest full"
 const WHY_FULL: String = "inventory full"
 const WHY_EMPTY: String = "empty slot"
 const WHY_REACH: String = "out of reach"
-## M7a: a session refuses the chest until M7c.
+## M7a: a session refused the chest until M7c (no longer used: M7c's host moves stacks with transfer()).
 const WHY_OFFLINE: String = "storage offline only"
 
 
-## What a move did: how many of which item went over (0 = refused, `why` says why).
+## What a move did: how many of which item went over (0 = refused, `why` says why). M7c: the chest slot edits it made
+## (transfer(): the host sends them to the map).
 class Moved:
 	extends RefCounted
 	var why: String = ""
 	var item: StringName = &""
 	var count: int = 0
 	var left: int = 0
+	var edits: Array[EditLog.WorldEdit] = []
 
 	func ok() -> bool:
 		return why.is_empty()
@@ -118,6 +120,53 @@ static func store(chest: WorldData.Chest, inv: Inventory, slot: int) -> Moved:
 	m.left = s.count - n
 	inv.remove(slot, n)
 	return m
+
+
+## M7c: a CHEST request (the host; offline Main moves with store / take): the chest with a tile at `c` on `data` (no chest
+## there: WHY_NO_CHEST), feet `feet` at it (still_at: within Config.STATION_REACH_TILES of its footprint, the rule that
+## keeps its panel open; else WHY_REACH), then store inventory slot `slot` of `inv` (`take` false) or take chest slot `slot`
+## (`take` true). The chest changes in place and the outcome carries one chest slot edit per slot that changed (absolute:
+## applying them again changes nothing), for the map's log and its players.
+static func transfer(data: WorldData, feet: Vector2, inv: Inventory, c: Vector2i, take_it: bool, slot: int) -> Moved:
+	var m: Moved = Moved.new()
+	if data == null or not data.in_bounds(c) or data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_CHEST:
+		m.why = WHY_NO_CHEST
+		return m
+	var rect: Rect2i = data.footprint_at(c)
+	if not still_at(data, feet, rect):
+		m.why = WHY_REACH
+		return m
+	var chest: WorldData.Chest = data.chest_at(rect.position)
+	var before: Array[ItemStack] = copy_slots(chest)
+	m = take(chest, inv, slot) if take_it else store(chest, inv, slot)
+	if m.ok():
+		m.edits = slot_edits(rect.position, before, chest)
+	return m
+
+
+## M7c: a copy of `chest`'s slots.
+static func copy_slots(chest: WorldData.Chest) -> Array[ItemStack]:
+	var out: Array[ItemStack] = []
+	for st: ItemStack in chest.slots:
+		out.append(st.copy() if st != null else null)
+	return out
+
+
+## M7c: the chest slot edits (EditLog.WorldEdit.chest_slot) that turn slots `before` into `chest`'s slots now, in slot order.
+static func slot_edits(key: Vector2i, before: Array[ItemStack], chest: WorldData.Chest) -> Array[EditLog.WorldEdit]:
+	var out: Array[EditLog.WorldEdit] = []
+	for i: int in chest.slots.size():
+		var was: ItemStack = before[i] if i < before.size() else null
+		if not same_stack(was, chest.slots[i]):
+			out.append(EditLog.WorldEdit.chest_slot(key, i, chest.slots[i]))
+	return out
+
+
+## M7c: both empty, or the same item, count, grade and durability.
+static func same_stack(a: ItemStack, b: ItemStack) -> bool:
+	if a == null or b == null:
+		return a == b
+	return a.id == b.id and a.count == b.count and a.grade == b.grade and a.durability == b.durability
 
 
 ## Takes chest slot `chest_slot` of `chest` into `inv` (as much as fits; the rest stays in the chest).

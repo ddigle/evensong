@@ -895,9 +895,13 @@ func _check_session() -> void:
 	s.role = NetSession.Role.HOST
 	var host: SessionHost = SessionHostScript.new(s)
 	s.host = host
-	var m: NetMember = s.add_member(2, 7, "miner", on(Vector2i(66, 52)), RigData.Dir.NORTH)
+	var m: NetMember = s.add_member(2, 7, "miner", on(Vector2i(66, 50)), RigData.Dir.SOUTH)
 	m.gate = InputGate.new()
 	var seq: int = 1
+	# M7c (changed on purpose: M7b's host refused every piece): the host builds each piece with the offline rules (one
+	# edit each, cost 1 in the light), opens and closes the door (DOOR) and takes the wall down (DEMOLISH).
+	var at: Dictionary[StringName, Vector2i] = {&"stone_wall": Vector2i(65, 51), &"door": Vector2i(67, 51),
+		&"stone_floor": Vector2i(66, 51), &"lantern": Vector2i(67, 49)}
 	for id: StringName in Building.PIECES:
 		m.player.inventory.clear()
 		m.player.inventory.add(id, 3)
@@ -905,15 +909,35 @@ func _check_session() -> void:
 		seq += 1
 		f.op = NetProtocol.Op.USE
 		f.slot = 0
-		f.cell = Vector2i(66, 51)
+		f.cell = at[id]
 		f.map = Config.MAP_SURFACE
 		m.player.begin_tick()
 		host.run_frame(m, f)
+		check_eq(m.player.inventory.count_of(id), 2, "%s: built for 1 in the light (refusals %s)" % [id, m.ops_refused])
 		for t: int in Config.NET_OP_INTERVAL_TICKS:
 			m.refill_ops()
-	check_eq(m.refused(Building.WHY_OFFLINE), 4, "every piece: building offline only")
-	check_eq(s.log_for(Config.MAP_SURFACE).size(), 0, "no edit on the host's map")
-	check_eq(m.player.inventory.count_of(&"lantern"), 3, "nothing used")
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 4, "one edit each on the host's map")
+	check(Walls.kind_at(world.data, Vector2i(65, 51)) == Walls.KIND_STONE and Walls.is_door(world.data, Vector2i(67, 51))
+		and Walls.is_floor_piece(world.data, Vector2i(66, 51))
+		and world.data.get_value(WorldData.Layer.PLACEABLE, Vector2i(67, 49)) == WorldData.PLACEABLE_LANTERN,
+		"the wall, the closed door, the floor and the lantern stand")
+	for op: Array in [[NetProtocol.Op.DOOR, Vector2i(67, 51)], [NetProtocol.Op.DOOR, Vector2i(67, 51)],
+			[NetProtocol.Op.DEMOLISH, Vector2i(65, 51)]]:
+		var g: NetProtocol.InputFrame = NetProtocol.InputFrame.new(seq, Vector2i.ZERO)
+		seq += 1
+		g.op = op[0]
+		g.cell = op[1]
+		g.map = Config.MAP_SURFACE
+		m.player.begin_tick()
+		host.run_frame(m, g)
+		for t: int in Config.NET_OP_INTERVAL_TICKS:
+			m.refill_ops()
+	check(Walls.is_door(world.data, Vector2i(67, 51)) and not Walls.is_open_door(world.data, Vector2i(67, 51)),
+		"F on the door opened it, F again closed it (two DOOR requests)")
+	check_eq(Walls.kind_at(world.data, Vector2i(65, 51)), Walls.KIND_NONE, "right-click on the wall took it down")
+	check_eq(m.player.inventory.count_of(&"stone_wall"), Config.BUILD_REFUND, "one wall back")
+	check_eq(s.log_for(Config.MAP_SURFACE).size(), 7, "three more edits")
+	check(m.ops_refused.is_empty(), "nothing refused (%s)" % m.ops_refused)
 
 
 ## The same building twice: the same edits and world hash.

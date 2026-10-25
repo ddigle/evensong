@@ -75,8 +75,8 @@ var drops: Dictionary[int, Drop] = {}
 var drop_serial: int = 1
 ## M7a: what each storage chest holds, by its footprint's top-left tile (items/storage.gd). A chest without an entry is
 ## empty. The world's, not a player's (○ gameplay-design §5 "공유 창고"): the content hash covers the chests that hold
-## something (none on a generated map, so the golden hashes stay); the late-join snapshot does not carry them yet (M7c:
-## M7a has no chest in a session).
+## something (none on a generated map, so the golden hashes stay). M7c: the late-join snapshot carries them and a chest
+## slot edit changes one slot (net/edit_log.gd), so a session's clients hold the host's chests.
 var chests: Dictionary[Vector2i, Chest] = {}
 
 
@@ -324,17 +324,24 @@ func chest_at(c: Vector2i) -> Chest:
 	return chests[key]
 
 
-## Every chest that holds something, by its key row by row: u16 x, u16 y, then per slot u8 item index + 1 (0 = empty),
-## u8 count, u8 grade, u16 durability. Empty when no chest holds anything.
-func chests_bytes() -> PackedByteArray:
+## M7c: the keys (footprint top-left tiles) of the chests that hold something, row by row.
+func held_chests() -> Array[Vector2i]:
 	var keys: Array[Vector2i] = []
 	for k: Vector2i in chests:
 		if not chests[k].is_empty():
 			keys.append(k)
+	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	return keys
+
+
+## Every chest that holds something, by its key row by row: u16 x, u16 y, then per slot u8 item index + 1 (0 = empty),
+## u8 count, u8 grade, u16 durability (EditLog.write_stack's form). Empty when no chest holds anything. M7c: the snapshot
+## carries these after a u16 count (net/world_snapshot.gd).
+func chests_bytes() -> PackedByteArray:
+	var keys: Array[Vector2i] = held_chests()
 	var out: PackedByteArray = PackedByteArray()
 	if keys.is_empty():
 		return out
-	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
 	for k: Vector2i in keys:
 		var at: int = out.size()
 		var slots: Array[ItemStack] = chests[k].slots
