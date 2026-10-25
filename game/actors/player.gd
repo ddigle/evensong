@@ -60,6 +60,13 @@ extends Node2D
 ## M5c, in a session: the channel goes as the CHANNEL request (SessionHost.attach_local_op turns F with nothing to pick up
 ## into it), the click while carrying as ALTAR_PLACE; `carrying_altar` comes from the host's state (its held byte); the
 ## channel of a player drawn from states comes with show_state().
+## M7a (`gear_on`: offline Main's player; M7c: a session's local player and the host's members too): a click with armour
+## selected asks to put it on (equip_requested; Main, items/gear.gd; M7c: an ARMOR request); a heretic's knife hit (take_hit
+## with `armored`) is lessened by the worn armour and wears it; with Config.GEAR_BROKEN_UNUSABLE a broken item makes no
+## frame (gear_refused; M7-fix: the host refuses its USE too).
+## M7b: a click with a build piece selected is a USE without an action like a torch's (place_requested: offline Main builds,
+## items/building.gd; M7c: the host builds from the USE); the axe plays its own body action and lands on
+## Forest.impact_tick (action_impact: offline Main chops; M7c: the host).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -83,6 +90,9 @@ signal channel_done(cell: Vector2i)
 signal channel_broken(why: String)
 signal purify_refused(what: String, why: String)
 signal altar_place_requested(cell: Vector2i)
+## M7a: a click with armour selected in hotbar slot `slot` (Main puts it on); a use the gear rules did not start.
+signal equip_requested(slot: int)
+signal gear_refused(what: String, why: String)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -131,6 +141,8 @@ var farming_on: bool = false
 ## channel_tick / channel_cell), whether this player carries the altar (Main sets it; AltarMove) and how long F has been
 ## held aimed at the altar (Main counts it, Config.ALTAR_PICKUP_HOLD_TICKS).
 var purify_on: bool = false
+## M7a: armour, its defence and its wear on knife hits (Main turns it on offline; M7c: the session's players too).
+var gear_on: bool = false
 var channel_tick: int = 0
 var channel_cell: Vector2i = Vector2i.ZERO
 var carrying_altar: bool = false
@@ -335,6 +347,11 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.item = selected.id
 		else:
 			purify_refused.emit("holy water", why_pour)
+	elif free and gear_on and use_pressed and selected != null and Gear.is_armor(selected.id):
+		equip_requested.emit(inventory.selected)  # M7a: Main puts it on (no frame, nothing to predict)
+	elif free and gear_on and (use_pressed or use_held) and Gear.unusable(selected):
+		if use_pressed:
+			gear_refused.emit("use", Gear.WHY_BROKEN)  # M7a, Config.GEAR_BROKEN_UNUSABLE
 	elif free and (use_pressed or (use_held and Config.ACTION_REPEAT_WHILE_HELD)):
 		var anim: int = WorldItems.use_action(sim_position, inventory, inventory.selected, aim_cell)
 		if anim >= 0:
@@ -344,8 +361,10 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.anim = anim
 			f.item = inventory.selected_stack().id
 		elif use_pressed and (WorldItems.placeable_in(inventory, inventory.selected) != WorldData.PLACEABLE_NONE \
-				or (farming_on and Farming.seed_kind_in(inventory, inventory.selected) != Farming.KIND_NONE)) \
+				or (farming_on and Farming.seed_kind_in(inventory, inventory.selected) != Farming.KIND_NONE) \
+				or not Building.piece_in(inventory, inventory.selected).is_empty()) \
 				and WorldItems.in_reach(sim_position, aim_cell):
+			# M7b: a build piece goes down the same way (a click; offline Main builds it: place_requested).
 			# M5a: seeds go down the same way (a click, offline Main plants them: place_requested).
 			# M3a: a placeable (the torch) goes down on a click, not repeated while held. A USE without an
 			# action: the host (or offline Main) places it; nothing is predicted.
@@ -421,6 +440,8 @@ static func impact_tick_of(item: StringName, anim: int) -> int:
 	var farm_tick: int = Farming.impact_tick(item)  # M5a: the hoe tills, the watering can waters on their own frame
 	if farm_tick >= 0:
 		return farm_tick
+	if Gear.base(item) == Forest.AXE:
+		return Forest.impact_tick()  # M7b: the axe's chop
 	return Combat.impact_tick(item)
 
 
@@ -466,13 +487,18 @@ func load_sim(st: PlayerSim) -> void:
 
 
 ## M4a: a hit of `amount` (PlayerSim.hurt: nothing while down, dead or invulnerable). Returns the
-## PlayerSim event bits (HURT, DOWNED; 0 = it did not land).
-func take_hit(amount: int) -> int:
+## PlayerSim event bits (HURT, DOWNED; 0 = it did not land). M7a: `armored` (a heretic's knife) with `gear_on`: the worn
+## armour takes its defence off (Gear.after_armor) and wears when the hit lands (Gear.wear_armor).
+func take_hit(amount: int, armored: bool = false) -> int:
 	var st: PlayerSim = to_sim()
 	var was_channel: bool = channel_tick > 0
+	if armored and gear_on:
+		amount = Gear.after_armor(amount, inventory)
 	var events: int = st.hurt(amount)
 	if events == 0:
 		return 0
+	if armored and gear_on:
+		Gear.wear_armor(inventory)
 	load_sim(st)
 	_sync_view()
 	if was_channel:

@@ -74,6 +74,8 @@ extends RefCounted
 ##   --test-crop-ticks=<n>        ticks of growth per crop stage in place of Config.CROP_STAGE_TICKS (1..that; the
 ##                                herbalist's crops still grow Config.CROP_HERBALIST_GROWTH_PCT faster): a session test
 ##                                sees a crop ripen in seconds
+## M7b (offline) / M7c (a host puts them into its surface at the start; late joiners get them):
+##   --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...]   built pieces on those tiles, past the building rules
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -134,6 +136,13 @@ var test_start_hp: Dictionary[String, int] = {}
 var test_fields: Array[Array] = []
 ## M5c test flag: ticks per crop stage (0 = Config.CROP_STAGE_TICKS).
 var test_crop_ticks: int = 0
+## M7a test flags: durability left per inventory slot ([slot 0-based, points]) after --give; the armour in that hotbar slot
+## (1-based, 0 = none) is put on at the start.
+var test_durability: Array[Vector2i] = []
+var test_wear: int = 0
+## M7b test flag: [tile (Vector2i), piece (StringName: a build piece's item id, or &"door_open")] per piece put down at the
+## start without the building rules.
+var test_build: Array[Array] = []
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -321,6 +330,21 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: expected --test-crop-ticks=<1..%d>" % [raw, Config.CROP_STAGE_TICKS])
 				else:
 					o.test_crop_ticks = value.to_int()
+			"test-durability":
+				for part: String in value.split("/", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not kv[0].is_valid_int() or not kv[1].is_valid_int() or kv[0].to_int() < 1 \
+							or kv[0].to_int() > Config.INVENTORY_SLOTS or kv[1].to_int() < 0 or kv[1].to_int() > 65535:
+						o.errors.append("%s: expected --test-durability=<1..%d>:<points>[/...]" % [raw, Config.INVENTORY_SLOTS])
+						break
+					o.test_durability.append(Vector2i(kv[0].to_int() - 1, kv[1].to_int()))
+			"test-build":
+				o.test_build = _parse_build(value, raw, o.errors)
+			"test-wear":
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.HOTBAR_SLOTS:
+					o.errors.append("%s: expected --test-wear=<1..%d>" % [raw, Config.HOTBAR_SLOTS])
+				else:
+					o.test_wear = value.to_int()
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:
@@ -373,6 +397,27 @@ static func _parse_fields(value: String, raw: String, errors: PackedStringArray)
 				errors.append(usage)
 				return [] as Array[Array]
 		out.append([tiles[0], kind, stage, is_wet, fast])
+	return out
+
+
+## M7b: --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...].
+const TEST_BUILD_PIECES: Dictionary[String, StringName] = {"wall": &"stone_wall", "door": &"door", "door_open": &"door_open",
+	"floor": &"stone_floor", "lantern": &"lantern"}
+
+
+static func _parse_build(value: String, raw: String, errors: PackedStringArray) -> Array[Array]:
+	var out: Array[Array] = []
+	var usage: String = "%s: expected --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...]" % raw
+	for part: String in value.split("/"):
+		var bits: PackedStringArray = part.split(":")
+		if bits.size() != 2 or not TEST_BUILD_PIECES.has(bits[1]):
+			errors.append(usage)
+			return [] as Array[Array]
+		var tiles: Array[Vector2i] = _parse_tiles(bits[0], raw, errors)
+		if tiles.size() != 1:
+			errors.append(usage)
+			return [] as Array[Array]
+		out.append([tiles[0], TEST_BUILD_PIECES[bits[1]]])
 	return out
 
 

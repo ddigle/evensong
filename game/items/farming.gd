@@ -226,9 +226,9 @@ static func impact_tick(item: StringName) -> int:
 	return -1
 
 
-## The sickle swing on tile `c` harvests (a crop there, any stage) instead of attacking.
+## The sickle swing on tile `c` harvests (a crop there, any stage) instead of attacking. M7a: the tier-1 sickle too (Gear.base).
 static func is_harvest_swing(data: WorldData, item: StringName, c: Vector2i) -> bool:
-	if item != SICKLE:
+	if Gear.base(item) != SICKLE:
 		return false
 	var f: Field = field_at(data, c)
 	return f != null and f.kind != KIND_NONE
@@ -242,8 +242,9 @@ static func till_refusal(data: WorldData, feet: Vector2, c: Vector2i) -> String:
 		return WorldItems.WHY_OUTSIDE
 	if not WorldItems.in_reach(feet, c):
 		return WorldItems.WHY_REACH
-	if data.map_id != Config.MAP_SURFACE or Walls.blocks(data, c):
-		return WHY_NO_GROUND
+	if data.map_id != Config.MAP_SURFACE or Walls.blocks(data, c) or Walls.kind_at(data, c) != Walls.KIND_NONE \
+			or Walls.is_face(data, c):
+		return WHY_NO_GROUND  # M7b: nor a laid floor piece, a door (open too) or its doorway
 	var t: int = data.terrain_at(c)
 	if t == Terrain.SOIL:
 		return WHY_TILLED

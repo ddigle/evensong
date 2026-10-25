@@ -182,6 +182,10 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 ## worked out again from the data (the dungeon's spawn tiles do not depend on either). Called first thing every step()
 ## (cheap when nothing changed: the altar rect and a count of the corruption layer) and by whoever applied such edits.
 ## Heretics keep their homes; none can be inside a new light (AltarMove.place_refusal). Returns whether it changed.
+## M7-fix: building does not come in here. The spawn tiles are worked out on the map's own terrain (terrain_blocked: what
+## players build or place is left out) and spawn_ok() checks the live world when a heretic is put down, so a wall, a door
+## or a station never switches a map's spawning off (M7b walked the dungeon from its arrival through closed doors: a door
+## ring around the arrival room left no spawn tile) and the tiles are never stale (M7b noticed building by counts).
 func sync_world() -> bool:
 	if data == null:
 		return false
@@ -530,7 +534,7 @@ func _knife(h: HereticSim, players: Array[Player]) -> void:
 		if not Config.HERETIC_ENTERS_LIGHT and in_light(p.sim_position):
 			continue
 		if Combat.melee_hits(data, h.pos, h.attack_dir, p.sim_position, Config.HERETIC_HIT_REACH_PX, Config.HERETIC_HIT_ARC_DEG):
-			var ev: int = p.take_hit(Config.HERETIC_DAMAGE)
+			var ev: int = p.take_hit(Config.HERETIC_DAMAGE, true)  # M7a: armour (offline, Player.gear_on) takes its part off
 			if ev & PlayerSim.HURT:
 				count("player_hits")
 			else:
@@ -828,24 +832,26 @@ func heretic_at(point: Vector2) -> HereticSim:
 ## Player `p`'s weapon `item` lands (its hit frame) along aim code `aim`: a melee arc hits every heretic
 ## (and the standing shrine) in it, a bow or holy light lets a shot go. Returns world edits (the shrine
 ## breaking). `owner_slot` (M4b): the attacker's session slot, for the shot events.
-func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = [], owner_slot: int = 255) -> Array[EditLog.WorldEdit]:
+func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = [], owner_slot: int = 255,
+		damage: int = -1) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
 	var a: Combat.Attack = Combat.attack_for(item)
 	if a == null:
 		return edits
+	var dmg: int = a.damage if damage < 0 else damage  # M7a: offline Main passes a tier-1 weapon's (Gear.attack_damage)
 	var dir: Vector2 = Combat.aim_vector(aim)
 	count("player_attacks")
 	if a.kind == Combat.Kind.MELEE:
 		for h: HereticSim in heretics:
 			if h.alive() and Combat.melee_hits(data, p.sim_position, dir, h.pos, a.reach, a.arc_deg):
-				hit_heretic(h, a.damage, p.get_instance_id())
+				hit_heretic(h, dmg, p.get_instance_id())
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
 				if o != p and Combat.melee_hits(data, p.sim_position, dir, o.sim_position, a.reach, a.arc_deg):
-					o.take_hit(a.damage)
+					o.take_hit(dmg)
 		var rect: Rect2i = shrine_rect()
 		if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, a.reach, a.arc_deg):
-			edits.append_array(damage_shrine(a.damage))
+			edits.append_array(damage_shrine(dmg))
 		return edits
 	var s: Shot = Shot.new()
 	s.id = next_id
@@ -855,7 +861,7 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	s.pos = Combat.body_point(p.sim_position)
 	s.speed = a.speed
 	s.left = a.life_ticks()
-	s.damage = a.damage
+	s.damage = dmg
 	s.owner_id = p.get_instance_id()
 	s.aim = posmod(aim, Combat.AIM_STEPS)
 	s.item = item
@@ -1016,8 +1022,11 @@ func try_spawn(players: Array[Player]) -> HereticSim:
 	return null
 
 
+## M7-fix: the live world decides here (the spawn tiles leave out what players built: terrain_blocked): the feet stand (no
+## built wall, station or lantern under them) and are in no doorway (in_doorway: a heretic put down in an open doorway
+## would keep that door from closing).
 func spawn_ok(feet: Vector2, players: Array[Player]) -> bool:
-	if not Movement.can_stand(data, feet) or not Combat.box_outside_light(data, safe, feet):
+	if not Movement.can_stand(data, feet) or not Combat.box_outside_light(data, safe, feet) or in_doorway(data, feet):
 		return false
 	for p: Player in players:
 		if p.sim_position.distance_to(feet) < Config.HERETIC_SPAWN_MIN_PLAYER_PX:
@@ -1031,7 +1040,7 @@ static func spawn_feet(c: Vector2i) -> Vector2:
 
 
 ## Surface spawn tiles: in and around the corruption zones (ash and Config.HERETIC_SPAWN_ASH_REACH_TILES
-## beyond), standable and wholly outside the light.
+## beyond), standable on the map's own terrain (terrain_can_stand, M7-fix) and wholly outside the light.
 static func surface_spawn_cells(p_data: WorldData, p_safe: SafeZone) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	var reach: int = Config.HERETIC_SPAWN_ASH_REACH_TILES
@@ -1048,40 +1057,31 @@ static func surface_spawn_cells(p_data: WorldData, p_safe: SafeZone) -> Array[Ve
 		if not p_data.in_bounds(c):
 			continue
 		var feet: Vector2 = spawn_feet(c)
-		if Movement.can_stand(p_data, feet) and Combat.box_outside_light(p_data, p_safe, feet):
+		if terrain_can_stand(p_data, feet) and Combat.box_outside_light(p_data, p_safe, feet):
 			out.append(c)
 	out.sort()
 	return out
 
 
-## Dungeon spawn tiles: standable floor at least Config.HERETIC_SPAWN_ARRIVAL_MIN_TILES walking steps
-## (4-neighbour) from the arrival point's tile, so heretics come from rooms away from the arrival room.
+## Dungeon spawn tiles: floor standable on the dungeon's own terrain at least Config.HERETIC_SPAWN_ARRIVAL_MIN_TILES
+## walking steps (4-neighbour) from the arrival point's tile, so heretics come from rooms away from the arrival room.
+## M7-fix: the walk and the standing test read the terrain only (terrain_blocked: the generator's walls as mining left them,
+## the stairs, the shrine), never what players built or placed, so walls and a door around the arrival room keep the
+## dungeon's spawning as it was (spawn_ok checks the live world when a heretic is put down).
 static func dungeon_spawn_cells(p_data: WorldData) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	var exit: Rect2i = DungeonGen.exit_rect(p_data)
 	if not exit.has_area():
 		return out
-	var start: Vector2i = Aim.feet_cell(DungeonGen.arrival_point(p_data))
-	var dist: Dictionary[Vector2i, int] = {start: 0}
-	var queue: Array[Vector2i] = [start]
-	var i: int = 0
-	while i < queue.size():
-		var c: Vector2i = queue[i]
-		i += 1
-		for d: Vector2i in DungeonGen.STEPS:
-			var n: Vector2i = c + d
-			if dist.has(n) or not p_data.in_bounds(n) or Movement.is_blocked(p_data, n):
-				continue
-			dist[n] = dist[c] + 1
-			queue.append(n)
-	for c: Vector2i in queue:
-		if dist[c] >= Config.HERETIC_SPAWN_ARRIVAL_MIN_TILES and Movement.can_stand(p_data, spawn_feet(c)):
+	var dist: Dictionary[Vector2i, int] = arrival_distances(p_data)
+	for c: Vector2i in dist:
+		if dist[c] >= Config.HERETIC_SPAWN_ARRIVAL_MIN_TILES and terrain_can_stand(p_data, spawn_feet(c)):
 			out.append(c)
 	out.sort()
 	return out
 
 
-## Walking steps from the dungeon's arrival tile to every reachable tile (tests).
+## Walking steps from the dungeon's arrival tile to every tile reachable on the dungeon's own terrain (terrain_blocked).
 static func arrival_distances(p_data: WorldData) -> Dictionary[Vector2i, int]:
 	var start: Vector2i = Aim.feet_cell(DungeonGen.arrival_point(p_data))
 	var dist: Dictionary[Vector2i, int] = {start: 0}
@@ -1092,8 +1092,57 @@ static func arrival_distances(p_data: WorldData) -> Dictionary[Vector2i, int]:
 		i += 1
 		for d: Vector2i in DungeonGen.STEPS:
 			var n: Vector2i = c + d
-			if dist.has(n) or not p_data.in_bounds(n) or Movement.is_blocked(p_data, n):
+			if dist.has(n) or not p_data.in_bounds(n) or terrain_blocked(p_data, n):
 				continue
 			dist[n] = dist[c] + 1
 			queue.append(n)
 	return dist
+
+
+## M7-fix: the placeables players put down (stations, the chest, the lantern post). terrain_blocked leaves them out.
+const PLAYER_PLACED: Dictionary[int, bool] = {WorldData.PLACEABLE_ALCHEMY: true, WorldData.PLACEABLE_WORKBENCH: true,
+	WorldData.PLACEABLE_ANVIL: true, WorldData.PLACEABLE_RELIC: true, WorldData.PLACEABLE_CHEST: true,
+	WorldData.PLACEABLE_LANTERN: true}
+
+
+## M7-fix: tile `c` blocked on the map's own terrain: a blocking placeable the generators put down (the altar, the entrance,
+## the stairs, the shrine, a tree, a stump), a dungeon wall (as mining left it) or its face. What players build or place
+## (built walls, doors, floor pieces, lanterns, stations, the chest) is left out: Movement.is_blocked without them.
+static func terrain_blocked(p_data: WorldData, c: Vector2i) -> bool:
+	var p: int = p_data.get_value(WorldData.Layer.PLACEABLE, c)
+	if WorldData.placeable_blocks(p) and not PLAYER_PLACED.has(p):
+		return true
+	# A dungeon wall, or its face (Building never puts a piece on either, so a built piece is never in the way here).
+	return Walls.is_natural(p_data, c) or Walls.is_natural(p_data, c + Vector2i(0, -1))
+
+
+## M7-fix: Movement.can_stand on the map's own terrain (terrain_blocked; the altar's side bands count, it is terrain).
+static func terrain_can_stand(p_data: WorldData, feet: Vector2) -> bool:
+	var box: Rect2 = Movement.feet_box(feet)
+	if not Movement.move_bounds(p_data).encloses(box):
+		return false
+	for cell: Vector2i in cells_under(box):
+		if terrain_blocked(p_data, cell):
+			return false
+	for band: Rect2 in Movement.side_bands(p_data):
+		if band.intersects(box):
+			return false
+	return true
+
+
+## M7-fix: whether the feet box at `feet` overlaps a door's tile or its face tile (Building.door_cell: open or closed).
+static func in_doorway(p_data: WorldData, feet: Vector2) -> bool:
+	for cell: Vector2i in cells_under(Movement.feet_box(feet)):
+		if Building.door_cell(p_data, cell) != Walls.NO_CELL:
+			return true
+	return false
+
+
+## The tiles box `box` overlaps (half-open, Movement.blocked_cells' rule).
+static func cells_under(box: Rect2) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var t: float = float(Config.TILE)
+	for cy: int in range(floori(box.position.y / t), ceili(box.end.y / t)):
+		for cx: int in range(floori(box.position.x / t), ceili(box.end.x / t)):
+			out.append(Vector2i(cx, cy))
+	return out

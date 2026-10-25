@@ -43,7 +43,9 @@ static func seen(s: NetSession) -> Dictionary:
 	for slot: int in sorted_slots(s.members):
 		var m: NetMember = s.members[slot]
 		players[str(slot)] = {"map": m.map_id, "drawn": drawn(m)}
-	return {"tick": s.tick, "map": s.local_map(), "players": players}
+	# M7c: and where this machine has its own player's feet (a session test reads where a door stopped it).
+	var feet: String = "%.2f,%.2f" % [s.local.player.sim_position.x, s.local.player.sim_position.y] if s.local != null else ""
+	return {"tick": s.tick, "map": s.local_map(), "players": players, "feet": feet}
 
 
 ## Whether member `m` is drawn on this machine (its node visible and in a shown world).
@@ -69,7 +71,40 @@ static func map_result(s: NetSession, map: int) -> Dictionary:
 		"torches": w.data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH),
 		# M5c: where the altar is ("none" while carried), the fields and the corruption left.
 		"altar": "%d,%d" % [w.data.altar_rect.position.x, w.data.altar_rect.position.y] if w.data.altar_rect.has_area() else "none",
-		"fields": fields_of(w.data), "corrupted": Purify.corrupted_count(w.data)}
+		"fields": fields_of(w.data), "corrupted": Purify.corrupted_count(w.data),
+		# M7c: the built pieces, doors, trees, stumps, stations and chests, and the build view against the data.
+		"builds": builds_of(w.data), "builds_view": w.builds.verify() if w.builds != null else {}}
+
+
+## M7c: what is built and standing on `data`: built walls, closed and open doors, floor pieces, lantern posts, trees, stumps,
+## the stations by kind and every chest's contents by its tile ("x,y" -> WorldData.Chest.describe(), held ones only).
+static func builds_of(data: WorldData) -> Dictionary:
+	var walls: int = 0
+	var doors: int = 0
+	var open_doors: int = 0
+	var floors: int = 0
+	for y: int in data.size.y:
+		for x: int in data.size.x:
+			var k: int = Walls.kind_at(data, Vector2i(x, y))
+			if k == Walls.KIND_STONE:
+				walls += 1
+			elif k == Walls.KIND_DOOR:
+				doors += 1
+			elif k == Walls.KIND_DOOR_OPEN:
+				open_doors += 1
+			elif k == Walls.KIND_FLOOR:
+				floors += 1
+	var chests: Dictionary = {}
+	for key: Vector2i in data.held_chests():
+		chests["%d,%d" % [key.x, key.y]] = data.chests[key].describe()
+	return {"walls": walls, "doors": doors, "open_doors": open_doors, "floors": floors,
+		"lanterns": data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_LANTERN),
+		"trees": data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TREE),
+		"stumps": data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_STUMP),
+		"workbenches": data.footprints(WorldData.PLACEABLE_WORKBENCH).size(),
+		"anvils": data.footprints(WorldData.PLACEABLE_ANVIL).size(),
+		"relic_benches": data.footprints(WorldData.PLACEABLE_RELIC).size(),
+		"chest_count": data.footprints(WorldData.PLACEABLE_CHEST).size(), "chests": chests}
 
 
 ## M5c: the fields of `data`: tilled tiles, crops (and of them withered, ripe), wet tiles, and the crops by tile
@@ -108,6 +143,8 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		# Inventories: the host has everyone's, a client only its own.
 		if s.host != null or m == s.local:
 			entry["inventory"] = m.player.inventory.describe()
+			entry["armor"] = Gear.describe(m.player.inventory.armor)  # M7c: the armour worn and its durability
+			entry["gear"] = gear_of(m.player.inventory)
 		if s.host != null:
 			ops[str(slot)] = {"done": m.ops_done, "refused": m.ops_refused, "swings_missed": m.swings_missed,
 				"combat": m.combat, "host_steps": m.host_steps, "frames_held": m.frames_held}
@@ -158,6 +195,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["travels"] = s.host.travels
 		out["combat"] = s.host.combat_result()
 		out["fields"] = s.host.fields_result()  # M5c
+		out["builds"] = s.host.builds_result()  # M7c
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
@@ -181,6 +219,18 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["combat"] = c.combat_result()
 		out["effects_on_welcome"] = c.effects_on_welcome
 		out["purify_flashes"] = c.purify_flashes  # M5c
+	return out
+
+
+## M7c: every item with durability in `inv` ("<slot>:<item> <left>/<full>", the worn armour as "armor:..."), for the results.
+static func gear_of(inv: Inventory) -> Array:
+	var out: Array = []
+	for i: int in inv.size():
+		var st: ItemStack = inv.stack_at(i)
+		if st != null and st.max_durability() > 0:
+			out.append("%d:%s" % [i, Gear.describe(st)])
+	if inv.armor != null:
+		out.append("armor:%s" % Gear.describe(inv.armor))
 	return out
 
 

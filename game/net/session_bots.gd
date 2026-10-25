@@ -53,9 +53,14 @@ func local_action() -> NetBot.Action:
 		bot.life = p.vitals.life if p != null else Vitals.Life.ALIVE
 		bot.downed = downed_here()
 		bot.world = p.data if p != null else null  # M5c: waitfield
+		bot.others = others_here()  # M7c: waitat
 		a = bot.step(feet)
 		if a.tab or a.craft_row >= 0:
 			s.bot_ui.emit(a.tab, a.craft_row)
+		if a.store_slot >= 0 or a.take_slot >= 0 or a.unequip:
+			s.bot_gear.emit(a.store_slot, a.take_slot, a.unequip)  # M7c: Main sends CHEST / ARMOR
+		if a.demolish and a.op == null and (p == null or not p.ui_locked):
+			a.op = Main.request(NetProtocol.Op.DEMOLISH)  # M7c: right-click (the frame aims it at the target tile)
 	else:
 		a.dir = Player.read_input()
 		a.mouse = feet
@@ -76,6 +81,16 @@ func local_action() -> NetBot.Action:
 		a.interact = false
 		a.skill = false
 	return a
+
+
+## M7c: the other players' feet on the local player's map, as this machine has them (bot "waitat").
+func others_here() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for slot: int in s.members:
+		var m: NetMember = s.members[slot]
+		if m != s.local and m.map_id == s.local_map() and m.player != null:
+			out.append(m.player.sim_position)
+	return out
 
 
 ## M4b: where the players on the local player's map that are down lie, as this machine shows them.

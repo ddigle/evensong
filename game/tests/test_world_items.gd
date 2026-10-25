@@ -428,8 +428,8 @@ func _check_drops_in_world() -> void:
 	data.drops[second.id] = second
 	check(second.id > drop.id, "new_drop_id rises")
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 * WorldData.DROP_BYTES,
-		"raw snapshot = header + layers + 2 + 11 B per drop")
+	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 * WorldData.DROP_BYTES + 2,
+		"raw snapshot = header + layers + 2 + 11 B per drop + the chest count (M7c)")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	check(back != null and back.content_hash() == data.content_hash() and back.drops.size() == 2
 		and back.drops[drop.id].same_as(drop) and back.drops[second.id].same_as(second), "drops round trip in the snapshot")
@@ -589,7 +589,8 @@ func _check_inventory_codec() -> void:
 	inv.move(2, 20)
 	inv.select(5)
 	var bytes: PackedByteArray = NetProtocol.encode_inventory(inv, 4000000001)
-	check_eq(bytes.size(), NetProtocol.INVENTORY_HEADER + 3 * Config.INVENTORY_SLOTS, "inventory = 6 + 3 B x 24 slots")
+	check_eq(bytes.size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1),
+		"inventory = 6 + 3 B x 24 slots + the empty armour slot (M7c; no item with durability here)")
 	var back: NetProtocol.InventoryState = NetProtocol.decode_inventory(bytes)
 	check(back.ok and back.ack == 4000000001 and back.selected == 5 and back.stacks.size() == Config.INVENTORY_SLOTS,
 		"inventory decodes")

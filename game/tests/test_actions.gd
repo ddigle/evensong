@@ -20,13 +20,14 @@ const DOC: Dictionary[int, Array] = {
 	RigData.Anim.BOW: ["base_body_v02_bow.png", 8, 64],
 	RigData.Anim.MAGIC: ["base_body_v02_magic.png", 6, 64],
 	RigData.Anim.THROW: ["base_body_v02_throw.png", 7, 32],
+	RigData.Anim.AXE: ["base_body_v02_axe.png", 6, 64],  # M7b: 03-pixel 14차 (appended after the poses)
 }
 ## v01 -> v02 re-pivot of each action's rows (south, east, north): the 64 cell actions were aligned on
 ## walk frame 0 (walk +4 +3 +4), throw re-pivoted on its own (+4 +4 +3).
 const PIVOT: Dictionary[int, Array] = {
 	RigData.Anim.PICKAXE: [4, 3, 4], RigData.Anim.HOE: [4, 3, 4], RigData.Anim.SICKLE: [4, 3, 4],
 	RigData.Anim.WATERING: [4, 3, 4], RigData.Anim.SWORD: [4, 3, 4], RigData.Anim.BOW: [4, 3, 4],
-	RigData.Anim.MAGIC: [4, 3, 4], RigData.Anim.THROW: [4, 4, 3],
+	RigData.Anim.MAGIC: [4, 3, 4], RigData.Anim.THROW: [4, 4, 3], RigData.Anim.AXE: [4, 3, 4],
 }
 ## Render canvas and the feet point on it.
 const CANVAS: Vector2i = Vector2i(128, 96)
@@ -52,7 +53,7 @@ func _image(path: String) -> Image:
 
 
 func _check_tables() -> void:
-	check_eq(RigData.ACTION_ANIMS.size(), 8, "eight body actions")
+	check_eq(RigData.ACTION_ANIMS.size(), 9, "nine body actions (M7b: + the axe)")
 	for anim: int in RigData.ACTION_ANIMS:
 		var doc: Array = DOC[anim]
 		var name: String = RigData.ANIM_NAMES[anim]
@@ -184,7 +185,7 @@ func _check_node_render() -> void:
 						check(not c.body.centered and c.body.offset == Vector2.ZERO and c.rig.position == Vector2.ZERO,
 							"sprites drawn from their top-left")
 		c.free()
-	check_eq(frames, 5 * 4 * (6 + 6 + 6 + 8 + 8 + 8 + 6 + 7), "frames rendered (5 classes x 4 directions x 55)")
+	check_eq(frames, 5 * 4 * (6 + 6 + 6 + 8 + 8 + 8 + 6 + 7 + 6), "frames rendered (5 classes x 4 directions x 61: M7b + the axe's 6)")
 	check_eq(bad, 0, "node drawing = sheets + rules for every action frame (first difference: %s)" % first_bad)
 	# The renders are not blank and the actions differ from walking.
 	var c2: Character = Character.new()

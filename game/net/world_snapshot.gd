@@ -8,7 +8,9 @@ extends RefCounted
 ##
 ## Raw      header + the six layers in WorldData.Layer order, w x h bytes each (row-major) + the
 ##          drops (M2b: WorldData.drops_bytes(), u16 count + 11 B each, by id; gatherables are the
-##          VEGETATION layer)
+##          VEGETATION layer) + (M7c) the storage chests that hold something: u16 count, then per chest
+##          WorldData.chests_bytes()'s form (u16 x, u16 y of its footprint's top-left tile, Config.CHEST_SLOTS
+##          slots of EditLog.STACK_BYTES), row by row
 ##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (6),
 ##          u8 map id (M3b: which map this is; not in the content hash)
 ## M3b: the same path sends a map to a player who enters it (net/session_host.gd: a stream per entry,
@@ -32,7 +34,12 @@ const COMPRESSION: FileAccess.CompressionMode = FileAccess.COMPRESSION_ZSTD
 ## loads (GameWorld.load_data) in under a second here; 2048 would mean ~25 MB, minutes of streaming
 ## and ~13 s / 1.4 GB to load. Raise it together with those when maps grow.
 const MAX_SIDE: int = 512
-const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE + 2 + WorldData.DROP_BYTES * Config.MAX_DROPS
+## M7c (IMPL): the most chests with contents a snapshot may carry (a chest stands only in the altar's light, about 38 fit
+## in one light; the altar moves, so more over a long game). One chest = CHEST_BYTES.
+const MAX_CHESTS: int = 1024
+const CHEST_BYTES: int = 4 + EditLog.STACK_BYTES * Config.CHEST_SLOTS
+const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE + 2 + WorldData.DROP_BYTES * Config.MAX_DROPS \
+	+ 2 + CHEST_BYTES * MAX_CHESTS
 ## zstd never grows data by more than a small fraction; a receiver refuses more than this.
 const MAX_PACKED: int = MAX_RAW + MAX_RAW / 64 + 1024
 
@@ -164,6 +171,10 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 	for grid: PackedByteArray in data.layers:
 		out.append_array(grid)
 	out.append_array(data.drops_bytes())
+	var at: int = out.size()
+	out.resize(at + 2)
+	out.encode_u16(at, data.held_chests().size())  # M7c: the chests' contents
+	out.append_array(data.chests_bytes())
 	return out
 
 
@@ -183,7 +194,11 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < drops_at + 2:
 		return null
 	var drop_count: int = raw.decode_u16(drops_at)
-	if drop_count > Config.MAX_DROPS or raw.size() != drops_at + 2 + WorldData.DROP_BYTES * drop_count:
+	var chests_at: int = drops_at + 2 + WorldData.DROP_BYTES * drop_count
+	if drop_count > Config.MAX_DROPS or raw.size() < chests_at + 2:
+		return null
+	var chest_count: int = raw.decode_u16(chests_at)
+	if chest_count > MAX_CHESTS or raw.size() != chests_at + 2 + CHEST_BYTES * chest_count:
 		return null
 	var altar: Rect2i = Rect2i(raw.decode_u16(12), raw.decode_u16(14), raw.decode_u16(16), raw.decode_u16(18))
 	if altar.has_area() and not Rect2i(Vector2i.ZERO, size).encloses(altar):
@@ -206,6 +221,22 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 		if d == null or data.drops.has(d.id):
 			return null
 		data.drops[d.id] = d
+	# M7c: each chest a chest's top-left tile (once), its slots valid stacks, something in it.
+	for i: int in chest_count:
+		var at: int = chests_at + 2 + CHEST_BYTES * i
+		var key: Vector2i = Vector2i(raw.decode_u16(at), raw.decode_u16(at + 2))
+		if not data.in_bounds(key) or data.get_value(WorldData.Layer.PLACEABLE, key) != WorldData.PLACEABLE_CHEST \
+				or data.footprint_at(key).position != key or data.chests.has(key):
+			return null
+		var chest: WorldData.Chest = WorldData.Chest.new()
+		for slot: int in Config.CHEST_SLOTS:
+			var got: Array = EditLog.read_stack(raw, at + 4 + EditLog.STACK_BYTES * slot)
+			if not got[1]:
+				return null
+			chest.slots[slot] = got[0]
+		if chest.is_empty():
+			return null
+		data.chests[key] = chest
 	return data
 
 

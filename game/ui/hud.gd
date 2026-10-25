@@ -14,6 +14,13 @@ extends CanvasLayer
 ## M6a: the local player's effects (buff, poison) as small icons under the stamina bar with a 1 px time-left bar
 ## (EffectMarks, PLACEHOLDERS), and the crafting panel (`crafting`, ui/crafting_panel.gd) that Main opens with Tab
 ## at a station.
+## M7a (PLACEHOLDERS drawn in code): a durability bar in every slot whose item is worn (draw_durability: 14x2 px at the
+## slot's bottom, gold over half, amber, rust under a quarter; a broken item's bar is all rust), the armour slot left of
+## the hotbar (shown while the inventory is open or armour is worn: the worn piece and its bar, else a dim armour
+## outline; a click on it while the inventory is open takes the armour off: armor_clicked), and the chest panel
+## (`chest`, ui/chest_panel.gd) that Main opens with F at a storage chest.
+
+signal armor_clicked
 
 const SLOT: int = 18                 # slot square, px (16 px icon + 1 px frame)
 const GAP: int = 2                   # between slots
@@ -45,6 +52,15 @@ const GIVE_UP_FILL: Color = Color8(0xef, 0xe3, 0xc6)
 const EFFECT_ICON_GAP: int = 3
 ## M6a: an effect's time-left bar (§4 faith ivory).
 const EFFECT_LEFT: Color = Color8(0xef, 0xe3, 0xc6)
+## M7a: the durability bar (IMPL: its place in a slot and its colours: §4 faith gold, the buff amber, the HP rust), and
+## the armour slot's gap from the hotbar and the dim outline of an empty one.
+const DUR_AT: Vector2i = Vector2i(2, 14)
+const DUR_SIZE: Vector2i = Vector2i(14, 2)
+const DUR_HIGH: Color = Color8(0xf4, 0xc9, 0x5d)
+const DUR_MID: Color = Color8(0xe0, 0x86, 0x1a)
+const DUR_LOW: Color = Color8(0xb8, 0x43, 0x2f)
+const ARMOR_GAP: int = 6
+const ARMOR_EMPTY: Color = Color(1.0, 1.0, 1.0, 0.28)
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
@@ -61,6 +77,8 @@ var canvas: Node2D
 var player: Player
 ## M6a: the crafting panel (ui/crafting_panel.gd), drawn over the rest.
 var crafting: CraftingPanel
+## M7a: the storage chest panel (ui/chest_panel.gd).
+var chest: ChestPanel
 var _shown: String = ""
 
 
@@ -73,6 +91,8 @@ func _init() -> void:
 	canvas.draw.connect(_draw_hud)
 	crafting = CraftingPanel.new()
 	add_child(crafting)
+	chest = ChestPanel.new()
+	add_child(chest)
 
 
 func _ready() -> void:
@@ -88,6 +108,7 @@ func bind(inv: Inventory) -> void:
 	if inventory != null:
 		inventory.changed.connect(canvas.queue_redraw)
 		inventory.changed.connect(_refresh_crafting)
+	chest.inventory = inv
 	canvas.queue_redraw()
 
 
@@ -95,6 +116,8 @@ func bind(inv: Inventory) -> void:
 func _refresh_crafting() -> void:
 	if crafting.is_open():
 		crafting.refresh()
+	if chest.is_open():
+		chest.queue_redraw()
 
 
 ## M4a: shows `p`'s HP, stamina, down and respawn state.
@@ -178,6 +201,60 @@ func _draw_hud() -> void:
 	for i: int in count:
 		var o: Vector2i = slot_origin(i, inventory.hotbar_size, view)
 		_draw_slot(o, inventory.stack_at(i), i == inventory.selected)
+	if open or inventory.armor != null:
+		_draw_armor_slot(armor_slot_origin(inventory.hotbar_size, view))
+
+
+## M7a: top-left of the armour slot (left of the hotbar's first slot, ARMOR_GAP apart).
+static func armor_slot_origin(hotbar: int, view: Vector2i) -> Vector2i:
+	return slot_origin(0, hotbar, view) - Vector2i(ARMOR_GAP + SLOT, 0)
+
+
+## M7a: the armour slot: the worn piece (and its bar), else a dim armour outline.
+func _draw_armor_slot(o: Vector2i) -> void:
+	var r: Rect2i = Rect2i(o, Vector2i(SLOT, SLOT))
+	canvas.draw_rect(Rect2(r), FILL)
+	_frame(r, FRAME_DARK)
+	_frame(r.grow(-1), FRAME)
+	var tex: Texture2D = ItemIcons.texture_for(&"armor_t1")
+	if inventory.armor == null:
+		if tex != null:
+			canvas.draw_texture(tex, Vector2(o + Vector2i(1, 1)), ARMOR_EMPTY)
+		return
+	var worn: Texture2D = ItemIcons.texture_for(inventory.armor.id)
+	if worn != null:
+		canvas.draw_texture(worn, Vector2(o + Vector2i(1, 1)))
+	if inventory.armor.worn():
+		draw_durability(canvas, o, inventory.armor.durability, inventory.armor.max_durability())
+
+
+## M7a: a durability bar on `ci` in the slot at `o` for `left` of `full` points (nothing when full or no durability):
+## DUR_SIZE at DUR_AT over the ash black, gold over half, amber over a quarter, rust under; broken = all rust.
+static func draw_durability(ci: CanvasItem, o: Vector2i, left: int, full: int) -> void:
+	if full <= 0 or left >= full:
+		return
+	var at: Vector2 = Vector2(o + DUR_AT)
+	if left <= 0:
+		ci.draw_rect(Rect2(at, Vector2(DUR_SIZE)), DUR_LOW)
+		return
+	ci.draw_rect(Rect2(at, Vector2(DUR_SIZE)), FRAME_DARK)
+	var ratio: float = float(left) / full
+	var w: int = clampi(ceili(ratio * DUR_SIZE.x), 1, DUR_SIZE.x)
+	var c: Color = DUR_HIGH if ratio > 0.5 else (DUR_MID if ratio > 0.25 else DUR_LOW)
+	ci.draw_rect(Rect2(at, Vector2(w, DUR_SIZE.y)), c)
+
+
+## M7a: a click on the armour slot while the inventory is open takes the worn armour off (Main).
+func _input(event: InputEvent) -> void:
+	if not open or inventory == null or not (event is InputEventMouseButton):
+		return
+	var mb: InputEventMouseButton = event as InputEventMouseButton
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	var o: Vector2i = armor_slot_origin(inventory.hotbar_size, view_size())
+	if Rect2(Rect2i(o, Vector2i(SLOT, SLOT))).has_point(canvas.get_local_mouse_position()):
+		armor_clicked.emit()
+		get_viewport().set_input_as_handled()
 
 
 func _draw_slot(o: Vector2i, stack: ItemStack, selected: bool) -> void:
@@ -194,6 +271,8 @@ func _draw_slot(o: Vector2i, stack: ItemStack, selected: bool) -> void:
 		canvas.draw_rect(Rect2(Vector2(o + Vector2i(2, 2)), Vector2(2, 2)), FINE_MARK)
 	if stack.count > 1:
 		_draw_number(stack.count, o + Vector2i(SLOT - 3, SLOT - 3))
+	if stack.worn():
+		draw_durability(canvas, o, stack.durability, stack.max_durability())  # M7a
 
 
 ## M4a: the HP and stamina bars, the down bars, the respawn countdown.

@@ -57,6 +57,12 @@ extends Node
 ## and applies; fields, crops, purified ground and the altar's place are world edits (snapshots carry them), the channel
 ## and the carried altar ride in the states.
 ##
+## M7c (stations, gear, the chest, building, doors, trees): placing a station, the chest or a build piece is a USE, taking a
+## piece down DEMOLISH, F on a door DOOR, the armour ARMOR, a chest panel click CHEST, the axe a USE whose landing frame the
+## host chops on; the host checks and applies every one (net/session_host.gd). Pieces, doors, trees, stumps and stations are
+## cell edits, a chest's contents chest slot edits (snapshots carry them all); durability and the armour slot ride in the
+## owner's inventory message. A client predicts its body actions (the axe swing too), never what they change.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -73,6 +79,11 @@ signal ended(reason: String, code: int)
 ## M6b: a bot pressed Tab / asked for a crafting panel row this tick (session flow; Main opens the panel or sends
 ## the CRAFT request, before the tick's frame is built).
 signal bot_ui(tab: bool, craft_row: int)
+## M7c: F at a chest in reach (the local player's keys or bot, SessionHost.attach_local_op): Main opens its panel on this
+## machine's world (footprint `rect`); a bot clicked a chest panel slot (store / take, -1 = none) or the armour slot this
+## tick (Main sends the CHEST / ARMOR request).
+signal chest_wanted(rect: Rect2i)
+signal bot_gear(store_slot: int, take_slot: int, unequip: bool)
 
 enum Role { OFFLINE, HOST, CLIENT }
 const ROLE_NAMES: PackedStringArray = ["offline", "host", "client"]

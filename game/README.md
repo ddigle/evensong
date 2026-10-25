@@ -15,11 +15,18 @@
 그 위에 **M5a "밭 · 씨앗 · 물주기 · 자라기 · 수확 · 시듦"**(혼자 할 때 먼저. 세션에서는 농사가 꺼져 있고 M6b 흐름 그대로, M5c에서 켠다)을 더했다: 괭이가 제단 빛 안의 풀을 일군 흙으로(바닥 편집, 채굴처럼 지도의 편집. M1 생성기의 흙 덩어리는 이미 밭), 씨앗 셋(04-env 작은 것 띠의 씨앗 봉투, 좌클릭으로 심기: 회복·버프 약초는 누구나, 독초 씨앗은 약초사만 ● R37), 물뿌리개(칸이 젖고 60초 뒤 마름, 04-env 물 준 흙을 칸별 덧칠로 ● R29), 자라기(젖은 동안만, 0~4단계 = 04-env `crops_v03`, 약초사가 심은 것은 두 배 빠름), 낫으로 수확(작물을 겨누면 수확만, 아니면 무기 그대로: 야생 약초와 같은 아이템 둘 + 씨앗 하나, 등급은 거두는 사람 = 약초사면 상급), 시듦(빛 밖이거나 오염이 2칸 안이면 그 틱에 시들어 멈추고, 원인이 사라지는 틱에 되살아남, 밭은 남음), 야생 약초를 캐면 그 작물의 씨앗 하나. 작물의 보이는 상태는 월드의 식생 레이어 값이라 스냅샷·해시·편집 기록이 그대로 덮고, 자라는 시간·물 시간은 지도마다의 `Farm`이 틱으로 센다(시계·난수 없음: 혼자 = 호스트(M5c)). 시험 플래그 `--test-field`, 창 그림 검사 `fields`, 스모크 `farm=`. [M5a: 밭 · 씨앗 · 물주기 · 자라기 · 수확 · 시듦](#m5a-밭--씨앗--물주기--자라기--수확--시듦).
 그 위에 **M5b "정화 · 성수 · 제단 옮기기"**(혼자 할 때 먼저. 세션에서는 꺼져 있고 M5a 흐름 그대로, M5c에서 켠다)를 더했다: 성수(04-env `item_holy_water_a_v02`, ● §3.0 누구나: 고르고 좌클릭 = 목표 칸 둘레 3×3의 오염 칸을 정화, 마법 동작을 빌려 씀, 얻는 길은 아직 `--give`뿐), 팔라딘의 광역 정화 채널링(● §3.0: 재 위나 바로 옆에서 주울 것이 없을 때 **F** = 정화 시작, 3초 서 있으면 발 칸 둘레 반지름 3칸 원판의 오염 칸이 풀로, 움직이기·대시·사용·맞음·다운이면 끊김, 마법 동작을 되풀이하고 둘레에 금빛 점), 정화된 칸 = 풀(바닥 재 → 풀, 오염 → 0: 월드 편집이라 스냅샷·해시·편집 기록이 그대로 덮음. 재가 걷히는 모습은 잠깐의 재 얼룩(04-env `decal_ashcreep`)과 금빛 테두리로만), 이단의 스폰 칸이 오염을 따라 다시 계산되고(`Arena.sync_world`) 오염 옆에서 시든 작물은 다음 틱에 되살아남(M5a 규칙). 제단 옮기기(● §9.3 위치·이동 자유): 누구나 제단 칸을 겨누고 **F를 2초** 누르고 있으면 든다(제단 칸이 월드에서 빠진다: 그동안 빛·안전 반경·스폰 억제·부활 자리가 없고 죽은 사람은 기다린다, 든 사람 머리 위에 작은 제단), **좌클릭** = 겨눈 쪽 두 칸 앞에 내려놓기(열린 땅이고 오염·설치물·채집물·밭·드롭·누구의 발·도착점이 아니고, 부활 자리 아홉이 설 수 있고, 새 빛 안에 살아 있는 이단이 없을 때. 놓일 자리를 금빛/짙은 빨강 테두리와 빛 가장자리 점으로 보임). 든 사람은 오가기·채널링·도구 사용을 못 하고, 다운되면 가까운 놓을 수 있는 자리에 저절로 놓인다. 놓으면 빛·안전 반경·이단의 빛 규칙과 스폰 칸·부활 자리 아홉·비워 두는 자리·제단 옆 띠·밭의 빛이 모두 새 자리를 따른다(옛 밭은 남아 시들고 새 빛 안의 밭은 자람, 더미도 새 자리로). 제단 자리는 설치물 레이어의 칸에서 다시 읽어서(`WorldData.refresh_altar_rect`) M5c도 전송 형식을 바꾸지 않아도 된다. [M5b: 정화 · 성수 · 제단 옮기기](#m5b-정화--성수--제단-옮기기).
 그 위에 **M5c "세션의 농사 · 정화 · 제단"**을 더했다: M5a·M5b가 혼자 할 때 더한 것을 세션에서 모두 호스트가 정한다(● game-concept §13 호스트 권한). 호스트가 지도마다 `Farm`을 매 틱 돌리고(혼자 할 때와 같은 규칙·순서: 플레이어 → 아레나 → 농장), 일구기·심기·물주기·수확·성수·채널링·제단 들기·놓기는 입력 프레임에 붙는 요청을 호스트가 그 프레임의 자리에서 검사해 적용한다(심기는 씨앗 칸의 USE, 성수는 성수 칸의 USE, 괭이·물뿌리개·낫은 도구 동작의 맞는 프레임, 새 요청 CHANNEL·ALTAR_LIFT·ALTAR_PLACE). 밭·작물·정화된 땅·제단 자리는 그 지도의 번호 붙은 편집이고(늦은 참가·지도 들어옴은 스냅샷으로), 채널링은 상태의 동작 비트에, 든 제단은 상태의 든 아이템 바이트에 실린다(상태는 17B 그대로, 프레임은 1바이트 그대로). 클라이언트는 몸 동작과 채널링만 예측하고 결과(자람·정화·제단 자리)는 받는다. 제단을 들고 있는 동안 아무도 부활하지 않고, 그동안 참가하는 사람은 든 자리 둘레에 나타나며, 든 사람이 다운되거나 나가면 가까이 내려놓인다. 전송 형식 v7. [M5c: 세션의 농사 · 정화 · 제단](#m5c-세션의-농사--정화--제단).
+그 위에 **M7a "작업대 체인 · 1티어 장비 · 내구도 · 공유 창고"**(혼자 할 때 먼저. 세션에서는 새 작업대·창고 놓기와 새 레시피를 호스트가 거부하고 갑옷·마모가 꺼져 있다, M7c에서 켠다)를 더했다: M6의 제작 틀 위에 작업대 셋(기본 작업대 → 모루 → 성물 제작대, 04-env `workbench_v03`·`anvil_v03`·`relic_bench_v03` + 공유 작은 불꽃)과 손 레시피(작업대 없는 곳의 Tab, 통나무로 기본 작업대), 레시피 열넷(널판, 모루, 창고, 모루의 제련 1 : 1, 1티어 장비 여섯, 성물 제작대, 성물 제작대의 횃불)과 수리 여섯, 재료 셋까지 그리고 스크롤하는 제작 창, 1티어 무기 다섯(클래스 기본 무기마다 하나: 같은 동작·공격 모양·채굴·수확, 피해 150%, ● §3.5 누구나 모루에서)과 갑옷 한 벌(인벤토리 밖 갑옷 칸, 고르고 클릭 = 입기, 칼 한 번에 4를 덜 받음), 내구도(1티어만: 공격마다·맞은 칼마다 1, 죽으면 지닌 장비 모두 20%, ● §2.6 장비는 남고 닳음, 부서지면 기본 아이템처럼, 모루에서 재료 하나로 수리, 칸의 막대), 공유 창고(04-env `storage_chest_v02`, 제단 빛 안에만, 칸 16, F = 인벤토리 위의 창고 창, 클릭으로 넣기·꺼내기, 내용물은 지도의 것이고 월드 해시가 덮음). 시험 셋, 창 그림 검사 셋, 스크린샷 셋. [M7a: 작업대 체인 · 1티어 장비 · 내구도 · 공유 창고](#m7a-작업대-체인--1티어-장비--내구도--공유-창고).
+그 위에 **M7b "건설 · 나무 · 도끼"**(혼자 할 때 먼저. 세션에서는 호스트가 건설 조각을 거부하고, 도끼는 휘두르기만 하며 우클릭·문의 F는 아무것도 하지 않는다, M7c에서 켠다)를 더했다: 건설 조각 넷(● gameplay-design §3.0 R11 누구나, ● §3.3 R37 건설 벽은 바닥 위 별도 층 = 던전 벽과 같은 벽 레이어, 재질은 돌만: 04-env `build_stone_candA_v02`의 돌 벽·문·바닥, 04-env 랜턴 기둥 c = 조명)을 기본 작업대에서 만들고 핫바에서 골라 좌클릭 = 목표 칸에 바로(그리드 스냅), 비용은 제단 빛 안 1개·밖 2개(○ §3.3 "비용 감소" 쪽), 우클릭 = 누구의 것이든 철거하고 1개 돌려받음, F = 문 열고 닫기(닫힌 문은 벽, 열린 문과 그 앞면 칸은 지나감). 건설 벽은 벽 레이어의 새 종류라 플레이어·이단·화살·예측·스폰 칸이 던전 벽과 똑같이 막히고(벽 칸 + 앞면 칸), 벽 레이어 그림(`BuildView`, 엔티티 아래, 시트의 조립 규칙)으로 그린다. 놓기 규칙: 다른 조각·설치물(제단·입구·계단·작업대·나무)·밭·채집물·던전 벽과 그 앞면에는 안 되고, 막는 조각은 드롭·몸(플레이어·이단)·사람이 나타나는 자리에도 안 되며 그런 자리를 벽으로 가두지 못한다(봉쇄 검사: 12칸 걸어 나가지 못하게 되면 거부, 문은 열린 것으로 셈, 작업대·창고·제단 옮기기도 같은 규칙). 놓을 자리 표시(`BuildGhost`: 조각 그림의 바둑판 절반 + 막는 칸 테두리, 금빛 = 됨 · 짙은 빨강 = 안 됨). 나무 한 종(● game-concept §12 R37, 03-pixel·04-env 새 그림 `tree_v02`·`stump_v01`)을 지상 생성기 6단계가 30그루 놓고(제단 가운데에서 20칸 밖, 재에서 3칸 밖, 서로 4칸 밖: 지상 해시가 바뀜), 줄기 한 칸이 막고 y 정렬된다. 도끼(○ §12 → 손 레시피 돌 2개, 새 몸 동작 `base_body_v02_axe`)로 줄기를 5번 맞히면 통나무 4개와 그루터기(막음, 5분 뒤 다시 나무). 시험 둘(`test_building.gd`, `test_trees.gd`), 창 그림 검사 셋(`builds`·`trees`·`build_ghost`, `rig`에 도끼 동작), 스크린샷 다섯. [M7b: 건설 · 나무 · 도끼](#m7b-건설--나무--도끼).
+그 위에 **M7c "세션의 작업대 · 장비 · 창고 · 건설 · 나무"**를 더했다: M7a·M7b가 혼자 할 때 더한 것을 세션에서 모두 호스트가 정한다(● game-concept §13 호스트 권한). 작업대·창고 놓기와 건설 조각은 그 칸의 USE, 철거는 새 요청 DEMOLISH(우클릭), 문은 DOOR(문의 F), 갑옷은 ARMOR, 창고 창의 클릭은 CHEST이고, 제작은 모든 레시피(체인·수리·조각·손 레시피)의 CRAFT, 도끼질의 맞는 프레임에 호스트가 벤다(지도마다 숲, 그루터기는 호스트 시간으로 다시 자람). 1티어 피해·마모·갑옷의 방어와 마모·사망 마모·수리도 호스트에서, 내구도와 갑옷 칸은 주인의 인벤토리 메시지에 실린다. 건설 조각·문·나무·그루터기·작업대는 그 지도의 칸 편집, 창고 내용물은 새 **창고 칸 편집**(16B)이고 스냅샷이 창고 내용물을 싣는다(늦은 참가자·지도에 들어오는 사람). 클라이언트는 도끼질을 포함한 몸 동작만 예측하고, 건설 벽·닫힌 문은 예측도 호스트와 같은 충돌로 막는다. **정한 규칙**: 문은 다른 플레이어가 문간에서 24px 안이면 닫히지 않고 막는 조각은 다른 플레이어에게서 24px 안에 놓이지 않는다(임시값 "M7c 막기 여유": 왕복 동안 예측한 걸음이 닿지 못하는 거리, 그래서 닫힌 문을 지나가는 고무줄이 없다). 프레임은 1바이트 그대로, 전송 형식 v8. 시험 셋(`test_net_build.gd` 한 프로세스, 실제 세션 `house`·`stock`), 창 그림 검사 `builds_net`, 두 창 그림. [M7c: 세션의 작업대 · 장비 · 창고 · 건설 · 나무](#m7c-세션의-작업대--장비--창고--건설--나무).
+그 위에 M7 검토 지적을 반영했다(**M7-fix**): 이단 스폰 칸은 건설을 보지 않는 지도의 지형으로만 정하고 이단을 놓을 때 산 월드를 본다(문 하나와 벽으로 던전 도착 방을 두르고 문을 닫으면 던전 스폰 칸이 443 → 0이 되던 것, 건설을 수로 알아채 스폰 칸이 낡던 것, 열린 문간에 이단이 나타나던 것), 봉쇄 검사를 같은 답으로 싸게(조각 둘레 우회·깊이 먼저 걷기·걸음 나눠 쓰기: 제단 둘레 한 번 약 16ms → 평균 0.08~0.23ms, 건설 표시 한 틱 약 0.3ms), 다른 플레이어를 벽·작업대로 가두지 못함(임시값), 철거의 돌려받기가 안 들어가면 발 칸에 드롭(임시값)·위가 벽인 열린 문의 철거는 닫기 검사로, 열린 문간의 곡괭이는 공격, 손 제작 창은 새 키 **C**(Tab은 M2a 인벤토리 그대로, 임시값), 수리는 기본 끔(● gameplay-design §2.6 R12 "기술자 수리 = 기술자 일감": 사람에게 물음), 부서진 장비 스위치를 호스트도, 예측의 "다시 돌리기 뜀"을 세어 문·벽의 고무줄을 시험이 보게(`replay_jumps`), 다시 자라기 0의 그루터기, 시험 보강, 죽은 코드·주석·README 숫자와 ●/○ 표기 고침. [검토 반영 (M7-fix)](#검토-반영-m7-fix-2026-10-25).
 
 기준 문서: `docs/game-concept.md` §2 §3 §7 §9.3 §9.7 §10 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §2.2 §2.3 §2.4 §2.5 §2.6 §3.0 §3.1 §3.2 §3.4 §3.5 §3.8 §5 (M4b: §2.1 실시간·에임형, §2.6 사망 흐름, §3.0 팔라딘 줄, §3.1 ○ "타일 동기화가 던전 안 인원끼리만", game-concept §13 호스트 권한. M6a: §1 ○ "Tab 인벤토리·제작", §2.2 ? 스킬 킷과 ○ 약초사 정체성 스킬 = 약제 투척, §2.4 ○ 상태이상, §3.0 ● R11 약초사 줄, §3.4 ● 상급, §3.5 ○ 제작·해금, game-concept §9.7 ○ 조제대, §12 ● 작물 셋 R28. M6b: game-concept §13 ● 호스트 권한, §2.6 ● 소생(던진 회복과의 관계), 나머지는 M6a와 같음), `docs/concept-art-brief.md` §4 §5.6 §5.7(M6a: ● R29 물약 색), `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작. M4a: 8차 피격·사망, 13차 이단과 "M4에 넘길 것"), `assets/concept/04-env/prompts.md`("본 제작", 채집물, M3a: 던전 바닥↔벽 타일, 광맥, 벽 금, 던전 입구, 이단의 제단, 소품. M6a: 조제대 v05, 작은 것 묶음 `items_v04_strip`의 물약).
 M5a 기준 문서: `docs/game-concept.md` §9.3(● 제단 = 빛·안전 반경, 위치·이동 자유), §9.7(○ 농사 줄기, 밭은 빛 안에서만, 시듦과 되살아남, 밭은 남음, R37 슬라이스 줄), §10(톤 이원화), §11, §12(● 작물 셋 R28, ● R37 누가 무엇을 심나), `docs/gameplay-design.md` §1(○ 키), §2.6, §3.0(● R11 약초사·팔라딘 줄), §3.4(● 상급), §3.7(○ 정화: M5b), §3.8(○ 농사, ● R37 줄), `docs/concept-art-brief.md` §5.7(● R28 작물, ● R29 시든 작물·물 준 흙 칸별 덧칠·독초 색), `assets/concept/04-env/prompts.md`(1차 시험 손질: 흙 v03·물 준 흙·흙 변형, `crops_v03`, 씨앗 봉투 #18~#20).
 M5c 기준 문서: `docs/game-concept.md` §9.3(● 위치·이동 자유, 안전 반경 = 빛·스폰 억제·오염 저항, ● 팔라딘의 정화가 반경 밖 땅을 되찾음), §9.7(○ 농사 줄기, 밭은 빛 안에서만, 제단을 옮기면 밭은 남아 빛 밖, 시든 작물을 정화가 되살림, R37 슬라이스 줄), §10, §11, §12(● 작물 셋, ● R37 누가 무엇을 심나), §13(● 호스트 권한), `docs/gameplay-design.md` §1(○ F "정화 시작"), §2.6(● 부활 = 제단, 제단을 옮기면 부활 지점도), §3.0(● R11 팔라딘·약초사 줄), §3.7(○ 정화), §3.8(○ 농사, ● R37 줄), `docs/concept-art-brief.md` §5.7(● R28·R29).
 M5b 기준 문서: `docs/game-concept.md` §5(○ 오염과 정화: 슬라이스는 확산 없는 고정 구역), §9.3(● 제단 위치·이동 자유, 안전 반경 = 빛·스폰 억제·오염 저항, 팔라딘의 정화가 반경 밖 땅을 되찾음), §9.7(○ 제단을 옮기면 밭은 남고 빛 밖, 시든 작물을 정화가 되살림), §10, §11, §12(고정 오염 구역 2~3곳, 팔라딘 정화), `docs/gameplay-design.md` §1(○ F "정화 시작"), §2.6(● 부활 지점 = 제단; §5 ○ "제단을 옮기면 부활 지점도 옮겨진다"), §3.0(● R11 팔라딘 줄: 누구나 성수로 타일 몇 개, 클래스 전용 광역 정화 채널링, 상점 성수 = 대체 수단), §3.7(○ 정화: 채널링 반경 N, 원천을 부숴야 재오염이 멈춤, 슬라이스는 확산 없음), §3.8, `docs/concept-art-brief.md` §5.7, `assets/concept/04-env/prompts.md`(묶음 2 #58~#60 성수, "오염 장식" `decal_ashcreep`).
+M7a 기준 문서: `docs/gameplay-design.md` §2.4(○ 방어력), §2.6(● R12 사망 = 내구도 손상 + 일부 아이템 드롭, ○ "일부"의 세부), §3.0(● R11 표: 룬마스터 줄 "누구나 모루에서 1~2티어 제작. 룬 슬롯 없음", 기술자 줄 "누구나 벽·바닥·문·작업대 건설"), §3.1(레이어), §3.3(○ 건설, ● R37 건설 벽은 돌만: M7b), §3.5(○ 작업대 근처에서 Tab, 처음 얻은 재료로 해금, 작업대 체인, 1티어는 누구나 모루에서: 그 ●는 §3.0 R11 룬마스터 줄), §5(○ 공유 창고: 제단 옆), `docs/game-concept.md` §9.3(제단, 안전 반경), §12(작업대 체인 2~3단계, ● R37 나무 1종·○ 도끼, ● R21 기본 외형만, 판정 기준), `docs/concept-art-brief.md` §5.7(작업대 줄, 건설 ● R37, "나무" 줄), `assets/concept/04-env/prompts.md`(본 제작: 기본 작업대·모루·공유 창고, 본 제작 손질 2: `workbench_v03`·`anvil_v03`·`relic_bench_v03`의 공유 작은 불꽃 자리·아이템 v02/v03, 묶음 2 #42·#44·#46·#62).
+M7b 기준 문서: `docs/gameplay-design.md` §1(○ F "상호작용 (… 문 …)", 우클릭), §2.6, §3.0(● R11 기술자 줄 "누구나 벽·바닥·문·작업대 건설", 룬마스터 줄), §3.1(● 레이어: 바닥 / 벽 / …), §3.3(○ 건설: 핫바에서 블록, 그리드 스냅, 우클릭 철거, 제단 반경 안 비용 감소 또는 즉시 건설; ● R37 건설 벽은 바닥 위 별도 층 = 던전 벽과 같은 층, 돌만), §3.5, §5, `docs/game-concept.md` §9.3(제단, 안전 반경), §12(● R37 나무 1종 누구나 벌목, ○ 도끼; ● R21 기본 외형만), `docs/concept-art-brief.md` §5.7(건설 ● R37 = `build_stone_candA`, "나무" 줄, ○ 랜턴 = 건설 조명), `assets/concept/04-env/prompts.md`("건설 벽·문·바닥 후보" 시트 배치·조립, 손질 2의 8: 문 12px·바닥 한 단 어둡게 = v02, 랜턴 기둥 v03, "M7 나무·그루터기" 5 "M7b에 넘길 것"), `assets/concept/03-pixel/prompts.md`(PixelLab 14차 도끼질, "M7b에 넘길 것").
+M7c 기준 문서: `docs/game-concept.md` §9.3(제단, 안전 반경), §12(작업대 체인 2~3단계, ● R37 나무 1종 누구나 벌목·○ 도끼, ● R21 기본 외형만: 장비는 남에게 보낼 모습이 없음, 판정 기준), §13(● 호스트 권한), `docs/gameplay-design.md` §2.6(● R12 사망 = 내구도 손상 + 일부 아이템 드롭), §3.0(● R11 기술자 줄 "누구나 벽·바닥·문·작업대 건설", 룬마스터 줄 "누구나 모루에서 1~2티어 제작. 룬 슬롯 없음"), §3.1(레이어; ○ "타일 동기화가 던전 안 인원끼리만"과 같은 생각으로 지도마다 편집), §3.3(○ 건설, ● R37 건설 벽 = 던전 벽과 같은 층·돌만), §3.5(○ 작업대 체인·해금, ● 1티어 누구나 모루에서), §5(○ 공유 창고: 제단 옆, 개인 인벤토리는 각자), `docs/concept-art-brief.md` §5.7(건설 ● R37 `build_stone_candA`, "나무" 줄), `assets/concept/04-env/prompts.md`(M7a·M7b가 쓴 그림 그대로: 새 그림 없음).
 문서의 ●는 그대로 따르고, ○·?는 정하지 않고 [임시값](#임시값-사람-확인-필요)으로 둔다.
 
 ## 준비
@@ -50,10 +57,10 @@ timeout 300 "$GODOT" --headless --path game --import < /dev/null
 ### 전체 테스트
 
 ```bash
-timeout 600 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
+timeout 900 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
 ```
 
-- 출력: 첫 줄 `EVENSONG_TESTS start: 27 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24, M5c: 27. 전체가 약 365~375초라 위 명령의 `timeout`은 600(M5c에서 900으로 돌렸다))(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
+- 출력: 첫 줄 `EVENSONG_TESTS start: 27 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24, M5c: 27, M7a: 30, M7b: 32, M7c: 35. 전체가 M7b까지 약 365~400초, M7c에서 약 510초(실제 세션 둘이 약 70초 더함), M7-fix에서 약 457초라 위 명령의 `timeout`은 600이면 빠듯하다: 900으로 돌린다)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
 - 종료 코드: 모두 통과 0, 하나라도 실패 1 (불러오기 실패·시간 초과·테스트 파일 없음·시작 중 오류·마지막 파일 뒤 오류도 1)
 - 통과하는 실행에도 오류 묶음이 **8개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
   - `ERROR: Character: unknown class 'wizard'` 1개: `test_actors.gd`가 모르는 클래스 이름을 거부하는지 확인
@@ -107,11 +114,15 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_farm < /dev/null      # M5c 실제 세션 farm·farm4 (약 35초)
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_purify < /dev/null    # M5c 실제 세션 purify·altar (약 50초)
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_farm,net_purify --net-exe=build/evensong.console.exe < /dev/null   # 자식을 내보낸 exe로
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_build < /dev/null     # M7c 한 프로세스 작업대·장비·창고·건설·나무 (약 6~10초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_house,net_stock < /dev/null   # M7c 실제 세션 house·stock (약 75초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_house,net_stock --net-exe=build/evensong.console.exe < /dev/null   # 자식을 내보낸 exe로
 ```
 
 - `test_net.gd`: 전송 형식(왕복, 잘린 패킷 전부, 무작위 바이트 2,000개), 인원 상한(진짜 9명: 10번째 거부, 빈 자리 다시 쓰기), 호스트 입력 검사(순서·중복·속도 제한·고르게 적용·따라잡기는 틱당 4개까지, 실제 시간 시계 `InputGate.ticks_between`과 그 시계로 두 배 빨리 보내는 클라이언트, 호스트가 1초 멈췄다 따라잡기를 두 순서로: 물리 틱 안에서 멈춤 / 틱 밖에서 멈춰 Godot이 따라잡기 틱 뒤에 네트워크를 읽음, 멈춤 크레딧이 쌓이지 않고 사라짐), 호스트가 바라보기를 방향에서 정하기(클라이언트 예측과 프레임마다 같음), 호스트의 묶음/키프레임/조용함 판단, 클라이언트 예측을 지연·손실 있는 가짜 연결로 호스트와 맞춰 보기(지연 0·5·9틱, 손실 0·25%, 위치와 바라보기), 보간, 월드 스냅샷(여섯 레이어 왕복, 조각 크기·순서·틱당 개수, 받는 쪽 검사: 빠진 조각·바뀐 바이트·다른 월드·크기, 크기 상한 `MAX_SIDE`·`MAX_PACKED`, 크기·md5가 맞는 무작위 조각도 풀기 단계에서 거부), 스냅샷 뒤의 편집 기록, 스냅샷 크기와 참가 시간(128×96, 512×512 합성, 512×512 무작위), 봇 스크립트, CLI, RPC 표(누가 부를 수 있는지·채널·신뢰성), 전송(ENet 호스트+참가를 한 프로세스에서, 양쪽 연결의 패킷 조절 설정, Steam은 신호로 unavailable)
 - `test_world_items.gd` (M2b): 채집물 표와 등급 규칙(● §3.4), 줍기·버리기·사용·주기 규칙(손 닿는 칸, 발이 타일 선 위일 때의 발 칸, 가득 찬 인벤토리, 드롭 일부만 줍기, 주기 개수 0 = `bad count`, 클라이언트의 300개 주기 = 요청 255 + 45), 호스트 요청 검사(진짜 `NetSession` + `SessionHost.run_frame`, 전송 없이: 손 닿지 않음, 틀린 칸, 빈 칸, 도구 아님, 동작 중, 마구 보내기 = rate, 클라이언트 주기·버리기 끔, 고르기는 예산 밖, 거부된 고르기는 인벤토리를 돌려보냄, 바라보기와 다른 쪽 칸의 사용은 칸 쪽을 봄), 같은 틱에 둘이 같은 것을 줍기(채집물·드롭 모두 정확히 하나, 손으로 부른 `run_frame`과 `SessionHost.tick` 자체: 게이트에 자리 2를 먼저 넣어도 자리 1이 가짐), 드롭의 월드 해시·스냅샷(왕복, 거부 9가지, `MAX_DROPS`에서 버리기 거부 + 그 월드의 스냅샷 왕복)·편집 기록(스냅샷 + 뒤 편집 = 호스트 월드), 그림(ItemView) = 데이터, 인벤토리 전송 형식, 몸 동작 예측을 지연·손실 있는 가짜 연결로 호스트 `run_frame`과 맞춰 보기(오차·동작 보정 0, 호스트가 거부한 사용은 보정), 서서 조준만 하는 클라이언트(바라보기가 바뀌는 틱만 프레임을 기록하고 호스트도 같은 쪽을 봄), 호스트의 인벤토리 위에 아직 처리 안 된 고르기를 다시 얹기(`SessionClient.on_inventory`: 프레임에 실린 것·아직 줄에 있는 것, ack가 덮으면 호스트 것), 남의 동작 보간, 혼자 할 때 `main.tscn`에서 F 줍기 · F7 버리기
 - `test_net_maps.gd` (M3b): 지도 들어옴 메시지(왕복, 잘린 것 전부, 없는 지도, 다른 지도의 자기 상태), 지도를 적은 편집, 스냅샷 머리말의 지도 번호(기대한 지도가 아니면 받는 쪽이 거부), 두 지도를 섞지 않는 보간, 봇 `waitmap`. 호스트 요청 검사(진짜 `NetSession` + `SessionHost`, 전송 없이): 멀리서·길 아닌 칸·맵 밖 TRAVEL, 마구 보내는 TRAVEL(`rate`), 지도를 받는 중의 TRAVEL(`still loading`), 입구에 PICKUP(`a way to another map`), 다른 지도를 겨눈 사용·횃불·줍기·버리기·TRAVEL(`wrong map`, 예산을 쓰지 않음), 멀리 있는 칸을 캐는 악의 클라이언트(2·3·40칸, 맵 밖), 휘두르는 동안 매 프레임 사용(`busy`), 기반암 테두리와 출구 위 기반암(공용·광부 모두 `too hard`, 편집 없음. M3-fix: 광부가 계단을 세 번 쳐도 편집 0·던전 그대로), (M3-fix) 한 틱에 횃불 USE 열 번(하나 놓고 예산 4번, 나머지 `rate`). 같은 틱 채굴 경주(`SessionHost.tick`, 자리 2를 먼저 넣음): 한 번 남은 칸(자리 1이 깨고 돌, 자리 2는 `no wall`), 두 번 남은 칸(둘 다 맞고 자리 2가 깨고 돌), 광부 둘의 3×3 겹침(겹친 칸마다 한 번씩만 깨지고 아이템은 깬 쪽 하나). 잡은 전송으로 전체 흐름(`CaptureSession`이 호스트의 진짜 메시지를 잡아 진짜 `SessionClient`에 채널 순서대로): 지상의 A는 던전 편집을 하나도 안 받고 아래의 호스트를 그리지 않음 → A가 내려가 호스트의 던전 그대로(금·횃불·드롭, 동굴 그림 해시 같음. M3-fix: 지도 들어옴 그 자체가 아래에 있던 호스트를 보이게 함, `draw_others` 전에) → 실시간 편집 → B가 둘 다 아래일 때 늦게 참가(지상에서 아무도 안 그림) → B가 1바이트 조각으로 내려가는 동안 호스트가 캔 편집은 B의 지도 들어옴 뒤에 → 지상 편집이 B에게 오면 잘못된 메시지 → A가 올라감(지상 = 호스트, 떠난 던전 = 호스트) → 위치·지도 해시 같음. 예측: 호스트가 이미 깬 벽을 클라이언트가 아직 모를 때(편집이 0·30·90틱 늦게, 대칭 지연) 그동안과 편집 뒤 상태 하나쯤까지만 보정되고 그 뒤로는 없음, 같은 마지막 위치(비대칭 순서는 위 "M3b 예측"). 지도 전환: 다른 지도의 상태는 맞추지 않음, 전환은 호스트 상태에서 그 뒤 프레임을 새 지도에서 다시 돌림, 옛 지도를 겨눈 사용은 다시 돌릴 때 동작을 시작하지 않음
+- `test_net_build.gd`·`test_net_house.gd`·`test_net_stock.gd` (M7c): 한 프로세스와 실제 세션의 작업대·장비·창고·건설·나무(아래 "M7c: 세션의 작업대 · 장비 · 창고 · 건설 · 나무"의 "시험"). `test_net_house.gd`(`house`)와 `test_net_stock.gd`(`stock`)는 `test_net_session.gd`의 도구로 돈다
 - `test_net_fields.gd`·`test_net_farm.gd`·`test_net_purify.gd` (M5c): 한 프로세스와 실제 세션의 농사·정화·제단(아래 "M5c: 세션의 농사 · 정화 · 제단"의 "시험"). `test_net_farm.gd`(`farm`·`farm4`)와 `test_net_purify.gd`(`purify`·`altar`)는 `test_net_session.gd`의 도구로 돌고, 파일 하나 제한 120초 안에 들게 둘로 나눴다
 - `test_net_potions.gd`·`test_net_brew.gd` (M6b): 한 프로세스와 실제 세션의 제작·물약(아래 "M6b: 세션의 제작 · 물약"의 "시험"). `test_net_brew.gd`는 `test_net_session.gd`의 도구로 `brew`·`brew4`(약 55초, 파일 하나 제한 120초 안)
 - `test_net_combat.gd` (M4b): 한 프로세스에서 진짜 `SessionHost`·`SessionClient`로 싸움 흐름 전부(아래 "M4b: 세션의 전투"의 "시험"). `test_net_fight.gd` (M4b): `test_net_session.gd`의 도구로 실제 세션 `fight`·`fight4`·(M4-fix) `fightlag`(파일 하나의 제한 시간 120초 안에 들게 따로 둠. 셋이 약 65초)
@@ -146,7 +157,7 @@ timeout 120 "$GODOT" --headless --path game --script res://tools/build_tileset.g
 timeout 120 "$GODOT" --headless --path game --script res://tools/build_rig_anchors.gd < /dev/null
 ```
 
-- 애니메이션(걷기·idle + 몸 동작 8개, M2a)·방향마다 `EVENSONG_ANCHORS walk south torso=[...] head=[...]` 한 줄(30줄), 끝에 `EVENSONG_ANCHORS saved res://actors/rig_anchors.gd error=0 md5=...`. 이 데스크탑 약 2.6초
+- 애니메이션(걷기·idle + 몸 동작 8개, M2a; M4a 피격·사망, M7b 도끼)·방향마다 `EVENSONG_ANCHORS walk south torso=[...] head=[...]` 한 줄(M2a 30줄, M7b 39줄), 끝에 `EVENSONG_ANCHORS saved res://actors/rig_anchors.gd error=0 md5=...`. 이 데스크탑 약 2.6초
 - 결과 `actors/rig_anchors.gd`(생성 파일, 손으로 고치지 않음)를 커밋한다. `test_actors.gd`가 시트에서 다시 재서 커밋된 표·파일 내용과 다르면 실패한다
 
 ### 내보내기 (Windows release, pck 내장, 콘솔 래퍼)
@@ -161,7 +172,7 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 - 경로는 `game/` 기준이다 → `game/build/evensong.exe`(+ `evensong.console.exe`), `game/build/arm64/evensong.exe`
 - ARM64는 `build/arm64` 폴더가 없으면 "주어진 내보내기 경로는 존재하지 않습니다"로 실패한다 (그래서 `mkdir`). 이 데스크탑(x86_64)에서는 실행해 볼 수 없다
 - `tests/`, `tools/`는 내보내기에서 뺀다. `build/`는 `.gdignore`가 있어 임포트하지 않고 커밋하지 않는다
-- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=319B items=34 actions=8 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 ... combat_wire=25B potion_wire=40B/46B fields_wire=17B/11B net=v7 checks=341`을 찍고 0으로 끝나야 한다(M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b·M6a·M6b·M5a·M5b·M5c에서 항목이 늘었다. 지상·던전 해시는 M6a·M6b·M5a·M5b·M5c에서 그대로). 아래 "스모크" 참조
+- 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... hash=0da8e0d26ded ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=321B items=53 actions=9 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 chain=25/7 gear=21/8/96 chest=16 build=2/1/2 trees=30/4 ... combat_wire=25B potion_wire=40B/46B fields_wire=17B/11B builds_wire=85B/627B/27B net=v8 checks=423`을 찍고 0으로 끝나야 한다(M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b·M6a·M6b·M5a·M5b·M5c·M7a·M7b·M7c에서 항목이 늘었다(M7b: `items=53 actions=9`, `chain=25/7`: 작업대 레시피에 건설 조각·도끼 다섯. M7c: `builds_wire`, `net=v8`, 스냅샷 원본 +2B·던전 지도 `dungeon_map=321B`(창고 수 +2B: M7-fix에서 기대 줄을 고침). M7-fix: 입력 `craft_hand` 검사 하나 더해 423). 지상 해시는 M7b에서 `hash=0da8e0d26ded`로 바뀌었다(나무 30그루, 아래 "M7b"), 던전 해시는 그대로). 아래 "스모크" 참조
 
 ### 실행
 
@@ -181,6 +192,12 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 "$GODOT" --path game -- --class=paladin --give=sickle --test-field=59,45:healing:4/58,46:buff:3:wet/57,47:poison:2   # M5a: 빛 안 밭에 시험 작물(익은 회복 약초 등)을 놓고 시작, 낫(1번)으로 거둔다
 "$GODOT" --path game -- --class=paladin --test-at=60,15 --give=holy_water:5 --test-no-spawns   # M5b: 북쪽 오염 구역 동쪽 가장자리. 서쪽(재)을 조준하고 F = 정화 채널링 3초, 성수(1번)를 고르고 재를 조준해 좌클릭 = 3×3 정화
 "$GODOT" --path game -- --class=miner --test-at=63,49   # M5b: 제단 바로 남쪽. 북쪽(제단)을 조준하고 F를 2초 누르고 있으면 듦, 빈 땅을 조준하고 좌클릭 = 내려놓기
+"$GODOT" --path game -- --class=miner --give=log:9,stone_a:10,ore_iron:6,ore_copper:4   # M7a: C = 손 제작 창(작업대. M7-fix 전에는 작업대 없는 곳의 Tab). 작업대를 고르고 좌클릭 = 놓기, 그 옆 Tab = 널판·모루 …
+"$GODOT" --path game -- --class=paladin --give=workbench,anvil,relic_bench,storage_chest,planks:20,ingot_iron:8,ingot_copper:6   # M7a: 작업대 셋과 창고(빛 안)를 바로 놓아 봄
+"$GODOT" --path game -- --class=paladin --give=sword_t1,armor_t1 --test-durability=1:30 --test-wear=2 --test-at=63,56 --test-heretic=65,56   # M7a: 닳은 1티어 검(1번)과 입은 갑옷, 빛 밖 이단 하나
+"$GODOT" --path game -- --class=miner --give=stone_wall:20,door:2,stone_floor:12,lantern:2 --test-at=66,52   # M7b: 조각 넷(1~4번). 조준하면 놓을 자리 표시, 좌클릭 = 놓기, 우클릭 = 철거, 문을 조준하고 F = 열기·닫기
+"$GODOT" --path game -- --class=archer --give=axe --test-at=49,63 --test-no-spawns   # M7b: 도끼(1번), 바로 북쪽 (49, 62)이 나무. 줄기를 조준하고 좌클릭을 누르고 있으면 다섯 번에 통나무 4와 그루터기
+"$GODOT" --path game -- --class=cleric --give=stone_a:2,log:4   # M7b: 작업대 없는 곳의 Tab = 손 제작 창(기본 작업대·도끼)
 ```
 
 - `main.tscn`(실행 장면): WASD 또는 방향키로 8방향 걷기, 카메라는 내 캐릭터 가운데(맵 밖은 안 보이게 가장자리에서 멈춤). 제단 둘레에 나머지 네 클래스가 제단을 보고 서 있다(움직이지 않는 더미, 표식 다섯 가지가 한 화면에 보이게)
@@ -200,6 +217,10 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 - M5b (혼자 할 때, 키는 임시값 "M5b 키"): **성수**(`--give=holy_water:5`, F5 묶음에는 없다)를 고르고 오염(재)을 조준해 좌클릭 = 붓기(마법 동작, 4번째 프레임에 목표 칸 둘레 3×3의 오염 칸이 풀이 되고 하나 씀. 오염이 없으면 `holy water refused: nothing to purify`, 아무것도 안 씀). **팔라딘**이 재 위나 바로 옆에서 **F**(목표 칸에 주울 것이 없을 때) = 정화 채널링 시작(서서 3초, 마법 동작을 되풀이, 둘레의 금빛 점이 하나씩 켜짐, 끝나면 발 칸 둘레 반지름 3칸 원판의 오염 칸이 풀로. 걷기·Space·좌클릭·맞음이면 끊김). 정화된 칸에는 잠깐 재 얼룩과 금빛 테두리. **제단**을 조준하고 **F를 2초** 누르고 있음 = 들기(누구나. 빛이 꺼지고 머리 위에 작은 제단, 놓을 자리가 금빛(됨)/짙은 빨강(안 됨) 테두리와 빛 가장자리 점으로 보임), 들고 있는 동안 **좌클릭** = 겨눈 쪽 두 칸 앞(3×3의 가까운 변이 목표 칸)에 내려놓기. 들고 있는 동안 입구·계단의 F, 채널링, 도구·물약 사용이 없다. 콘솔에 `EVENSONG_PURIFY channel start at=60,15 class=paladin ticks=180`, `EVENSONG_PURIFY channel at=60,15 class=paladin tiles=9 corrupted_left=304 spawn_tiles=666`, `EVENSONG_PURIFY channel broken: moved`, `EVENSONG_PURIFY holy water at=53,10 class=paladin tiles=2 corrupted_left=299 spawn_tiles=653`, `EVENSONG_ALTAR picked up who=LocalPlayer class=herbalist from=62,46`, `EVENSONG_ALTAR place refused at=58,15 who=LocalPlayer: corrupted ground`, `EVENSONG_ALTAR placed at=49,45 who=LocalPlayer light=808,744`, `EVENSONG_ALTAR set down at=48,51 ...`(든 사람이 다운), `EVENSONG_DEATH respawn waits who=Ally_archer: no altar (carried)`, `EVENSONG_MAP travel refused to=dungeon: carrying the altar`
 - M5b 세션(M5c에서 바뀜): M5b에서는 바뀐 것이 없었다(성수 좌클릭은 프레임을 만들지 않고, F는 M2b 줍기 그대로, F를 누르고 있어도 제단은 그대로. 호스트는 성수 칸의 USE를 `purification offline only`로 거부)
 - M5c (세션, 키는 M5a·M5b 그대로): 세션에서도 같다. 괭이·물뿌리개·낫의 동작과 성수의 붓는 동작은 바로 보이고(예측), 흙·작물·젖음·정화된 땅은 호스트의 편집이 오면(왕복 뒤) 바뀐다. 씨앗 좌클릭은 요청(심기는 호스트가, 예측 없음). 팔라딘의 F(주울 것이 없고 오염 옆)는 CHANNEL 요청이 되어 채널링이 바로 시작되고(예측), 정화는 호스트가 끝나는 틱에. 제단을 조준하고 F를 2초 누르고 있으면 ALTAR_LIFT 요청이 가고 호스트의 상태가 오면 든 것이 되며(머리 위 작은 제단, 놓을 자리 표시), 좌클릭은 ALTAR_PLACE 요청. 다른 사람의 채널링 점과 머리 위 제단도 보인다. 야생 약초를 캐면 씨앗이 호스트 인벤토리로 들어온다. 콘솔(호스트)에 `EVENSONG_NET host farm slot=1 map=0 what=till at=62,49 class=paladin field=soil`, `farm slot=1 map=0 what=plant at=62,49 class=paladin item=seed_healing field=healing,stage=0`, `farm slot=0 map=0 what=harvest at=62,49 class=herbalist item=wild_healing count=2 grade=fine seeds=1 dropped=0 lost=0 field=soil,wet`, `field map=0 at=62,49 healing stage=3 wet`, `farm_refused slot=1 map=0 what=till at=..: outside the light`, `request_refused slot=1 use map=0 slot=2 at=62,49 aim=29: herbalist only n=1`, `seed slot=2 from=wild_buff item=seed_buff count=1`, `channel slot=1 map=0 start at=60,15`, `purify slot=1 map=0 what=channel at=60,15 tiles=9 corrupted_left=304 spawn_tiles=666`, `purify slot=1 map=0 what=holy_water at=56,15 tiles=..`, `channel slot=1 map=0 broken`, `altar slot=0 map=0 picked_up from=62,46`, `altar slot=0 map=0 placed at=49,45 light=808,744`, `altar slot=1 map=0 set_down at=..`, `respawn_waits slot=1: no altar (carried)`, 늦은 참가자에 `welcome ... altar=49,45 tilled=21 crops=4 withered=4 corrupted=313 generator=match`
+- M7a (혼자 할 때, 키는 임시값 "M7a" 줄): 작업대 셋(`--give=workbench,anvil,relic_bench`)은 조제대처럼 고르고 좌클릭 = 놓기, 그 2칸 안에서 **Tab** = 그 작업대의 제작 창(M6a 키 그대로). **C**는 손 레시피가 해금된 뒤로 손 제작 창(기본 작업대 = 통나무 4, 도끼 = 돌 2)과 인벤토리(M7-fix: 새 키. 작업대 없는 곳의 Tab은 M2a 그대로 인벤토리, 걸을 수 있음). 1티어 무기는 기본 무기처럼 고르고 좌클릭. 갑옷을 고르고 **좌클릭** = 입기(핫바 왼쪽 갑옷 칸에 보임), 인벤토리를 열고 갑옷 칸 **클릭** = 벗기. 창고 상자(`--give=storage_chest`)는 제단 빛 안에만 놓이고, 그 칸을 조준하고 **F** = 창고 창 + 인벤토리(인벤토리 칸 클릭 = 넣기, 창고 칸 클릭 = 꺼내기, Tab·Esc·F = 닫기). 닳은 장비 칸에 막대. 콘솔에 `EVENSONG_CRAFT open station=anvil at=62,51 recipes=9`, `EVENSONG_CRAFT made recipe=sword_t1 item=sword_t1 count=1 grade=none`, `EVENSONG_GEAR equip item=armor_t1 durability=100/100`, `EVENSONG_COMBAT hurt who=LocalPlayer amount=8 hp=92`, `EVENSONG_GEAR death wear who=LocalPlayer items=2`, `EVENSONG_GEAR broke item=sword_t1 who=LocalPlayer`, `EVENSONG_CHEST open at=62,51 items=`, `EVENSONG_CHEST store item=stone_a count=40 left=0`, `EVENSONG_ITEMS place refused at=..: outside the light`
+- M7a 세션(M7c에서 바뀜): 작업대 셋·창고 놓기는 호스트가 `workbench chain offline only`·`storage offline only`로, 체인·수리 레시피의 CRAFT는 `workbench chain offline only`로 거부한다. 갑옷 클릭은 프레임을 만들지 않고, 1티어 무기는 기본 무기처럼 치고 닳지 않으며, 손 제작 창은 열리지 않는다
+- M7b (혼자 할 때, 키는 임시값 "M7b 키"): 건설 조각(`--give=stone_wall,door,stone_floor,lantern`, 기본 작업대에서 돌·널판으로)을 고르고 조준하면 목표 칸에 놓을 자리 표시(금빛 = 됨, 짙은 빨강 = 안 됨), 좌클릭 = 놓기(빛 안 1개, 밖 2개), **우클릭** = 목표 칸의 건설 조각 철거(1개 돌려받음, M7-fix: 자리가 없으면 발 칸에 드롭), 문(또는 그 앞면 칸)을 조준하고 **F** = 열기·닫기. **도끼**(C의 손 제작 창: 돌 2개)를 들고 나무 줄기를 조준해 좌클릭(누르고 있으면 되풀이) = 다섯 번에 통나무 4와 그루터기(5분 뒤 다시 나무). 나무는 제단에서 20칸 밖에 있다. 콘솔에 `EVENSONG_BUILD place piece=... cost=...`, `EVENSONG_BUILD door open ...`, `EVENSONG_BUILD demolish ...`, `EVENSONG_TREE chop ... hits=n/5`, `EVENSONG_TREE felled ...`
+- M7b 세션(M7c에서 바뀜): 조각 좌클릭은 호스트가 `building offline only`로 거부하고, 우클릭은 콘솔에 같은 거부만 찍고, 문의 F는 M5c 줍기 요청 그대로, 도끼는 휘두르기만 한다(호스트가 `chopping offline only`로 셈). 나무는 세션 월드에도 있고 막는다
 - `world.tscn`: WASD 또는 방향키로 자유 카메라 이동 (제단·빛은 있고 캐릭터는 없다)
 - 창 기본 1920×1080(4배). `-- --scale=3`이면 1440×810
 - `--quit-after` 같은 Godot 인자는 `--` **앞에** 쓴다
@@ -397,6 +418,35 @@ evensong.console.exe -- --join=<데스크탑 주소> --class=herbalist --give=wi
 4. 버프가 도는 동안 서피스가 가만히 서 있어 본다: 데스크탑 콘솔에 `host_steps`, 서피스 콘솔에 `vitals_correction`이 없어야 한다(M6-fix에 적음: 서피스가 0.5초 넘게 멈추면(창 끌기 등) 버프 동안 호스트가 직접 진행하고 그 상태들이 `vitals_correction`으로 찍힌다. 알려진 문제, 위 "M6b: 세션의 제작 · 물약"의 "예측")
 5. 이상하면 두 콘솔의 `craft`·`throw`·`splash`·`drink`·`request_refused`·`potion_refused`·`welcome_effects`·`vitals_correction`·`host_steps` 줄을 남겨 둔다
 
+혼자, 그리고 창 둘로 M7 해 보기 (사람이 할 것, M7c):
+
+```bash
+"$GODOT" --path game -- --host --scale=2 --class=paladin --test-no-spawns --give=storage_chest,anvil,workbench,stone_wall:20,door:2,axe,ingot_iron:6,planks:4,armor_t1
+"$GODOT" --path game -- --join=127.0.0.1 --class=miner --scale=2 --give=stone_wall:20,axe,ingot_iron:4,planks:2 --net-lag=120 --net-loss=5
+```
+
+1. 창 1(호스트)이 제단 빛 안에 창고·모루·작업대를 놓고(핫바에서 고르고 좌클릭), 창 2(클라이언트)에도 같은 자리에 보이는지. 창 2가 창고 옆에서 F: 창고 창이 바로 열리는지(요청 없음), 칸을 눌러 넣고 꺼내면 왕복 뒤에 창고·인벤토리가 바뀌고 창 1에서 같은 창고를 열면 같은 내용인지. 두 창이 같은 칸을 거의 같이 꺼내 본다: 한 쪽만 갖는지(호스트 콘솔 `chest`·`request_refused ... empty slot`)
+2. 창 2가 모루 옆에서 Tab → 1티어 검을 만들고(재료가 왕복 뒤에 빠지고 검이 들어옴), 갑옷을 골라 좌클릭(ARMOR: 핫바 왼쪽 갑옷 칸에 왕복 뒤에), 빛 밖에서 허공에 휘둘러 막대가 줄어드는지. 일부러 죽어 보면(빛 밖에서 이단에게, 또는 `--test-down`처럼 다운된 뒤 F 1초) 장비가 남고 막대가 줄어드는지
+3. 두 창이 빛 남쪽 밖에서 함께 돌 벽을 짓는다(빛 밖은 2개씩): 서로 한 칸 반 안에 붙어 짓게 하면 `someone is too close`로 안 되는지(임시값 "M7c 막기 여유"), 놓을 자리 표시가 그 판단을 미리 보이는지. 문을 달고 F로 열고 닫는다. 한 사람이 문간 바로 아래에 있으면 다른 사람이 닫지 못하고, 멀리 가면 닫히는지. 닫힌 문으로 걸어오면 창 2(지연 120ms)에서도 튕기지 않고 문 앞에 서는지. 우클릭으로 내리면 1개 돌아오는지
+4. 창 2가 빛 동쪽 20칸 밖 나무를 도끼로 다섯 번: 도끼질은 바로, 그루터기·통나무는 왕복 뒤에, 창 1에도 그루터기. 흔들림은 창 1에만 보인다(알려진 문제)
+5. 셋째 창을 그 뒤에 띄운다: 벽·문(열림/닫힘)·그루터기·작업대·창고 내용물이 처음부터 보이는지(콘솔 welcome `walls= doors= ... chest_items=`)
+6. (M7-fix) 돌을 가진 채 작업대 없는 곳에서 Tab: 인벤토리만 열리고 걸을 수 있는지, **C**로 손 제작 창(도끼)이 열리는지(임시값 "M7-fix 손 제작 창"). 창 1이 창 2 둘레 2칸 밖에 벽 고리를 짓는다: 마지막 벽이 `it would wall in where players appear`로 거부되고 문은 되는지("M7-fix 다른 사람 가두기"). 인벤토리를 가득 채운 채 벽을 우클릭: 조각이 발 밑에 떨어지는지("M7-fix 철거"). 모루 옆 Tab에 수리 줄이 없는지("M7-fix 수리", 사람이 정할 것). 광부로 열린 문간에 선 이단을 곡괭이로 쳐 보기
+
+두 기기에서 M7 해 보기 (사람이 할 것, M7c):
+
+```bash
+# 데스크탑: 내보낸 뒤 (클라이언트의 --give를 받으려면 --test-allow-give)
+game/build/evensong.console.exe -- --host --test-allow-give --class=paladin --test-no-spawns --give=storage_chest,anvil,stone_wall:20,door:2,ingot_iron:6,planks:4
+# 서피스: 먼저 전송 형식 비교, 그다음 참가
+evensong.console.exe --headless -- --smoke      # builds_wire=85B/627B/27B net=v8 인지 (스냅샷 크기는 압축이라 기기마다 같아야 함)
+evensong.console.exe -- --join=<데스크탑 주소> --class=miner --give=stone_wall:20,axe,armor_t1
+```
+
+1. 서피스가 짓기·철거·문·창고·갑옷을 해 본다: 결과가 왕복 뒤에 오는 지연이 거슬리는지(예측하지 않는다: 알려진 문제)
+2. 데스크탑이 문을 닫고 서피스가 그 문으로 걸어온다, 서피스가 문 앞에서 밀고 있을 때 데스크탑이 연다(한 번 앞으로 뜀: 한 방향 3틱(50ms)에서 보이는 위치 약 9.6px. M7-fix 전에 적은 1.2px은 보정의 오차라 보이는 뜀이 아니었다), 서피스가 대시로 문간에 뛰어들 때 데스크탑이 닫아 본다(여유 밖의 대시는 끌려 나올 수 있다: 알려진 문제). 실제 회선 지연이 약 140ms(한 방향)를 넘으면 24px로 모자랄 수 있다
+3. 서피스가 도끼로 나무를 베고 둘 다 그루터기를 보는지, 5분 뒤 데스크탑의 숲이 다시 키우면 서피스에도 나무가 돌아오는지
+4. 이상하면 두 콘솔의 `build`·`demolish`·`door`·`armor`·`chest`·`craft`·`tree`·`gear`·`request_refused` 줄을 남겨 둔다
+
 ### 스크린샷
 
 ```bash
@@ -545,6 +595,46 @@ sleep 2
 timeout 90 "$GODOT" --max-fps 60 --path game -- --join=127.0.0.1:24691 --class=paladin --scale=2 --give=hoe,seed_healing:1 --bot="$CB" --screenshot=shots/m5c_client.png --frames=980 --keep-running --net-timeout=20 < /dev/null
 ```
 
+- M7a 그림 3장 (M7-fix에서 같은 명령으로 다시 찍음: M7b의 나무가 화면에 들어옴. 모두 시드 1, 480×270, 창 960×540, 혼자 할 때 봇. 작업대·창고는 04-env 그림, 아이콘·막대·갑옷 칸·창고 창은 코드 그림 자리 표시):
+  - `shots/m7_stations.png`: 저녁, 제단 빛 안 남쪽 줄(51)에 광부가 봇으로 놓은 기본 작업대(59..61)·모루(62..63)·성물 제작대(65..67, 촛불이 탐). 모루 바로 남쪽에서 Tab: 오른쪽 위 모루 창(96px, 줄 아홉: 구리·철 제련, 1티어 검·활·성광·곡괭이·낫, 갑옷, 성물 제작대. 재료 셋인 줄까지, 만들 수 없는 줄은 어둡게, 첫 줄 금빛 테)과 열린 인벤토리(핫바 왼쪽에 빈 갑옷 칸 윤곽). 더미 셋이 작업대 앞에 선다. 콘솔 `place item=workbench ... at=60,51` 등 셋, `EVENSONG_CRAFT open station=anvil at=62,51 recipes=9`
+  - `shots/m7_chest.png`: 저녁, 약초사가 제단 남쪽 빛 안 (62..64, 51)에 창고를 놓고 F로 열어 돌 40·상급 회복 약초 6·닳은 1티어 검(50/120, 호박색 막대)·철 주괴 3을 넣었다(봇 `store`). 인벤토리 격자 위에 창고 창(머리 = 창고 아이콘), 인벤토리에 남은 통나무·구리광석, 핫바 8번 낫
+  - `shots/m7_worn_gear.png`: 저녁, 빛 밖 남쪽. 팔라딘이 닳은 1티어 검으로 이단을 치는 중(첫 칼에 맞아 HP 92: 갑옷이 12 → 8). 핫바: 1티어 검(70/120 → 휘두른 뒤 69, 금빛 막대)·1티어 활(40, 호박색)·1티어 성광(0, 부서짐: 녹빛 막대 전체)·빈 칸(갑옷을 입어서)·1티어 낫(15, 녹빛)·…·8번 기본 검. 핫바 왼쪽 갑옷 칸에 입은 갑옷(30/100, 호박색 막대). 1티어 아이콘의 왼쪽 위 금빛 표시
+
+```bash
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=miner --give=workbench,anvil,relic_bench,planks:12,ingot_iron:6,ingot_copper:4,ore_copper:3,ore_iron:2 --bot="select:1;walkto:60,52;aimat:60,51;use:1;wait:6;select:2;walkto:63,52;aimat:63,51;use:1;wait:6;select:3;walkto:66,52;aimat:66,51;use:1;wait:6;walkto:63,52;aim:off;wait:10;tab;wait:400" --screenshot=shots/m7_stations.png --frames=330 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=herbalist --give=storage_chest,stone_a:40,wild_healing:6:fine,sword_t1,log:12,ingot_iron:3,ore_copper:7 --test-durability=4:50 --bot="select:1;walkto:63,52;aimat:63,51;use:1;wait:6;pick:1;wait:6;store:2;wait:2;store:3;wait:2;store:4;wait:2;store:6;wait:400" --screenshot=shots/m7_chest.png --frames=150 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --give=sword_t1,bow_t1,holy_light_t1,armor_t1,sickle_t1 --test-durability=1:70/2:40/3:0/4:30/5:15 --test-wear=4 --test-select=1 --test-at=63,56 --test-heretic=65,56 --test-no-spawns --bot="aimfoe;use:600" --screenshot=shots/m7_worn_gear.png --frames=62 < /dev/null
+```
+
+- M7b 그림 5장 (모두 시드 1, 480×270, 창 960×540, 혼자 할 때 봇. 건설 조각·나무·그루터기는 04-env 그림, 놓을 자리 표시와 나무 흔들림은 코드 그림 자리 표시):
+  - `shots/m7b_room_closed.png`: 저녁, 제단 빛 안 남쪽(61..65, 51..55)에 `--test-build`로 놓은 돌 방 5×5: 북쪽 벽 가운데에 닫힌 문(그 앞면 = 문이 방 안쪽 칸에), 안쪽 바닥 조각 3×3, 안쪽 동쪽에 랜턴 기둥(켜짐판 + 빛). 팔라딘이 문 바로 북쪽 (63, 50)에서 문을 겨눈다(더미 둘이 양옆 부활 자리). 방의 남쪽 줄은 빛 가장자리 밖이라 어둡다
+  - `shots/m7b_room_open.png`: 같은 장면, 봇이 F를 눌러 문을 열었다(콘솔 `EVENSONG_BUILD door open at=63,51`): 문의 앞면이 열린 아치(어두운 안쪽)로
+  - `shots/m7b_chop.png`: 저녁 끔(색이 보이게), 지상 (49..55, 62..68). 광부가 도끼로 (49, 62)의 나무를 다섯 번 쳐서 쓰러뜨리고(왼쪽 위 그루터기, 콘솔 `EVENSONG_TREE felled ... logs=4`, 핫바 2번에 통나무 4) (54, 67)의 나무 남동쪽 (55, 68)에서 줄기를 겨눠 치는 중(대각선이라 북쪽 동작: 도끼를 머리 위 왼쪽으로 든 프레임). 동·서쪽에서 칠 때는 수관이 캐릭터를 가린다(알려진 문제)
+  - `shots/m7b_ghost_ok.png`: 저녁, 제단 빛 남동쪽 가장자리. 팔라딘이 돌 벽을 골라 (67, 51)을 겨눈다: 금빛 놓을 자리 표시(벽 윗면 + 앞면 그림의 바둑판 절반, 막을 칸 둘의 테두리). 옆 (68..70, 51)은 `--test-build`로 놓은 벽 셋
+  - `shots/m7b_ghost_refused.png`: 같은 장면, 바로 북쪽 (66, 51)을 겨눔: 앞면이 자기 발 칸을 덮어서 짙은 빨강(`someone stands there`)
+
+```bash
+ROOM="61,51:wall/62,51:wall/63,51:door/64,51:wall/65,51:wall/61,52:wall/65,52:wall/61,53:wall/65,53:wall/61,54:wall/65,54:wall/61,55:wall/62,55:wall/63,55:wall/64,55:wall/65,55:wall/62,52:floor/63,52:floor/64,52:floor/62,53:floor/63,53:floor/64,53:floor/62,54:floor/63,54:floor/64,54:floor/64,53:lantern"
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=63,50 --test-build="$ROOM" --bot="aimat:63,51;wait:40" --screenshot=shots/m7b_room_closed.png --frames=60 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=63,50 --test-build="$ROOM" --bot="aimat:63,51;wait:10;pick;wait:40" --screenshot=shots/m7b_room_open.png --frames=60 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --no-evening --class=miner --test-at=49,63 --test-no-spawns --give=axe --test-select=1 --bot="aimat:49,62;use:170;walkto:52,69;walkto:55,69;walkto:55,68;aimat:54,67;use:400" --screenshot=shots/m7b_chop.png --frames=326 < /dev/null
+B="68,51:wall/69,51:wall/70,51:wall"
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=66,52 --test-no-spawns --give=stone_wall:10 --test-select=1 --test-build="$B" --bot="aimat:67,51;wait:30" --screenshot=shots/m7b_ghost_ok.png --frames=40 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- --class=paladin --test-at=66,52 --test-no-spawns --give=stone_wall:10 --test-select=1 --test-build="$B" --bot="aimat:66,51;wait:30" --screenshot=shots/m7b_ghost_refused.png --frames=40 < /dev/null
+```
+
+- M7c 두 창 그림 `shots/m7c_host.png`, `shots/m7c_client.png`: 세션 하나의 두 화면, 저녁 끔(색이 보이게), 시드 1, 스폰 끔, 제단 빛 동쪽 밖 (73..84, 52..58). 호스트(팔라딘)는 (74..77, 57)에 돌 벽 넷을 북쪽에서 지었고 다음 칸 (78, 57)을 겨눠 금빛 놓을 자리 표시가 보인다(빛 밖이라 2개씩: 호스트 로그 `build slot=0 ... cost=2 at=74,57` 등 넷). 클라이언트(광부, 창 2)는 (80, 55..57)에 세로로 셋을 동쪽에서 지었고(`build slot=2 ... at=80,55`·`80,56`·`80,57`, 위 벽의 앞면 칸에 이어 지음) 아래 (80, 58)을 겨눈다. 셋째 클라이언트(성직자, 헤드리스, 그림 없음)는 (83, 52)의 나무를 도끼로 치는 중이다: 두 화면 모두 도끼질 동작과 아직 선 나무(그 뒤 `tree slot=1 ... felled at=83,52 ... logs=4`). 클라이언트 화면의 벽·나무는 호스트가 보낸 편집, 남의 동작은 상태 묶음. 두 사람이 서로 한 칸 반 넘게 떨어져 지었다(임시값 "M7c 막기 여유"). 세 로그 오류 줄 0. 포트는 테스트 묶음 밖 24692. 찍은 명령:
+
+```bash
+HB="wait:30;walkto:61,50;walkto:74,56;select:1;aimat:74,57;use:1;wait:14;walkto:75,56;aimat:75,57;use:1;wait:14;walkto:76,56;aimat:76,57;use:1;wait:14;walkto:77,56;aimat:77,57;use:1;wait:14;aimat:78,57;wait:3000"
+CB="wait:30;walkto:68,50;walkto:81,54;walkto:81,55;select:1;aimat:80,55;use:1;wait:14;walkto:81,56;aimat:80,56;use:1;wait:14;walkto:81,57;aimat:80,57;use:1;wait:14;aimat:80,58;wait:3000"
+C2="wait:300;walkto:70,44;walkto:78,44;walkto:85,50;walkto:85,53;walkto:83,53;select:1;aimat:83,52;use:900;wait:600"
+timeout 90 "$GODOT" --max-fps 60 --path game -- --host=24692 --scale=2 --class=paladin --test-no-spawns --no-evening --give=stone_wall:12 --bot="$HB" --screenshot=shots/m7c_host.png --frames=800 --keep-running --net-timeout=30 < /dev/null &
+sleep 2
+timeout 90 "$GODOT" --headless --max-fps 60 --path game -- --join=127.0.0.1:24692 --class=cleric --give=axe --bot="$C2" --net-timeout=27 < /dev/null &
+timeout 90 "$GODOT" --max-fps 60 --path game -- --join=127.0.0.1:24692 --class=miner --scale=2 --no-evening --give=stone_wall:8 --bot="$CB" --screenshot=shots/m7c_client.png --frames=680 --keep-running --net-timeout=26 < /dev/null
+```
+
 ### 그림 검사 (창, 렌더러 필요)
 
 헤드리스 테스트는 더미 렌더러라 화면을 못 본다. 빛·불꽃·캐릭터 레이어·y 정렬이 **실제로 그려진 픽셀**을 보는 검사는 따로 창을 띄워 돌린다 (창이 3초쯤 떴다 닫힌다).
@@ -569,6 +659,13 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 - `purify` (M5b): 저녁 끄고 오염 구역의 남쪽 가장자리에서(엔티티 숨김) 채널링 하나가 정화할 칸을 월드 편집으로 정화한 바닥 = 그림 칸마다 그 칸이 그린 타일을 PNG에서 읽어 붙인 CPU 합성(정화된 칸은 풀, 구역의 새 가장자리는 풀↔재 타일). 그다음 정화 첫 프레임: 그 바닥 + 정화된 칸마다 재 얼룩(04-env 장식 PNG, 이 검사에 따로 적은 고르기 규칙, 칸 가운데) + 칸 테두리 금빛 1px, 픽셀까지. 저녁을 켜면 금빛은 제 색 그대로(unshaded), 재 얼룩은 어두워짐(바닥 빛 레이어). 그다음 채널링 마지막 틱의 점 16개(2×2 금빛, 왼쪽 위 상아빛)가 반지름 + 0.5칸 고리의 이 검사에 따로 적은 자리에 있고 그 64픽셀만 바뀜(저녁 켬). 일부러 깨 본 것은 아래 "측정"의 M5b
 - `altar` (M5b): 제단을 월드 편집으로 13칸 서쪽에 옮기고(엔티티는 제단만) 새 자리 둘레 화면 픽셀 전부를 저녁 켬·끔으로 찍어 밝음 = 새 영역의 바닥 빛 텍셀(`ground`와 같은 규칙. 화면 안의 옛 영역 픽셀 약 3.9만 개는 모두 어두움, 불꽃 81픽셀은 제 색). 그다음 제단을 든 플레이어의 머리 위 표시 46픽셀이 이 검사에 따로 적은 문자 지도 그대로 그 자리에(저녁 켬·끔 둘 다, unshaded), 놓을 자리 표시의 테두리와 빛 가장자리 점이 금빛(됨)·짙은 빨강(안 됨)으로 그 자리에. 끝나면 제단을 제자리로
 - `fields_net` (M5c): 세션 클라이언트가 그리는 호스트의 밭·정화·든 제단. 호스트 월드를 진짜 규칙으로 농사짓고(`Farm`: 네 클래스가 일구고 심고, 물 주고, `stage_ticks_base` 20으로 70틱 자람) 반쯤에서 찍은 지상 스냅샷으로 클라이언트 월드를 만들고, 나머지(제단을 들어 13칸 서쪽에 놓음 → 밭이 시듦, 북쪽 구역 가장자리의 채널링 정화)를 실시간 편집으로(클라이언트는 `SessionClient.on_edit`처럼 오염 0 편집에서 깜빡임). 호스트의 운반자·채널링하는 팔라딘과, 상태 묶음(든 비트, 동작 비트의 채널링)을 풀어 만든 클라이언트의 그 둘 + 채널링 점. 옛 밭 둘레와 구역 가장자리에서 두 화면이 픽셀까지 같고(저녁 끔) 맨 월드와 1,500픽셀 넘게 다르고, 클라이언트의 점 11개가 제 자리 제 색. 일부러 깨 본 것은 아래 "측정"의 M5c
+- `stations` (M7a): 저녁 끄고 월드 편집으로 기본 작업대·모루·성물 제작대·창고를 한 줄에 놓아(불꽃은 0프레임에 붙잡음) 찍은 화면 = 배경 + 각 그림을 이 검사에 따로 적은 자리(자리 가운데, 그림에서 잰 마지막 불투명 줄이 자리의 마지막 픽셀 줄)에 붙인 것 + 성물 제작대 그림의 (37, −4)에 작은 불꽃 0프레임, 픽셀까지. 일부러 깨 본 것은 아래 "측정"의 M7a
+- `gear_hud` (M7a): 닳은 1티어 장비(가득·금빛·호박색·녹빛·부서짐)를 든 핫바와 입은 갑옷(30/100)의 HUD: 막대 140픽셀(14×2, 색과 너비 규칙은 이 검사에 따로 적음)과 갑옷 칸(핫바 왼쪽 6px, 테·아이콘)이 그 자리 그 색, 가득 찬 칸에는 막대 없음
+- `m7_panels` (M7a): 인벤토리를 연 채 창고 창(자리 = 인벤토리 격자 위, 테·머리 아이콘·밑줄·칸 16·아이콘·수 빼고·닳은 활의 막대)과, 모루 창(재료 하나·둘·셋인 줄과 닳은 검의 수리 줄, 96px로 넓어진 창의 자리, 칸·화살표는 이 검사에 따로 적은 배치)의 불투명 픽셀 전부(만들 수 없어 어두운 줄은 빼고)
+- `builds` (M7b): 저녁 끄고 엔티티를 숨긴 화면에 월드 편집으로 건설 조각 51칸(바닥 조각을 깐 돌 방과 닫힌 문, 열린 문, ㄱ자, 세로 줄, 외톨이, 둘 나란히)을 놓아 찍은 화면 = 배경 + 건설 시트 PNG에서 이 검사에 따로 적은 조립 규칙으로 합친 그림(바닥 조각 먼저(변형 규칙), 그다음 북쪽 줄부터 벽마다 이웃 마스크의 윗면, 안쪽 모서리 점, 아래 칸이 벽이 아니면 그 칸 위쪽부터 앞면(서·동 이웃의 앞면으로 종류), 문은 문 앞면), 픽셀까지. 그다음 랜턴 기둥(그 PNG, 칸 아래 변·가운데)
+- `trees` (M7b): 저녁 끄고 나무가 가장 많이 들어오는 화면(시드 1: 4그루, 다른 엔티티 숨김) = 배경 + 나무마다 PNG를 (x·16 + 8 − 32, (y+1)·16 − 1 − 72)에 발 순서(y 정렬)대로 붙인 것, 그다음 하나를 그루터기 편집: 그 자리에 그루터기 PNG. M7b부터 이 검사의 월드는 여러 부분이 쓰는 조용한 자리 (400, 400) 화면에 닿는 나무를 미리 지운다(그 부분들의 배경이 M7a와 같은 풀밭이게)
+- `build_ghost` (M7b): 저녁 켜고 놓을 자리 표시를 한 칸에: 됨 = 조각 그림(벽은 외톨이 윗면 + 외톨이 앞면, 랜턴은 기둥)의 불투명 픽셀 중 월드 픽셀 (x + y) 짝수 칸만 제 색 + 막을 칸의 1px 테두리 금빛, 안 됨 = 같은 칸과 테두리를 짙은 빨강. unshaded라 저녁에도 그 색(규칙은 이 검사에 따로 적음), 그 픽셀만 비교
+- `builds_net` (M7c): 세션의 지은 월드가 클라이언트에 = 호스트. 호스트 월드에 빛 남쪽 밖의 돌 방(열린 문), 바닥 조각, 랜턴 기둥, 제단 옆의 작업대 셋과 창고를 편집으로 놓고, 클라이언트 월드는 그 절반에서 받은 지상 스냅샷 + 나머지를 전송 코덱으로 지난 편집(벽 하나, 문 닫힘, 창고 칸, 나무 → 그루터기)으로. 호스트의 광부가 도끼를 휘두르는 프레임과 상태 묶음으로 받은 클라이언트의 그 광부. 방·작업대·그루터기·도끼질 둘레의 화면 넷이 픽셀까지 같고, 빈 월드와 다르고(그린 픽셀), 클라이언트의 벽 그림·설치물 그림 = 데이터
 - `items` (M2b): 채집물이 가장 많이 보이는 화면(시드 1: 9개)과 드롭 하나를 저녁 끈 채 찍어, 그것들을 숨긴 화면 + 각자의 그림(월드 그림 / 아이콘)을 그 칸에 놓은 것과 픽셀까지 비교. 일부러 깨 봄: 그림을 1px 내리면 FAIL(불일치 1,054픽셀)
 - `cave` (M3a): 시드 1 던전의 도착 방 둘레를 어둠 끄고(엔티티 숨김) 찍어, 그림 칸마다 `CaveView.drawn_at`의 절벽 타일 + 광맥·금 오버레이를 CPU로 합친 그림과 픽셀까지 비교. 그 전에 벽을 깎아 둔다(앞면이 있는 벽 셋에 금 1·2·3단계, 옆 벽 하나에 1단계, 앞면 벽 하나는 깨서 앞면이 한 칸 위로). 지상 월드는 그동안 숨긴다
 - `dark` (M3a): 같은 던전에 횃불 하나를 놓고(다른 빛은 끄고 다른 엔티티는 숨김) 어둠 켬·끔 두 번 찍어, 횃불 반경 밖 픽셀은 모두 어둡고(비율 ≤ 0.3) 첫 단계(반경의 45%) 안 픽셀은 모두 밝은지(≥ 0.75), 그 자리가 안전 반경이 아닌지(빛일 뿐)
@@ -610,6 +707,11 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--test-field=<x>,<y>:<soil\|healing\|buff\|poison>[:<0..4>][:wet][:fast][/...]` | M5a: 시작할 때 시작 지도의 그 칸들을 일군 흙으로, 그리고 그 작물(단계, 젖음, 약초사가 심음)을. 농사 규칙을 건너뛴다(빛 밖도 됨), 재 옆(그림 규칙)만 거부. 빛 밖·오염 옆의 작물은 첫 농장 틱에 시든다. M5c: 호스트면 그 지상에(참가자는 스냅샷으로 받는다) | 동작 (스크린샷·시험용, M5a; 호스트 M5c) |
 | `--test-crop-ticks=<1..2400>` | M5c: 작물 한 단계에 드는 자란 틱을 `CROP_STAGE_TICKS` 대신 이 값으로(약초사의 것은 그대로 `CROP_HERBALIST_GROWTH_PCT`만큼 빠름). 혼자 할 때와 호스트의 농장(`Farm.stage_ticks_base`). 세션 시험이 몇 초 안에 익는 것을 보려고 | 동작 (시험·스크린샷용, M5c) |
 | `--bot=` `waitfield:<x>,<y>,<soil\|0..4>[,<틱>]` | M5c: 이 기기의 월드에서 그 칸이 일군 흙이거나(soil) 그 단계 이상의 시들지 않은 작물일 때까지 서서 기다림(기본 최대 1800틱). 혼자 할 때도 | 동작 (M5c, 세션 시험·스크린샷용) |
+| `--test-durability=<1..24>:<n>[/...]` | M7a: 시작할 때(`--give` 뒤) 인벤토리 그 칸(1부터) 아이템의 남은 내구도(내구도 있는 것만, 최대치까지) | 동작 (스크린샷·시험용, M7a) |
+| `--test-wear=<1..8>` | M7a: 시작할 때 핫바 그 칸의 갑옷을 입는다(`--test-durability` 뒤) | 동작 (스크린샷용, M7a) |
+| `--bot=` `store:<n>`, `take:<n>`, `unequip` | M7a(혼자 할 때): 열린 창고 창에서 인벤토리 칸 n(1 = 핫바 첫 칸) 클릭 = 넣기 / 창고 칸 n 클릭 = 꺼내기 / 갑옷 칸 클릭 = 벗기 | 동작 (M7a, 스크린샷·시험용) |
+| `--bot=` `wreck` | M7b(혼자 할 때): 이 틱에 우클릭 = 목표 칸의 건설 조각 철거. 놓기는 조각을 고르고 `use:1`(좌클릭), 문은 `pick`(F) | 동작 (M7b, 스크린샷·시험용) |
+| `--test-build=<x>,<y>:<wall\|door\|door_open\|floor\|lantern>[/...]` | M7b: 시작할 때 시작 지도의 그 칸들에 건설 조각을 규칙 없이(비용·놓기 규칙을 건너뜀) 놓는다 | 동작 (스크린샷·시험용, M7b) |
 | `--max-players=<1..9>` | 호스트: 인원 상한을 낮춘다 (테스트용. 9보다 높일 수 없다) | 동작 |
 | `--net-out=<폴더>`, `--net-name=<이름>` | 테스트 인스턴스: 결과 JSON·표시 파일을 쓰고 세션이 끝나면 종료 | 동작 |
 | `--net-start=<n>`, `--net-expect=<n>`, `--net-expect-refused=<n>` | 호스트: 클라이언트 n명이 오면 봇 시작 / n명이 봇을 마치거나 나가고 n번 거부했으면 세션 끝 | 동작 (테스트) |
@@ -639,13 +741,16 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 M2a: 몸 동작 시트 8장의 크기(칸 × (시작 칸 + 프레임), 칸 × 3줄), 아이템 22개의 아이콘(16×16, 그림 또는 코드로 그린 것)과 월드 그림, 도구 6개의 몸 동작, M2a 입력 액션 6개,
 M2b: 기본 월드의 채집물 수(= 임시값 표의 합 74), 채집물 15종의 월드 그림, F·F7 입력 액션, 드롭이 든 스냅샷 왕복, 요청이 붙은 입력 프레임 왕복,
 M3a: 기본 월드의 던전 입구, 던전 타일셋(소스 2, 타일 30, 그림 있는 코너 키 21), 시드 1 던전(크기, 해시 = `DungeonGen.GOLDEN_HASH`, 출구 계단, 도착점에 설 수 있음, 제단 자리)을 동굴 그림으로 그려 그림 칸·오버레이 전부 = 데이터,
-M3b: 시드 1~8 던전의 해시 묶음(`DungeonGen.SEEDS_GOLDEN`, 출력 `dungeon_seeds=acc0a9bc2359`(M3-fix): 다른 기기의 던전 생성기가 같은지 보는 값), 캔 던전(금·깸·횃불·드롭)을 지도 스냅샷 길로 보내 받은 것 = 원본이고 동굴 그림 = 데이터(`dungeon_map=319B`), 전송 형식 v4(지도가 든 상태, 지도를 적은 TRAVEL, 지도를 적은 편집, 지도 들어옴 메시지),
+M3b: 시드 1~8 던전의 해시 묶음(`DungeonGen.SEEDS_GOLDEN`, 출력 `dungeon_seeds=acc0a9bc2359`(M3-fix): 다른 기기의 던전 생성기가 같은지 보는 값), 캔 던전(금·깸·횃불·드롭)을 지도 스냅샷 길로 보내 받은 것 = 원본이고 동굴 그림 = 데이터(`dungeon_map=319B`, M7c부터 창고 수 +2B로 `321B`), 전송 형식 v4(지도가 든 상태, 지도를 적은 TRAVEL, 지도를 적은 편집, 지도 들어옴 메시지),
 M4a: 도구 7개(성광 더함)·입력 액션 `dash`, 피격·사망 시트와 이단 시트 다섯의 크기, 클래스 무기 다섯의 공격, 기본 월드의 지상 스폰 칸이 모두 빛 밖(출력 `spawn_tiles=678`), 시드 1 던전에서 짧은 싸움(이단이 예고 30틱 뒤 한 번 맞히고, 검 세 번에 죽고, 제단이 부서지면 던전 스폰이 멈춤, 출력 `combat=30/3`),
 M4b: 대시·F 누르고 있기·USE 조준이 든 프레임 왕복, vitals 블록이 든 상태 왕복, 진짜 아레나의 적 묶음을 클라이언트 `NetCombat`이 받아 호스트 자리·HP·예고 프레임 그대로 그림(출력 `combat_wire=25B`: 이단 하나 묶음 크기), 화살 사건 왕복, `net=v5`,
 M6a: 아이템 30개(물약 셋 아이콘은 띠의 16×16 칸, 조제대 아이콘은 코드), 입력 액션 `skill_1`, 레시피 여섯과 약초사 전용 규칙, 일반 회복 물약 만들기(약초 둘 → 하나), 조제대 그림 48×32와 시드 1 제단 남쪽에 놓기(편집 셋, 작업대로 찾힘), 회복 물약, 독 한 번에 다운, 던진 상급 독이 이단에 닿음(출력 `potions=6/1`: 레시피 수 / 닿은 이단),
 M6b: THROW·CRAFT 프레임 왕복, 효과 블록이 든 상태 왕복(40B), 기록을 켠 아레나가 던진 독의 던짐·터짐 사건을 클라이언트 `NetCombat`이 받아 호스트가 날린 모든 틱에 호스트 점 그대로 날림, 독 걸린 이단을 클라이언트가 독 표시로 그림(출력 `potion_wire=40B/46B`: 효과가 있는 상태 / 병 하나의 사건 둘), `net=v6`,
 M5a: 씨앗 아이템 셋(종류 SEED), 작물 시트 112×48과 물 준 흙 그림 셋, 시드 1 지상의 첫 빛 안 흙 칸에 약초사가 심은 회복 약초를 젖은 채 두면 4,800틱(네 단계 × 1,200, 이 검사에 따로 적은 셈)에 익고 낫으로 상급 약초 둘 + 씨앗 하나(출력 `farm=4800/2`),
 M5c: 전송 형식 v7(프레임의 CHANNEL·ALTAR_LIFT·ALTAR_PLACE, 채널링과 든 제단이 든 17B 상태), 호스트 농장의 자람과 제단을 든 뒤의 시듦이 편집으로 클라이언트 월드에 가서 같은 월드(출력 `fields_wire=17B/11B`: 채널링하는 운반자의 상태 / 작물 단계 편집 하나), `net=v7`,
+M7a: 작업대 셋·창고·작은 불꽃 그림, 통나무·돌·철광석에서 손 작업대 → 널판 → 모루 → 제련 → 1티어 검(7번 만듦), 시드 1 제단 남쪽에 작업대 놓기, 1티어 검 21·갑옷 너머 칼 8·사망 뒤 검 96, 제단 북쪽 빛 안에 창고 → 넣으면 월드 해시가 바뀜(출력 `chain=20/7 gear=21/8/96 chest=16`: 체인·수리 레시피 수 / 만든 수, 1티어 검 피해 / 갑옷 너머 칼 / 사망 뒤 검 내구도, 창고 칸), 도구 12개(M7a: 1티어 무기 다섯),
+M7b: 건설 시트·나무·그루터기·랜턴 기둥·도끼 시트 그림, 시드 1 지상의 나무 30그루(줄기가 막음), 제단 남쪽 빛 안에 돌 벽(벽과 앞면이 막음)과 문(닫히면 막고 열면 지나감), 빛 안 비용 < 밖 비용, 우클릭이 벽을 돌려줌, 도끼 다섯 번에 그루터기와 통나무 4, 그루터기가 다시 자람(출력 `build=2/1/2 trees=30/4`: 놓은 조각 / 빛 안 비용 / 밖 비용, 나무 수 / 한 그루의 통나무), 도구 13개(M7b: 도끼), 입력 액션 `demolish`,
+M7c: 전송 형식 v8(프레임의 DEMOLISH·DOOR·ARMOR·CHEST 왕복), 닳은 1티어 검과 입은 갑옷이 든 인벤토리 왕복(내구도 그대로), 돌 벽·열린 문·그루터기·모루·닳은 검이 든 창고가 있는 호스트 월드를 스냅샷으로 받은 월드 = 같은 해시, 그 뒤의 창고 칸 편집과 문 닫힘 편집도 같게(출력 `builds_wire=85B/627B/27B`: 닳은 검·갑옷이 든 인벤토리 85B, 그 월드의 압축 스냅샷, 창고 칸 편집 16B + 칸 편집 11B),
 M5b: 성수 아이템(종류 CONSUMABLE)과 아이콘, 재 얼룩 그림 셋, 시드 1 지상의 첫 오염 칸에서 끝난 채널링이 원판의 오염 칸(이 검사에 따로 적은 셈)을 깨끗한 풀로(흙 + 재 0, 오염 칸 수가 그만큼 줆), 성수가 3×3 안을 정화하고 하나 씀, 스폰 칸이 줆, 제단을 들면 제단·안전 반경 없음, 13칸 서쪽 근처에 내려놓으면 그 자리에 제단과 빛, 부활 자리가 따라감(출력 `purify=11+4/648 altar=49,45`: 채널링 칸 + 성수 칸 / 그 뒤 스폰 칸, 옮긴 제단의 왼쪽 위 칸),
 기본 월드의 안전 반경 hard 빛 텍스처 226×226 텍셀 전부 = `is_in_safe_zone()`, 불꽃 마스크 81픽셀,
 네트워크(G3): 물리 틱 60, ENet 호스트가 루프백 빈 포트에서 열리고 닫힘(방화벽 창이 뜨지 않게 127.0.0.1만), Steam 가용성 = GodotSteam 유무, 상태 묶음 왕복, 늦은 참가 월드 스냅샷 왕복(H1: 이 빌드의 zstd로 압축 → 조각 → 받기 → 같은 월드), 9명 뒤 열 번째 거부, `main.tscn`에 `Net` 노드.
@@ -667,9 +772,12 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 (물약: 마시기·던지기 규칙, 효과 수치, 아이템 꺼내기), M5a: farming.gd (농사 규칙: 밭의 식생
                                 값, 빛·오염, 일구기·심기·물주기·수확 검사, 낫 규칙), M5b: purify.gd (정화 규칙: 성수 3×3,
                                 채널링 원판과 시작 조건, 정화 편집), altar_move.gd (제단 들기·놓기 규칙, 놓을 자리,
-                                다운 때 내려놓을 자리)
+                                다운 때 내려놓을 자리), M7a: gear.gd (1티어 장비·갑옷·내구도: 기본 아이템, 피해, 방어, 마모,
+                                입기·벗기, 가장 닳은 것), storage.gd (공유 창고: 빛 안 규칙, 열기, 넣기·꺼내기),
+                                M7b: building.gd (건설: 조각, 비용, 놓기·봉쇄 규칙, 철거, 문)
   ui/                           hud.gd (핫바 줄 · Tab 인벤토리 칸 · 3×5 숫자, 자기 캔버스 레이어; M4a: HP·스태미나·다운 막대,
-                                부활 카운트다운; M6a: 효과 아이콘), crafting_panel.gd (M6a: 제작 창)
+                                부활 카운트다운; M6a: 효과 아이콘; M7a: 내구도 막대, 갑옷 칸), crafting_panel.gd (M6a: 제작 창;
+                                M7a: 재료 셋까지, 수리 줄, 스크롤), chest_panel.gd (M7a: 창고 창)
   combat/                       (M4a) combat.gd (공격 표·조준 코드·근접 호·시야 선·곡괭이 규칙·적의 빛 규칙), heretic_sim.gd
                                 (이단 하나의 상태와 그림 시간), arena.gd (지도 하나의 전투: 이단·화살과 빛 탄·제단 HP·소생·스폰),
                                 combat_view.gd (그리기: 이단 노드, 날아가는 것, 제단·다운 막대). M6a: arena.gd에 던진 병·터짐·이단의 독
@@ -679,6 +787,8 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 item_view.gd (채집물·드롭 그림, M2b), M3a: walls.gd (벽 바이트·앞면·경도 규칙),
                                 dungeon_gen.gd (던전 생성기), cave_table.gd (절벽 타일 조회: 코너 + 둘레), cave_view.gd
                                 (던전 dual grid + 광맥·금 오버레이), fixture_view.gd (입구·계단·제단·횃불 그림과 빛),
+                                M7b: forest.gd (지도 하나의 나무: 벌목 규칙, 맞은 수, 다시 자라기), build_view.gd (건설 벽·문·바닥
+                                그림, 시트 조립 규칙), build_ghost.gd (놓을 자리 표시),
                                 M5a: farm.gd (지도 하나의 농장: 자라기·물·시듦의 틱과 네 동작), field_view.gd (물 준 흙 덧칠,
                                 작물 그림과 흙더미 색), M5b: purify_view.gd (재 얼룩·금빛 테두리·채널링 점), altar_ghost.gd
                                 (놓을 자리 표시),
@@ -692,13 +802,14 @@ game/                           Godot 프로젝트 루트 (= res://)
   light/                        safe_zone.gd (안전 반경 규칙), light_gen.gd (빛 텍스처·불꽃 마스크), altar_light.gd, lighting.gd,
                                 torch_light.gd (횃불 빛 텍스처, M3a)
   net/                          session.gd (세션 노드 Net: 두 역할이 같이 쓰는 상태·RPC 표·틱 나누기), session_host.gd
-                                (호스트 흐름; M5c: 지도마다 농장, 농사·정화·제단 요청), session_client.gd (클라이언트 흐름), session_bots.gd (봇·테스트 흐름: go/done/
+                                (호스트 흐름; M5c: 지도마다 농장, 농사·정화·제단 요청; M7c: 지도마다 숲, 건설·철거·문·갑옷·창고·벌목 요청,
+                                1티어 피해·마모), session_client.gd (클라이언트 흐름), session_bots.gd (봇·테스트 흐름: go/done/
                                 finish, 결과), world_snapshot.gd (늦은 참가 월드 스냅샷), transport.gd (전송 인터페이스), enet_transport.gd,
                                 steam_transport.gd (자리만), transports.gd (이름 → 전송), protocol.gd (전송 형식; M6b: THROW·CRAFT, 효과 블록, 독 표시, 병 사건;
-                                M5c: CHANNEL·ALTAR_LIFT·ALTAR_PLACE, 상태의 채널링·든 제단),
+                                M5c: CHANNEL·ALTAR_LIFT·ALTAR_PLACE, 상태의 채널링·든 제단; M7c: DEMOLISH·DOOR·ARMOR·CHEST, 인벤토리의 내구도·갑옷 칸),
                                 roster.gd (인원 상한·스폰 자리), input_gate.gd (호스트 입력 검사), state_broadcast.gd
                                 (묶음/키프레임/조용함), prediction.gd (클라이언트 예측·보정), interpolation.gd (남의 캐릭터
-                                보간 + 호스트 시계), edit_log.gd (월드 편집 기록), net_member.gd (세션 안 플레이어 하나),
+                                보간 + 호스트 시계), edit_log.gd (월드 편집 기록; M7c: 창고 칸 편집), net_member.gd (세션 안 플레이어 하나),
                                 net_bot.gd (--bot), link_sim.gd (지연·손실 흉내), net_stats.gd (트래픽), session_report.gd
                                 (테스트 결과 JSON·표시 파일), net_combat.gd (M4b: 클라이언트가 받은 적·화살을 트랙으로
                                 모아 거울 아레나에 그리기; M6b: 던진 병 트랙 `FlaskTrack`과 터짐, 이단의 독 표시)
@@ -714,7 +825,10 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 test_net_brew.gd (M6b: 실제 세션 brew·brew4, test_net_session.gd를 이어 씀), test_farming.gd (M5a),
                                 test_purify.gd, test_altar_move.gd (M5b), test_net_fields.gd (M5c: 세션의 농사·정화·제단,
                                 한 프로세스, test_net_potions.gd를 이어 씀), test_net_farm.gd, test_net_purify.gd (M5c: 실제 세션
-                                farm·farm4, purify·altar, test_net_session.gd를 이어 씀),
+                                farm·farm4, purify·altar, test_net_session.gd를 이어 씀), test_workbench.gd, test_gear.gd,
+                                test_storage.gd (M7a), test_building.gd, test_trees.gd (M7b), test_net_build.gd (M7c: 세션의 작업대·장비·
+                                창고·건설·나무, 한 프로세스, test_net_fields.gd를 이어 씀), test_net_house.gd, test_net_stock.gd (M7c: 실제 세션
+                                house, stock, test_net_session.gd를 이어 씀),
                                 fixtures/ (러너 자체 시험)
   tools/                        build_tileset.gd (타일셋 빌더), build_rig_anchors.gd (기준점 표), check_render.gd (창 그림 검사)
   shots/                        스크린샷 (.gdignore)
@@ -733,6 +847,7 @@ game/                           Godot 프로젝트 루트 (= res://)
 - **M3a**: 생성기 5단계가 던전 입구(설치물 `PLACEABLE_ENTRANCE`, 2×1)를 넣는다. 그래서 `SurfaceGen.GOLDEN_HASH`가 **다시 바뀌었다**: `ff2e1d90c4dc12d6dfad926584d440d0` → `1d9f92c7b5ef2a715f95cc32d7424b36` (입구 칸 2개뿐. 난수를 쓰지 않고 4단계 뒤에 놓아서 채집물 74개는 M2b 자리 그대로다, `test_dungeon.gd`가 확인). 늦은 참가 스냅샷 원본이 그만큼 바뀌어 세션 시험의 압축 크기·조각 수가 조금 달라졌다(시험은 수를 스스로 센다). 설치물 중 막는 것은 제단·입구·계단·이단의 제단(`WorldData.placeable_blocks`), 횃불은 막지 않는다
 - **M3a 지도**: 지도마다 WorldData가 따로다(`map_id`: 지상 `Config.MAP_SURFACE` 0, 첫 던전 `MAP_DUNGEON` 1. 해시·스냅샷에는 들어가지 않는다). 던전은 벽(WALL)·광맥(ORE)·설치물만 쓰고 바닥 레이어는 0이다. 벽 바이트 = 종류(아래 4비트: 0 없음, 1 바위, 2 기반암) | 맞은 횟수(위 4비트), 광맥 = 0 없음 / 1 구리 / 2 철 (`world/walls.gd`). 그래서 채굴 한 번이 보통 칸 편집 하나이고 스냅샷·해시·편집 기록이 반쯤 깬 벽까지 그대로 덮는다
 - **M5a 밭**: 일군 칸 = 바닥 레이어 흙(괭이질은 M1 디버그 편집과 같은 바닥 편집 하나). 작물·젖은 흙은 식생 레이어의 값 `Config.FIELD_BASE`(64) + 작물(0 없음·1 회복·2 버프·3 독초) × 40 + 단계(0~4) × 8 + 표지(시듦 4, 젖음 2, 약초사가 심음 1). 0 = 마른 빈 흙, 66 = 젖은 빈 흙. 채집물 값(1..15)과 겹치지 않는다. 그래서 스냅샷·월드 해시·편집 기록이 밭을 그대로 덮고, 세션의 전송 형식(v6)도 바꿀 것이 없다. 자라는 틱·남은 물 틱은 월드가 아니라 지도마다의 `Farm`에 있다(아래 "M5a")
+- **M7b 건설·나무**: 벽 레이어의 벽 바이트 종류에 건설 조각이 더해졌다: 3 돌 벽, 4 닫힌 문, 5 열린 문, 6 바닥 조각(막지 않음, 벽이 아님). 건설 조각은 맞은 횟수가 없다(위 4비트 0). 설치물 레이어에 14 나무, 15 그루터기, 16 랜턴 기둥. 그래서 짓기·철거·문 열기·벌목·다시 자라기가 모두 칸 편집 하나이고 스냅샷·해시·편집 기록이 그대로 덮는다(스냅샷·편집 디코더는 이 값들을 거르지 않는다). 지상 생성기 6단계가 나무를 놓아 `GOLDEN_HASH`가 바뀌었다(아래 "M7b: 건설 · 나무 · 도끼")
 - **M5b 정화·제단**: 정화된 칸 = 바닥 풀 + 오염 0(칸 편집 둘, 재를 거치는 모습은 그림뿐). 제단 자리(`altar_rect`)는 이제 설치물 레이어에서 다시 읽는다: 들기·놓기는 제단 칸 아홉의 칸 편집이고, `EditLog.apply_to_data`가 제단 칸이 바뀔 때 `WorldData.refresh_altar_rect()`로 다시 계산한다(제단 칸이 한 3×3일 때만 그 자리, 아니면 없음 = 들고 있음·반쯤 옮김). 스냅샷 머리말의 제단 자리와 해시는 그 값을 그대로 담는다(시험: 편집을 전송 형식으로 보낸 사본·스냅샷이 같은 제단 자리와 해시)
 
 ## 캐릭터 (G2)
@@ -1085,7 +1200,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 ### 제작 틀 (`items/crafting.gd`, M7이 이어 쓴다)
 
 - **작업대** = 놓는 설치물 하나(`Crafting.STATION_OF`: 설치물 값 → 작업대 종류, M6-fix: `STATION_ICON`: 종류 → 제작 창 머리의 아이콘, 자리 크기는 `WorldItems.FOOTPRINT_OF`). M6a는 조제대(`WorldData.PLACEABLE_ALCHEMY` → `alchemy`) 하나다. 플레이어의 발 칸이 그 자리에서 `STATION_REACH_TILES`(2칸, 체비셰프) 안이면 그 작업대에 있다(`station_near`: 가장 가까운 것 = Tab이 여는 창, 같으면 자리 왼쪽 위 칸이 줄 순서로 앞인 것. `station_of_kind_near`(M6-fix): 그 종류 중 가장 가까운 것 = 호스트의 CRAFT 검사. `still_at`: 창을 연 그 작업대가 아직 그 자리에 있고 손 닿는지(M6-fix: 다른 작업대가 더 가까워져도 닫히지 않음)). M6-fix: 발 칸 둘레 2칸 안의 칸을 모두 보고 거기 걸친 자리 전체를 재므로 자리 크기에 상관없다(M6b는 3칸 자리에 맞춘 창에서 자리의 왼쪽 위 칸만 봐서 5칸 자리를 놓쳤다)
-- **M7이 새 작업대에 더할 것** (M6-fix에 적음. M6b의 "값을 더하면 된다"는 너무 넓었다): `STATION_OF`·`STATION_ICON`·`FOOTPRINT_OF`의 값과 레시피, 그리고 아직 조제대만 아는 곳: `FixtureView`의 그림(탁자만 그림), 제작 창의 줄 모양(입력 하나만 그림, 클래스 표시는 약초사 주머니 하나), 창 자리·스크롤(여섯 줄에 142px). 클래스 거부 문구는 레시피의 클래스에서 만든다(`Recipe.class_refusal`: 약초사면 `herbalist only`). 한 화면에 종류가 다른 작업대 둘이 붙으면 Tab은 가장 가까운 것의 창만 연다(호스트는 손 닿는 어느 것이든 받는다)
+- **M7이 새 작업대에 더할 것** (M6-fix에 적음. M6b의 "값을 더하면 된다"는 너무 넓었다): `STATION_OF`·`STATION_ICON`·`FOOTPRINT_OF`의 값과 레시피, 그리고 아직 조제대만 아는 곳: `FixtureView`의 그림(탁자만 그림), 제작 창의 줄 모양(입력 하나만 그림, 클래스 표시는 약초사 주머니 하나), 창 자리·스크롤(여섯 줄에 142px). 클래스 거부 문구는 레시피의 클래스에서 만든다(`Recipe.class_refusal`: 약초사면 `herbalist only`). 한 화면에 종류가 다른 작업대 둘이 붙으면 Tab은 가장 가까운 것의 창만 연다(호스트는 손 닿는 어느 것이든 받는다). M7a가 이것들을 했다: `FixtureView.FURNITURE`(작업대마다 그림), 제작 창의 재료 셋·수리 줄·스크롤(아래 "M7a")
 - **레시피** = 작업대, 입력(아이템·수·등급: 정확한 등급 또는 −1 = 아무 등급), 출력(아이템·수·등급), 만들 수 있는 클래스(비면 누구나). `Crafting.recipes()`가 순서대로(작업대마다, 회복·버프·독, 일반 → 상급)
 - **만들기** (`craft`, 모두 아니면 하나도 아님): 해금됐고, 클래스가 되고, 입력이 다 있고, 입력을 뺀 뒤에 출력이 들어가야 한다(`refusal`이 인벤토리 사본에서 해 봄). 그다음 입력을 **뒤 칸부터** 빼고(가방 칸이 핫바보다 먼저, 핫바의 묶음이 오래 남게. 구현 선택) 출력을 넣는다(M2a의 넣기 규칙: 같은 묶음 먼저, 그다음 앞쪽 빈 칸 = 핫바부터). 하나라도 안 되면 아무것도 바꾸지 않고 이유를 돌려준다: `locked`, `herbalist only`, `missing inputs`, `no room`(자리가 없으면 거부, 땅에 떨어뜨리지 않음: 임시값)
 - **해금** (○ §3.5 "레시피는 재료를 처음 획득했을 때 해금"): `RECIPES_UNLOCK_ON_FIRST_GET` 켬이면 그 레시피의 입력 아이템을 모두 한 번이라도 가져 본 플레이어에게만 보인다(아무 등급). 인벤토리가 넣은 적 있는 아이템을 기억한다(`Inventory.seen`, 없어져도 남음, 저장 없음). 기본값을 켬으로 둔 이유: 문서가 내놓은 유일한 규칙이고, 슬라이스에서는 입력이 야생 약초라 줍기가 고리의 첫걸음이어서 비용이 없다(사람이 해 보고 정하게). 끄면 모든 레시피가 처음부터 보인다
@@ -1124,7 +1239,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 
 ### 제작 창 (`ui/crafting_panel.gd`)
 
-- 코드로 그린 60px 너비 창, 화면 오른쪽 위(480×270에서 여섯 줄이면 높이 142px). 맨 위에 조제대 아이콘과 금빛 밑줄, 줄마다 입력 칸(아이콘·수·상급 점) → 화살표 → 출력 칸, 약초사 전용 줄에 3×5 주머니 표시(금빛 = 이 클래스가 만들 수 있음, 녹빛 = 아님), 지금 만들 수 없는 줄(입력 부족·클래스·자리)은 어둡게, 고른 줄에 금빛 테. 글꼴 없음(HUD의 3×5 숫자). 인벤토리가 바뀌면 다시 읽는다(해금·어두운 줄)
+- 코드로 그린 58px 너비 창, 화면 오른쪽 위(480×270에서 여섯 줄이면 높이 142px). 맨 위에 조제대 아이콘과 금빛 밑줄, 줄마다 입력 칸(아이콘·수·상급 점) → 화살표 → 출력 칸, 약초사 전용 줄에 3×5 주머니 표시(금빛 = 이 클래스가 만들 수 있음, 녹빛 = 아님), 지금 만들 수 없는 줄(입력 부족·클래스·자리)은 어둡게, 고른 줄에 금빛 테. 글꼴 없음(HUD의 3×5 숫자). 인벤토리가 바뀌면 다시 읽는다(해금·어두운 줄)
 - 열려 있는 동안 캐릭터는 서 있다(`Player.ui_locked`: 걷기·대시·사용·F·1 없음, Q/E는 됨). 마우스: 줄 위에 올리면 고르고 좌클릭 = 만들기, 창 밖 클릭은 아무것도 안 함
 
 ### 시험 (M6a)
@@ -1392,6 +1507,225 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 - 실제 세션 시험의 봇은 틱 수(`wait`)와 `waitfield`로 서로를 맞춘다. 아주 느린 기계에서 어긋나면 시험이 실패로 알린다
 - 전체 테스트가 약 370초가 됐다(새 파일 셋, 약 105초 더함)
 
+## M7a: 작업대 체인 · 1티어 장비 · 내구도 · 공유 창고
+
+혼자 할 때 먼저(M7a 지시, M5a·M6a처럼). (**M7c에서 세션에도 켰다**: 아래 [M7c: 세션의 작업대 · 장비 · 창고 · 건설 · 나무](#m7c-세션의-작업대--장비--창고--건설--나무). 이 문단의 세션 이야기는 M7a 때의 것이다.) **세션(`--host`/`--join`)에서는 새것이 꺼져 있거나 거부되고 M5c 흐름 그대로다**(M7c에서 켠다): 호스트가 작업대 셋·창고 놓기를 `workbench chain offline only`·`storage offline only`로, M7 레시피(작업대 체인과 수리)의 CRAFT를 `workbench chain offline only`로 거부하고, 세션의 플레이어는 `Player.gear_on`이 꺼져 있어 갑옷 클릭이 프레임을 만들지 않고 칼을 덜 받지 않으며, 1티어 무기는 호스트에서 기본 무기처럼 친다(보너스·마모 없음: `Arena.player_attack`에 피해를 넘기지 않음), 손 제작 창은 열리지 않는다. 전송 형식은 v7 그대로다(아이템 번호는 표 끝에 붙였고, 레시피 번호는 물약 여섯 뒤에 붙였고, 내구도는 인벤토리 전송에 아직 없다). 문서의 ●는 그대로 따랐다: 1티어 무기·방어구는 누구나 모루에서(● gameplay-design §3.0 R11 룬마스터 줄 "누구나 모루에서 1~2티어 제작. 룬 슬롯 없음", ○ §3.5도 같은 말), 사망 = 장착 장비는 유지하되 내구도 손상 + 일부 아이템 가방(● §2.6 R12, 가방 규칙은 M4a 그대로), 외형은 기본값만(● game-concept §12 R21: 장비가 모습을 바꾸지 않음), 작업대 체인은 2~3단계(game-concept §12: 제안 절이라 ●가 아니다. 셋), 목재는 나무 한 종(● §12 R37: 나무와 도끼는 M7b라 통나무는 아직 `--give`로만). ○·?와 문서에 없는 것은 모두 [임시값](#임시값-사람-확인-필요) 표의 "M7a" 줄이다. 나무·도끼·벌목(M7b), 건설(벽·바닥·문·조명, ● R37 돌만), 세션(M7c), 상인(M8), 클래스 스킬(M9), 기도(M10), 컬렉션(M11), 보스·제단 업그레이드·광부 지형 요소(M12), 저장(M13), 룬 슬롯·인챈트·기술자 장치·3티어 이상, 오염 확산, 새 적, 장비의 새 모습은 M7a가 아니다.
+
+### 작업대 체인 (`items/crafting.gd`, `Config.STATION_RECIPES`)
+
+- **작업대 셋**: 기본 작업대(`WorldData.PLACEABLE_WORKBENCH`, 3×1, 04-env `workbench_v03`), 모루(`PLACEABLE_ANVIL`, 2×1, `anvil_v03`), 성물 제작대(`PLACEABLE_RELIC`, 3×1, `relic_bench_v03` + 공유 작은 불꽃 `flame_small_v01`). M6의 제작 틀 그대로다: `Crafting.STATION_OF`·`STATION_ICON`·`WorldItems.FOOTPRINT_OF`에 값을 더하고, 발 칸이 자리에서 2칸 안이면 Tab = 그 작업대의 창(가장 가까운 것, 같으면 자리 왼쪽 위 칸이 줄 순서로 앞인 것). 종류가 다른 작업대는 서로 붙여 놓을 수 있다(`footprint_at`이 값으로 자리를 나눈다). 놓기는 조제대와 같은 규칙(`WorldItems.place`: 아래 줄 가운데가 목표 칸, 빈 바닥, 아무 발도 덮지 않음, 사람이 나타나는 자리 아님, 같은 종류끼리 안 붙음)이고 던전에도 놓인다. 막는다. 다시 줍거나 부술 수 없다(조제대와 같음)
+- **얻는 길**: 앞 작업대에서 만든다. 기본 작업대는 **손 레시피**(`Crafting.HAND`: 작업대 없이 Tab, 통나무 4)다. 작업대에서 멀리서 Tab을 누르면 손 레시피가 해금된 플레이어(통나무를 한 번이라도 가짐)에게는 손 제작 창(머리 = 통나무)과 인벤토리가, 아니면 M2a 그대로 인벤토리가 열린다(임시값 "M7a 기본 작업대 얻기"). **M7-fix에서 바뀜**: 손 제작 창은 새 키 **C**(`Main.toggle_hand`, 해금 뒤 어디서나, 서 있음, C·Tab·Esc 닫기)이고 Tab은 어디서나 M2a·M6a 그대로다(임시값 "M7-fix 손 제작 창"). M7b의 도끼가 돌 손 레시피라 돌 하나만 가져도 Tab이 손 제작 창이 되어 걷는 인벤토리가 사라졌었다 모두 `--give=workbench` 등으로도 받는다
+- **레시피** (임시값 "M7a 작업대 체인", 누구나 만든다: ● gameplay-design §3.0 R11 1티어는 누구나 모루에서(○ §3.5도), 체인의 나머지도 클래스 전용이 아님):
+
+| 작업대 | 만드는 것 | 재료 |
+|---|---|---|
+| 손 | 기본 작업대 1 | 통나무 4 |
+| 기본 작업대 | 널판 2 | 통나무 1 |
+| 기본 작업대 | 모루 1 | 돌(`stone_a`, 캔 바위) 10, 철광석 2, 널판 2 |
+| 기본 작업대 | 창고 상자 1 | 널판 8, 철 주괴 1 |
+| 모루 | 구리 주괴 1 / 철 주괴 1 (제련) | 구리광석 1 / 철광석 1 |
+| 모루 | 1티어 검 / 활 / 성광 / 곡괭이 / 낫 | 철 주괴 2 + 널판 1 / 널판 3 + 구리 주괴 1 / 구리 주괴 2 + 철 주괴 1 / 철 주괴 2 + 널판 2 / 철 주괴 1 + 구리 주괴 1 + 널판 1 |
+| 모루 | 1티어 갑옷 1 | 철 주괴 3, 구리 주괴 1 |
+| 모루 | 성물 제작대 1 | 널판 4, 구리 주괴 2, 철 주괴 1 |
+| 모루 | 수리 (장비마다) | 철 주괴 1(검·곡괭이·갑옷) / 구리 주괴 1(활·성광·낫) |
+| 성물 제작대 | 횃불 4 | 구리 주괴 1, 널판 1 |
+
+- 제련은 모루에서 한다(화로가 문서에 없어서, 임시값 "M7a 제련"). 성물 제작대는 횃불 하나만 만든다: 슬라이스의 성물(기도 물품·제단 업그레이드·컬렉션)은 다른 단계라 셋째 작업대로 두고 최소 레시피를 줬다(임시값 "M7a 성물 제작대 레시피", 다른 길: 둘에서 멈춤)
+- 해금(○ §3.5, M6a 그대로): 통나무를 가지면 손의 작업대와 작업대의 널판, 돌·철광석·널판을 가지면 모루, 주괴를 가지면 장비와 성물 제작대가 보인다. 그래서 체인이 한 단계씩 열린다(시험)
+- 레시피 번호(CRAFT 요청의 번호, M6b)는 물약 여섯(0~5) 그대로이고 체인은 6부터, 수리는 끝이다
+- 나뭇가지: 슬라이스에 나뭇가지 아이템이 없다(M2b 채집물에도 없고, 04-env `item_sticks_*`는 쓰지 않았다). 그래서 레시피는 통나무·널판·돌·광석·주괴만 쓴다
+- **제작 창** (`ui/crafting_panel.gd`): 줄마다 그 레시피의 재료를 다(셋까지, 칸 사이 1px) 그리고 창 너비는 가장 긴 줄에 맞춘다(조제대는 58px 그대로, 재료 셋이면 96px. M7-fix: 전에 60px·98px로 적었다, 코드는 처음부터 58·96). 수리 줄은 닳은 장비(막대 그대로) + 재료 → 가득 찬 장비. 화면에 안 들어가는 줄은 스크롤되고(고른 줄이 늘 보임) 위·아래에 더 있으면 창 가장자리에 금빛 1px 표시
+
+### 1티어 장비 (`items/gear.gd`, `Config.GEAR_T1_*`, `ARMOR_*`)
+
+- **무기**: 클래스 기본 무기마다 하나(`sword_t1`·`bow_t1`·`holy_light_t1`·`pickaxe_t1`·`sickle_t1`, 종류 TOOL). `Gear.base`가 기본 무기를 돌려주고 공격 모양·맞는 프레임·몸 동작·채굴·수확은 모두 기본 무기를 읽는다: 1티어 곡괭이는 곡괭이와 똑같이 캐고(같은 휘두르기 → 같은 월드, 시험), 1티어 낫은 작물을 겨누면 거둔다. 다른 것은 피해(`GEAR_T1_DAMAGE_PCT` 150%: 검 21, 활 18, 성광 15, 곡괭이 15, 낫 12)와 내구도. 혼자 할 때 Main이 그 칸의 묶음에서 피해를 구해 `Arena.player_attack`에 넘긴다. 누구나 어떤 무기든 쓴다(M4a 그대로). 아이콘은 기본 무기의 코드 아이콘 + 왼쪽 위 금빛 3×3 표시(자리 표시). 모습은 기본 무기 그대로(● R21: 동작 시트에 그려진 무기)
+- **갑옷**: 한 벌(`armor_t1`, 새 종류 ARMOR). 인벤토리 칸이 아닌 **갑옷 칸 하나**(`Inventory.armor`). 핫바에서 고르고 좌클릭 = 입기(입던 것이 그 칸으로: 맞바꿈, 동작 없음), 인벤토리를 연 채 갑옷 칸 클릭 = 벗기(첫 빈 칸으로, 빈 칸이 없으면 거부). HUD에서 갑옷 칸은 핫바 왼쪽 6px 떨어져, 인벤토리가 열렸거나 갑옷을 입었을 때만 보인다(빈 칸은 옅은 갑옷 윤곽). 입고 있고 부서지지 않았으면 이단의 칼 한 번에 `ARMOR_T1_DEFENCE`(4)를 덜 받는다(12 → 8, `ARMOR_MIN_DAMAGE` 1 밑으로는 안 내려감, `Player.take_hit`의 `armored`). 독은 덜지 않는다(M6a: 독은 방어가 없음). 클래스 다섯 모두 같다
+
+### 내구도 (● §2.6 R12, 수치는 임시값)
+
+- 내구도가 있는 것은 **1티어 장비뿐**이다(`GEAR_DURABILITY`: 무기 120, 갑옷 100). 기본 도구·무기는 닳지 않는다(만드는 길이 없어서, 임시값 "M7a 내구도가 있는 것"). `ItemStack.durability`에 남은 값이 있고, 그런 아이템은 묶음 1이라 두 내구도가 섞이지 않는다. 새로 만든 것은 가득
+- **사용 마모**: 무기는 맞는 프레임의 공격마다 1(맞든 빗나가든), 1티어 곡괭이의 채굴·1티어 낫의 수확은 닳지 않는다. 갑옷은 실제로 들어간 칼마다 1(무적 중이면 없음). 콘솔 `EVENSONG_GEAR broke item=sword_t1 who=LocalPlayer`
+- **사망 마모**: 죽으면 지닌 내구도 있는 것 모두(입은 갑옷과 핫바·가방의 1티어 장비)가 제자리에 남고 최대치의 20%(올림: 무기 24, 갑옷 20)를 잃는다. 가방은 M4a 규칙 그대로이고 장비(도구·무기·갑옷)는 가방에 들어가지 않는다. 콘솔 `EVENSONG_GEAR death wear who=LocalPlayer items=3`
+- **부서짐**(0): 쓸 수 있고 기본 아이템처럼 된다(`GEAR_BROKEN_UNUSABLE` 끔: 부서진 1티어 검 = 기본 검 14, 부서진 갑옷 = 방어 0). 켜면 부서진 것은 좌클릭해도 아무것도 하지 않는다(M7-fix: 세션에서는 호스트도 그 USE를 `broken`으로 거부)
+- **수리**: 모루의 수리 줄(장비마다 재료 하나)이 지닌 것 중 가장 닳은 하나(입은 갑옷 포함)를 가득 채운다. 닳은 것이 있을 때만 줄이 보이고, 없으면 `nothing to repair`(아무것도 안 바뀜). 문서의 수리는 기술자 일감인데 기술자가 슬라이스에 없어서 누구나 모루에서(임시값 "M7a 수리"). **M7-fix: 기본 끔**(`GEAR_REPAIR_AT_ANVIL` false): ● gameplay-design §2.6 R12 "(기술자 수리 = 기술자 일감)"을 그대로 따르면 기술자가 없는 슬라이스에는 수리가 없다. 끄면 수리 줄이 보이지 않고 수리 CRAFT는 `repair is the engineer's work`로 거부(혼자·호스트), 닳은 장비는 0이 되면 기본 아이템처럼(위 "부서짐"). 켜면 위 규칙 그대로(시험은 켜고 본다). 사람이 정할 것: 임시값 "M7-fix 수리"
+- **표시**: 핫바·인벤토리·창고·제작 창의 칸에 닳은 것만 14×2px 막대(칸 아래쪽, 반 넘으면 금빛, 4분의 1 넘으면 호박색, 그 밑은 녹빛, 부서지면 막대 전체가 녹빛). 코드 그림 자리 표시
+- 드롭은 내구도를 싣지 않아서 닳은 장비는 F7로 버리지 못한다(`worn gear stays`)
+
+### 공유 창고 (`items/storage.gd`, `ui/chest_panel.gd`, `WorldData.chests`)
+
+- 창고 상자(`storage_chest`, 04-env `storage_chest_v02`, 3×1, 막음)는 조제대처럼 놓고, 자리 전체가 **제단 빛 안**이어야 한다(`CHEST_ONLY_IN_LIGHT`: 칸마다 네 모서리, 밭과 같은 `Farming.in_light`. 아니면 `outside the light`: 빛 밖, 반쯤 빛, 제단을 든 동안, 던전). 여러 개 놓을 수 있고 칸 16(`CHEST_SLOTS`)
+- **내용물은 지도의 것**이다(`WorldData.chests`: 자리 왼쪽 위 칸 → 칸 16. 플레이어 것이 아님). 월드 해시는 무언가 든 창고만 덮어서(아이템·수·등급·내구도) 빈 창고나 창고 없는 월드의 해시는 그대로다(생성 해시 그대로). 늦은 참가 스냅샷은 아직 창고를 싣지 않는다(M7a 세션에는 창고가 없다, M7c)
+- **열기**: 손 닿는 창고 칸을 겨누고 F = 창고 창(인벤토리 격자 위, 핫바 너비, 머리 = 창고 아이콘)과 인벤토리, 캐릭터는 서 있다(`ui_locked`). 인벤토리 칸 클릭 = 그 묶음 넣기, 창고 칸 클릭 = 꺼내기. 같은 아이템·등급 묶음을 먼저 채우고 그다음 빈 칸, 들어가는 만큼만 옮기고 나머지는 제자리(일부 옮김), 하나도 안 들어가면 `chest full`·`inventory full`(아무것도 안 바뀜). 내구도·등급은 그대로 간다. Tab·Esc·F = 닫기, 다운·지도 옮김·창고가 없어지면 닫힘(`Storage.still_at`). 콘솔 `EVENSONG_CHEST open at=62,51 items=...`, `EVENSONG_CHEST store item=stone_a count=40 left=0`, `EVENSONG_CHEST take refused: inventory full`
+- **제단을 옮기면**: 창고는 그 자리에 남고 내용물도 그대로이며 계속 열린다(빛 밖이어도). 새 창고는 새 빛 안에만 놓인다. 제단은 창고 위에 놓이지 않고(`not open ground`), 부활 자리 아홉이 창고에 막히는 자리도 거부된다(`no room around it`, M5b 규칙 그대로). 창고는 사람이 나타나는 자리를 덮지 못한다(M6-fix 규칙 그대로)
+
+### 키 (임시값 "M7a" 줄)
+
+- 작업대 셋 = M6a의 Tab(창), 손 제작 창 = **C**(해금 뒤, M7-fix. M7a는 작업대가 없는 곳의 Tab), 갑옷 = 고르고 좌클릭 / 갑옷 칸 클릭, 창고 = F, 창고 창에서 칸 클릭, Tab·Esc·F 닫기
+
+### 시험 (M7a)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=workbench,gear,storage < /dev/null   # 약 3초
+```
+
+- `test_workbench.gd`: 레시피 열넷(작업대·재료·수·출력, 누구나, M7 레시피), 체인(작업대마다 앞 작업대에서, 손의 작업대), 레시피 번호(물약 그대로, 체인은 6부터), 해금 단계(빈 인벤토리 → 통나무 → 널판·돌·철광석 → 철 주괴 → 구리 주괴, 없어져도 남음), 모든 레시피가 모두 아니면 하나도 아님(재료 그대로면 만들고 재료 모두 씀·다른 것 그대로·새 장비는 가득, 재료마다 하나 모자라면 `missing inputs`·그대로, 가득 찬 인벤토리면 `no room`·그대로, 한 번도 없던 재료면 `locked`), 제련(구리 열 번, 열한 번째 거부, 1 : 1), 손 닿음(작업대 셋의 자리 크기마다 20×14칸 전부를 따로 적은 체비셰프와 비교, 한 줄의 셋: 가장 가까운 것·같으면 앞의 것·종류로 찾기, 손 작업대), 놓기(셋마다: 아래 줄 가운데, 편집 수, 같은 종류 붙음 거부, 제단·채집물·작물·드롭·발 거부, 마른 흙은 됨, 부활 자리 아홉을 덮는 모든 자리 거부, 던전에 모루), 그림(자리 아래 변, 가운데, 그림에서 잰 맨 아래 줄, 성물 제작대 불꽃 자리·unshaded·5프레임, `verify` 0), `main.tscn`(통나무 없을 때 Tab = 인벤토리, M7-fix: 해금 뒤에도 Tab = 걷는 인벤토리·C = 손 창·해금 전 C는 아무것도, 통나무를 가지면 손 창 → 작업대 → 클릭으로 놓기 → 널판·모루 → 놓기 → 제련·1티어 검·성물 제작대 → 놓기 → 횃불, 셋이 한 줄), 세션(작업대 셋·창고 놓기 거부와 편집 0, 데이터에 놓은 모루 옆 제련 CRAFT 거부·광석 그대로), 결정성(같은 체인 두 번 = 같은 단계·인벤토리·월드 해시)
+- `test_gear.gd`: 클래스 다섯의 기본·1티어 무기(같은 공격·맞는 프레임, 피해 14/21·12/18·10/15·10/15·8/12를 따로 적어 비교, 기본 도구는 내구도 없음), 아레나에서 클래스마다 두 무기의 실제 피해(근접은 바로, 화살·빛 탄은 날아가 맞을 때), 피해를 넘기지 않으면 기본 피해(세션), 1티어 곡괭이 = 채굴·1티어 낫 = 수확, 갑옷(클래스 다섯: 검은 아님·빈 칸·입기·맞바꿈·벗기·없음·가방 칸에서는 안 됨·가득 차면 못 벗음), 방어(클래스 다섯: 12 / 8과 마모 1, 무적이면 아무것도, 부서진 갑옷 12·마모 없음, `gear_on` 끔 12, 최소 1, 아레나의 칼 8, 독은 그대로·마모 없음), 사용 마모(다섯 번 115, 기본 검 안 닳음, 다른 아이템 안 닳음, 0에서 멈춤, 사본·생성의 내구도), 사망 마모(넷이 닳고 부서진 것은 그대로, 120 → 96, 10 → 0, 갑옷 100 → 80, 가방 칸 예비 갑옷 60 → 40, 가방은 장비를 안 가져감, 돌은 절반), 수리(재료 하나, 가장 닳은 것, 둘째, 닳은 것이 없으면 줄 없음·거부·그대로, 재료 없음, 부서진 갑옷, 본 적 없으면 잠김), 부서짐(기본 피해, 여전히 휘두름, 방어 0, 1이면 방어 그대로, 닳은 장비 F7 거부·새것은 됨), `main.tscn`(클래스 다섯이 1티어 무기로 이단에게 1티어 피해·마모 1, 빗나간 공격도 1, 갑옷 클릭으로 입기·동작 없음, 갑옷 칸 클릭으로 벗기, 죽음: 갑옷 80·검 96·돌 절반), 던전 `main.tscn` 두 번(곡괭이와 1티어 곡괭이가 같은 벽을 깨면 같은 월드, 채굴은 안 닳음), 세션(1티어 검이 14, 안 닳음, 호스트 플레이어의 갑옷은 덜지 않음), 결정성(갑옷 입은 600틱 싸움 두 번이 25틱마다 같음) M7-fix: 수리 스위치 끔(Config) = 수리 줄 없음·`repair is the engineer's work`·그대로, 규칙은 켜고 봄(`Gear.repair_on`)
+- `test_storage.gd`: 놓기(빛 안 됨·3×1·편집 셋·막음, 제단 둘레 21×21 목표 칸 전부: 따로 적은 "네 모서리가 반경 안"이 아니면 하나도 안 놓임, 반쯤 빛, 제단을 든 동안, 던전, 부활 자리, 작물·젖은 흙·제단·발·다른 창고 거부, 모루와 붙는 것은 됨, 작업대가 아님), 옮기기(가득 찬 묶음 통째로, 등급 따로, 닳은 검의 내구도, 빈 칸, 합치기, 꺼내기·내구도, 가득 찬 창고 거부·그대로, 일부 넣기 30·69 남음, 일부 꺼내기 20·79 남음, 가득 찬 인벤토리 거부, 칸 하나에 장비 하나, 창고 없음), 월드(생성 해시 = 골든, 자리의 모든 칸이 한 창고, 빈 창고는 해시에 아무것도, 내용물·수·내구도는 해시에, 같은 내용물 = 같은 해시, 둘째 창고는 따로), 제단 옮기기(창고·내용물이 남고 빛 밖에서도 열림, 옛 빛에 새 창고 거부·새 빛은 됨, 제단은 창고 위에 안 놓임, 바로 북쪽은 부활 자리가 막힐 때만 거부, 다운 때 저절로 놓기도 창고를 피함), `main.tscn`(클릭으로 놓기·그림, F로 열기·인벤토리·서 있음, 인벤토리 칸 클릭으로 넣기·닳은 검, 창고 칸 클릭으로 꺼내기, 창 밖 클릭 없음, 창이 인벤토리 격자 위·화면 안, 열린 동안 못 걸음, Tab 닫기, F로 다시 열고 닫기, 다운이면 닫힘, 내용물은 지도의 것), 결정성 M7-fix: 열린 창고 창이 창고 칸 편집(다른 사람의 것)에 다시 그려짐
+- 바꾼 기존 시험(M7a가 일부러 바꿔서): `test_items.gd`(아이템 48개, 종류별 수 12/7/15/6/3/3/1/1, M7 아이템의 종류·아이콘·내구도·기본 무기, 성수 번호 33 그대로, 한 동작에 기본 도구 하나), `test_crafting.gd`(레시피 수 = 물약 6 + 체인 + 수리, 조제대에는 물약 여섯만), `test_actors.gd`(그림 출처 9개 더함, 96), 스모크(도구 12, 조제대 레시피 6, M7a 항목). 창 그림 검사 `stations`·`gear_hud`·`m7_panels`
+
+### 알려진 문제·자리 표시 (M7a)
+
+- 자리 표시(임시값 "M7a 그림 자리 표시"): 작업대·창고 아이콘은 놓은 그림을 16×16으로 줄인 것(점 몇 개가 빠진다), 1티어 무기 아이콘은 기본 무기 아이콘 + 금빛 표시, 갑옷 아이콘·갑옷 칸·내구도 막대·창고 창은 코드 그림. 성물 제작대의 촛불은 불꽃만 있고 빛(PointLight)은 없다
+- 놓은 작업대·창고는 다시 줍거나 부술 수 없다(조제대와 같음). 잘못 놓으면 그대로다
+- (M7c에서 풂) 창고 내용물은 늦은 참가 스냅샷·편집 기록에 아직 없다(세션에 창고가 없는 M7a에서는 문제가 아님. M7c가 싣는다). 그래서 무언가 든 창고가 있는 월드는 스냅샷 왕복 해시가 다르다. M7c: 스냅샷의 창고 부분과 창고 칸 편집
+- (M7c에서 풂) 내구도는 인벤토리 전송에 없다: 호스트를 잃고 혼자 계속하는 클라이언트의 1티어 장비는 가득 찬 채 시작한다. M7c: 인벤토리 메시지가 내구도와 갑옷 칸을 싣는다
+- 창고 창의 넣기·꺼내기는 마우스 클릭과 봇(`store`·`take`)뿐이고 키보드로 칸을 고르는 길은 없다
+- (M7-fix에서 풂: 손 제작 창은 키 C, Tab은 늘 인벤토리) 손 제작 창은 Tab 한 번에 열려서, 통나무를 가진 뒤로는(M7b부터는 돌을 가진 뒤로도: 도끼 레시피) 작업대 없는 곳의 Tab이 인벤토리만 여는 일이 없었다(창과 인벤토리가 같이 열리고 캐릭터가 섬)
+- 기본 작업대를 만드는 데 통나무가 필요한데 나무는 M7b라, 지금은 `--give=log:<n>`로만 체인을 시작한다 (M7b에서 해결: 도끼로 나무를 벤다, 아래 "M7b")
+
+## M7b: 건설 · 나무 · 도끼
+
+혼자 할 때 먼저(M7b 지시, M7a처럼). (**M7c에서 세션에도 켰다**: 아래 "M7c". 이 문단의 세션 이야기는 M7b 때의 것이다.) **세션(`--host`/`--join`)에서는 꺼져 있고 M7a 흐름 그대로다**(M7c에서 켠다): 호스트가 건설 조각의 USE를 `building offline only`로 거부하고(편집 없음, 조각 그대로), 도끼는 몸 동작을 하지만 맞는 틱에 아무것도 베지 않고 `chopping offline only`로 센다, 우클릭(철거)과 문의 F는 세션에서 아무것도 하지 않는다(F는 M5c 그대로 줍기 요청). 나무는 생성기가 놓으므로 세션 월드에도 있고(스냅샷으로), 줄기는 호스트와 예측 모두에서 막는다. 전송 형식은 v7 그대로다(새 아이템·레시피·설치물·벽 종류·몸 동작 번호는 모두 표 끝에 붙였고, 디코더는 벽·설치물 값을 거르지 않는다). 문서의 ●는 그대로 따랐다: 누구나 벽·바닥·문·조명을 짓는다(● gameplay-design §3.0 R11 기술자 줄, §3.3), 건설 벽은 바닥 위 별도 층으로 던전 벽과 같은 벽 레이어이고 재질은 돌만(● §3.3 R37, brief §5.7 `build_stone_candA`), 나무는 한 종이고 누구나 벤다(● game-concept §12 R37), 장비·도구는 외형을 바꾸지 않는다(● §12 R21: 도끼는 동작 시트에 그려진 것). ○·?와 문서에 없는 것은 모두 [임시값](#임시값-사람-확인-필요) 표의 "M7b" 줄이다. 세션(M7c), 상인(M8), 클래스 스킬(M9), 기도(M10), 컬렉션·생물·사냥(M11), 보스·제단 업그레이드·광부 지형 요소(M12), 저장(M13), 룬 슬롯·인챈트·기술자 장치·3티어 이상, 오염 확산, 새 적, 장비의 새 모습은 M7b가 아니다.
+
+### 건설 조각 (`items/building.gd`, `Config.BUILD_*`)
+
+- **조각 넷** (아이템 종류 BUILD, 묶음 99, 기본 작업대에서 만듦: `Config.BUILD_RECIPES`): 돌 벽 `stone_wall`(벽 레이어 `Walls.KIND_STONE`), 문 `door`(`KIND_DOOR` 닫힘 / `KIND_DOOR_OPEN` 열림), 돌 바닥 `stone_floor`(`KIND_FLOOR`), 랜턴 기둥 `lantern`(설치물 `WorldData.PLACEABLE_LANTERN`, 막음, 놓은 횃불과 같은 빛 코드 `TorchLight`). 바닥 조각은 바닥 레이어가 아니라 벽 바이트의 막지 않는 종류다(구현 선택: 바닥 레이어는 dual grid 지형이라 그 아래 땅을 지키고, 한 칸에는 벽이나 바닥 조각 하나)
+- **놓기**: 핫바에서 조각을 고르고 좌클릭 = 목표 칸(M2의 그리드 칸, `REACH_TILES` 1)에 바로 하나. 그 칸이 제단 빛 안(네 모서리 모두, 밭 규칙 `Farming.in_light`)이면 조각 1개(`BUILD_COST_IN_LIGHT`), 밖·던전·제단을 든 동안이면 2개(`BUILD_COST_OUTSIDE_LIGHT`): ○ §3.3 "제단 반경 안은 건설 비용 감소 또는 즉시 건설" 중 비용 감소 쪽(건설은 어디서나 바로)
+- **놓기 규칙** (`Building.refusal`): 맵 안, 손 닿음, 다른 조각이 없음(랜턴은 바닥 조각 위에 됨), 설치물 없음(제단·입구·계단·작업대·창고·횃불·가방·나무·그루터기), 던전 벽과 그 앞면 칸이 아님(건설 벽의 앞면 칸에는 벽·바닥이 됨: 세로로 벽을 잇는 길), 밭(일군 흙·작물·젖은 흙)과 채집물이 없음. 막는 조각(벽·문·랜턴)은 드롭 위도 안 되고, 막을 칸(벽·문은 그 칸과 앞면 칸, 랜턴은 그 칸)이 플레이어·이단의 발 상자(놓는 사람 자기 발 포함)와 사람이 나타나는 자리(`WorldItems.reserved_feet`: 입구·계단의 도착점, 제단의 부활 자리 아홉)에 겹치지 않아야 하고, **봉쇄 검사**를 통과해야 한다. 벽·문의 앞면이 덮을 칸(아래 칸이 벽이 아니면)에는 설치물·밭·채집물·드롭이 없어야 하고(`its face would cover something`), 문은 아래 칸이 벽이 아니어야 하며(앞면이 곧 문) 문 바로 아래에는 벽을 놓지 못한다(`a door needs open ground below`). 그래서 벽 바로 북쪽에 선 채로 그 벽을 지을 수 없다(앞면이 발을 덮음: 대각선이나 반대쪽에서). 재·오염 땅 위에도 놓인다(밭·제단과 달리 오염을 보지 않음: 임시값 "M7-fix 오염 위 건설")
+- **봉쇄 검사** (`Building.seals`·`reaches`, `BUILD_SEAL_REACH_TILES` 12): 막는 것을 놓아서, 사람이 나타나는 자리 하나라도 그 칸에서 4방향으로 걸어 12칸(체비셰프) 떨어진 곳까지 갈 수 없게 되면(전에는 갈 수 있었는데) 거부(`it would wall in where players appear`). 문(닫혀도)과 그 앞면은 열린 것으로 센다(누구나 연다). 그래서 문 없이 빛 둘레를 닫는 고리는 마지막 조각이 거부되고, 문을 단 고리나 12칸보다 큰 고리는 된다. 같은 규칙을 작업대·창고·조제대 놓기(`WorldItems.place`)와 제단 내려놓기(`AltarMove`: 새 부활 자리 아홉이 12칸 걸어 나가지 못하면 `its spawn slots would be walled in`)도 쓴다. **M7-fix**: 다른 플레이어의 발도 같은 걸음으로 본다(세션은 그 지도의 다른 플레이어, 혼자 할 때는 `--test-ally`. 조각과 작업대·창고·조제대): 남을 두르는 고리는 문이 있어야 닫힌다(임시값 "M7-fix 다른 사람 가두기"). 그리고 같은 답을 덜 걸어서 구한다(구현 표 "M7-fix 봉쇄 검사 비용": 제단 둘레 한 번 약 16ms → 평균 0.08~0.23ms)
+- **철거** (우클릭, 입력 `demolish`, `Building.demolish`): 목표 칸의 건설 조각을 누구의 것이든 내리고 그 조각 1개(`BUILD_REFUND`)를 돌려받는다(M7b: 인벤토리에 자리가 없으면 거부. **M7-fix**: 안 들어가는 것은 발 칸에 드롭 하나, 땅의 드롭이 `MAX_DROPS`면 사라짐: 임시값 "M7-fix 철거". 가득 찬 인벤토리로 갇히면 나올 길이 없었다). M7-fix: 위가 벽인 열린 문을 내리면 그 칸이 위 벽의 앞면(막음)이 되므로 문 닫기와 같은 검사(그 칸에 몸·설치물이 있으면 `someone stands in the doorway`, 다른 플레이어가 24px 안이면 `someone is too close`)를 한다. 앞면 칸을 겨누면 그 위의 벽·문, 랜턴이 있으면 랜턴 먼저, 아니면 바닥 조각. 던전 벽은 철거가 아니라 채굴이다(`a dungeon wall is mined`), 작업대·창고·조제대·횃불은 M6a·M7a처럼 철거되지 않는다
+- **문** (F, `Building.toggle_door`): 문 칸이나 그 앞면 칸을 겨누고 F = 열기/닫기(벽 편집 하나). 누구나(`DOOR_ANYONE`), 이단은 못 연다(닫힌 문은 이단에게 벽). 열린 문과 그 앞면 칸은 모두(플레이어·이단·화살) 지나가고, 닫을 때 문간(문 칸·앞면 칸)에 누가 서 있거나 설치물(사망 가방)이 있으면 거부(`someone stands in the doorway`). 열린 문 칸과 그 문간에도 아무것도 놓지 못한다(벽 구조로 봄: 설치물·제단·가방·드롭·밭)
+
+### 충돌 · 그림 (`world/walls.gd`, `world/build_view.gd`)
+
+- 건설 벽·문은 던전 벽과 같은 규칙으로 막는다(`Walls.blocks` → `Movement.is_blocked`): 벽 칸과 그 아래 앞면 칸(아래가 벽이 아니면). 그래서 플레이어 이동·대시·예측(`Prediction`), 이단의 걸음·시야(`Combat.line_clear`), 화살·빛 탄·던진 병(`Combat.blocks_line`)이 모두 똑같이 막힌다. 가로로 지나가려면 세로 벽에 두 칸을 비워야 한다(위 칸은 그 위 벽의 앞면: 던전의 "가로 굴은 두 줄" 그대로). 이단은 길을 찾지 않고 다가가다 벽에 막히며(M4a 그대로), 이단의 스폰 칸은 M7b에서 건설 벽·문·랜턴 수가 바뀔 때 다시 계산했다(**M7-fix에서 바뀜**: 스폰 칸은 건설을 보지 않는 지도의 지형으로만 정하고(`Arena.terrain_blocked`: 던전 벽과 앞면, 계단·이단의 제단·제단·입구·나무), 이단을 놓을 때 산 월드를 본다(`Arena.spawn_ok`: 설 수 있음, 문간 아님). M7b는 던전에서 도착점부터 닫힌 문을 벽으로 걸어서, 문 하나와 벽으로 도착 방을 두르고 문을 닫으면 스폰 칸이 0이 되었고(시드 1: 443 → 0), 같은 틱에 하나 내리고 하나 지으면 수가 같아 스폰 칸이 낡았다. 임시값 "M7-fix 이단 스폰 칸과 건설")
+- 채굴: 건설 조각은 곡괭이로 깨지 않는다(`Walls.hardness` = 깰 수 없음: `too hard`), 광부의 3×3은 건설 벽을 건너뛴다. M7-fix: 열린 문과 그 문간은 열린 땅이라(충돌과 같음, `Walls.blocks`) 곡괭이는 거기서 채굴이 아니라 공격한다(문간에 선 이단을 친다). 닫힌 문은 그대로 채굴(`too hard`). 던전의 동굴 그림(`CaveView`, `Walls.vertex`)은 던전 벽만 보고 건설 벽 칸은 바닥으로 그린다
+- 그림: `BuildView`(GameWorld의 `Builds`, 장식 위·엔티티 아래, 두 지도 모두, 월드 빛)가 04-env `build_stone_candA_v02`(● R37 돌 후보, v02 = 문 12px·바닥 한 단 어둡게 손질판)를 시트의 조립 규칙대로 그린다: 바닥 조각 먼저(A·B·C 변형은 칸 자리로), 그다음 북쪽 줄부터 벽마다 이웃 마스크(N 1·E 2·S 4·W 8, 건설 벽·문)의 윗면, 두 직교 이웃이 벽이고 그 사이 대각선이 비면 안쪽 모서리 점, 아래 칸이 벽이 아니면 그 칸 위쪽부터 16×24 앞면(서·동 이웃의 앞면으로 외톨이·왼쪽 끝·가운데·오른쪽 끝, 문은 닫힘·열림 그림). 그래서 앞면은 아래 칸과 그 다음 칸의 위 8px까지 덮고(던전 벽은 3px), 캐릭터·나무·랜턴은 늘 벽 위에 그려진다(던전 벽과 같음)
+- 빛: 벽은 제단 빛을 막지 않는다(가리개 없음, 임시값 "M7b 벽과 빛"). 안전 반경은 그대로 `SafeZone` 하나. 랜턴 기둥의 빛은 놓은 횃불과 같은 딱딱한 네 단계(반경 80px)이고 안전 반경이 아니다
+- **놓을 자리 표시** (`world/build_ghost.gd`, Main이 혼자 할 때 조각을 골라 조준하는 동안): 조각 그림(벽은 외톨이 윗면 + 외톨이 앞면, 문은 윗면 + 닫힌 문, 바닥은 A, 랜턴은 기둥)의 불투명 픽셀 중 월드 픽셀 (x + y)가 짝수인 칸만(바둑판 절반) + 막을 칸의 1px 테두리. 금빛 = 놓을 수 있음, 짙은 빨강(바둑판도) = 안 됨. unshaded. 칸·조각·월드 편집 수·조각 수·발 칸이 바뀌거나 10틱마다 다시 판단한다(몸이 움직이므로)
+
+### 나무 (`world/forest.gd`, `SurfaceGen` 6단계, `world/fixture_view.gd`)
+
+- **생성** (임시값 "M7b 나무 자리"): 지상 생성기 6단계가 1~5단계 뒤에 나무만의 난수(`TREE_SALT`)로 30그루(`TREE_COUNT`)를 놓는다: 깨끗한 풀, 제단 가운데에서 20칸(안전 반경 7 + `TREE_LIGHT_CLEARANCE_TILES` 13) 밖, 재에서 3칸 밖(오염 구역과 이단 스폰 띠에는 나무가 없음), 맵 옆·아래 3칸·위 6칸(수관) 안쪽, 수관과 줄기 둘레(좌우 2칸, 위 4칸 ~ 아래 1칸)에 채집물·흙·설치물 없음, 입구에서 3칸 밖, 다른 나무와 4칸 밖. 시드 1~40 모두 30그루. 그래서 **`SurfaceGen.GOLDEN_HASH`가 바뀌었다**: `1d9f92c7b5ef2a715f95cc32d7424b36` → `0da8e0d26ded851fff02fabdaa33c3ad` (설치물 레이어의 나무 칸 30개뿐: 나무를 지우면 M3a 해시 그대로, 채집물 74개·이단 스폰 칸 678개 그대로, `test_trees.gd`). 처음에는 빛에서 6칸 밖(13칸)으로 했더니 M5 시험·스크린샷이 쓰는 "제단을 13칸 서쪽으로" 자리((49, 45))에 나무가 서서 그 시험들이 깨졌다: 시작 들판을 20칸으로 넓혔다(제단을 한 화면 옮길 자리, 나무는 빛 밖으로 걸어 나가서)
+- 줄기 한 칸(`PLACEABLE_TREE`)이 막고(걷기·화살), 수관은 그리기만 한다. 그림 04-env `tree_v02`(64×80): 맨 아래 불투명 줄 72가 칸의 마지막 픽셀 줄, 그림 열 32가 칸 가운데(그림 왼쪽 위 = (x·16 + 8 − 32, (y+1)·16 − 1 − 72)), 노드는 칸 아래 변(y 정렬), 월드 빛
+- **벌목** (`Forest.chop`, 임시값 "M7b 벌목"): 도끼만 벤다(다른 도구는 하던 대로: 곡괭이는 벽이 없으니 공격, 낫은 공격), 클래스 상관없이 같다(● R37 누구나). 도끼질이 맞는 프레임(`AXE_IMPACT_FRAME` 3 = 18틱, 곡괭이·괭이와 같음)에 겨눈 칸이 나무면 그 나무가 맞은 수 +1(맞은 수는 지도마다의 `Forest`에, 월드가 아님), 5번째(`TREE_CHOP_HITS`)에 쓰러진다: 그 칸이 그루터기(`PLACEABLE_STUMP`, 04-env `stump_v01` = 같은 캔버스·같은 자리라 텍스처만 바뀜, 막음 `TREE_STUMP_BLOCKS`), 통나무 4개(`TREE_LOGS`)가 인벤토리로(안 들어가는 것은 그 칸에 드롭 하나, 땅의 드롭이 `MAX_DROPS`면 사라짐). 맞을 때마다 나무 그림이 1px씩 흔들린다(자리 표시, 그림 없음). 콘솔 `EVENSONG_TREE chop at=x,y hits=n/5`, `EVENSONG_TREE felled ... logs=4`
+- **다시 자라기** (`Forest.step`, 임시값 "M7b 다시 자라기"): 그루터기는 5분(`TREE_REGROW_TICKS` 18,000틱) 뒤 다시 나무(편집 하나, `EVENSONG_TREE regrown`). 시간은 `Forest`에 있고 월드가 아니다(밭의 `Farm`처럼: 지도를 새로 불러오면 그루터기마다 처음부터). Main이 지도마다 매 물리 틱 돌린다(농장처럼 플레이어가 없는 지도도). M7-fix: 0(다시 자라지 않음)이면 숲을 새로 만들 때 이미 있던 그루터기도 세지 않는다(M7b는 0틱으로 세어 다음 틱에 모두 다시 자랐다)
+- 상호작용: 줄기·그루터기에는 밭 일구기·건설·횃불·작업대·제단이 안 되고(설치물), 채굴은 벽이 아니라 아무 일 없음
+
+### 도끼 (`ItemDB` `axe`, `RigData.Anim.AXE`)
+
+- 손 도구(TOOL, 묶음 1), 아이콘은 코드 그림(자리 표시). **얻는 길** (임시값 "M7b 도끼 얻기"): 손 레시피 돌(`stone_a`) 2개(손 제작 창: M7a·M7b는 작업대 없는 곳의 Tab, M7-fix부터 키 C). 기본 작업대에 통나무가 필요하고 통나무는 도끼로만 나오므로, 지상에 놓인 돌(채집물 `stone_a` 6개)이나 캔 바위로 먼저 도끼를 만든다
+- 몸 동작: 03-pixel `base_body_v02_axe`(PixelLab 14차, 64칸, 시작 칸 + 6프레임, 발 y=47, 남·동·북, 서 = 동 반전, 다시 맞춤 S+4 E+3 N+4). `RigData.Anim.AXE` = 12(DEATH 뒤에 붙임: 전송 형식과 기준점 표의 다른 번호 그대로), `is_action`·`ACTION_ANIMS`가 포함(몸 동작 9개). `tools/build_rig_anchors.gd`로 기준점 표를 다시 만들었다(도끼 세 줄 더함). 표식: 광부의 등 곡괭이도 그대로 보인다(`HELD_SIGNATURE` 그대로)
+
+### 키 (임시값 "M7b 키")
+
+- 조각 놓기 = 고르고 좌클릭, 철거 = 우클릭(새 입력 `demolish`, 마우스 오른쪽), 문 = F(줍기보다 앞: 입구·계단·창고 다음), 도끼 = 고르고 좌클릭(누르고 있으면 계속)
+
+### 시험 (M7b)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=building,trees < /dev/null   # 약 3초
+```
+
+- `test_building.gd`: 벽 레이어의 종류(벽·건설·자연·막음·앞면·깰 수 없음, 열린 문, 바닥 조각, 동굴 꼭짓점), 레시피(따로 적은 표, 번호 26~30, 작업대·손 창에 보이는 줄, 도끼는 누구나), 비용(제단 둘레 23×23칸 전부를 따로 적은 "네 모서리가 빛 안"과 비교, 제단을 든 동안·던전 2, 인벤토리에서 그만큼), 놓기 규칙 전부(손 닿음, 맵, 조각이 아님, 조각마다 빈 풀, 바로 북쪽 벽은 자기 발, 몸·이단, 바닥 조각 위, 설치물 여덟 가지, 채집물·흙·작물·드롭, 앞면이 덮을 것 넷, 문 아래, 문 바로 아래, 맨 아래 줄 문, 세로로 잇기와 앞면이 내려감, 부활 자리·입구 도착점, 입구·제단 위, 핫바 칸 검사, 편집 하나), 던전(계단, 던전 벽 앞면, 던전 바닥, 비용 2), 봉쇄(빛 둘레 고리: 서쪽 두 칸 틈으로 나감, 벽·랜턴으로 닫으면 거부, 바닥은 됨; 북쪽 틈에 벽은 거부·문은 됨; 큰 고리는 됨; 입구 도착점; 작업대로 닫기; 닫힌 고리 안에 제단 내려놓기는 거부·문이 있으면 됨; 막힌 시작·여분 칸), 충돌(벽 남쪽에서 북쪽으로 = 앞면 아래 끝, 북쪽에서 = 윗면, 닫힌 문, 열린 문과 바닥은 지나감, 옆면, 앞면 따라 미끄러짐), 예측(벽·문 방에서 1,500틱 무작위 걸음: 막힌 걸음 151, 보정 0), 이단(닫힌 방 밖의 이단은 600틱 동안 못 들어오고 못 노림, 플레이어는 다치지 않음, 열린 문으로는 보임), 화살(벽·앞면은 막고 열린 문간은 안 막음), 스폰 칸(M7-fix: 지상의 스폰 칸 위 벽·열린 문·바닥 조각이 스폰 칸을 바꾸지 않고 `spawn_ok`만 거부, 던전 도착 방을 두른 벽 13과 닫힌 문 = 스폰 칸 443 그대로·이단이 나옴·건설 칸·문간에 없음), 철거(던전 벽 앞면은 채굴, 아무것도 없음, 손 닿지 않음, 조각 넷과 앞면 칸, 하나씩 돌려받음, 가득 찬 인벤토리(M7-fix: 발 칸 드롭), 누구나, M7-fix: 앞면 칸의 위 벽 먼저 그다음 바닥 조각, 위가 벽인 열린 문의 문간 검사), M7-fix 봉쇄(다른 플레이어를 두르는 벽·작업대 거부, 무작위 지도 720번을 M7b의 너비 먼저 걸음과 비교, 막다른 길 끝, 제단 둘레 비용 평균 2ms 막이), M7-fix 채굴(열린 문·문간의 곡괭이 = 공격, 문간의 이단이 맞음), M7-fix `main.tscn`(이단이 앞면으로 오면 10틱 안에 빨강, 건설 표시 비용 3ms 막이), 문(앞면으로 찾기, 열기, 문간의 몸·자기 발·가방, 다른 사람이 닫기, 다시 막음, 문 없음, 손 닿지 않음), 채굴(건설 벽·앞면은 too hard·월드 그대로, 광부 3×3이 건설 벽을 건너뜀), 밭·제단(바닥 조각은 못 일굼, 제단은 열린 문·벽 앞면 위에 안 되고 바닥 조각 위에는 됨, 부활 자리가 벽 위, 내려놓을 자리 찾기가 벽을 피함), 그림(마스크·앞면 종류·점·문 앞면·바닥 변형 줄, GameWorld 편집이 그림을 따라감·편집 수, 랜턴 노드와 빛), `main.tscn`(놓을 자리 표시 금빛·빨강 둘, 클릭으로 벽(빛 안 1개), 문 놓기·F로 열고 닫기(앞면 칸 겨눔), 우클릭 철거·돌려받음, 랜턴과 빛, 칼을 고르면 표시 없음, 던전으로 표시가 따라감), 세션(조각 넷 모두 `building offline only`, 편집 0, 조각 그대로), 결정성
+- `test_trees.gd`: 생성 40시드(30그루, 풀, 제단 20칸 밖, 옆·위·아래, 입구, 재 3칸, 수관 밑, 서로 4칸: 이 시험에 따로 적은 규칙), 같은 시드 같은 나무, 황금 해시, 나무를 지우면 M3a 해시·채집물 74·스폰 칸 그대로, 던전에는 나무 없음·던전 해시 그대로, 막음(줄기, 수관·뿌리는 안 막음, 북쪽으로 걸으면 줄기 아래 끝, 화살, 그루터기), 벌목(도끼만: 곡괭이·낫·검·괭이·1티어 곡괭이·빈손 안 됨, 손 닿음, 나무 없음, 18틱, 클래스 다섯이 같게 1~5번째·다섯 번째에 쓰러짐·그루터기·통나무 4, 그루터기는 나무가 아님, 가득 찬 인벤토리 = 드롭 하나, `MAX_DROPS` = 사라짐, 나무마다 따로 셈), 다시 자라기(40틱으로 줄여 정확히 40틱째·편집 하나, 불러온 그루터기는 처음부터, 지워진 그루터기는 잊음, 0이면 그대로, M7-fix: 0으로 그루터기 위에 새로 만든 숲도 그대로), 도끼 동작(동작 표, 36틱, 18틱에 맞음, 누르고 있으면 두 번·두 번 맞음, 나무 쪽을 봄), 그림(캔버스·불투명 상자를 그림에서 잼, 모든 나무의 노드·그림 자리, 그루터기로 바뀜, 흔들림 1px과 멈춤), `main.tscn`(도끼를 누르고 있으면 쓰러지고 통나무 4, 그루터기 그림, 다시 자람), 상호작용(일굴 수 없음, 벽·횃불·제단 안 됨, 곡괭이는 벽 없음), 세션(호스트가 도끼 동작을 돌리지만 나무 그대로·`chopping offline only`·편집 0·통나무 0), 결정성
+- 바꾼 기존 시험(M7b가 일부러 바꿔서): `test_items.gd`(아이템 53, 종류별 13/7/15/6/3/3/1/1/4, M7a 번호 그대로·M7b가 끝에, 도끼·조각 넷), `test_actions.gd`(몸 동작 9, 도끼 줄, 렌더 프레임 1,220), `test_actors.gd`(그림 출처 6개 더해 102, 기준점 표 도끼 줄, 열린 땅 시험은 나무를 지운 월드, 엔티티 수는 나무 빼고), `test_crafting.gd`·`test_workbench.gd`(레시피 수에 M7b 다섯, 작업대 체인 표·패널 줄은 M7b 다섯을 빼고 비교, 손 레시피 둘), `test_world.gd`(황금 해시), 스모크(도구 13, 입력 `demolish`, M7b 항목). 창 그림 검사 `builds`·`trees`·`build_ghost`(그리고 조용한 자리의 나무 지우기)
+
+### 알려진 문제·자리 표시 (M7b)
+
+- 자리 표시(임시값 "M7b 그림 자리 표시"): 도끼 아이콘은 코드 그림, 조각 아이콘은 놓는 그림의 일부를 붙인 것(벽 = 외톨이 윗면 위 7줄 + 외톨이 앞면 아래 9줄, 문 = 문 위 8줄 + 아래 8줄, 바닥 = 바닥 A, 랜턴 = 기둥의 랜턴 머리), 놓을 자리 표시와 나무 흔들림은 코드. 쓰러지는 그림은 없다(바로 그루터기)
+- 수관이 그 뒤(북쪽)나 같은 줄 옆에 선 캐릭터를 가린다(○ 수관 반투명은 하지 않았다). 동·서쪽에서 같은 줄로 칠 때 캐릭터 대부분이 수관·줄기 뒤로 간다(스크린샷은 남동쪽 대각선에서 쳐서 북쪽 동작). 동·서 도끼 날 끝이 줄기에 3~4px 못 미친다(03-pixel 14차, ○ 몸을 3px 당기기는 하지 않음)
+- 건설 앞면은 아래 칸과 그 다음 칸의 위 8px까지 그려진다(시트의 조립 규칙). 그 8px 띠에 선 캐릭터는 앞면 위에 그려진다. 세로 벽 옆문 그림과 풀 쪽 바닥 가장자리 조각은 없다(04-env 남은 흠). 문짝 12px는 캐릭터 몸 폭(15~17px)보다 좁다(04-env 남은 흠)
+- 놓을 자리 표시의 벽은 늘 외톨이 그림이다(놓은 뒤에는 이웃에 맞는 그림)
+- 세로 벽에 한 칸 문간은 지나갈 수 없다(앞면 칸): 두 칸을 비우거나 문을 가로 벽에 단다. 문은 가로 벽(아래 칸이 열린 곳)에만 놓인다
+- 바로 북쪽 벽을 지을 수 없다(앞면이 자기 발): 대각선·옆에서 짓는다
+- 건설 조각의 주인은 없다: 누구나 누구의 것이든 철거한다(○ §5 "월드는 공유")
+- 나무가 맞은 수와 그루터기의 남은 시간은 월드가 아니라 `Forest`에 있다: 늦은 참가 스냅샷에 없다, 지도를 다시 불러오면 처음부터 (M7c: 그대로 둠. 호스트만 세고 그루터기·다시 자람은 편집으로 온다)
+- (M7c에서 풂) 건설 조각·나무·그루터기는 세션 전송 형식에 따로 실을 것이 없지만(편집·스냅샷의 칸 값), 세션에서 짓거나 베는 길은 M7c다
+
+## M7c: 세션의 작업대 · 장비 · 창고 · 건설 · 나무
+
+M7a·M7b가 혼자 할 때 더한 것(작업대 체인·1티어 장비·내구도·공유 창고, 건설·문·나무·도끼)을 세션으로 가져왔다. ● 호스트 권한(game-concept §13)대로 **결과는 모두 호스트가 정한다**: 작업대·창고·건설 조각 놓기(손 닿음, 지도, 놓기 규칙, 인벤토리), 철거, 문 열고 닫기, 벌목(나무가 맞은 수, 그루터기, 통나무, 다시 자라기), 모든 레시피의 제작(체인·수리·건설 조각·손 레시피), 갑옷 입고 벗기, 1티어 피해와 마모(공격·칼·죽음), 수리, 창고 넣기·꺼내기. 클라이언트는 몸 동작(도끼질 포함)만 M2b처럼 예측하고 **결과는 예측하지 않는다**. 규칙은 M7a·M7b의 것 하나다(`items/building.gd`, `items/storage.gd`, `items/gear.gd`, `items/crafting.gd`, `world/forest.gd`를 혼자 할 때의 Main과 호스트가 같이 부름). 문서에 없는 새 규칙은 세션에서만 생기는 하나(문이 닫히고 벽이 생기는 자리와 다른 사람 사이의 여유)이고 [임시값](#임시값-사람-확인-필요)의 "M7c" 줄이다. 그 밖의 고른 것은 [구현에서 고른 값](#구현에서-고른-값-설계-결정-아님)의 "M7c" 줄이다. 상인(M8), 클래스 스킬(M9), 기도(M10), 컬렉션·생물·사냥(M11), 보스·제단 업그레이드·광부 지형 요소(M12), Steam·저장(M13), 룬 슬롯·인챈트·기술자 장치·3티어 이상, 오염 확산, 새 적, 장비의 새 모습은 M7c가 아니다.
+
+### 호스트 (`net/session_host.gd`)
+
+- **작업대·창고 놓기 = 그 아이템 칸의 USE**(M6b 조제대의 길 그대로): M7a의 세션 거부(`workbench chain offline only`·`storage offline only`)를 없앴다. `WorldItems.place`를 그 지도의 몸(다른 플레이어·이단의 발)과 든 제단의 자리(`carried_reserved_feet`)로 부르고, 창고는 빛 안에서만(`CHEST_ONLY_IN_LIGHT` 그대로). 자리마다 설치물 편집이 그 지도의 사람에게
+- **제작 = CRAFT, 모든 레시피**: M7a의 거부(`Crafting.is_m7`)를 없앴다. 그 레시피의 작업대가 손 닿는 곳에 있어야 하고(`station_of_kind_near`: HAND는 늘 있음 = 손 레시피는 어디서나), 수리는 `Crafting.craft`가 가장 닳은 것을 채운다(재료 없음 `missing inputs`, 닳은 것 없음 `nothing to repair`; M7-fix: 수리 스위치가 꺼져 있으면(기본) `repair is the engineer's work`). 주인에게 인벤토리(내구도 실음)
+- **건설 = 조각 칸의 USE**(`_build`): 요청 예산(줍기와 같음, `rate`), 그다음 `Building.build`를 **호스트가 가진 그 사람의 자리·인벤토리로**: M7b의 놓기 규칙 전부(손 닿음, 빛 안 1개·밖 2개, 빈 땅, 조각·설치물·밭·채집물·던전 벽 아님, 막는 조각은 몸·드롭·사람이 나타나는 자리 아님, 봉쇄, 문 아래), 몸은 그 지도의 다른 플레이어와 살아 있는 이단, 사람이 나타나는 자리에 든 제단의 자리를 더하고, **M7c: 다른 플레이어의 발이 막을 칸에서 `BLOCK_CLEARANCE_PX`(24px) 안이면 `someone is too close`**(아래 "예측"). 로그 `build slot= map= piece= cost= at=`
+- **철거 = 새 요청 DEMOLISH**(우클릭): 요청 예산, 제단을 든 사람은 `carrying the altar`(혼자 할 때 `Main.demolish`처럼), 그다음 `Building.demolish`(손 닿음, 누구의 것이든, 던전 벽은 `a dungeon wall is mined`; M7-fix: 돌려받기가 안 들어가면 발 칸에 드롭 편집, 위가 벽인 열린 문은 호스트의 몸과 다른 플레이어의 여유로 닫기 검사). 로그 `demolish slot= map= piece= at=`
+- **문 = 새 요청 DOOR**(문이나 그 앞면 칸의 F, `SessionHost.attach_local_op`가 PICKUP을 바꿈): 요청 예산, 그다음 `Building.toggle_door`를 호스트의 몸으로(닫을 때 문간에 플레이어·이단·가방이 있으면 `someone stands in the doorway`), **M7c: 닫을 때 다른 플레이어가 문간에서 24px 안이면 `someone is too close`**. 열기는 그런 규칙이 없다. 로그 `door slot= map= open|closed at=`
+- **갑옷 = 새 요청 ARMOR**: 핫바 칸 번호(입기) 또는 255(벗기). 요청 예산, 입기는 살아 있고·제단을 들지 않았고·동작이 없을 때(혼자 할 때 클릭이 입는 때와 같음), 그다음 `Gear.equip`(빈 칸 `empty slot`, 갑옷 아님 `not armour`) / `Gear.unequip`(입은 것 없음 `no armour worn`, 빈 칸 없음 `inventory full`). 로그 `armor slot= on|off worn=<갑옷 남은/최대>`
+- **창고 = 새 요청 CHEST**(창고 창의 클릭): 지도 + 창고의 칸 + 넣기/꺼내기 + 칸 번호. 요청 예산, 그다음 `Storage.transfer`: 그 칸에 창고(`no chest there`), **그 사람이 창고에서 `STATION_REACH_TILES`(2칸) 안**(창이 열려 있게 하는 그 규칙, `out of reach`), M7a의 넣기·꺼내기(합친 다음 빈 칸, 들어가는 만큼, `chest full`·`inventory full`·`empty slot`). 바뀐 창고 칸마다 **창고 칸 편집**이 그 지도의 사람에게, 주인에게 인벤토리. 로그 `chest slot= map= store|take item= count= left= at=`
+- **벌목 = 도끼질의 맞는 프레임**(`_chop`): 도끼의 USE는 M2b 도구 사용 그대로 검사되고(손 닿음, 바쁨), 맞는 틱(`Forest.impact_tick`)에 그 지도의 `Forest`(`forest_of`)로 `Forest.chop`(도끼만, 손 닿음, 나무). 아무것도 못 벤 휘두르기는 이유별로 센다(`swings_missed`: `no tree there`, `the axe chops` ...). 맞을 때마다 호스트 화면의 나무가 흔들리고, 쓰러지면 그루터기 편집과 통나무(주인에게 인벤토리, 넘치면 드롭 편집). 숲은 지도마다 하나이고 매 틱 농장 다음에 모든 지도에서 돈다(`_step_forests`: 혼자 할 때 Main의 농장 → 숲 순서): 그루터기가 다시 자라는 것도 그 지도의 편집. 로그 `tree slot= map= chop at= hits=n/5`, `tree slot= map= felled at= ...`, `tree map= regrown at=`
+- **1티어 피해와 마모**(`_attack`): 무기의 맞는 프레임에 그 동작을 한 칸의 묶음(`Gear.playing_stack`)으로 `Gear.attack_damage`(부서지지 않은 1티어면 150%)를 `Arena.player_attack`에 넘기고 `Gear.wear_weapon`(공격마다 1). 멤버의 플레이어는 `gear_on`이 켜져 있어(`_equip`) 이단의 칼은 입은 갑옷이 4를 덜고 갑옷이 1 닳는다(`Player.take_hit`). 죽으면 `Gear.wear_on_death`(지닌 것 모두 20%). 셋 다 주인에게 인벤토리(내구도). M7-fix: `GEAR_BROKEN_UNUSABLE`(끔)을 켜면 호스트도 부서진 장비의 USE를 `broken`으로 거부한다(전에는 보내는 기기의 `Player.make_frame`만 막아서 고친 클라이언트는 휘둘렀다) 로그 `gear slot= broke item=`, `gear slot= death wear items=n gear=[...] armor=...`
+- 같은 틱의 경주: 멤버는 자리 순서, 편집은 바로 적용(M2b 규칙 그대로). 둘이 같은 틱에 같은 창고 칸을 꺼내면 자리가 작은 쪽이 들어가는 만큼 갖고 다른 쪽은 남은 것을, 남은 것이 없으면 `empty slot`. 아무것도 둘이 되거나 사라지지 않는다(한 프로세스 시험: 99개를 30·69로, 7개를 7·0으로, 패킷이 도착한 순서와 상관없이)
+
+### 전송 형식 버전 8 (`NetProtocol.VERSION`)
+
+- 새 요청 넷(프레임에 붙음): **DEMOLISH**(지도 u8 + 칸 s16×2 = 5B), **DOOR**(같은 5B), **ARMOR**(핫바 칸 u8, 255 = 벗기 = 1B, 지도 없음), **CHEST**(지도 u8 + 창고의 칸 s16×2 + 넣기/꺼내기 u8 + 칸 u8 = 7B). 디코더가 지도·갑옷 칸(핫바 안 또는 255)·넣기/꺼내기(0/1)·칸 번호(넣기는 인벤토리 24 안, 꺼내기는 창고 16 안)를 먼저 본다. **입력 프레임은 1바이트 그대로**(코드 0..179)
+- **인벤토리 메시지**: 칸마다 3B 그대로에 **내구도가 있는 아이템(1티어 장비)이면 u16 남은 내구도**를 붙이고, 칸 24 뒤에 **갑옷 칸** 하나(같은 꼴, 아이템 0 = 안 입음). 빈 인벤토리 81B(전 78B), 1티어 장비 하나마다 +2B. 받는 쪽은 최대치를 넘는 내구도, 갑옷 아닌 갑옷 칸, 남는 바이트를 거부
+- **창고 칸 편집**(편집 메시지 코드 0x42, 16B): 창고 자리 왼쪽 위 칸 u16×2, 칸 u8, 아이템 u8(+1, 0 = 빔), 수 u8, 등급 u8, 내구도 u16. 절대값이라 두 번 적용해도 같다. 받는 쪽은 그 칸이 창고 자리의 왼쪽 위가 아니면 적용하지 않는다(잘못된 메시지로 셈)
+- **스냅샷**: 드롭 뒤에 u16 창고 수 + 무언가 든 창고마다 자리 칸 u16×2 + 칸 16 × 5B(84B). 받는 쪽은 창고 자리의 왼쪽 위인지, 한 번씩인지, 칸마다 맞는 묶음인지, 빈 창고가 아닌지, 수가 `WorldSnapshot.MAX_CHESTS` 안인지 본다. 빈 월드는 원본 +2B(시드 1 지상 73,754B)
+- 건설 벽·문(닫힘·열림)·바닥 조각은 벽 레이어, 랜턴·나무·그루터기·작업대·창고 자리는 설치물 레이어의 칸 값이라 M7b처럼 편집(11B)과 스냅샷이 그대로 나른다. 상태·정보·지도 들어옴은 그대로(17 / 33 / 40B): 갑옷은 모습을 바꾸지 않으므로(● game-concept §12 R21) 남에게 보낼 것이 없다. 새 RPC 없음(18개 그대로). 버전 7 클라이언트는 `version`으로 거부된다
+
+### 창고 내용물 = 지도의 편집 (정한 것, 잰 것과 이유)
+
+**정한 것: 창고 내용물은 그 지도의 월드다. 바뀐 칸마다 창고 칸 편집을 그 지도의 모든 사람에게 보내고, 늦게 오거나 그 지도에 들어오는 사람은 스냅샷으로 받는다.** (다른 길: 창을 연 사람에게만 내용물 메시지)
+
+- 잰 것(`test_net_build.gd`, 한 프로세스, ENet 페이로드, 호스트 → 클라이언트 둘): 창고 칸 편집 하나 16B(+ RPC 2B) × 그 지도의 사람 수. 넣기·꺼내기 한 번은 칸 1~2개 + 옮긴 사람의 인벤토리 81B. 둘이 4초 동안 24번 넣고 꺼낸 창고 시간: 전체 2,022 B/s = 상태 672 + 키프레임 672(요청 프레임의 확인이 바뀌어 묶음이 나감: 걷기·요청과 같은 길) + 인벤토리 486 + 창고 편집 192. 창고 자체의 몫(편집 + 인벤토리)은 678 B/s이고 그중 다른 사람에게 가는 편집은 192 B/s
+- 이유: (1) M7a부터 창고는 지도의 것이고 월드 해시가 덮는다. 창을 연 사람에게만 보내면 다른 사람의 월드 해시가 달라져 세션 시험의 "모든 클라이언트의 월드 = 호스트"가 깨지고, 해시에서 창고를 빼면 스냅샷·해시·편집 기록과 다른 둘째 길이 생긴다. (2) 연 사람에게만 보내려면 열기·닫기 요청과 호스트가 "누가 어느 창고를 열었나"를 들고 있어야 한다(지금은 창이 그 기기의 UI뿐이고 호스트는 클릭마다 거리만 본다). (3) 아끼는 것은 창을 안 연 사람에게 가는 편집 바이트(위 192 B/s 중 일부)뿐이다
+- 창고 창은 그 기기의 월드를 그린다: 편집이 오면 다시 그린다(`Main._redraw_chest`, `GameWorld.chest_edits`). 넣고 꺼내는 결과는 왕복 뒤에 보인다(예측하지 않음)
+
+### 예측: 건설 벽과 닫힌 문 (정한 규칙)
+
+- 클라이언트 예측은 그 기기의 월드로 걷는다: 건설 벽·닫힌 문·랜턴·나무·그루터기·작업대는 호스트와 같은 `Movement.is_blocked` → `Walls.blocks`로 막는다(같은 코드·같은 데이터). 열린 문과 그 앞면은 지나간다
+- 문제: 호스트는 문이 닫히는(벽이 생기는) 틱부터 그 사람의 그 뒤 프레임을 막힌 채 돌리는데, 그 사람의 기기는 편집이 오기 전(왕복 동안)의 프레임을 열린 채 예측했다. 그 프레임이 문간에 닿으면 예측은 지나가고 호스트는 막아, 다음 상태가 그 사람을 문 밖으로 끌어당긴다(문을 지나가는 고무줄)
+- **정한 규칙** (임시값 "M7c 막기 여유", `BLOCK_CLEARANCE_PX` 24): **문은 다른 플레이어의 발이 문간(문 칸 + 앞면 칸)에서 24px 안에 있으면 닫히지 않고, 막는 조각(벽·문·랜턴)은 다른 플레이어의 발이 막을 칸에서 24px 안에 있으면 놓이지 않는다**(`Building.clear_of_others`, 호스트의 상태로). 그러면 편집이 오기 전에 예측한 프레임이 그 칸에 닿을 수 없다: 걷기 72 px/s로 24px는 333ms, 왕복 + 호스트의 입력 버퍼(약 1~3틱)가 약 280ms 안이면 예측과 호스트가 늘 같다. 닫는 사람·짓는 사람 자신은 M7b 규칙 그대로(문간에 서 있지 않음, 조각 아래가 아님), 이단은 여유 없음(아무도 이단을 예측하지 않는다). 혼자 할 때도 같은 규칙이다(다른 플레이어 = `--test-ally`뿐이라 보통은 아무 일 없음)
+- 시험: 한 프로세스(한 방향 3틱)에서 클라이언트가 문간 바로 아래(24px 안)에 있으면 닫기가 거부되고, 멀리 가면 닫히고, 그 닫힌 문으로 걸어오면 예측과 호스트가 같은 px(문 앞면 아래 끝)에서 멈추고 보정 0. 실제 세션 `house`도 같은 순서(보정 0, 클라이언트가 멈춘 발 y = 1012)
+- **M7-fix: 다시 돌리기 뜀**. 검토가 찾은 것: 보정 수·`max_error_px`·세션의 0.5px 검사는 편집이 일으킨 끌림을 못 본다. 편집(문 닫힘)이 오면 다음 상태의 다시 돌리기(`Prediction._replay`)가 기다리는 프레임마다의 예측(`after`)을 새 월드로 다시 써서, 그 뒤 상태는 다시 쓴 예측과 맞고(보정 0) 플레이어가 본 자리는 그 다시 돌리기에서 뒤로 뛴다. 고침: `reconcile`이 다시 돌리기 앞뒤의 `sim.pos`를 비교해 호스트 사건이 아닌데 움직였으면 `replay_jumps`를 세고 가장 큰 것을 `max_replay_jump_px`에(`to_dict`에도). 시험: 방 흐름 전체·닫힌 문으로 걸어오기·실제 세션 `house`의 c1이 `replay_jumps` 0, 문이 미는 사람에게 열림은 뜀 한두 번·상한 안(잰 값 9.6px), **여유를 0으로 하면**(`Building.clearance_px`, 시험 뒤 되돌림) 걷는 클라이언트 앞에서 닫힌 문이 다시 돌리기에서 8.8px 끌어당기고(보정 1·오차 0.4px뿐) 그것을 `replay_jumps`가 잡는다(규칙을 없애면 실패하는 시험)
+- 남는 것(알려진 문제): (1) 그 창 안에서 대시(40px)로 문간에 들어가면 한 번 끌려 나온다. (2) 한 방향 지연이 약 140ms를 넘으면 24px로 모자랄 수 있다. (3) 닫은 사람·지은 사람이 그 왕복 안에 자기 문·벽으로 걸어 들어가면 끌려 나온다(자기 결과도 예측하지 않음). (4) **문이 열릴 때**는 규칙이 없다: 닫힌 문을 밀던 사람은 호스트에서 먼저 지나가 다음 상태에 한 번 앞으로 당겨진다(잰 값: 한 방향 3틱에서 보정 1번·오차 1.2px, 상한 10.8px. **M7-fix: 보이는 위치는 다시 돌리기에서 9.6px 앞으로 뛴다**(틱마다 잰 한 걸음 너머 8.4px): 보정·오차는 편집으로 바뀐 월드에서 다시 돌린 예측과 비교해서 이 뜀을 거의 못 본다. 그래서 `Prediction.replay_jumps`·`max_replay_jump_px`를 더했다, 아래 "시험"). 열기를 막으면 문 앞에서 기다리는 친구에게 문을 열어 줄 수 없어서 두었다
+
+### 늦은 참가 · 지도 들어옴
+
+- 건설 벽·문(닫힘·열림)·바닥 조각·랜턴, 나무·그루터기, 작업대·창고 자리는 월드 레이어, 창고 내용물은 스냅샷의 창고 부분이라 모두 스냅샷에 있다. 받는 쪽은 `GameWorld.load_data`로 벽 그림(`BuildView`)·설치물 그림(`FixtureView`)을 그대로 만든다. welcome 로그에 `walls= doors= open_doors= stumps= stations= chests= chest_items=`
+- 나무가 맞은 수와 그루터기의 남은 시간(`Forest`)은 보내지 않는다: 호스트만 센다(농장 시계처럼). 그루터기는 호스트 시간으로 다시 자라고 그 편집이 온다. 호스트를 잃고 혼자 계속하면 받은 월드로 새 숲(M7b `Forest.setup`: 그루터기마다 처음부터)
+
+### 클라이언트 (`core/main.gd`, `net/session_client.gd`)
+
+- 키는 혼자 할 때 그대로(임시값 "M7a 키", "M7b 키"). 조각·작업대·창고를 고르고 좌클릭 = USE, 우클릭 = DEMOLISH(그 프레임의 목표 칸), 문이나 그 앞면의 F = DOOR, 갑옷 클릭·갑옷 칸 클릭 = ARMOR, C = 손 제작 창(M7a에서 세션은 막혀 있었다. M7-fix: 작업대 없는 곳의 Tab에서 새 키로), 제작 줄 = CRAFT
+- **창고의 F**: 손 닿는 창고 칸의 F는 요청이 아니라 이 기기에서 창고 창을 연다(`NetSession.chest_wanted`, `SessionHost.attach_local_op`). 창의 클릭이 CHEST 요청이 된다(창 = 이 기기의 월드의 그 창고, 편집이 오면 다시 그림). 멀어지거나 다운되거나 지도를 옮기면 닫힌다(M7a `Storage.still_at` 그대로)
+- 놓을 자리 표시(`BuildGhost`)는 이 기기의 월드·몸·이단으로 그린다(금빛·빨강은 이 기기의 판단, 호스트가 다시 정함). 도끼질은 예측하고 나무·그루터기·통나무는 편집·인벤토리로 온다. 나무 흔들림(자리 표시)은 호스트 화면에만 있다(알려진 문제)
+- 인벤토리가 오면 내구도와 갑옷도 호스트의 것으로 바뀐다(`SessionClient.take_inventory`). 호스트를 잃고 혼자 계속하면 그 내구도에서 이어 닳는다
+- 봇: `store`·`take`·`unequip`은 `NetSession.bot_gear`로 Main에 가서 CHEST·ARMOR가 되고, `wreck`은 DEMOLISH다. 새 봇 명령: `waitwall:<x>,<y>,<none|wall|door|open|floor>`, `waitat:<x>,<y>`(다른 플레이어가 그 칸에), `waitplaced:<x>,<y>,<설치물>`, `waitchest:<x>,<y>,<아이템>`, 시험용 `heretic:<x>,<y>`(혼자·호스트: 이단 하나). 호스트는 `--test-build`를 참가 전에 월드에 넣는다(늦은 참가자는 스냅샷으로)
+
+### 고친 것 (M7b에서 온 것)
+
+- **들고 있는 제단의 놓을 자리 표시가 틱마다 약 24ms**였다: M7b가 `AltarMove.place_refusal`에 더한 봉쇄 검사(새 부활 자리 아홉에서 `Building.reaches`, 12칸 걸음)가 `Main._show_altar_ghost`에서 매 틱 돌아, 누가 제단을 드는 동안 호스트가 초당 60틱을 못 채웠다(호스트 틱이 실제 시간보다 약 10% 느림). 그러면 클라이언트의 호스트 시계(`RemoteClock`, 가장 덜 늦은 묶음)가 호스트 상태보다 앞서 남의 캐릭터를 가장 새 상태 너머로 그렸다: M5c 실제 세션 `altar`의 "other players drawn from the buffer"가 M7c 첫 전체 실행에서 10%를 넘어 실패(142~183 / 240프레임). M7b 코드에 같은 시간 재기를 넣으면 M7b도 실패했다(112 / 236): 아슬아슬하게 통과하던 것. 고침: 그 표시의 답을 자리·월드 편집 수·몸과 이단의 칸이 바뀔 때와 10틱(`GHOST_RECHECK_TICKS`, 건설 표시와 같음)마다만 다시 구한다(구현 표 "M7c 제단 놓을 자리 표시"). 호스트의 내려놓기 검사는 그대로 전부 본다
+
+### 시험 (M7c)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_build < /dev/null              # 한 프로세스 (약 6~10초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_house,net_stock < /dev/null    # 실제 세션 house·stock (약 75초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_house,net_stock --net-exe=build/evensong.console.exe < /dev/null   # 자식을 내보낸 exe로
+```
+
+- `test_net_build.gd` (한 프로세스, `test_net_fields.gd`·`test_net_combat.gd`의 리그): 전송 형식 v8(새 요청 넷의 왕복·크기·모든 자른 길이, 지도·갑옷 칸·넣기/꺼내기·칸 번호 범위 밖, 다음 요청 번호; 내구도·갑옷 칸이 든 인벤토리 왕복과 크기, 최대를 넘는 내구도·남는 바이트·돌이 든 갑옷 칸 거부; 창고 칸 편집 왕복 16B와 거부 여섯, 창고 왼쪽 위 칸에만 적용·해시·절대값; 창고가 든 스냅샷 왕복 = 같은 해시, 거부 일곱). 악의 클라이언트(`run_frame`에 바로): 건설 2·3·40칸 밖 `out of reach`·맵 밖, 부활 자리·입구 도착점 `where players appear`, 다른 사람 발 `someone stands there`, 한 칸 옆 `someone is too close`, 24px 밖은 됨(빛 밖 2개, 편집 하나), 던전을 적음 `wrong map`, 한 틱에 열 번(넷은 예산, 여섯 `rate`), 던전 벽 우클릭 `a dungeon wall is mined`(벽 그대로), 빈 풀 `nothing built there`, 3칸 밖, 자기 벽 철거·돌려받음, 문: 열기, 문간 한 칸 아래의 사람 `someone is too close`, 문간 `someone stands in the doorway`, 멀면 닫힘, 3칸 밖, 다운 중 건설·문·철거 `down`. 갑옷: 빈 칸·돌·안 입은 채 벗기 거부, 입기, 가득 찬 인벤토리로 벗기 거부, 빈 칸이 생기면 벗기, 한 틱 열 번. 수리: 재료 없음 `missing inputs`, 닳은 것 없음 `nothing to repair`(주괴 그대로), 5칸 밖 `no station`, 모루 옆에서 120으로. 손 레시피(도끼)는 작업대 없이. 창고: 창고 아닌 칸 `no chest there`, 빈 칸 `empty slot`, 넣기 99, 3칸 떨어진 곳에서 꺼내기 `out of reach`(창고 그대로), 던전을 적음 `wrong map`, 가득 찬 창고 `chest full`(돌 그대로), 한 틱 열 번. 벌목: 곡괭이로 나무 = 아무것도 안 벰, 3칸 밖 도끼 `out of reach`, 옆 풀에 도끼 `no tree there`, 한 휘두르기 동안 매 프레임 USE = 하나 시작·나머지 `busy`·한 번만 맞음. 흐름(한 방향 3틱): **둘이 방을 짓고 둘 다 문으로 들어감**(클라이언트가 걸어가 아래 오른쪽 벽 둘을 짓고, 호스트가 나머지 열세 개와 안에서 문을 짓고, F로 열고 걸어 나감 → 클라이언트가 문으로 들어가 먼 구석, 호스트도: 위치·예측 보정 0, 클라이언트 월드·벽 그림 = 호스트), **문이 다른 사람에게 닫힘**(위 "예측"), **벽 밖의 이단**(닫힌 방 밖에 이단: 600틱 동안 들어오지 못하고 아무도 다치지 않음, 클라이언트의 적 묶음에 방 밖의 이단), 문이 미는 사람에게 열림(보정·오차를 잼), **둘이 한 창고를 동시에**(위 "같은 틱의 경주", 모두의 창고·인벤토리 = 호스트, 닳은 검(55/120)과 돌을 넣음, 늦은 참가자의 스냅샷에 그 내용물), **1티어 무기의 내구도**(클라이언트가 호스트의 모루에서 CRAFT로 1티어 검, ARMOR로 갑옷, 이단과 싸워 공격마다·칼마다 닳고, 받은 인벤토리마다 호스트와 같음, 다운·포기로 죽어 사망 마모: 클라이언트의 검·갑옷 = 호스트), **나무를 그루터기까지**(한 방향 2틱: 클라이언트의 도끼 다섯 번, 둘 다 그루터기, 통나무 4, 동작 보정 0, 늦은 참가자에게 그루터기, 호스트 숲이 다시 키우면 둘 다 나무), **넷**(3틱: 호스트가 벽 다섯, 아처가 벌목, 광부·성직자가 한 틱에 창고의 다른 칸: 모두의 월드·인벤토리·자기 위치 = 호스트, 예측은 호스트 사건만), 트래픽(아래 "측정") M7-fix: DEMOLISH·DOOR 3칸 밖은 거부 수가 정확히 1(호스트의 사본에서 잼)·다른 지도 `wrong map`, 살아 있는 이단의 발과 든 제단의 집 부활 자리 위 벽 거부, 동작 중·제단을 든 채 갑옷 거부, 수리 끔이면 모루 옆에서도 거부, 부서진 장비 스위치를 켜면 호스트가 USE 거부, 방 흐름·닫힌 문의 `replay_jumps` 0, 문이 미는 사람에게 열림의 뜀 1~2번·상한 안, 여유 0이면 닫히는 문이 걷는 클라이언트를 끌어당기는 것을 `replay_jumps`가 잡음(`_check_clearance_needed`)
+- `test_net_house.gd` (실제 세션): `house` — 호스트(팔라딘) + c1(광부) + 늦은 c2(아처). 방은 세 벽과 문만 빼고 `--test-build`로 서 있다. 호스트가 위 벽을 밖에서, c1이 아래 오른쪽 벽 둘을 짓고, 호스트가 틈으로 들어가 안에서 문을 짓고 열고 나간다. c1이 문으로 들어가고 호스트도. c1이 문간 바로 아래에 서면 호스트의 닫기가 거부되고(`someone is too close`), 멀어지면 닫히고, c1이 닫힌 문으로 걸어와 막힌다(표시 파일의 발 y = 문 앞면 아래 끝). 호스트가 열고 c1이 먼 구석으로, 호스트가 닫는다. 그다음 호스트 봇이 방 밖에 이단을 부른다: 닫힌 뒤로 `hurt` 줄 0. c2가 그때 참가해 스냅샷에 벽 17·닫힌 문. 확인: 세션 공통 검사, 호스트 로그의 `build`·`door`·`request_refused`, 모두의 벽·문 수와 벽 그림 = 데이터, c1 보정 0·다시 돌리기 뜀(`replay_jumps`) 0(M7-fix)
+- `test_net_stock.gd` (실제 세션, `--test-start-hp=miner:20`): `stock` — 호스트(팔라딘) + c1(광부) + c2(성직자) + 늦은 c3(아처) = 넷. 호스트가 모루와 창고를 놓고, c1이 모루에서 Tab·제작 줄로 1티어 검, 갑옷 클릭, 허공에 휘두르고 빛 밖으로 나가 호스트가 부른 이단에게 다운, F로 포기해 죽고 제단에서 부활. c2는 동쪽 나무까지 걸어가 도끼로 그루터기까지. 둘이 창고 옆에 서면 호스트가 철 주괴와 돌을 넣고, 둘이 주괴 칸을 동시에 꺼낸다. c3가 그때 참가. 확인: 세션 공통 검사, 호스트 로그의 `place`·`craft`·`armor`·`gear ... death wear`·`tree ... felled`·`chest`, c1의 검·갑옷 = 120 − 공격 − 24 / 100 − 칼 − 20이 호스트 사본과 c1 자신의 결과 모두, 정확히 한 사람이 주괴 20을 갖고 다른 사람은 `empty slot`, 모두의 그루터기·모루·창고(돌 30), c3 welcome `stumps=1 stations=1 chests=1 chest_items=30`
+- 바꾼 기존 시험(M7c가 규칙을 일부러 바꿔서): `test_workbench.gd`(세션: 작업대 셋·창고 놓기와 모루 제련이 됨, 편집 11), `test_gear.gd`(세션: 호스트 멤버 `gear_on`, 1티어 검 21·마모 1·인벤토리 감, 갑옷 4를 덜고 1 닳음), `test_building.gd`(세션: 조각 넷이 지어지고 DOOR 둘·DEMOLISH 하나), `test_trees.gd`(세션: 쓰러져 그루터기·통나무 4·다시 자람), `test_net.gd`·`test_world_items.gd`(스냅샷 원본 +2B, 인벤토리 81B), `test_net_maps.gd`·`test_net_fields.gd`(버전 8)
+- 창 그림 검사 `builds_net`, 스모크 `builds_wire=` 항목
+
+### 알려진 문제 (M7c)
+
+- 짓기·철거·문·창고·갑옷·제작의 **결과는 왕복 뒤**에 보인다(도끼질 동작은 바로). 두 기기에서 사람이 볼 것
+- 위 "예측"의 남는 것 넷(대시, 큰 지연, 자기 문·벽, 열리는 문을 미는 사람)
+- 작업대·창고·조제대 놓기에는 M7c의 여유가 없다(M6 규칙 그대로: 발만): 걷는 사람 바로 앞에 작업대를 놓으면 그 사람이 한 번 끌려날 수 있다
+- 나무 흔들림(1px 자리 표시)은 호스트 화면에만 있다: 클라이언트는 도끼질 동작과 그루터기 편집만 본다(맞은 수를 보내지 않음)
+- 창고 창은 열 때 요청이 없어서, 창을 연 채로 다른 사람이 같은 칸을 꺼내면 그 클릭은 호스트에서 `empty slot`이 되고 창이 편집으로 다시 그려진다
+- 스냅샷이 실을 수 있는 무언가 든 창고는 `MAX_CHESTS` 1,024개다(넘는 월드는 참가자가 거부. 창고는 빛 안에만 놓여 슬라이스에서는 닿지 않는다)
+- 두 사람이 서로 24px 안에 붙어 있으면 둘 다 그 둘레에 벽을 짓지 못한다(함께 방을 짓는 사람은 한 칸 반 떨어져서)
+
 ## 빛과 제단 (G2)
 
 - **규칙은 하나**: `SafeZone.is_in_safe_zone(pos)` = 제단 가운데에서 반경(임시 7타일 = 112px) 안 (경계 포함). 게임 로직은 `GameWorld.is_in_safe_zone()`로 이것을 부르고, 빛 텍스처는 같은 함수를 텍셀 가운데마다 불러 만든다
@@ -1458,6 +1792,7 @@ H-fix에서 더한 것: 호스트 입력 토큰이 실제 시간을 따라감(�
 - `const`로 둔 타입 있는 컨테이너의 원소가 packed 배열이고(`Dictionary[StringName, PackedStringArray]`, `Array[PackedStringArray]`) 값을 배열 리터럴로 쓰면, 4.7.2에서 읽을 때 엉뚱한 값(빈 문자열 24개)이 나오고 그것으로 이미지를 만들다 크래시가 났다 (M2a에서 잼, 스크래치 시험으로 재현). 이런 상수는 원소를 `Array`로 둔다(`ItemIcons.MAPS`, `Hud.DIGITS`). `const X: PackedStringArray = [...]`처럼 packed 배열 자체인 상수는 괜찮다
 - `get_stack()`은 GDScript 내장 함수라 같은 이름의 메서드를 만들면 클래스 안에서 부를 때 내장이 불린다(인벤토리 칸 읽기는 `stack_at`)
 - 테스트가 `tree.root.size`를 바꾸면(창 늘이기 시험, `test_aim.gd`) 끝에 원래대로 돌려놓는다
+- 건설 (M7b): 건설 조각은 벽 레이어의 종류다(`Walls.is_wall_kind`·`is_built_kind`). 종류를 늘리면 `Walls`의 판단(막음·앞면·깰 수 없음·동굴 꼭짓점), `BuildView`(그림), `Arena.built_count`(스폰 칸 다시 계산)를 같이 본다. 막는 것을 놓는 새 규칙은 `Building.seals`(사람이 나타나는 자리 가두기)를 거친다. 열린 문은 지나가지만 벽 구조라 그 칸과 문간에는 아무것도 놓지 않는다(`Walls.is_wall`·`is_face`로 검사, `Walls.blocks`만으로는 안 됨)
 - 생성기나 그 상수를 일부러 바꾸면 `world/surface_gen.gd`의 `GOLDEN_HASH`를 새 값으로 바꾼다 (실패 메시지에 새 값이 나온다. `test_world.gd`와 스모크가 이 값을 본다). 늦은 참가는 이제 호스트의 월드를 받지만(H1), 같은 시드가 같은 월드라는 것(시드 공유, 혼자 할 때)은 여전히 이 값이 지킨다
 
 ### 테스트 쓰는 법
@@ -1557,7 +1892,7 @@ func run() -> Array[String]:
 | M3b 지도 오가기 (세션) | `WorldItems.travel`, `SessionHost._travel` | 입구·계단을 손 닿는 칸(`REACH_TILES`)에서 F. 요청 예산은 줍기와 같고 따로 기다리는 시간(쿨다운)은 없다. 도착점·남쪽 바라보기·동작 멈춤은 M3a 그대로. 여럿이 오면 같은 도착점에 겹쳐 선다(플레이어끼리 충돌 없음, M1부터) | ○ gameplay-design §3.1 "지상의 입구로 진입", 나머지는 문서에 없음 |
 | M3b 다른 지도의 플레이어 | `SessionClient.draw_others` | 그리지 않고 화면에 아무 표시도 없다(누가 던전에 있는지 알 수 없다) | 문서에 없음 (파티 UI는 ○ gameplay-design §5 "파티 UI 3×3") |
 | M3b 다시 참가할 때의 지도 | `SessionHost.on_hello` | 늘 지상 스폰 자리에서(던전에서 나갔어도) | 문서에 없음 (M2b "다시 참가" 줄과 같은 이유: 다시 참가 기억이 없다) |
-| M4a 체력·방어 | `PLAYER_HP_MAX`, `PLAYER_DEFENCE` | HP 100, 방어 0(받은 피해 그대로. 방어구는 M7) | ○ gameplay-design §2.4 "HP + 방어력(피해 감소)" (숫자 없음) |
+| M4a 체력·방어 | `PLAYER_HP_MAX`, `PLAYER_DEFENCE` | HP 100, 방어 0(받은 피해 그대로. 방어구는 M7). M7a: 이 값은 그대로이고 갑옷의 방어는 따로 더한다(`ARMOR_T1_DEFENCE`, 아래 "M7a 갑옷") | ○ gameplay-design §2.4 "HP + 방어력(피해 감소)" (숫자 없음) |
 | M4a 스태미나 | `STAMINA_MAX`, `STAMINA_REGEN_TICKS`, `STAMINA_REGEN_DELAY_TICKS` | 100, 쓴 뒤 30틱(0.5초) 쉬고 2틱마다 1(초당 30) | ○ §2.4 "스태미나(대시·방패)" |
 | M4a 대시 | `DASH_STAMINA`, `DASH_TICKS`, `DASH_SPEED`, `DASH_COOLDOWN_TICKS`, `DASH_INVULNERABLE` | 한 번 35, 10틱 동안 240px/s(40px), 끝난 뒤 30틱 쿨다운, 대시 중 무적. 걷기와 같은 충돌, 입력 없으면 바라보는 쪽, 동작·경직·다운 중 안 됨 | ○ §2.5 "모두 대시 1회 (스태미나)" |
 | M4a 경직·피격 무적 | `HURT_TICKS`, `HURT_FRAME_TICKS`, `HURT_INVULN_TICKS` | 맞으면 18틱(0.3초) 못 움직이고 새 동작·대시 없음, 하던 동작은 끊김, 피격 시트 6프레임 3틱씩, 그 뒤 30틱 무적 | 문서에 없음 |
@@ -1567,7 +1902,7 @@ func run() -> Array[String]:
 | M4a 다운 중 | `PlayerSim.step`, `Main.pick_up`, `Arena.can_target` | 못 움직이고 동작·대시·F 줍기·F7 없음, 이단의 표적이 아님 | 문서에 없음 |
 | M4a 포기 | `GIVE_UP_HOLD_TICKS` | 다운 중 F를 1초(60틱) 누르고 있으면 바로 사망 | 문서에 없음 (혼자 하면 소생해 줄 사람이 없어서) |
 | M4a 부활 | `RESPAWN_TICKS`, `RESPAWN_HP`, `Main._on_respawn_due` | 사망 5초 뒤 지상 제단의 자기 스폰 자리(혼자 = 자리 0)에 `SPAWN_FACING`을 보고, HP·스태미나 가득. 던전에서 죽어도 지상 | ● §2.6 "부활 지점: 제단" (§5 ○ 같은 말), 시간·HP는 문서에 없음 |
-| M4a 사망 가방 '일부' | `DEATH_DROP_RULE`(`DEATH_DROP_HALF` / `DEATH_DROP_KINDS`), `DEATH_DROP_RANDOM_KINDS` | 절반 규칙: 도구가 아닌 칸마다 절반(올림). 상수 하나를 바꾸면 무작위 3종(그 종류의 칸 전부). 도구(무기 포함)는 남고, 재료·채집물·놓는 것(횃불 = 소모품으로 읽음)이 대상 | ● §2.6 R12 "일부 아이템 드롭", ○ §2.6 "장착·퀘스트 아이템 제외, 스택마다 절반 또는 무작위 3종. 슬라이스에서 정한다" |
+| M4a 사망 가방 '일부' | `DEATH_DROP_RULE`(`DEATH_DROP_HALF` / `DEATH_DROP_KINDS`), `DEATH_DROP_RANDOM_KINDS` | 절반 규칙: 도구가 아닌 칸마다 절반(올림). 상수 하나를 바꾸면 무작위 3종(그 종류의 칸 전부). 도구(무기 포함)는 남고, 재료·채집물·놓는 것(횃불 = 소모품으로 읽음)이 대상. M7a: 규칙 그대로, 갑옷(새 종류)도 도구처럼 남는다(장비는 내구도가 닳음: "M7a 사망 마모") | ● §2.6 R12 "일부 아이템 드롭", ○ §2.6 "장착·퀘스트 아이템 제외, 스택마다 절반 또는 무작위 3종. 슬라이스에서 정한다" |
 | M4a 가방 자리·주인·사라짐 | `WorldItems.bag_cell`, `open_bag`, `BAG_SEARCH_TILES` | 죽은 칸(설치물·채집물·드롭이 있으면 3칸 안 가장 가까운 빈 칸, 없으면 가방 없이 아무것도 안 잃음), 누구나 F로 전부(들어가는 만큼), 저절로 사라지지 않음, 걸음을 막지 않음. **M4-fix**: 땅에 이미 `MAX_DROPS`(구현 값 256)가 있으면 가방 없이 아무것도 안 잃음(전에는 빈 가방) | ● §2.6 "되찾을 수 있다 (구출 플레이)", 나머지는 문서에 없음 (○ §5 "드롭은 주운 사람 것"과 같은 쪽) |
 | M4a 기본 공격 (클래스 무기) | `CLASS_WEAPONS`, `ItemDB` `holy_light` | 팔라딘 검(근접 호), 아처 활(화살), 성직자 성광(새 도구 아이템, 마법 동작, 빛 탄), 광부 곡괭이(근접), 약초사 낫(근접. 문서에 없음). 무기 = 도구 아이템이고 누구나 어떤 무기든 쓴다 | ● §2.1 실시간·에임형 R12, ○ §1 "좌클릭: 기본 공격 / 들고 있는 도구 사용", "무기와 도구는 핫바로 전환 … 광부는 곡괭이가 무기이자 도구", ? §2.2 스킬 킷(정하지 않음) |
 | M4a 무기 수치 | `WEAPON_ATTACKS` | 피해·사거리·호·맞는 프레임(0부터)·속도: 검 14·26px·120°·4, 곡괭이 10·22px·90°·3(= 채굴 프레임), 낫 8·22px·120°·3, 활 12·160px·6·220px/s, 성광 10·128px·3·150px/s. 공격 속도 = 동작 길이(`ACTION_FRAME_TICKS`, 누르고 있으면 반복) | 문서에 없음 |
@@ -1599,7 +1934,7 @@ func run() -> Array[String]:
 | M4b 던전에서 죽으면 | `SessionHost._respawn` | 지상의 자기 스폰 자리에서 부활하고 클라이언트는 지상을 받는다(지도 들어옴). 그 클라이언트에게 앞 지도를 보내는 중이면 끝날 때까지 기다림. 가방은 던전에 | ● §2.6 "부활 지점: 제단" (M4a "부활" 줄과 같음) |
 | M2b 디버그 주기·버리기 | `NetSession.gives_allowed` | 클라이언트의 주기 요청(F5, `--give`)과 버리기 요청(F7, M2-fix)은 호스트가 디버그 빌드(에디터 실행)이거나 `--test-allow-give`일 때만 | 문서에 없음 (M2b 지시 "debug give in test builds only". 버리기도 디버그 키라 같이 묶었다) |
 | M2b 다시 참가 | `SessionHost` | 다시 참가해도 인벤토리가 이어지지 않는다(새 참가자는 빈 인벤토리, 나간 사람의 인벤토리는 사라짐) | 문서에 없음 (M1에 다시 참가 기억이 없음, 저장은 M2 밖) |
-| M6a 키 | `project.godot` 입력 `skill_1`(새), `toggle_inventory`·`move_up`/`move_down`·`interact`·`ui_cancel`(제작 창이 열린 동안, `Main._crafting_input`), `Player.make_frame` | Tab = 작업대 2칸 안이면 제작 창(+ 인벤토리), 아니면 M2a 그대로 인벤토리. 창이 열린 동안 W / S(↑ / ↓) = 줄 고르기, F 또는 Enter = 만들기, 마우스 올리기 = 고르기·좌클릭 = 만들기, Tab 또는 Esc = 닫기, 캐릭터는 서 있음(Q/E는 됨). 물약을 고르고 좌클릭 = 마시기(누르고 있어도 한 번). **1 = 약제 투척**(고른 물약을 마우스 쪽으로). 우클릭은 쓰지 않음. **M6b**: 세션에서도 같은 키(창이 열린 동안 세션의 입력도 서 있음, 만들기는 호스트에게 가는 요청) | ○ gameplay-design §1 키 초안("Tab 인벤토리·제작", "1 2 3 스킬", "우클릭 보조 동작 (클래스별)", "F 상호작용 (… 작업대 …)"), ○ §2.2 추천 "1. 정체성 스킬 — 약초사 약제 투척". 1을 던지기에 쓴 것은 초안의 "1 = 스킬"과 맞추고, 우클릭(클래스 보조 동작)은 비워 둠. 창이 열린 동안 W/S·F를 창이 가져가는 것과 Enter·Esc는 초안에 없음 |
+| M6a 키 | `project.godot` 입력 `skill_1`(새), `toggle_inventory`·`move_up`/`move_down`·`interact`·`ui_cancel`(제작 창이 열린 동안, `Main._crafting_input`), `Player.make_frame` | Tab = 작업대 2칸 안이면 제작 창(+ 인벤토리), 아니면 M2a 그대로 인벤토리. 창이 열린 동안 W / S(↑ / ↓) = 줄 고르기, F 또는 Enter = 만들기, 마우스 올리기 = 고르기·좌클릭 = 만들기, Tab 또는 Esc = 닫기, 캐릭터는 서 있음(Q/E는 됨). 물약을 고르고 좌클릭 = 마시기(누르고 있어도 한 번). **1 = 약제 투척**(고른 물약을 마우스 쪽으로). 우클릭은 쓰지 않음. **M6b**: 세션에서도 같은 키(창이 열린 동안 세션의 입력도 서 있음, 만들기는 호스트에게 가는 요청). M7a: 값 그대로, 작업대 셋도 같은 Tab이고 작업대 없는 곳의 Tab은 손 레시피가 해금된 뒤 손 제작 창(+ 인벤토리, 혼자 할 때만: "M7a 기본 작업대 얻기"). **M7b에서 바뀜**: 우클릭 = 철거("M7b 키"). **M7c에서 바뀜**: 손 제작 창은 세션에서도. **M7-fix에서 바뀜**: 손 제작 창은 새 키 C("M7-fix 손 제작 창"), Tab은 위 M6a 값 그대로(작업대 2칸 안 = 제작 창, 아니면 인벤토리) | ○ gameplay-design §1 키 초안("Tab 인벤토리·제작", "1 2 3 스킬", "우클릭 보조 동작 (클래스별)", "F 상호작용 (… 작업대 …)"), ○ §2.2 추천 "1. 정체성 스킬 — 약초사 약제 투척". 1을 던지기에 쓴 것은 초안의 "1 = 스킬"과 맞추고, 우클릭(클래스 보조 동작)은 비워 둠. 창이 열린 동안 W/S·F를 창이 가져가는 것과 Enter·Esc는 초안에 없음 |
 | M6a 작업대 손 닿음 | `STATION_REACH_TILES`, `Crafting.station_near` | 발 칸에서 작업대 자리까지 2칸(체비셰프) 안, 가장 가까운 작업대. 멀어지거나 다운되거나 지도를 옮기면 창이 닫힘 | ○ gameplay-design §3.5 "작업대 근처에서 Tab" (거리 없음) |
 | M6a 레시피 해금 | `RECIPES_UNLOCK_ON_FIRST_GET`, `Inventory.seen` | **켬**: 입력 아이템을 모두 한 번이라도 인벤토리에 넣어 본 플레이어에게 그 레시피가 보인다(아무 등급, 없어져도 남음, 저장 없음). 끄면 처음부터 모두 보임. 기본값 이유: 문서가 내놓은 유일한 규칙이고, 슬라이스의 입력은 야생 약초라 줍기가 고리의 첫걸음이어서 비용이 없다(해 보고 사람이 정하게) | ○ gameplay-design §3.5 "레시피는 재료를 처음 획득했을 때 해금 (그라운디드 분석기 방식)" |
 | M6a 자리가 없을 때 | `Crafting.refusal`, `craft` | 입력을 뺀 뒤에도 출력이 들어갈 자리가 없으면 거부하고 아무것도 바꾸지 않음(땅에 떨어뜨리지 않음). 입력은 뒤 칸부터 뺌 | 문서에 없음 |
@@ -1654,6 +1989,48 @@ func run() -> Array[String]:
 | M5c 들고 있는 동안 참가 | `ALTAR_CARRIED_JOIN_AT_HOME`, `SessionHost.spawn_feet` | 켬: 제단을 든 동안 참가하는 사람은 **든 자리**(마지막으로 들어 올린 자리) 둘레의 부활·참가 자리에 나타난다. 끄면 든 사람의 발 둘레. M5-fix: 그 자리들은 들고 있는 동안에도 막는 설치물이 덮지 못하고(`SessionHost.carried_reserved_feet` → `where players appear`, 켰을 때), 그래도 막힌 자리는 슬롯 순서로 다음 설 수 있는 자리, 하나도 없으면 지상 도착점 | 문서에 없음 (● gameplay-design §2.6 "부활 지점: 제단"을 참가 자리에도 쓴 M1 규칙. 든 동안은 제단이 없어서 세션에서만 생기는 경우) |
 | M5c 든 사람이 나감 | `ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES`, `SessionHost.on_peer_disconnected` | 켬: 제단을 든 사람이 세션을 나가면 그 발 둘레에 다운 때와 같은 규칙으로 저절로 놓인다(M5b "든 사람이 다운되면"). 끄면 든 자리부터(M5-fix: 그 자리가 놓기 규칙으로 안 되면 그 둘레, 그다음 발 둘레. 전에는 검사 없이 덮었다). 놓을 곳이 하나도 없으면 들고 나간다(알려진 문제) | 문서에 없음 (세션에서만 생기는 경우: 제단이 그 사람과 같이 사라지면 안 된다) |
 | M5c 호스트를 잃었을 때 제단 | `GameWorld.last_altar_rect`, `Main._go_offline_combat` → `restore_altar` | (M5-fix) 다른 사람이 제단을 든 채 호스트를 잃고 혼자 계속하면, 그 클라이언트의 월드가 마지막으로 본 제단 자리에 되놓는다(놓기 규칙, 안 되면 그 둘레, 본 적이 없으면 자기 발 둘레). 자기가 들고 있었으면 그대로 들고 혼자 놓는다 | 문서에 없음 (세션에서만 생기는 경우: 전에는 제단이 없어 죽으면 부활을 영영 기다렸다). 다른 길: 지상 도착점에 부활만 하고 제단은 없음, 자기 발 옆에 놓음 |
+| M7a 작업대 체인 | `Config.STATION_RECIPES`, `Crafting._build_chain`, `WorldData.PLACEABLE_WORKBENCH`·`ANVIL`·`RELIC` | **세 단계**: 손(작업대 없음) → 기본 작업대 → 모루 → 성물 제작대. 레시피 열넷(아래 "M7a" 절의 표): 손에서 작업대(통나무 4), 작업대에서 널판(통나무 1 → 2)·모루(돌 10 + 철광석 2 + 널판 2)·창고(널판 8 + 철 주괴 1), 모루에서 제련 둘·1티어 장비 여섯·성물 제작대(널판 4 + 구리 주괴 2 + 철 주괴 1), 성물 제작대에서 횃불(구리 주괴 1 + 널판 1 → 4). 모두 누구나. 작업대마다 앞 작업대에서 만든다 | ○ gameplay-design §3.5 "기본 작업대 → 모루(대장간) → 성물 제작대 → (이후 티어)", game-concept §12 "작업대 체인 2~3단계"(제안 절의 줄이라 ●가 아니다: M7-fix에서 표기 고침. 셋을 골랐다: 문서의 체인 이름 셋이 다 있고, 성물 제작대 그림이 있어서). 재료·수·레시피는 문서에 없음 |
+| M7a 기본 작업대 얻기 | `Crafting.HAND`, `Main.toggle_tab`, `--give=workbench` | **M7b·M7c·M7-fix에서 바뀜**(M7a 때의 값, 그대로 남김: M7b의 도끼도 손 레시피(돌 2)라 돌을 한 번 가진 뒤로 해금, M7c에서 세션에서도 열림, M7-fix에서 새 키 C로 옮김: "M7-fix 손 제작 창"): **손 레시피**: 작업대에서 멀리서 Tab을 누르면, 손 레시피가 하나라도 해금됐을 때(통나무를 한 번이라도 가짐) 손 제작 창(머리 = 통나무 아이콘)과 인벤토리가 열린다. 해금 전에는 M2a 그대로 인벤토리. 세션에서는 열지 않음. 시험용 `--give=workbench`도 됨. F5 묶음에는 없음 | 문서에 없음. 고른 이유: 나무(M7b)가 들어오면 벤 통나무에서 바로 체인이 시작돼야 하고, 디버그 아이템만이면 M7b가 다시 손대야 한다. F5 묶음은 M3-fix가 비워 둔 칸이라 넣지 않았다. 다른 길: 디버그 아이템만(조제대처럼), 생성기에 하나 |
+| M7a 성물 제작대 레시피 | `Config.STATION_RECIPES`의 "relic" 줄 | **횃불 하나만**(구리 주괴 1 + 널판 1 → 횃불 4) | ○ §3.5 이름만 있고 무엇을 만드는지는 문서에 없다. 슬라이스에서 성물 제작대가 만들 법한 것(기도 물품 M10, 제단 업그레이드 M12, 컬렉션 M11)은 모두 다른 단계라, 체인의 셋째 작업대로 두고 최소 레시피 하나를 줬다: 놓은 횃불의 그림이 04-env 놋쇠 랜턴이고 성물 제작대 그림에 만들다 만 놋쇠 등잔이 있으며, 조명은 누구나 짓는 것(○ §3.3). 성수는 넣지 않았다(● §3.0 팔라딘 줄의 대체 수단 = 상점 성수, M5b가 레시피를 두지 않은 이유 그대로). 다른 길: 체인을 둘(작업대 → 모루)로 멈춤 |
+| M7a 제련 | `Config.STATION_RECIPES`의 `ingot_*` 줄 | 모루에서 광석 1 → 주괴 1(구리·철 따로). 새 화로 없음 | 문서에 없음(화로가 문서에 없어서 모루 = 대장간에 둠). 시드 1 던전의 광맥 칸은 47개(구리가 철보다 많다)라 1 : 1 |
+| M7a 작업대 자리·그림 | `WORKBENCH_FOOTPRINT` 3×1, `ANVIL_FOOTPRINT` 2×1, `RELIC_BENCH_FOOTPRINT` 3×1, `FixtureView.FURNITURE` | 그림이 서는 자리(그림 너비 42·28·44px). 놓기 규칙은 조제대 그대로(빈 바닥, 발 없음, 사람이 나타나는 자리 아님, 같은 종류끼리 안 붙음, 다른 종류는 붙어도 됨, 던전도 됨). 막는다. 다시 줍거나 부술 수 없음 | 문서에 없음 (● R37 "건설 벽은 돌만"은 건설이라 M7b) |
+| M7a 1티어 무기 | `GEAR_T1_BASE`, `GEAR_T1_DAMAGE_PCT`, `Gear.base`·`attack_damage` | 클래스 기본 무기마다 하나(`sword_t1`·`bow_t1`·`holy_light_t1`·`pickaxe_t1`·`sickle_t1`): 같은 몸 동작·같은 공격 모양·같은 맞는 프레임, 피해 **150%**(검 14 → 21, 활 12 → 18, 성광 10 → 15, 곡괭이 10 → 15, 낫 8 → 12). 1티어 곡괭이는 곡괭이와 똑같이 캐고(채굴력 그대로), 1티어 낫은 낫처럼 거둔다. 누구나 어떤 무기든(M4a 그대로). 모습은 기본 무기 그대로 | ● gameplay-design §3.5·§3.0 R11 "1티어는 누구나 모루에서"(수치·아이템은 문서에 없음), ● game-concept §12 R21 기본 외형만 |
+| M7a 갑옷 | `ARMOR_T1_DEFENCE` 4, `ARMOR_MIN_DAMAGE` 1, `Inventory.armor`, `Gear.equip`·`unequip`·`after_armor` | 한 벌(`armor_t1`). 인벤토리 밖 **갑옷 칸 하나**(핫바 왼쪽에 보임). 핫바에서 고르고 좌클릭 = 입기(입던 것과 맞바꿈), 열린 인벤토리의 갑옷 칸 클릭 = 벗기(빈 칸이 없으면 거부). 입고 있고 부서지지 않았으면 이단의 칼 한 번에 4를 덜 받음(12 → 8, 1 밑으로는 안 내려감). 독은 덜지 않음 | ○ gameplay-design §2.4 "HP + 방어력(피해 감소)"(숫자·칸 없음). 외형 칸 분류(● game-concept §3 R21: 모자·상의 …)는 꾸미기라 쓰지 않았다 |
+| M7a 내구도가 있는 것 | `GEAR_DURABILITY`, `ItemDB.ItemDef.durability`, `ItemStack.durability` | **1티어 장비만**(무기 120, 갑옷 100). M2~M4의 기본 도구·무기(곡괭이·괭이·낫·물뿌리개·검·활·성광)는 닳지 않는다 | ● §2.6 R12 "장착 장비는 유지하되 내구도 손상"(무엇이 닳는지·수치는 없음). 고른 이유: 기본 도구는 만드는 레시피가 없어서(상인 M8 전) 닳으면 클래스가 기본 공격·곡괭이를 잃는다 |
+| M7a 사용 마모 | `GEAR_WEAR_PER_ATTACK` 1, `GEAR_WEAR_PER_HIT` 1, `Gear.wear_weapon`·`wear_armor` | 무기: 맞는 프레임의 공격마다 1(맞든 빗나가든. 1티어 곡괭이의 채굴·1티어 낫의 수확은 안 닳음). 갑옷: 맞은 칼(실제로 들어간 것)마다 1. 독·무적 중의 칼은 안 닳음 | 문서에 없음 |
+| M7a 사망 마모 | `GEAR_DEATH_WEAR_PCT` 20, `Gear.wear_on_death` | 죽으면 지닌 내구도 있는 것 모두(입은 갑옷과 인벤토리의 1티어 무기)가 제자리에 남고 최대치의 20%(올림)를 잃는다(0 밑은 없음). 가방 규칙(M4a)은 그대로: 장비는 가방에 안 들어감 | ● §2.6 R12 "장착 장비는 유지하되 내구도 손상"(양은 없음). "장착"을 지닌 장비 전부로 읽음(핫바·가방 칸의 무기도) |
+| M7a 부서진 장비 | `GEAR_BROKEN_UNUSABLE` | **끔**: 내구도 0이어도 쓸 수 있고 기본 아이템처럼(부서진 1티어 검 = 기본 검 14, 부서진 갑옷 = 방어 0). 켜면 부서진 것은 좌클릭이 아무것도 안 함(`broken`). M7-fix: 켜면 세션의 호스트도 그 USE를 `broken`으로 거부(`Gear.unusable`, 시험은 `Gear.broken_unusable`로 켬) | 문서에 없음 |
+| M7a 수리 | `GEAR_REPAIR_MATERIAL`, `Crafting` `repair_*` 레시피 | **M7-fix에서 바뀜: 기본 끔**("M7-fix 수리". 아래는 M7a 때의 값 = 켰을 때의 규칙): 모루에서 누구나, 재료 하나(검·곡괭이·갑옷 = 철 주괴, 활·성광·낫 = 구리 주괴)로 지닌 것 중 가장 닳은 하나(입은 갑옷 포함)를 가득. 닳은 것이 있을 때만 창에 줄이 보임 | ● §2.6 "기술자 수리 = 기술자 일감"(기술자는 슬라이스에 없음, ● game-concept §12 R23) → ● §3.0 공용 수행 "누구나 … 낮은 효율"로 읽어 모루에서 누구나. 비용·장소는 문서에 없음. M7-fix: 이 읽기는 ● §2.6과 부딪칠 수 있어(검토 지적) 기본을 끄고 사람에게 묻는다 |
+| M7a 디버그 버리기와 내구도 | `WorldItems.drop` (`WHY_WORN`) | 닳은 장비는 F7로 버리지 못함(`worn gear stays`). 드롭은 내구도를 싣지 않아서 주우면 새것이 되기 때문 | 문서에 없음 (디버그) |
+| M7a 공유 창고 | `CHEST_SLOTS` 16, `CHEST_ONLY_IN_LIGHT`, `CHEST_FOOTPRINT` 3×1, `Storage`, `WorldData.chests` | 창고 상자 하나(04-env `storage_chest_v02`). 놓기 = 조제대 규칙 + **자리 전체가 제단 빛 안**(칸마다 네 모서리, 밭 규칙). 칸 16. 내용물은 그 지도의 것(놓은 자리마다). 여러 개 놓을 수 있다. 제단을 옮기면 그 자리에 남아 계속 열림(새 창고는 새 빛 안에만). 다시 줍거나 부술 수 없음 | ○ gameplay-design §5 "공유 창고: 제단 옆"("옆" = 빛 안으로 읽음). 크기·칸·개수는 문서에 없음 |
+| M7a 창고 열기·옮기기 | `Main.pick_up`·`open_chest`·`chest_store`·`chest_take`, `ChestPanel` | F로 손 닿는 창고 칸을 겨누면 창고 창(인벤토리 위)과 인벤토리가 열리고 캐릭터는 서 있다. 인벤토리 칸 클릭 = 넣기, 창고 칸 클릭 = 꺼내기(같은 아이템·등급 묶음 먼저, 그다음 빈 칸, 들어가는 만큼만, 나머지는 제자리. 하나도 안 들어가면 거부). 내구도·등급은 그대로. Tab·Esc·F = 닫기, 다운·지도 옮김·창고 없어짐이면 닫힘 | 문서에 없음 (○ §1 "F 상호작용") |
+| M7a 세션 | `WorldItems.M7_PLACEABLES`, `Crafting.is_m7`·`WHY_OFFLINE`, `Storage.WHY_OFFLINE`, `Player.gear_on`, `SessionHost._place`·`_craft` | **M7c에서 바뀜**(M7a 때의 줄, 그대로 남김: 이제 호스트가 놓고 만들고 입히고 닳게 한다, 위 "M7c"): 세션에서는 작업대 셋·창고 놓기를 호스트가 `workbench chain offline only`·`storage offline only`로, M7 레시피의 CRAFT를 `workbench chain offline only`로 거부한다. 갑옷은 입지 못하고(세션의 플레이어는 `gear_on` 끔: 클릭이 프레임을 만들지 않음), 1티어 무기는 기본 무기처럼(보너스·마모 없음), 손 제작 창은 열리지 않는다. 전송 형식 v7 그대로(내구도는 인벤토리 전송에 없음). M7c에서 켠다 | 문서에 없음 (단계 나눔, M5a·M6a와 같은 길) |
+| M7a 그림 자리 표시 | `ItemIcons` (`fit_icon`, `TIER_MARK`, `armor_t1`), `Hud.draw_durability`, 갑옷 칸, `ChestPanel`, `CraftingPanel` | 작업대·창고 아이콘(놓은 그림을 16×16으로 줄임), 1티어 무기 아이콘(기본 무기 아이콘 + 금빛 표시), 갑옷 아이콘, 내구도 막대, 갑옷 칸, 창고 창, 성물 제작대 불꽃의 빛 없음 | 그림 없음 (도구 아이콘·장비 표시·창고 UI가 04-env에 없다) |
+| M7b 건설 비용 | `BUILD_COST_IN_LIGHT` 1, `BUILD_COST_OUTSIDE_LIGHT` 2, `Building.cost_at` | 조각 하나를 놓는 데 드는 그 조각의 수: 칸의 네 모서리가 모두 제단 빛 안이면 1, 아니면(빛 밖, 던전, 제단을 든 동안) 2. 건설은 어디서나 바로(시간 없음) | ○ gameplay-design §3.3 "제단 반경 안은 건설 비용 감소 또는 즉시 건설": 비용 감소 쪽을 골랐다(즉시 건설은 이미 어디서나) |
+| M7b 건설 조각과 레시피 | `Config.BUILD_RECIPES`, `ItemDB` 종류 BUILD, `Building.PIECES` | 조각 넷: 돌 벽(기본 작업대: 돌 2 → 2), 문(널판 3 + 돌 2 → 1), 돌 바닥(돌 2 → 4), 랜턴 기둥(널판 2 + 돌 1 → 1). 묶음 99. 레시피 번호는 수리 뒤 26~30 | ○ §3.3 "벽·바닥·문·작업대·조명은 공용"(레시피·양은 문서에 없다), ● R37 돌만. 랜턴 = 04-env 랜턴 기둥 c(돌 받침 + 나무 기둥) ○ brief §5.7 "랜턴(건설 조명)" |
+| M7b 바닥 조각 | `Walls.KIND_FLOOR`, `BuildView` | 그림이 있어서(시트의 바닥 A·B·C) 넣었다: 막지 않는 깔개, 칸마다 하나, 밭·채집물·설치물 위에는 안 되고 드롭·몸 위에는 됨, 그 위에 랜턴·작업대·창고·제단은 됨, 일굴 수 없음. M7-fix: 벽 바이트에 있어서 바닥 조각 위에 벽·문은 못 짓는다(`a piece is there`): 아래 "M7-fix 바닥 조각의 층"(● §3.1과 맞는지 사람 확인) | ○ §3.3 "바닥"(무엇을 하는지는 문서에 없다: 지금은 모습뿐) |
+| M7b 놓기 규칙 | `Building.refusal` | 위 "M7b: 건설 · 나무 · 도끼"의 "놓기 규칙" 전부(빈 땅, 조각·설치물·밭·채집물·던전 벽과 앞면 아님, 막는 조각은 드롭·몸·사람이 나타나는 자리 아님, 앞면이 덮을 칸이 비어 있음, 문 아래가 열림, 문 바로 아래 벽 없음) | ○ §3.3 "그리드 스냅 배치"(세부는 문서에 없다) |
+| M7b 봉쇄 | `BUILD_SEAL_REACH_TILES` 12, `Building.seals`·`reaches`, `WorldItems.place`, `AltarMove._refusal` | 막는 것(건설 벽·랜턴·작업대·창고·조제대·내려놓는 제단)이 사람이 나타나는 자리(입구·계단의 도착점, 제단 부활 자리 아홉)를 4방향 걸음 12칸 안에 가두면 거부(문은 열린 것으로 셈, 전에 이미 갇혔으면 막지 않음). 제단은 새 부활 자리 아홉 모두가 12칸 나가야 함. M7-fix: 다른 플레이어의 발도 같은 자리로 본다("M7-fix 다른 사람 가두기"), 답은 같고 걸음만 줄임(구현 표 "M7-fix 봉쇄 검사 비용") | 문서에 없음 (지시: "부활 자리·도착점을 막지 않는다") |
+| M7b 철거 | `BUILD_REFUND` 1, `Building.demolish`, 입력 `demolish`(우클릭) | 누구나 누구의 건설 조각이든 우클릭으로 내리고 그 조각 1개를 돌려받음(빛 밖에서 2개로 지은 것도 1개). 인벤토리에 자리가 없으면 거부(**M7-fix에서 바뀜**: 거부 대신 발 칸에 드롭, "M7-fix 철거"). 던전 벽은 채굴만, 작업대·창고·조제대·횃불은 철거 안 됨(M6a·M7a 그대로) | ○ §3.3 "우클릭 철거"(돌려받는 양·주인은 문서에 없다) |
+| M7b 문 | `DOOR_ANYONE`, `Building.toggle_door`, `Walls.KIND_DOOR`·`KIND_DOOR_OPEN` | F로 누구나 열고 닫음, 이단은 못 엶. 열린 문과 그 앞면 칸은 모두 지나감, 닫을 때 문간에 몸·설치물이 있으면 거부. 문은 아래 칸이 열린 곳에만(가로 벽), 봉쇄 검사에서 열린 것으로 셈 | ○ gameplay-design §1 F "상호작용 (… 문 …)"(누가 여는지는 문서에 없다) |
+| M7b 던전 건설 | `BUILD_IN_DUNGEON` | 됨(빛이 없어 비용 2). 던전 벽·그 앞면·계단 위는 안 됨 | ○ §3.1 "지상 = 사는 층 … 건설"(던전 건설은 문서에 없다) |
+| M7b 벽과 빛 | (코드 없음: `BuildView`에 가리개 없음) | 건설 벽은 제단 빛·횃불·랜턴 빛을 막지 않는다. 안전 반경 규칙은 그대로 `SafeZone` 하나 | 문서에 없음 (지시의 기본) |
+| M7b 랜턴 빛 | `LANTERN_LIGHT_RADIUS_PX` 80, `LANTERN_LIGHT_ENERGY` 0.95 | 놓은 횃불과 같은 값·같은 딱딱한 네 단계. 빛일 뿐 안전 반경이 아님 | ○ brief §5.7 "랜턴(건설 조명)"(반경은 문서에 없다) |
+| M7b 나무 자리 | `TREE_COUNT` 30, `TREE_SPACING_TILES` 4, `TREE_LIGHT_CLEARANCE_TILES` 13, `TREE_ASH_CLEARANCE_TILES` 3, `TREE_EDGE_TILES` 3, `TREE_TOP_TILES` 6, `TREE_CLEAR_SIDE_TILES` 2, `TREE_CLEAR_ABOVE_TILES` 4, `TREE_CLEAR_BELOW_TILES` 1, `TREE_ENTRANCE_CLEARANCE_TILES` 3 (M7-fix에서 이름 붙임, 값 그대로), `TREE_SALT`, `SurfaceGen.tree_spot_ok` | 지상 6단계: 30그루, 깨끗한 풀, 제단 가운데에서 20칸 밖(시작 들판은 비움, 나무는 빛 밖), 재 3칸 밖, 옆·아래 3칸·위 6칸, 수관·줄기 둘레에 채집물·흙·설치물 없음, 입구 3칸 밖, 서로 4칸 밖, 나무만의 난수 | ● game-concept §12 R37 "나무 1종"(수·자리는 문서에 없다) |
+| M7b 벌목 | `TREE_CHOP_HITS` 5, `TREE_LOGS` 4, `AXE_IMPACT_FRAME` 3, `Forest.chop` | 도끼만 벤다(다른 도구는 나무를 못 벰), 누구나 같게. 맞는 프레임 3(18틱)에 1, 5번에 쓰러져 통나무 4(안 들어가면 드롭)와 그루터기 | ● §12 R37 "누구나 벤다", ○ "벌목 도구는 도끼"(수는 문서에 없다) |
+| M7b 그루터기 · 다시 자라기 | `TREE_STUMP_BLOCKS`, `TREE_REGROW_TICKS` 5분, `Forest.step` | 그루터기는 막고(줄기처럼), 5분 뒤 다시 나무(그동안 그 자리에 그대로). 0이면 다시 자라지 않음(M7-fix: 숲을 새로 만들 때 이미 있던 그루터기도). `TREE_STUMP_BLOCKS`를 끄면 다시 자랄 때 그 칸에 선 몸·사람이 나타나는 자리를 보지 않아(켠 동안은 그루터기가 막아 아무도 못 섬) 줄기 속에 설 수 있다: 끄기 전에 그 검사를 더할 것(M7-fix 알려진 문제) | 문서에 없음 (지시의 기본: 그대로 / N분 뒤 다시 자람 중 다시 자람) |
+| M7b 도끼 얻기 | `Config.BUILD_RECIPES`의 "hand" 줄 | 손 레시피 돌 2 → 도끼 1(작업대 없는 곳의 Tab. M7-fix부터 키 C). 통나무가 도끼로만 나와서 기본 작업대보다 먼저. `--give=axe`로도 | 문서에 없음 (○ §12 도끼) |
+| M7b 키 | `project.godot` 입력 `demolish`(마우스 오른쪽), `Main.pick_up`·`demolish` | 조각 = 고르고 좌클릭, 철거 = 우클릭, 문 = F(입구·계단·창고 다음, 줍기 앞), 도끼 = 좌클릭(누르고 있으면 계속) | ○ gameplay-design §1 키 배치(우클릭은 "보조 동작"인데 스킬이 M9라 지금은 철거) |
+| M7b 세션 | `Building.WHY_OFFLINE`, `Forest.WHY_OFFLINE`, `SessionHost.run_frame`·`_impact`, `Main.demolish` | **M7c에서 바뀜**(M7b 때의 줄, 그대로 남김: 이제 호스트가 짓고 철거하고 문을 열고 벤다, 위 "M7c"): 세션에서는 조각 USE를 호스트가 `building offline only`로 거부, 도끼는 휘두르기만(`chopping offline only`로 셈), 우클릭·문 F는 아무것도 안 함. 나무는 생성기가 놓아 세션 월드에도 있고 막는다 | M7c가 켠다 |
+| M7b 그림 자리 표시 | `ItemIcons` (`axe`, `compose_parts`), `ItemDB.BUILD_ICONS`, `BuildGhost`, `FixtureView.shake` | 도끼 아이콘(코드 그림), 조각 아이콘(놓는 그림의 일부를 붙임), 놓을 자리 표시(조각 그림의 바둑판 절반 + 테두리), 나무 흔들림(1px). 쓰러지는 그림 없음 | 그림 없음 (04-env·03-pixel에 아이콘·흔들림·쓰러짐이 없다) |
+| M7c 막기 여유 | `BLOCK_CLEARANCE_PX` 24, `Building.clear_of_others`, `Building.refusal`·`toggle_door`의 `others` | 문은 다른 플레이어의 발이 문간(문 칸 + 앞면 칸)에서 24px 안이면 닫히지 않고(`someone is too close`), 막는 조각(벽·문·랜턴)은 다른 플레이어의 발이 막을 칸에서 24px 안이면 놓이지 않는다. 닫는 사람·짓는 사람 자신과 이단은 M7b 규칙 그대로(문간·조각 아래만). 문 열기에는 없다(문을 미는 사람은 한 번 앞으로 당겨짐: 잼). 혼자 할 때도 같다(다른 플레이어 = `--test-ally`) | 문서에 없음 (세션에서만 생기는 경우. 지시: "prediction must not rubber-band through a door that just closed: define the rule". 24px = 걷기 72 px/s로 333ms: 왕복 + 입력 버퍼 약 280ms까지는 예측이 편집 전에 그 칸에 닿지 못함. 위 "M7c"의 "예측". 다른 길: 문이 닫히는 것을 몇 틱 늦추기, 사람마다 프레임 번호로 닫힘을 정하기(되감기)). M7-fix: 시험이 보정 수가 아니라 보이는 위치의 뜀(`replay_jumps`)으로 이 규칙을 본다(여유 0이면 8.8px 끌림) |
+| M7-fix 수리 (? ● 충돌, 사람 확인 먼저) | `GEAR_REPAIR_AT_ANVIL` (`Gear.repair_on`), `Crafting.WHY_NO_REPAIR` | **끔**: 아무도 수리하지 않는다. 모루의 수리 줄이 보이지 않고 수리 CRAFT는 `repair is the engineer's work`로 거부(혼자·호스트, 재료·장비 그대로). 닳은 1티어 장비는 0이 되면 기본 아이템처럼 쓰인다("M7a 부서진 장비" 끔). 켜면 "M7a 수리" 그대로(누구나 모루에서, 재료 하나) | ● gameplay-design §2.6 R12 "사망 시: 장착 장비는 유지하되 내구도 손상 (기술자 수리 = 기술자 일감)". 기술자는 슬라이스에 없다(● game-concept §12 R23). M7a는 ● §3.0의 "누구나 … 낮은 효율"로 읽어 누구나 수리하게 했는데, §3.0 표의 누구나 칸에 장비 수리는 없고 기술자 칸에 "장치 수리"가 있다. ●를 그대로 따르는 쪽(끔)을 기본으로 두고 묻는다: **슬라이스에서 누구나 모루에서 수리할까, 기술자가 올 때까지 수리가 없을까** |
+| M7-fix 다른 사람 가두기 | `Building.refusal`·`WorldItems.place`의 `others` → `Building.seals` | 막는 조각(벽·랜턴)과 작업대·창고·조제대는 다른 플레이어의 발도 사람이 나타나는 자리처럼 본다: 그 발에서 4방향 12칸을 걸어 나갈 수 있었는데 못 나가게 되면 거부(`it would wall in where players appear`). 남을 두르는 고리는 문이 있어야 닫힌다. 자기 발은 보지 않는다(자기 고리는 철거로 나옴). 세션은 그 지도의 다른 플레이어, 혼자 할 때는 `--test-ally` | 문서에 없음 (검토 지적: 2칸 밖 고리로 남을 가두면 가득 찬 인벤토리는 철거도 못 해 갇히고, 제단을 든 사람은 철거·내려놓기가 막혀 부활이 멈췄다. 다른 길: 철거를 든 동안에도 허용) |
+| M7-fix 철거 | `Building.demolish`, `BUILD_REFUND` 1 | 돌려받는 조각이 인벤토리에 안 들어가면 그 사람의 발 칸에 드롭 하나(땅의 드롭이 `MAX_DROPS`면 사라짐, 나무의 통나무와 같은 길). 위가 벽인 열린 문을 내리면 그 칸이 위 벽의 앞면(막음)이 되므로 닫기와 같은 검사(그 칸에 몸·설치물이면 `someone stands in the doorway`, 다른 플레이어 24px 안이면 `someone is too close`) | ○ gameplay-design §3.3 "우클릭 철거"(돌려받는 길은 문서에 없다). M7b는 자리가 없으면 거부해서 가득 찬 인벤토리로 갇히면 나올 길이 없었다 |
+| M7-fix 손 제작 창 | `project.godot` 입력 `craft_hand`(C), `Main.toggle_hand`, `Main.toggle_tab` | **C** = 손 레시피 창(+ 인벤토리), 해금 뒤 어디서나, 열린 동안 서 있음(작업대 창과 같음), C·Tab·Esc 닫기, 해금 전에는 아무것도 안 열림(콘솔 `EVENSONG_CRAFT hand: nothing unlocked`). **Tab은 M2a·M6a 그대로**(작업대 2칸 안 = 그 창, 아니면 걷는 인벤토리). 세션에서도 같음(줄 = CRAFT) | ○ gameplay-design §1 키 초안 "Tab 인벤토리·제작"(손 제작의 키는 문서에 없다). M7a는 작업대 없는 곳의 Tab으로 열어, M7b의 도끼 레시피(돌 2) 뒤로는 돌 하나만 가져도 Tab이 늘 서 있는 손 제작 창이 되었다(검토 지적). 다른 길: 인벤토리를 연 채 Tab 한 번 더(닫기가 두 번이 됨), 걸으면서 마우스로만 고르는 창 |
+| M7-fix 이단 스폰 칸과 건설 | `Arena.terrain_blocked`·`terrain_can_stand`·`in_doorway`·`spawn_ok`, `Arena.sync_world` | 스폰 칸(지상: 오염 구역 둘레, 던전: 도착점에서 14걸음 넘게)은 지도의 지형으로만 정한다: 던전 벽(캔 대로)과 그 앞면, 생성기가 놓은 막는 설치물(제단·입구·계단·이단의 제단·나무·그루터기). 건설 벽·문·바닥·랜턴·작업대·창고는 보지 않아 건설로는 다시 계산하지 않는다. 이단을 놓을 때 산 월드를 본다: 설 수 있음(건설 벽·작업대 위 안 됨)과 문간(문 칸·앞면 칸, 열림·닫힘) 아님 | 문서에 없음 (M4a 스폰 줄의 규칙을 건설에 맞춤. M7b는 던전의 도착점부터 닫힌 문을 벽으로 걸어 문 하나 고리로 던전 스폰이 0이 되었다(이단의 제단을 부숴 멈추는 길 `SHRINE_STOPS_SPAWNS`를 비켜 감). 결과: 막힌 벽 너머·건설 방 안에도 이단이 날 수 있다(플레이어 둘레 `HERETIC_SPAWN_MIN_PLAYER_PX` 밖, 빛 밖) |
+| M7-fix 오염 위 건설 | `Building.refusal` (오염을 보지 않음) | 재·오염 땅 위에도 조각을 놓는다(지금 동작을 적음). 밭(일구기)·제단 놓기는 오염을 거부한다 | 문서에 없음 (검토 지적: 정해 두지 않았다) |
+| M7-fix 바닥 조각의 층 (사람 확인) | `Walls.KIND_FLOOR`(벽 바이트), `Building.refusal`의 `a piece is there` | 지금: 바닥 조각은 벽 레이어 바이트의 막지 않는 종류라 한 칸에 벽이나 바닥 조각 하나. 그래서 **바닥 조각 위에 벽·문을 지을 수 없다**(먼저 바닥을 철거해야 함) | ● gameplay-design §3.1 레이어 "바닥 / 벽(파괴 가능) / 광맥 / 식생 / 오염 / 설치물", ● §3.3 R37 "건설 벽은 바닥 위 별도 층". 바닥 조각을 바닥 쪽에 두는 것이 ●에 더 가깝지만 바닥 레이어는 dual grid 지형(코너 키, 스냅샷 검사)이라 M7b가 벽 바이트를 골랐다(구현 표 "M7b 바닥 조각의 자리"). 물음: **바닥 조각 위에 벽을 세울 수 있어야 하나**(그러면 바닥 조각용 바이트나 레이어를 더함: 스냅샷·해시·편집이 바뀜) |
 
 ### 구현에서 고른 값 (설계 결정 아님)
 
@@ -1780,7 +2157,7 @@ func run() -> Array[String]:
 | 병이 닿는 틱 | `Arena.FLASK_ARRIVE_PX` | 남은 거리가 한 틱 비행 + 0.001px 안이면 이번 틱에 목표 점에 떨어짐 | float 누적 때문에 0.00001px 남아 한 틱 늦던 것을 막으려고 (M6a) |
 | 터짐 그림 | `CombatView.SPLASH_HALF`·`SPLASH_FRAMES`·`SPLASH_DROPS`·`SPLASH_COLOURS`, `SPLASH_SHOW_TICKS`, `THROW_ARC_PX` | 55×55 그림 3장(바깥 고리 방울 10개, 둘째부터 가운데 고리 5개, 첫 장에 유리 조각), 18틱, unshaded. 병은 화살 높이 + 가운데 10px 포물선 | 저녁·던전 어둠에서도 읽히게. 그림 검사가 CPU로 같은 그림을 만든다 (M6a) |
 | 효과 표시 자리 | `EffectMarks.MARK_Y`·`SIZE`·`GAP`, `Hud.effect_icon_at`·`effect_fill` | 머리 위 44px, 7×7, 1px 간격으로 가운데. HUD는 스태미나 막대 3px 밑에 왼쪽부터, 남은 시간 1px 막대(등급 중 가장 긴 시간 기준) | 성직자 후광(발 위 33~37px)·이단 HP 막대(발 위 32~35px)와 겹치지 않게 (M6a) |
-| 제작 창 배치 | `CraftingPanel.PAD`·`HEADER`·`ROW`·`ROW_GAP`·`WIDTH`·`MARGIN`·`DIM` | 오른쪽 위 4px, 60px 너비, 줄 18px + 2px, 만들 수 없는 줄은 #1a1714 62% 덮기 | 480×270에서 가운데 캐릭터·조제대와 아래 인벤토리를 가리지 않게 (M6a) |
+| 제작 창 배치 | `CraftingPanel.PAD`·`HEADER`·`ROW`·`ROW_GAP`·`WIDTH`·`MARGIN`·`DIM` | 오른쪽 위 4px, 58px 너비, 줄 18px + 2px, 만들 수 없는 줄은 #1a1714 62% 덮기 | 480×270에서 가운데 캐릭터·조제대와 아래 인벤토리를 가리지 않게 (M6a) |
 | 제작 창이 열린 동안 | `Player.ui_locked`, `Main._crafting_input`, `Main._check_crafting` | 캐릭터의 입력 프레임이 빈 프레임(걷기·대시·사용·F·1 없음), 키는 창이 받음, 매 틱 작업대에 아직 있는지 봄 | W/S·F가 창과 캐릭터에 같이 가지 않게. 열린 동안 움직일 수 없으니 멀어짐은 맞음·지도 옮김·테스트 순간이동뿐 (M6a) | **M6-fix**: 설계 규칙(서 있고 막을 수 없음, 맞아도 안 닫힘)이라 임시값 "M6-fix 제작 창이 열린 동안"으로 옮김(값 그대로)
 | 효과·마시기를 켜는 스위치 | `Player.potions_on` | 혼자 할 때 Main이 켬(호스트를 잃고 혼자 계속할 때도), 세션의 플레이어는 꺼짐 | 세션에서 클라이언트가 예측할 수 없는 프레임(마시기·던지기)을 만들지 않게. M6b가 세션에서 켠다 (M6a) | **M6b**: 세션의 자기 플레이어도 켬(호스트 `on_opened`, 클라이언트 welcome)
 | 물약 아이콘 자르기 | `ItemDef.icon_region`, `ItemIcons.texture_for` | 띠 그림을 불러 그 16×16 칸을 새 `ImageTexture`로 | 04-env에 물약 파일이 따로 없어서 띠 파일을 바이트 그대로 복사하고(그림 출처 시험) 코드로 자름 (M6a) |
@@ -1836,10 +2213,41 @@ func run() -> Array[String]:
 | 채널링 끊김 셈 (M5-fix) | `SessionHost._on_member_channel_broken`(멤버의 `Player.channel_broken`) | 프레임 안의 끊김(움직임·대시·사용·독 다운)과 프레임 사이의 맞음 모두 `channel_broken` 하나·로그 `channel ... broken: <이유>` 한 줄 | `_channel_events`는 프레임 안에서만 봐서 아레나의 칼이 끊은 것을 세지 않았다(README는 "맞음"도 센다고 적었다) |
 | 내려놓을 자리 찾기 비용 (M5-fix) | `AltarMove.set_down_rect`·`_refusal`·`_lights_a_heretic` | 비워 두는 자리(입구 찾기 포함)는 찾기마다 한 번, 찾기에서는 이단의 빛 검사를 먼저 | 이단이 운반자 옆에 있으면 후보 수백 개가 저마다 입구를 찾았다(시드 1에서 약 9ms, 검토 17.6·28.9ms) → 0.5~1ms. 찾기는 되는지만 보므로 순서가 결과를 바꾸지 않고, `place_refusal`의 거부 이유 순서는 그대로 |
 | 마지막 제단 자리 (M5-fix) | `GameWorld.last_altar_rect` | 들기 편집이면 떠난 자리, 놓기면 새 자리, 받은 월드에 제단이 없으면 빈 칸 | 내려놓기의 마지막 길과 호스트를 잃은 클라이언트의 되놓기가 쓴다. 월드 데이터(스냅샷·해시)가 아니라 그 기기의 기억이라 전송 형식이 그대로다(호스트의 `altar_home`과 같은 값) |
+| M7a 아이템 번호 | `ItemDB._build` | 새 아이템 열넷을 표 끝에(성수 33 뒤 34부터): 통나무·널판·주괴 둘, 작업대 셋·창고, 1티어 무기 다섯, 갑옷 | 전송 형식·스냅샷이 아이템을 번호로 보낸다(M2b): 앞 번호 그대로 |
+| M7a 레시피 번호 | `Crafting.recipes` | 물약 여섯(0~5) 뒤에 체인 열넷(6~19), 수리 여섯(20~25) | CRAFT 요청이 번호로 보낸다(M6b) |
+| M7a 작업대·창고 아이콘 | `ItemIcons.fit_icon`, `ItemDef.icon_fit` | 놓은 그림의 불투명 상자를 16×16에 들어가는 가장 작은 정수 걸음으로 건너뛰어 줄임(최근접, 새 색 없음), 가운데·바닥에 붙임 | 아이콘 그림이 없다. 코드로 새로 그리는 것보다 그 물건으로 읽힌다 |
+| M7a 1티어 표시 | `ItemIcons.TIER_MARK` | 기본 무기 아이콘의 왼쪽 위 3×3에 금빛 십자 + 잿빛 검정 모서리 | 같은 모양의 두 무기를 칸에서 가르려고. 등급이 없는 아이템이라 상급 점(칸 2,2)과 겹치지 않음 |
+| M7a 내구도 막대 | `Hud.DUR_AT`·`DUR_SIZE`·`DUR_HIGH`·`DUR_MID`·`DUR_LOW`, `Hud.draw_durability` | 칸의 (2, 14)에 14×2, 잿빛 검정 바탕, 반 넘으면 금빛 #f4c95d, 4분의 1 넘으면 호박색 #e0861a, 그 밑 녹빛 #b8432f, 0이면 전체 녹빛, 가득이면 그리지 않음. 남은 비율을 올림한 너비(1px 이상) | 수(오른쪽 아래)와 상급 점(왼쪽 위)을 피해 아이콘 아래쪽. 색은 brief §4 신앙 줄과 물약 색, HP 막대의 녹빛 |
+| M7a 갑옷 칸 | `Hud.ARMOR_GAP`, `ARMOR_EMPTY`, `Hud.armor_slot_origin` | 핫바 첫 칸 왼쪽 6px, 인벤토리를 열었거나 갑옷을 입었을 때만, 빈 칸은 갑옷 아이콘을 28% 불투명도로 | 기본 화면(갑옷 없음)이 M6까지와 같게 |
+| M7a 창고 창 | `ChestPanel.PAD`·`HEADER`·`GAP_ABOVE` | 핫바 너비(+ 3px 여백), 인벤토리 격자 맨 윗줄 6px 위, 머리 18px, 칸은 HUD 칸 그대로 | 인벤토리 칸과 한 줄로 맞아 옮기는 칸을 찾기 쉽게 |
+| M7a 제작 창 넓이·스크롤 | `CraftingPanel.INPUT_GAP`, `width_for`, `rows_fit`, `first` | 재료 칸 사이 1px, 너비 = 가장 긴 줄(재료 하나면 58px 그대로), 화면 높이에 들어가는 줄만 그리고 고른 줄을 따라 스크롤, 위·아래 금빛 1px 표시 | 모루 줄이 많고(아홉 + 수리) 재료가 셋까지라 |
+| M7a 창고 해시 | `WorldData.chests_bytes`, `content_hash` | 무언가 든 창고만, 자리 순(줄 순서): u16 x, u16 y, 칸마다 u8 아이템 번호 + 1, u8 수, u8 등급, u16 내구도. 하나도 없으면 해시에 아무것도 더하지 않음 | 창고 없는·빈 창고의 월드 해시가 M5c 그대로(골든 해시 그대로) |
+| M7a 입기·벗기 | `Gear.equip`·`unequip` | 입던 갑옷은 새 갑옷이 있던 칸으로(맞바꿈), 벗으면 첫 빈 칸 | 칸이 하나라 |
+| M7a 수리 대상 | `Gear.most_worn` | 남은 내구도가 가장 적은 것, 같으면 칸 순서로 앞(입은 갑옷은 맨 뒤) | 한 줄이 한 아이템 종류라 어느 것을 고칠지 정해야 해서 |
+| M7b 바닥 조각의 자리 | `Walls.KIND_FLOOR` (벽 바이트) | 바닥 레이어가 아니라 벽 바이트의 막지 않는 종류 | 바닥 레이어는 dual grid 지형(풀·흙·재: 코너 키, 스냅샷 검사)이라 그 아래 땅을 지키고, 한 칸에 벽이나 바닥 조각 하나. M7-fix: ● gameplay-design §3.1 레이어 목록과 §3.3 R37에 비추어 사람에게 묻는 줄로 올림(임시값 "M7-fix 바닥 조각의 층") |
+| M7-fix 봉쇄 검사 비용 | `Building.seals`·`detours`·`reaches`(깊이 먼저)·`SEAL_SHARE_TILES` 8 | 답은 M7b와 같고(`test_building.gd`가 무작위 지도 720번을 M7b의 너비 먼저 걸음과 비교) 걸음만 줄인다: (1) 조각 칸이 걸음 범위(12칸) 밖인 자리는 안 걷는다, (2) 조각 둘레 한 칸 고리의 열린 칸이 끊기지 않은 한 줄이면(벽을 잇거나 따로 선 조각) 다른 칸끼리의 이어짐이 그대로라 자리마다의 답도 그대로(조각이 그 자리에 있거나 조각이 꼭 12칸이고 고리에 12칸 넘는 열린 칸이 없을 때만 걷는다), (3) 걷기는 깊이 먼저·바깥쪽 걸음 먼저(열린 땅이면 12걸음쯤), (4) 첫 자리는 12칸 + 다른 자리들까지의 거리(8칸 안)만큼 걸어 그 걸음에 닿는 자리는 바로 답, 나갈 길이 없던 걸음의 칸들은 같은 구역의 다른 자리에 답을 준다 | M7b는 제단 둘레에서 자리 열 곳을 두 번씩 너비 먼저 걸어 한 번 약 16ms(건설 표시가 10틱마다·조준이 바뀔 때마다, 호스트가 짓기 요청마다: 60Hz 한 틱). 이제 시드 1 제단 둘레 23×23칸 평균 0.08ms(열린 땅)·0.23ms(빛 둘레에 틈 하나인 고리, 틈을 메우는 칸 몇 개만 1~8ms), 건설 표시 한 틱 약 0.3ms(시험이 2ms·3ms 넘으면 실패). 다른 길: 월드 편집 수마다 자리별 답 기억(월드에 편집 수가 없어서 안 함) |
+| M7-fix 곡괭이와 열린 문 | `Combat.is_mining_swing` | 곡괭이의 채굴 휘두르기는 목표 칸이 막힐 때만(`Walls.blocks`): 열린 문과 그 문간에서는 공격 | 충돌과 같게: 열린 문간은 사람·이단·화살이 다 지나가는 열린 땅인데 M7b까지는 벽 종류라 채굴(too hard)로 가서 광부가 문간의 이단을 못 쳤다. 닫힌 문·건설 벽은 기반암처럼 채굴(too hard) 그대로 |
+| M7-fix 다시 돌리기 뜀 | `Prediction.replay_jumps`·`max_replay_jump_px`·`REPLAY_JUMP_EPSILON_PX` 0.001 | 상태를 받아 다시 돌린 뒤 보이는 위치가 앞과 다르고 호스트 사건(맞음·소생·효과)이 아니면 센다. 세션 결과 JSON의 `prediction`에도 | 보정 수·오차는 편집이 일으킨 끌림을 못 본다(위 "M7c 예측"). 한 걸음은 float32로 같게 다시 돌려 0이 정확하다. 다른 길: 틱마다 보이는 위치를 시험에서만 따라가기(검토가 쓴 탐침) |
+| M7-fix 시험 고리 | `Building.clearance_px`, `Gear.broken_unusable`, `Gear.repair_on` (static var, 처음 값 = Config) | 시험이 임시값 스위치·여유를 바꿔 규칙이 하는 일을 보고 되돌린다(여유 0이면 끌림, 부서진 장비 금지 켬, 수리 켬) | `const`는 실행 중에 못 바꿔서(`WorldSnapshot.chunk_bytes`와 같은 길) |
+| M7b 바닥 변형 | `BuildView.floor_variant` | `posmod(x·7 + y·13 + (x/3)·5, 3)`로 A·B·C | 같은 데이터 = 같은 그림, 줄무늬가 덜 보이게 |
+| M7b 그림 노드 | `BuildView` | 지도마다 Node2D 하나가 `_draw`로 건설 칸 전부를 그림(편집마다 다시) | 조각 수가 적고, 이웃 마스크·앞면 종류가 이웃 편집에 따라 바뀜 |
+| M7b 아이템·동작 번호 | `ItemDB._build`, `RigData.Anim.AXE` | 도끼·조각 넷은 표 끝(48~52), 도끼 동작은 DEATH 뒤 12 | 전송 형식·기준점 표가 번호를 쓴다: 앞 번호 그대로 |
+| M7b 놓을 자리 표시 | `BuildGhost` | 조각 그림의 월드 짝수 칸 픽셀만, 반투명 대신 | 반투명은 섞기 반올림으로 픽셀 검사가 어렵고(M4a `bars`), 바둑판은 덜 지은 것으로 읽힘 |
+| M7b 스폰 칸 다시 계산 | `Arena.built_count` (**M7-fix에서 없앰**) | 벽 레이어의 돌 벽·닫힌 문·열린 문 수와 랜턴 수가 바뀌면 `sync_world`가 스폰 칸을 다시 계산(던전도) | 매 틱 세는 값이 싸다(카운트 넷). M7-fix: 같은 틱의 지음·내림이 서로 지우면 수가 같아 놓쳤고, 던전에서는 문 고리가 스폰을 끊었다. 스폰 칸이 건설을 보지 않게 했다(임시값 "M7-fix 이단 스폰 칸과 건설") |
+| M7b 창 그림 검사의 나무 | `tools/check_render.gd` `_run` | 이 검사의 월드에서 조용한 자리 (400, 400) 화면에 닿는 나무를 지운다 | M2~M7a 부분들이 그 자리를 빈 풀밭으로 씀(나무가 캐릭터를 가려 비교가 틀어짐) |
+| M7c 창고 동기화 | `EditLog.Kind.CHEST`(코드 0x42, 16B), `Storage.transfer`, `WorldSnapshot`의 창고 부분 | 창고 내용물은 지도의 월드: 바뀐 칸마다 창고 칸 편집을 그 지도의 모두에게, 스냅샷에 무언가 든 창고 | 위 "M7c"의 "창고 내용물 = 지도의 편집"(월드 해시가 덮음, 둘째 길 없음, 아끼는 것은 창을 안 연 사람의 편집 바이트뿐) |
+| M7c 창고 창 | `NetSession.chest_wanted`, `SessionHost.attach_local_op`, `Main.open_chest`·`_chest_request`·`_redraw_chest` | F는 요청 없이 그 기기의 월드로 창을 열고, 클릭마다 CHEST(호스트가 2칸 거리와 칸을 봄), 편집이 오면 다시 그림 | 호스트가 누가 어느 창을 열었는지 들고 있지 않아도 됨 |
+| M7c 요청 예산 | `SessionHost._build`·`_demolish`·`_door`·`_armor`·`_chest` | 모두 줍기와 같은 예산(`NET_OP_INTERVAL_TICKS` 6, `NET_OP_BURST` 4, `rate`) | 월드나 인벤토리를 바꾸는 요청: 마구 보내기를 M2b와 같은 값으로 묶음 |
+| M7c 갑옷 요청 | `NetProtocol.ARMOR_OFF` 255, `SessionHost._armor` | 핫바 칸 = 입기, 255 = 벗기. 입기는 살아 있고 제단을 들지 않고 동작이 없을 때, 벗기는 언제나 | 혼자 할 때 클릭이 입는 때(`Player.make_frame`의 free, 든 사람의 클릭은 제단 것)와 갑옷 칸 클릭(조건 없음)과 같게 |
+| M7c 인벤토리의 내구도 | `NetProtocol.encode_inventory`·`write_slot`·`read_slot` | 내구도가 있는 아이템만 칸 뒤에 u16, 칸 24 뒤에 갑옷 칸 | 빈 인벤토리는 3B만 늚(81B), 1티어 장비마다 2B |
+| M7c 스냅샷의 창고 상한 | `WorldSnapshot.MAX_CHESTS` 1,024 (`CHEST_BYTES` 84) | 받는 쪽이 받는 무언가 든 창고 수 | 받는 크기 상한(`MAX_RAW`)을 정하려고(+약 86KB). 빛 하나에 약 38개 |
+| M7c 숲 | `SessionHost.forests`·`forest_of`·`_step_forests`·`_chop` | 호스트가 지도마다 숲을 매 틱 농장 다음에 모든 지도에서 돌림. 맞은 수·남은 시간은 보내지 않음, 흔들림은 호스트 화면만 | 혼자 할 때 Main과 같은 순서, 농장 시계와 같은 길 |
+| M7c 제단 놓을 자리 표시 | `Main._show_altar_ghost`, `GHOST_RECHECK_TICKS` 10 | 들고 있는 제단의 표시(금빛/빨강) 답을 자리·월드 편집 수·몸과 이단의 칸이 바뀔 때와 10틱마다만 다시 구함 | 봉쇄 검사가 한 번에 약 24ms라 매 틱이면 호스트가 60틱을 못 채움(위 "M7c"의 "고친 것"). 표시일 뿐이고 호스트가 다시 정함 |
+| M7c 시험 봇·플래그 | `NetBot` `waitwall`·`waitat`·`waitplaced`·`waitchest`·`heretic`, `SessionReport.seen`의 `feet`, 호스트의 `--test-build`(`Main.put_test_build`) | 세션 시험이 월드·사람으로 서로를 기다리고, 이단을 부르고, 막힌 발 자리를 읽고, 방을 미리 세움 | 정해진 틱 수 대신 월드로 맞추면 느린 기계에서도 순서가 그대로 |
 
 ## 그림 출처
 
-`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 87개 전부 md5 비교, M3a에서 19개, M4a에서 9개, M6a에서 2개, M5a에서 4개, M5b에서 4개 더함). 도구 아이콘 6개는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
+`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 102개 전부 md5 비교, M3a에서 19개, M4a에서 9개, M6a에서 2개, M5a에서 4개, M5b에서 4개, M7a에서 9개, M7b에서 6개 더함). 도구 아이콘 7개(M7b: 도끼)는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
 
 | 파일 | 원본 |
 |---|---|
@@ -1873,8 +2281,82 @@ func run() -> Array[String]:
 | `items/items_v04_strip.png` (M5a에서 더 씀) | 위 M6a 줄의 파일 그대로. 첫 세 칸 = 씨앗 봉투 셋(#18~#20, 회복·버프·독초)을 씨앗 아이콘으로 잘라 씀(`ItemDB.STRIP_SEEDS`) |
 | `items/item_holy_water_a_v02.png` (M5b) | `04-env/` (성수 병, 본 제작 묶음 2 #58 "금실 감은 코르크의 작은 유리병, 상아빛 물", 판정 좋음. b·c 판은 쓰지 않음. 채택 후보) |
 | `env/decal_ashcreep_{1,2,3}_v01.png` (M5b) | `04-env/` (풀 쪽 경계의 잿빛 얼룩, 흩뿌리는 오염 장식 묶음. 정화된 칸에 잠깐 보이는 재로 빌려 씀(칸 가운데). 채택 후보) |
+| `env/workbench_v03.png` (M7a) | `04-env/` (기본 작업대 48×32, 본 제작 정렬형 b → v02 손질 → v03 손그림 망치·톱, "본 제작 손질 2". 채택 후보. v03 = 가장 나중 판) |
+| `env/anvil_v03.png` (M7a) | `04-env/` (모루 32×32, 정렬형 b → v02 → v03 쇠 8색을 밝힘: v02가 1배에서 검은 덩어리로 읽히던 약점. 채택 후보) |
+| `env/relic_bench_v03.png`, `env/flame_small_v01.png` (M7a) | `04-env/` (성물 제작대 48×32 v03: 정지 불꽃을 지우고 공유 작은 불꽃 자리 (37, −4), 27 → 24색. 작은 불꽃 4 + 1프레임(4×7). 채택 후보) |
+| `env/storage_chest_v02.png` (M7a) | `04-env/` (공유 창고 = 긴 낮은 상자 f를 손질한 판, 14색. 채택 후보 ○ "긴 상자 하나") |
+| `items/item_log_v02.png`, `items/item_planks_a_v02.png`, `items/item_ingot_copper_a_v02.png`, `items/item_ingot_iron_a_v02.png` (M7a) | `04-env/` (묶음 2 #62 통나무, #46 널판 셋, #42 구리 주괴, #44 철 주괴. 3/4 v02: 돌 블록·광석 아이콘과 같은 판. 정면 v03을 쓸지는 ○ brief §5.7) |
+| `chars/base_body_v02_axe.png` (M7b) | `03-pixel/` (도끼질 64칸, 시작 칸 + 6프레임 × 남·동·북, 발 y=47, PixelLab 14차 + 검토 열 배치(세 방향 모두 4열 = 프레임 3에 맞음). 채택 후보) |
+| `env/tree_v02.png`, `env/stump_v01.png` (M7b) | `04-env/` (나무 64×80: 후보 b를 14색으로 손질, 맨 아래 불투명 줄 72·줄기 열 32. 그루터기: 같은 캔버스에 나무 밑동 + 손그림 나이테 면. "M7 나무·그루터기". 채택 후보) |
+| `env/build_stone_candA_v02.png` (M7b) | `04-env/` (건설 벽·문·바닥 시트 128×72, ● R37 돌 후보 candA를 손질 2에서 문 12px·바닥 한 단 어둡게 한 v02. 시트 배치·조립 규칙은 04-env/prompts.md "건설 벽·문·바닥 후보") |
+| `env/prop_lantern_post_c_v03_lit.png`, `env/prop_lantern_post_c_v03_emissive.png` (M7b) | `04-env/` (돌 받침 랜턴 기둥 c, 손질 2에서 42px로 늘린 v03의 켜짐판과 빛 마스크. 건설 조명) |
 
 ## 측정 (이 데스크탑, `.godot/`을 지운 상태에서)
+
+M7-fix (2026-10-26):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 4.8초, 종료 0, 오류 줄 0. 새 파일 없음(입력 `craft_hand`는 `project.godot`) |
+| 전체 테스트, 두 번 (마지막 코드, `.godot/`을 지우고 다시 임포트한 뒤) | 두 번 모두 35파일 통과, 28,850 / 28,850 checks, 457.0 / 457.8초, 종료 0, 오류 묶음 8개(알린 것 그대로). 바뀐 파일: building 400(M7c 396 + 봉쇄 대조·다른 사람·철거·채굴·스폰 칸), net_build 230(+ 거리·지도·갑옷·수리·부서짐·뜀), storage 88, trees 127, workbench 608, gear 298 |
+| 첫 전체 실행 (고치는 중) | 34 통과 1 실패: `test_items.gd`의 M2a "Tab closes it"(손 제작 창을 인벤토리를 연 채 Tab 한 번 더로 했던 첫 안: 닫기가 두 번이 됨) → 새 키 C로 바꿈. 그 뒤 위 두 번 |
+| 세션 시험을 내보낸 exe 자식으로 (`--net-exe`) | `net_session` 561 checks 84.7초, `net_fight` 270 69.3초, `net_brew` 230 51.4초, `net_farm` 218 33.2초, `net_purify` 149 47.1초, `net_house` 105 37.0초(+ `replay_jumps` 0), `net_stock` 133 29.2초 모두 통과, 자식 로그 689 + 219 + 200 + 306 + 191 + 77 + 144줄에 `ERROR:` 0 |
+| 내보내기 | x86_64 4.0초 `evensong.exe` 110,179,736 B, ARM64 3.6초 92,573,592 B, 둘 다 종료 0, 오류 줄 0 (마지막 커밋의 코드: 줄 잇기만 고친 뒤 다시 내보내고 스모크·`net_house`·`net_stock`을 다시 돌림, 위와 같음) |
+| 스모크 (`--smoke`, 에디터 빌드와 내보낸 exe) | 423 checks ok(M7c 422 + 입력 `craft_hand`), `... dungeon_map=321B ... builds_wire=85B/627B/27B net=v8`, 지상·던전 해시(`0da8e0d26ded`·`8dda0ad69ad9`)·`spawn_tiles=678`(스폰 칸이 지형만 보아도 생성 월드에서는 같음)·`farm=4800/2`·`purify=11+4/648`·`altar=49,45` 그대로 |
+| 창 그림 검사 `check_render.gd` | 5.2~5.9초, 26부분 모두 ok. 처음 한 번 `m7_panels`(수리 줄: 이제 기본 끔 → 그 부분만 `Gear.repair_on` 켜고 되돌림)와 `builds_net`(호스트 대 클라이언트 3px = 성물 제작대 촛불의 프레임: 시간으로 도는데 두 월드를 차례로 찍음 → `stations`처럼 0프레임에 붙잡음)이 FAIL, 고친 뒤 세 번 연달아 ok(`builds_net` 호스트 대 클라이언트 0) |
+| 스크린샷 | `m7_stations`·`m7_chest`·`m7_worn_gear`를 같은 명령으로 다시 찍음(나무가 생긴 월드). M7b·M7c 그림은 바뀐 것이 없음(검토가 다시 찍어 0px·타이밍만 다름) |
+| 봉쇄 검사 비용 (`test_building.gd` 노트, 시드 1 제단 둘레 23×23칸마다 `Building.seals`) | 열린 땅 518칸 평균 0.078ms(최대 0.44ms), 빛 둘레에 틈 하나인 고리 427칸 평균 0.217ms(최대 7.65ms: 틈을 메우는 칸들). M7b 같은 자리 약 16~20ms. 건설 표시(조준이 틱마다 바뀜) 한 틱 0.32~0.42ms(M7b 약 13ms) |
+| 예측 뜀 (`test_net_build.gd` 노트, 한 방향 3틱) | 문이 미는 사람에게 열림: 보정 1·오차 1.2px, 보이는 뜀 1번 9.6px(틱마다 잰 한 걸음 너머 8.4px, 상한 10.8px). 여유 0으로 닫힌 문이 걷는 사람 앞에서: 보정 1·오차 0.4px, 보이는 뜀 1번 8.8px 뒤로(`replay_jumps`가 잡음). 여유 24px(규칙)인 방·`house` 흐름: 뜀 0 |
+| 일부러 깨 보기 26개 (스크래치 `r7m7/fix/mutate_fix.py`: 작업 트리의 파일 하나에서 정확한 문자열 하나를 바꾸고 해당 시험을 돌리고 바이트까지 되돌림, md5 확인) | 처음 24개 FAIL·종료 1, 2개 살아남음: 지상 스폰 칸을 산 월드로(`surface_cells_live`: 벽을 세운 채 처음부터 구한 스폰 칸 비교를 더함), 봉쇄의 "꼭 12칸" 걸음 빼기(`far_ring_skip`: 무작위 대조에 그 경우가 없어서 막다른 길 끝 시험을 더함). 더한 뒤 둘 다 FAIL. 나머지: 던전 걸음을 산 월드로, 문간 스폰, 다른 사람 봉쇄(조각·작업대), 고리 우회 늘 참, 갇힌 구역의 답, 철거 드롭·문 검사·순서, 열린 문의 곡괭이, 건설 표시 다시 판단, 숲 0, 손 제작 키, 창고 창 다시 그리기, 수리 스위치, 뜀 세기, 여유 고리, 호스트 부서짐·갑옷 바쁨·든 채 갑옷·짓기의 이단 몸·든 제단 자리, DEMOLISH·DOOR 손 닿음 |
+
+M7c (2026-10-25):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 5.0초, 종료 0, 오류 줄 0. 새 스크립트 셋(`.uid`: test_net_build·test_net_house·test_net_stock)을 커밋. 새 그림 없음(그림 출처 102개 그대로) |
+| 전체 테스트, 두 번 (마지막 코드, `.godot/`을 지우고 다시 임포트한 뒤) | 두 번 모두 35파일 통과, 28,790 / 28,790 checks, 507.9 / 472.2초, 종료 0, 오류 묶음 8개(알린 것 그대로). 새 파일 net_build 210 checks 약 6~9초, net_house 103 약 38초, net_stock 132 약 31초. 스모크 422 checks |
+| 첫 전체 실행 (고치기 전) | 32 통과 3 실패: 스모크의 새 요청 왕복이 DEMOLISH·DOOR에 칸 번호를 넣어(실리지 않는 값) 비교가 틀림, `test_net_house.gd`의 `as Dictionary`(경고 = 오류, 표시 파일 도우미 `_marker`로 바꿈), 그리고 **M5c `altar` 세션의 보간 굶음**(142~183 / 240프레임): 위 "M7c"의 "고친 것"(M7b의 제단 놓을 자리 표시가 틱마다 약 24ms). 고친 뒤 위 두 번 |
+| 세션 시험 `--net-full` | 통과 826 checks 97.3초(9인 상한 세션 포함), 자식 로그 832줄에 `ERROR:` 0. 9인 걸음 호스트 송신 27.6 KB/s(UDP/IP 포함 33.1): M5c(28.2)와 같음(상태 17B 그대로) |
+| 세션 시험을 내보낸 exe 자식으로 (`--net-exe`) | `net_session` 561 checks 82.9초, `net_fight` 270 checks 69.3초, `net_brew` 230 checks 51.9초, `net_farm` 218 checks 33.6초, `net_purify` 149 checks 47.1초, `net_house` 104 checks 36.8초, `net_stock` 133 checks 29.4초 모두 통과, 자식 로그 689 + 224 + 198 + 306 + 191 + 77 + 144줄에 `ERROR:` 0 |
+| 내보내기 | x86_64 4.4초 `evensong.exe` 110,173,720 B, ARM64 4.0초 92,567,576 B, 둘 다 종료 0, 오류 줄 0 |
+| 스모크 (`--smoke`, 에디터 빌드와 내보낸 exe) | 422 checks ok(M7b 418 + M7c 4), `... snapshot=660B/73765B ... builds_wire=85B/627B/27B net=v8`, 지상·던전 해시(`0da8e0d26ded`·`8dda0ad69ad9`)·`spawn_tiles=678`·`farm=4800/2`·`purify=11+4/648`·`altar=49,45` 그대로 |
+| 창 그림 검사 `check_render.gd` | 6초, 26부분 모두 ok(M7c `builds_net`: 편집 34개 중 4개가 클라이언트 스냅샷 뒤·전송 코덱으로, 같은 데이터, 벽 17·닫힌 문 1·그루터기 1·창고 `0:stone_a x30`, 클라이언트의 벽 그림·설치물 그림 불일치 0, 도끼 프레임 3, 호스트 대 클라이언트 0, 그린 픽셀 15,268). `altar`는 놓을 자리 표시를 캐시한 뒤에도 그대로 ok |
+| 두 창 그림 | `shots/m7c_host.png`, `m7c_client.png`(위 "스크린샷"), 세 로그 오류 줄 0 |
+| 트래픽 (한 프로세스, 호스트 → 클라이언트 둘, `test_net_build.gd`) | 벽 하나 짓기 1초 창에 246 B(편집 11B × 2 = 22, 짓는 사람의 프레임 확인으로 나가는 상태 묶음 112 + 키프레임 112. 짓는 사람의 인벤토리는 그 사람에게만), 문 짓고 열고 닫기 290 B(편집 셋 66), 벽 내리기 246 B. 둘이 4초 동안 창고에 24번 넣고 꺼냄: 2,022 B/s(상태 672 + 키프레임 672 + 인벤토리 486 + 창고 칸 편집 192; 창고 자체의 몫 678 B/s). 비교: M3b 둘이 걷기 1.07 KB/s, M5c 채널링 2.3 KB/s, `farm` 동작 중 약 3.3 KB/s. 문이 미는 사람에게 열림(한 방향 3틱): 보정 1번 1.2px |
+| 트래픽 (실제 세션) | `house`: 호스트 송신 걷기 1/2 1.07 KB/s·2/2 1.07 KB/s(M3b와 같음), 요청 req/2 1.73 KB/s(0.6초), 아무도 안 걷기 0/2 144 B/s·0/3 126 B/s. `stock`(넷): 동작 act1/3 3.6 KB/s, 싸움 fight/3 4.0 KB/s(M4b `fight`와 같은 길), 0/3 1.85 KB/s(사망·부활 타이머 동안 vitals 블록), 요청 req/3 4.4 KB/s(0.45초) |
+| 제단 놓을 자리 표시 (탐침, 호스트 로그) | 고치기 전 매 틱 21~25ms(M7b 코드도 같음), 호스트 틱이 30틱에 실제 약 33틱. 고친 뒤 10틱마다 한 번이나 자리·몸이 바뀔 때만 |
+| 일부러 깨 보기 25개 (스크래치 `r7m7/mutate_m7c.py`: 작업 트리의 파일 하나에서 정확한 문자열 하나를 바꾸고 해당 시험을 돌리고 바이트까지 되돌림, md5 확인) | 모두 FAIL·종료 1: 짓기의 여유 없앰(`net_build` 2 실패), 문 닫기의 여유 없앰(6), `clear_of_others` 늘 참(7), 짓기 예산 없앰(2), 창고 거리 검사 없앰(2), 창고 칸 편집 안 보냄(3), 창고 뒤 인벤토리 안 보냄(3), CHEST의 꺼내기 비트 안 옮김(7), 인벤토리에 내구도 대신 최대(8), 갑옷 칸에 아무 아이템(1), 클라이언트가 갑옷 무시(3), 창고 칸 편집을 아무 칸에(1), 스냅샷에 창고 없음(12), 무기 마모 없앰(4), 1티어 피해 없앰(`gear` 1), 사망 마모 없앰(3), 멤버 `gear_on` 끔(`gear` 7), 벌목 편집 안 냄(6), 숲 안 돌림(2), 문의 F를 DOOR로 안 바꿈(6), M7 레시피 다시 거부(7), 든 사람의 철거 허용(1), CHEST 크기 7 → 6(`core` 4: 스모크), 호스트 `--test-build` 안 넣음(`net_house` 4), 다운 중 갑옷 입기 허용(1) |
+| 일부러 깨 보기, 창 그림 3개 (`r7m7/mutate_render.py`) | 모두 FAIL·종료 1: 벽 편집을 그리지 않음(`builds` 18,382·`builds_net`), 상태의 동작 프레임 하나 빼기(`builds_net` 도끼), 창고 칸 편집의 칸 하나 밀기(`builds_net` 같은 데이터 거짓) |
+
+M7b (2026-10-25):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 4.4초, 종료 0, 오류 줄 0. 새 스크립트 여섯(`.uid`: building·forest·build_view·build_ghost·test_building·test_trees)과 새 그림 여섯(`.import`)을 커밋. 그림 출처 102개. 새 PNG를 넣은 첫 임포트는 스크립트가 그림보다 먼저 읽혀 `Preload file ... has no resource loaders` 오류 줄이 났고, 두 번째부터(그리고 `.import`가 있는 지금 지운 뒤 임포트) 0 |
+| 전체 테스트 (마지막 코드, `.godot/`을 지우고 다시 임포트한 뒤) | 32파일 통과, 28,324 / 28,324 checks, 400.6초, 종료 0, 오류 묶음 8개(알린 것 그대로). 그 전 실행(`WorldItems.drop`의 열린 문 검사와 그 시험 여섯 전)도 32파일 통과 28,318 checks 386.1초 |
+| 새 시험 둘 | `test_building.gd` 353 checks 약 1.3~1.8초, `test_trees.gd` 123 checks 약 1.1~1.5초 |
+| 첫 전체 실행 (고치기 전) | 23 통과 7 실패: 바꾼 기존 시험의 기대값(도구 수·몸 동작 수·렌더 프레임 수·그림 출처·엔티티 수·황금 해시·레시피 수)과, **나무가 M5의 "제단을 13칸 서쪽으로" 자리 (49, 45)에 섬**: `net_fields` 16 실패, `net_purify` 시간 초과(그 뒤의 `net_session`에 JSON 오류 둘로 번짐), `altar_move` 1, `storage` 1. 나무를 제단 가운데에서 20칸 밖으로(빛 + 13) 넓혀 고쳤다(시드 1의 나무가 (49, 45)에서 빠지고, 그 시험들은 그대로 통과) |
+| 내보내기 | x86_64 4~7초 `evensong.exe` 110,150,024 B, 종료 0, 오류 줄 0 |
+| 스모크 (`--smoke`, 에디터 빌드와 내보낸 exe) | 418 checks ok(M7a 384 + M7b), `... hash=0da8e0d26ded ... items=53 actions=9 ... chain=25/7 ... build=2/1/2 trees=30/4 ...`, 던전 해시·`spawn_tiles=678`·`altar=49,45`·`farm=4800/2`·`purify=11+4/648` 그대로 |
+| 창 그림 검사 `check_render.gd` | 5초, 25부분 모두 ok(M7b 셋: `builds` 조각 51칸 그린 픽셀 18,382 불일치 0·랜턴 0, `trees` 4그루 그린 픽셀 8,024 불일치 0·그루터기 0, `build_ghost` 픽셀 1,086 불일치 0). `rig`은 도끼까지 84화면(동작 프레임 61) 불일치 0. 조용한 자리 (400, 400)의 나무를 지우기 전에는 `rig`·`heretic`·`potions`·`potions_net`이 나무가 캐릭터를 가려 틀렸다 |
+| 스크린샷 | `m7b_room_closed.png`·`m7b_room_open.png`·`m7b_chop.png`·`m7b_ghost_ok.png`·`m7b_ghost_refused.png`, 콘솔 오류 줄 0 |
+| 일부러 깨 보기 23개 (targeted 시험) | 모두 FAIL·종료 1, 파일은 바이트까지 되돌림: 열린 문이 막음(`building` 5 실패), 봉쇄 검사 없앰(4), 비용 늘 1(9), 던전 벽 철거(1), 앞면이 덮어도 됨(4), 문간 무시하고 닫기(1), 건설 벽을 캘 수 있음(8), 동굴 꼭짓점이 건설 벽을 셈(1), 바닥 조각 일구기(1), 스폰 칸이 건설을 무시(3), 닫힌 고리 안 제단(1), 세션이 짓기 허용(1), 앞면 왼쪽·오른쪽 끝 바꿈(2), 한 번 덜 쳐도 쓰러짐(`trees` 17), 아무 도구나 벰(6), 다시 자라지 않음(3), 나무 간격 1(2), 재 옆 나무(3), 나무 그림 1px 위(2), 도끼가 프레임 2에 맞음(3), 도끼 첫 칸 0(`actions` 10), 도끼 다시 맞춤 1px(`actions` 2·`actors` 4), Main의 문 F 없앰(`building` 1) |
+| 일부러 깨 보기, 창 그림 4개 | 모두 FAIL·종료 1: 앞면 왼쪽·오른쪽 끝 바꿈(`builds` 불일치 656), 앞면 1px 아래(`builds` 4,106), 나무 그림 1px 위(`trees` 4,352·그루터기 3,383), 놓을 자리 표시 홀수 칸(`build_ghost` 782). 도끼 다시 맞춤 1px는 창 검사가 같은 표로 합쳐서 잡지 못한다(위의 시험 `actions`·`actors`가 따로 적은 표로 잡음) |
+
+M7a (2026-10-25):
+
+| 단계 | 결과 |
+|---|---|
+| 임포트 (`.godot/` 지우고) | 4.6초, 종료 0, 오류 줄 0. 새 스크립트 여섯(`.uid`: gear·storage·chest_panel·test_workbench·test_gear·test_storage)과 새 그림 아홉(`.import`)을 커밋. 그림 출처 96개 |
+| 전체 테스트 (마지막 코드, `.godot/`을 지우고 다시 임포트한 뒤) | 30파일 통과, 27,552 / 27,552 checks, 374.0초, 종료 0, 오류 묶음 8개(알린 것 그대로). 그 전 실행(`tools/check_render.gd`만 다름)도 30파일 통과 27,552 checks 376.9초 |
+| 새 시험 셋 | `test_workbench.gd` 568 checks 약 0.4~0.8초, `test_gear.gd` 289 checks 약 0.7~1.1초, `test_storage.gd` 85 checks 약 0.3~0.7초 |
+| 첫 실행 (고치기 전) | 새 시험의 기대값이 틀린 것들: 가득 찬 인벤토리의 "자리 없음"을 재료 묶음이 비며 칸이 생기는 경우로 시험함, 한 줄의 작업대 셋에서 같은 거리의 둘(앞의 것을 고르는 것이 맞음), 활의 36틱 당기기가 이단의 칼(30틱)에 끊김, 벽이 깨진 뒤의 휘두르기는 공격이라 1티어 곡괭이가 닳음(채굴만 셀 때 0), 손 레시피 창에서 널판 전에는 모루가 안 보임. 코드는 그대로, 시험을 고침. 갑옷 아이콘 첫 판은 외곽선이 1/3에 못 미쳐(아이콘 규칙) 다시 그림 |
+| 내보내기 | x86_64 4초, 종료 0, 오류 줄 0 |
+| 스모크 (`--smoke`, 에디터 빌드와 내보낸 exe) | 384 checks ok(M5c 341 + M7a), `... chain=20/7 gear=21/8/96 chest=16 ...`, `items=48`, `potions=6/1`(조제대 레시피 수 그대로), 지상·던전 해시(`1d9f92c7b5ef`·`8dda0ad69ad9`)·`spawn_tiles=678` 그대로 |
+| 창 그림 검사 `check_render.gd` | 5초, 22부분 모두 ok(M7a 셋 더함: `stations` 그린 픽셀 2,403 불일치 0, `gear_hud` 막대 140·픽셀 394 불일치 0, `m7_panels` 창고 3,416·모루 창 8,528 픽셀 불일치 0, 너비 96). M6a `crafting`은 넓어진 창 코드로도 그대로(6줄, 3,818픽셀) |
+| 스크린샷 | `m7_stations.png`·`m7_chest.png`·`m7_worn_gear.png`, 콘솔 오류 줄 0 |
+| 일부러 깨 보기 16개 (targeted 시험) | 모두 FAIL·종료 1: 1티어 피해 보너스 없앰(`gear` 15 실패), 갑옷 방어 0(13), 사망 마모 없앰(6), 수리가 내구도를 채우지 않음(6), 1티어 곡괭이를 곡괭이로 안 봄(4), 혼자 할 때 사용 마모 없앰(10), 가방이 갑옷을 가져감(2), 창고의 빛 규칙 없앰(`storage` 6), 창고가 내구도를 버림(3), 창고 내용물을 해시에서 뺌(3), 일부 넣기 대신 모두 아니면 없음(1), 모루 레시피의 철광석 2 → 1(`workbench` 1), 자리 없음 검사를 없앰(2), 호스트가 작업대를 놓아 줌(3), 호스트가 M7 레시피를 만들어 줌(3), 손 제작 창이 안 열림(1). 각각 되돌린 뒤 파일은 바이트까지 그대로 |
+| 일부러 깨 보기, 창 그림 4개 | 모두 FAIL·종료 1: 내구도 막대 1px 아래(`gear_hud` 불일치 73, `m7_panels` 창고 26·모루 28), 모루 그림 1px 아래(`stations` 362), 재료 칸 사이 2px(`m7_panels` 모루 2,766), 갑옷 칸 안 그림(`gear_hud` 282) |
 
 M5-fix (2026-10-24):
 
@@ -2361,6 +2843,8 @@ M6b = M6a가 더한 것을 호스트 권한 세션으로(CRAFT 요청과 호스�
 M6a = 혼자 할 때의 제작 틀(작업대·레시피·해금·만들기), 조제대(놓기·막기·그림), Tab 제작 창, 물약 셋(야생 약초로, 등급 = 입력), 마시기, 약초사의 약제 투척, 효과 둘(버프 = 걷기 속도, 독)과 그 표시. 세션의 제작·마시기·던지기·효과(M6b), 농사·씨앗·자라기·물주기·정화(M5), 작업대·모루·성물 제작대 레시피와 도구·무기 만들기(M7), 건설, 상인·상점 물약(M8), 다른 스킬·스킬 키, 클래스 자원, 기도, 효과 둘 밖의 것, 새 적, Steam, 저장은 M6a가 아니다.
 M5a = 혼자 할 때의 밭(괭이로 빛 안의 풀 일구기), 씨앗 셋(야생 약초·수확에서, 누가 무엇을 심나 ● R37), 물주기(물 준 흙 칸별 덧칠), 자라기(0~4단계, 약초사가 빠름), 낫 수확(야생 약초와 같은 아이템, 거두는 사람의 등급), 시듦과 되살아남(빛 밖·오염 2칸 안), 결정적인 지도별 농장. 세션의 농사(M5c), 정화·성수·제단 옮기기(M5b), 나무·도끼, 작업대·모루·성물 제작대·건설(M7), 상인·상점(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 오염 확산·재오염, 새 적, Steam, 저장은 M5a가 아니다.
 M5c = M5a·M5b가 더한 것을 호스트 권한 세션으로(지도마다 호스트 농장, 씨앗·성수 USE, 도구의 맞는 프레임, CHANNEL·ALTAR_LIFT·ALTAR_PLACE 요청과 호스트 검사, 상태의 채널링·든 제단, 정화·제단 편집, 들고 있는 동안의 부활 대기·참가 자리, 든 사람이 다운·나감, 늦은 참가에 밭·제단, 클라이언트의 깜빡임·점·놓을 자리 표시). 나무·도끼·작업대·건설(M7), 상인·상점 성수(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 확산·재오염, 새 적, Steam, 저장은 M5c가 아니다.
+M7b = 혼자 할 때의 건설(돌 벽·문·바닥·랜턴 기둥, 벽 레이어, 빛 안 비용 감소, 놓기·봉쇄 규칙, 우클릭 철거, F 문, 놓을 자리 표시)과 나무(생성기 6단계 30그루, 도끼로 5번, 통나무, 그루터기, 다시 자람)와 도끼(손 레시피, 새 몸 동작). 세션의 건설·벌목(M7c), 상인(M8), 스킬(M9), 기도(M10), 컬렉션(M11), 보스·제단 업그레이드(M12), 저장(M13), 룬·인챈트·장치·3티어 이상, 오염 확산, 새 적, 장비의 새 모습은 M7b가 아니다.
+M7a = 혼자 할 때의 작업대 체인(손 → 기본 작업대 → 모루 → 성물 제작대, 레시피 열넷, 제련), 1티어 장비(클래스 무기 다섯 + 갑옷 하나, 갑옷 칸), 내구도(사용·사망 마모, 부서짐, 모루 수리, 막대), 공유 창고(빛 안, 칸 16, F 창, 넣기·꺼내기). 나무·도끼(M7b), 건설, 세션(M7c), 상인·스킬·기도·컬렉션·보스·저장·룬·인챈트·기술자 장치·3티어는 M7a가 아니다.
 M5b = 혼자 할 때의 정화(성수 3×3은 누구나, 팔라딘 F 채널링 반지름 3·3초, 정화된 칸 = 풀, 스폰 칸과 시든 작물이 따라감)와 제단 옮기기(F 2초로 들기, 좌클릭으로 놓기, 들고 있는 동안 안전 반경 없음, 다운이면 가까이 내려놓기, 빛·안전 반경·이단·부활 자리·비워 두는 자리·밭의 빛이 따라감). 세션(M5c), 오염 확산·재오염·원천 봉인·반경 확장, 상점 성수(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 새 적, 나무·건설(M7), 저장은 M5b가 아니다.
 
 | 단계 | 내용 | 상태 |
@@ -2386,6 +2870,50 @@ M5b = 혼자 할 때의 정화(성수 3×3은 누구나, 팔라딘 F 채널링 �
 | M4a 체력 · 대시 · 기본 공격 · 사망 · 이단 | 공유 시뮬레이션의 Vitals(HP·스태미나·대시·경직·다운·사망 시간), Space 대시(걷기 충돌), 클래스 무기 다섯(근접 호 셋·화살·빛 탄, 새 아이템 성광, 핫바 8번 시작 무기, 곡괭이 채굴/공격 규칙, 아군 사격 끔), 피격·사망 자세(기준점 표·창 검사), 다운·소생(성직자 즉시)·포기·사망·제단 부활, 사망 가방(절반/3종 규칙, 설치물 칸 + 드롭 = 월드 기계 그대로, F로 되찾기), 이단(시트 다섯, 쫓기·예고·맞는 열·끈·빛 가장자리, 지상·던전 스폰, 지도별 아레나), 이단의 제단 HP와 부서진 그림·스폰 멈춤, HUD 막대·카운트다운, 시험 2파일 + 창 검사 `heretic`·`bars` + 스모크, 스크린샷 5장, 일부러 깨 보기 23개 | **끝** (사람 확인: 아래 "M4a에서 확인하지 않은 것", 임시값 "M4a" 줄. 세션은 M4b) |
 | M3-fix 검토 반영 | 광부 3×3은 친 칸을 깰 수 있을 때만(계단 둘레), 벽 횃불 자리 고르기(도착 방은 늘 밝음, 출구·광맥 순서), F5 묶음 2칸 비움, 호스트를 잃은 클라이언트(빈 던전 거부, 채굴·횃불 잇기), 디버그 드롭은 벽·앞면 거부, 맨 윗줄 그림 = 충돌, 결과용 기록 상한, 줄 잇기 넷·`_on_local_map_changed` null, 시험(계단의 광부, 방마다 벽 횃불, 횃불 요청 예산, 지도 들어옴의 보임, 묶음 빈 칸, 호스트 잃은 뒤 혼자), README 고침, 두 창 캡처 다시 | **끝** (사람 확인: "두 기기에서 M3 해 보기", 새로 적은 임시값 문구) |
 | M2-fix 검토 반영 | 발 칸 = 발 상자 가운데(타일 선 위의 발), 사용의 바라보기를 호스트가 목표 칸에서, 동작 중 표시는 동작의 칸, 고르기는 예산 밖 + 거부되면 인벤토리로 바로잡기, 클라이언트 F7도 주기처럼, 거부 로그 줄이기, 클라이언트 `--give` 255씩 나누기 + 줄 64개·버린 것 로그, 시험(서서 조준, 인벤토리 다시 얹기, `tick` 순서, `MAX_DROPS`, M1 바라보기를 따로 적은 600틱, 발 칸, 표시, 주기 나누기, 버리기 끔), README 고침, 스크린샷 5장 다시 | **끝** (사람 확인: 두 기기, 새 임시값 표 문구) |
+| M7b 건설 · 나무 · 도끼 | 벽 레이어의 건설 종류(돌 벽·문 닫힘/열림·바닥 조각)와 랜턴 기둥, 조각 넷·레시피(기본 작업대)·도끼 손 레시피, 빛 안 1개·밖 2개, 놓기 규칙·봉쇄 검사(작업대·창고·제단에도), 우클릭 철거(돌려받음), F 문, 충돌·예측·이단·화살·스폰 칸이 던전 벽처럼, `BuildView`(시트 조립 규칙)·`BuildGhost`, 지상 6단계 나무 30그루(황금 해시 바뀜), `Forest`(도끼 5번·통나무 4·그루터기·5분 뒤 다시 자람), 도끼 몸 동작(기준점 표), `--test-build`·봇 `wreck`, 시험 둘·창 그림 검사 셋·스크린샷 다섯 | 완료 (혼자 할 때, 세션은 거부·꺼짐: M7c) |
+| M7c 세션의 작업대 · 장비 · 창고 · 건설 · 나무 | 작업대·창고·조각 USE와 모든 레시피의 CRAFT를 호스트가, 새 요청 DEMOLISH·DOOR·ARMOR·CHEST(지도·손 닿음·예산·다운·든 제단), 지도마다 숲(도끼의 맞는 프레임, 그루터기, 다시 자라기 편집), 1티어 피해·무기·갑옷·사망 마모를 호스트에서, 인벤토리의 내구도·갑옷 칸, 창고 칸 편집과 스냅샷의 창고, 같은 틱 창고 경주(자리 순서), 문·막는 조각의 여유 24px(임시값: 닫힌 문을 지나가는 고무줄 없음), 클라이언트의 창고 창·놓을 자리 표시·손 제작 창, 전송 형식 v8(프레임 1바이트 그대로), 봇 `waitwall`·`waitat`·`waitplaced`·`waitchest`·`heretic`, 호스트의 `--test-build`, 시험 셋(한 프로세스 + 실제 세션 `house`·`stock`) + 기존 여섯 고침 + 창 검사 `builds_net` + 스모크, M7b 제단 놓을 자리 표시의 틱마다 24ms 고침, 두 창 그림 | **끝** (사람 확인: 위 "혼자, 그리고 창 둘로 M7 해 보기", "두 기기에서 M7 해 보기", 임시값 "M7c 막기 여유") |
+| M7a 작업대 체인 · 1티어 장비 · 내구도 · 공유 창고 | 작업대 셋(설치물·그림·손 닿음)과 손 레시피, 레시피 열넷과 수리 여섯(물약 번호 그대로), 제작 창(재료 셋, 수리 줄, 스크롤), 1티어 무기 다섯(기본 무기를 읽음, 150%)과 갑옷 칸(입기·벗기·방어 4), 내구도(1티어만, 사용·사망 마모, 부서지면 기본, 모루 수리, HUD 막대, F7 거부), 창고(빛 안, 칸 16, 월드의 것, 해시, F 창, 넣기·꺼내기), 세션에서 거부·꺼짐, 시험 셋·창 검사 셋·스크린샷 셋 | 완료 (혼자 할 때) |
+| M7-fix 검토 반영 | 이단 스폰 칸 = 지도의 지형(건설 무시, 놓을 때 산 월드·문간 아님), 봉쇄 검사 같은 답 싸게(우회·깊이 먼저·나눠 걷기, 무작위 720번 대조, 시간 막이), 다른 플레이어 가두기 거부·철거 드롭·벽 아래 열린 문 철거 검사(임시값), 열린 문간의 곡괭이 = 공격, 손 제작 키 C(임시값), 수리 기본 끔(● §2.6 사람 확인), 바닥 조각의 층(사람 확인), 오염 위 건설(임시값), 호스트의 부서진 장비 거부, `replay_jumps`와 여유 0 시험, DEMOLISH·DOOR 정확한 거리·지도 시험, 살아남던 깨 보기 시험, 그루터기 0, 죽은 코드·주석·숫자·표기, M7a 스크린샷 다시 | **끝** (사람 확인: 아래 "M7-fix" 임시값 줄, 두 기기) |
+
+### 검토 반영 (M7-fix, 2026-10-25)
+
+M7(M7a + M7b + M7c) 검토 에이전트들의 지적 30개(겹친 것: 던전 스폰과 문 고리 둘, 봉쇄 검사 비용 셋, 수로 알아채는 스폰 칸 둘, 바닥 조각의 층 둘, 고치지 않은 임시값 줄 셋, 탭 섞인 줄 둘)와 처리. 하나씩 코드나 탐침으로 다시 확인하고 고쳤고, 고친 규칙마다 옛 동작으로 되돌리면 실패하는 시험을 붙였다(일부러 깨 보기, 위 "측정"의 M7-fix). 임시값은 이 브랜치의 M7 줄도 값을 지우지 않고 "M7-fix에서 바뀜"을 붙였다(새 줄 일곱: "M7-fix 수리"·"다른 사람 가두기"·"철거"·"손 제작 창"·"이단 스폰 칸과 건설"·"오염 위 건설"·"바닥 조각의 층").
+
+- 고침 (높음 + 중간, 겹친 둘): 문 하나와 벽으로 던전 도착 방을 두르고(봉쇄 검사는 문을 열린 것으로 세어 통과) 문을 닫으면 던전 스폰 칸이 0이 되었다(시드 1: 443 → 0, 이단의 제단을 부수지 않고 던전을 비움). 스폰 칸이 도착점부터 닫힌 문을 벽으로 걸었고(`dungeon_spawn_cells`의 `Movement.is_blocked`), 얇은 건설 벽을 돌아가는 길이 도착 방 옆 칸을 "먼 칸"으로도 만들었다. 스폰 칸을 건설을 보지 않는 지도의 지형으로만 정하고(`Arena.terrain_blocked`·`terrain_can_stand`: 던전 벽(캔 대로)과 앞면, 생성기가 놓은 막는 설치물), 이단을 놓을 때 산 월드를 본다(`spawn_ok`: 설 수 있음, 문간 아님). 임시값 "M7-fix 이단 스폰 칸과 건설". 시험: 도착 방을 두른 벽 13과 닫힌 문 = 스폰 칸 443 그대로(처음부터 구해도 같음)·`spawns_now`·30번 시도에 이단이 나옴·건설 칸이나 문간에 선 이단 0, 지상 스폰 칸 위 벽 = 스폰 칸 그대로·그 칸과 앞면에는 안 나옴·열린 문간에도 안 나옴·바닥 조각 위는 됨
+- 고침 (낮음, 같은 고침): 같은 틱에 하나 내리고 하나 지으면 건설 수가 같아 스폰 칸이 낡았다(`Arena.built_count`). 스폰 칸이 이제 건설을 보지 않아 수를 세지 않는다(없앰). 지은 뒤의 스폰 칸 다시 계산(약 5~6ms)도 없어졌다
+- 고침 (낮음): 스폰 칸이 열린 문 칸을 남겨 이단이 문간에 나타나 그 문을 못 닫게 할 수 있었다. `spawn_ok`가 문 칸·앞면 칸(`Building.door_cell`)을 거부(위 시험)
+- 고침 (중간, 겹친 셋): 봉쇄 검사가 제단 둘레에서 자리 열 곳을 두 번씩 12칸 너비 먼저 걸어 한 번 약 16~20ms였다: 건설 표시(10틱마다·조준·발 칸·월드 편집마다, 호스트 화면에서도)와 호스트의 짓기 요청마다. 답은 그대로 두고 걸음을 줄였다(구현 표 "M7-fix 봉쇄 검사 비용": 조각 둘레 고리가 끊기지 않으면 다른 칸끼리 이어짐이 그대로라 걷지 않음, 깊이 먼저·바깥 먼저 걷기, 첫 걸음을 다른 자리들이 나눠 씀). 같은 답인지: `test_building.gd`가 무작위 30×30 지도 여섯(벽·문·고리)에서 벽·랜턴·3×1 작업대 720번을 M7b의 너비 먼저 걸음(시험에 따로 적음)과 비교(모두 같음, 봉쇄 · 우회 둘 다 나옴). 잰 값(시드 1 제단 둘레 23×23): 열린 땅 평균 0.08ms(최대 0.4ms), 빛 둘레에 틈 하나인 고리 평균 0.23ms(틈을 메우는 몇 칸만 1~8ms), 건설 표시 한 틱 약 0.3ms(M7b 약 13ms). 시험이 평균 2ms·표시 3ms를 넘으면 실패(제단 표시 고침처럼 시간 막이). 월드 편집 수마다 기억하기는 안 했다(월드에 편집 수가 없고 이제 쌀 만큼 싸다). 호스트의 같은 요청 되풀이 막기도 안 함: 요청 예산(초당 10) × 위 값
+- 고침 → 임시값 (중간): 다른 플레이어를 두르는 고리는 봉쇄 검사가 보지 않아(사람이 나타나는 자리만) 2칸 밖 벽 32개로 남을 가둘 수 있었고, 갇힌 사람은 건설 벽을 캘 수 없고(`UNBREAKABLE`) 인벤토리가 가득 차면 철거도 거부됐다. 제단을 든 사람은 철거가 막히고 고리 안에 내려놓지도 못해 아무도 부활하지 못했다. (1) 봉쇄 검사가 다른 플레이어의 발도 걷는다(조각과 작업대·창고·조제대, 임시값 "M7-fix 다른 사람 가두기"), (2) 철거의 돌려받기가 안 들어가면 발 칸에 드롭(임시값 "M7-fix 철거"). 든 동안의 철거 금지는 그대로(12칸 안 고리는 (1)이 막고, 더 큰 고리는 안에 제단을 내려놓을 수 있다). 시험: 남을 두르는 마지막 벽·작업대 거부, 아무도 없으면 됨, 문은 됨, 가득 찬 인벤토리의 철거 = 발 칸 드롭·인벤토리 그대로
+- 고침 → 임시값 (중간): M7b의 도끼가 돌의 손 레시피라 돌 하나만 가져도 작업대 없는 곳의 Tab이 늘 손 제작 창(캐릭터가 섬)이 되어 M2a의 걷는 인벤토리가 사라졌다(README도 "통나무 뒤로", "세션에서는 열지 않음"으로 낡음). 손 제작 창을 새 키 **C**로(`craft_hand`, `Main.toggle_hand`), Tab은 M2a·M6a 그대로(임시값 "M7-fix 손 제작 창"). 검토의 다른 길(인벤토리를 연 채 Tab 한 번 더)은 인벤토리 닫기가 Tab 두 번이 되어(M2a의 `test_items.gd` "Tab closes it"이 깨짐) 버렸다. 시험: 해금 뒤에도 Tab = 인벤토리만·걸음, 다시 Tab = 닫힘, C = 손 창(서 있음), C = 닫힘, 해금 전 C = 아무것도
+- 고침 (중간): 광부의 곡괭이가 열린 문 칸이나 그 문간을 겨누면 채굴(too hard)로 가서 문간에 선 이단을 못 쳤다(`Walls.owner_of`가 열린 문을 벽으로 봄). 채굴 휘두르기는 막는 칸에서만(`Combat.is_mining_swing`에 `Walls.blocks`): 혼자·호스트 같음. 시험: 곡괭이·1티어 곡괭이가 열린 문·문간에서 공격, 닫힌 문은 채굴, 문간의 이단이 곡괭이에 맞음
+- 고침 (높음): 예측 검사(보정 수, `max_error_px`, 세션의 0.5px)가 편집이 일으킨 끌림을 못 봤다: 편집이 오면 다시 돌리기가 기다리는 프레임마다의 예측을 새 월드로 다시 써서 다음 상태와 맞는다. 그래서 "never pulled back" 검사들은 24px 규칙이 없어도 통과했다. `Prediction`이 다시 돌리기 앞뒤의 보이는 위치를 비교해 `replay_jumps`·`max_replay_jump_px`(구현 표 "M7-fix 다시 돌리기 뜀"). 시험: 방 흐름 전체·닫힌 문으로 걸어오기·`house`의 c1 = 0, 문이 미는 사람에게 열림 = 뜀 1번 9.6px(상한 10.8px, 틱마다 잰 한 걸음 너머 8.4px), **여유 0**(`Building.clearance_px`)이면 걷는 클라이언트 앞에서 닫힌 문이 다시 돌리기에서 8.8px 끌어당김(보정 1·오차 0.4px뿐)을 `replay_jumps`가 잡음. README의 "잰 값 1.2px"는 보이는 9.6px으로 고침
+- 고침 (높음): 세션 시험의 "우클릭 3칸 밖"(`>= 4`)과 "F 문 3칸 밖"(`>= 5`)이 앞의 거부로 이미 참이라 DEMOLISH·DOOR의 손 닿음을 호스트가 자기 사본에서 재는지 아무것도 보지 않았다. 요청마다 정확한 차이(1)로, F는 진짜 문 3칸 밖에서, 둘 다 다른 지도(`wrong map`)를 더함. 일부러 깨 보기: `demolish`·`toggle_door`의 손 닿음을 없애면 `net_build`가 실패
+- 고침 (낮음): 위가 벽인 열린 문을 내리면 그 칸이 위 벽의 앞면(막음)이 되는데 그 칸에 선 사람을 보지 않았다(호스트 `_demolish`는 몸을 넘기지 않음). 문 닫기와 같은 검사(몸·설치물·다른 플레이어 24px)를 `Building.demolish`에, 혼자·호스트가 몸과 다른 플레이어를 넘김. 시험: 문간에 사람·다른 플레이어가 아래에 = 거부, 아무도 없으면 내려가고 그 칸이 막힘, 위가 벽이 아니면 검사 없음
+- 고침 (낮음): `TREE_REGROW_TICKS` 0(다시 자라지 않음)은 `chop`만 지켜서, 숲을 그루터기가 있는 월드 위에 새로 만들면(호스트를 잃고 혼자, 받은 월드) 모든 그루터기가 0틱으로 세어져 다음 틱에 다시 자랐다. `setup`·`step`이 다시 자라기가 꺼졌으면 세지 않음(`Forest.regrow_on`). 시험: 0으로 그루터기 위에 새로 만든 숲 100틱 = 그대로
+- 문서로 (낮음): `TREE_STUMP_BLOCKS`(켬)를 끄면 `Forest.step`이 몸·사람이 나타나는 자리를 보지 않고 줄기를 되살려 그 안에 설 수 있다. 켠 동안은 그루터기가 막아 아무도 서지 못해 생기지 않는다: "M7b 그루터기" 줄과 알려진 문제에 "끄기 전에 그 검사를 더할 것"
+- 고침 (낮음): `GEAR_BROKEN_UNUSABLE`을 보내는 기기의 `Player.make_frame`만 지켰다. 호스트의 USE 길이 `Gear.unusable`이면 `broken`으로 거부. 시험: 스위치를 켜(`Gear.broken_unusable`, 되돌림) 부서진 1티어 검의 USE 거부, 끄면 휘두름
+- 고침 (낮음, 시험): 살아남던 깨 보기 일곱에 시험: 갑옷을 동작 중·제단을 든 채 입기(호스트 거부), 호스트 짓기가 살아 있는 이단의 발을 봄(`bodies_but`), 든 제단의 집 부활 자리, 열린 창고 창이 다른 사람의 창고 칸 편집에 다시 그려짐(`_redraw_chest`를 바로 부름: 세션의 물리 틱이 부르는 함수), 앞면 칸의 철거 순서(위 벽 먼저, 그다음 바닥 조각), 건설 표시가 몸이 움직이면 10틱 안에 다시 판단(이단이 앞면으로 → 빨강). `forest_nosort`는 검토도 해가 없다고 봐서 그대로
+- 문서 → 사람 확인 (낮음, ● 충돌): 누구나 모루에서 수리(M7a)는 ● gameplay-design §2.6 R12 "(기술자 수리 = 기술자 일감)"과 부딪칠 수 있다(기술자는 슬라이스에 없음). ●를 그대로 따르는 쪽으로 기본을 끄고(`GEAR_REPAIR_AT_ANVIL` false: 수리 줄 안 보임, 수리 CRAFT `repair is the engineer's work`) 임시값 "M7-fix 수리"로 묻는다. 켜면 M7a 규칙 그대로(시험은 켜고 본다)
+- 고침 (낮음, 문서 표기): "1티어는 누구나 모루에서"를 ● §3.5로 적은 곳(README·config·crafting·gear 주석)을 ● §3.0 R11(○ §3.5도)로, "작업대 체인 2~3단계 ● game-concept §12"를 ● 없이(제안 절)
+- 고침 (낮음, 겹친 셋): 바뀐 임시값 줄에 표시가 없었다: "M6a 키"(우클릭 = 철거, 세션의 손 제작 창, 키 C), "M7a 기본 작업대 얻기"(돌·세션·키 C). 값은 그대로 두고 "M7b·M7c·M7-fix에서 바뀜"
+- 문서 → 사람 확인 (낮음, 겹친 둘): 바닥 조각이 벽 바이트에 있어 한 칸에 벽이나 바닥 조각 하나뿐이라 바닥 조각 위에 벽을 못 세운다. ● §3.1 레이어 목록·§3.3 R37 "건설 벽은 바닥 위 별도 층"과 맞는지 임시값 "M7-fix 바닥 조각의 층"으로 묻는다. 옮기지 않았다: 바닥 레이어는 dual grid 지형이라 새 바이트나 레이어가 필요하고 스냅샷·해시·편집·전송이 바뀐다
+- 임시값 (낮음): 재·오염 땅 위의 건설(됨)이 어디에도 적혀 있지 않았다. 지금 동작을 "M7-fix 오염 위 건설"로
+- 고침 (낮음): 스모크 기대 줄의 `dungeon_map=319B` → `321B`(M7c 스냅샷의 창고 수 +2B), 제작 창 너비 60px·98px → 58px·96px(M6a 줄도: 코드는 처음부터 3+18+3+5+3+18+2+3+3 = 58)
+- 고침 (낮음): M7a 스크린샷 셋(`m7_stations`·`m7_chest`·`m7_worn_gear`)이 M7b 나무 전에 찍혀 있었다. 같은 명령으로 다시 찍음
+- 고침 (낮음, 코드): 쓰지 않는 M7a·M7b 세션 거부(`Crafting.is_m7`, `WorldItems.M7_PLACEABLES`, `WHY_OFFLINE` 다섯)를 지움, 낡은 주석(Crafting·ItemStack·Inventory·Player·Main·config의 "M7c까지 세션은 …"), 탭으로 붙은 줄 잇기(검토가 찾은 `surface_gen.gd`·`cli_options.gd` 둘과 같은 꼴의 M7c `net_bot.gd` 넷, 이 고침 중에 생긴 `session_host.gd` 하나. main에서 온 같은 꼴 다섯(`protocol.gd`·`check_render.gd`·시험 셋)은 M7 밖이라 그대로), 없는 `TREE_CLEAR_AREA`를 가리키던 주석, 나무 자리의 숫자(수관·줄기 둘레 2/4/1칸, 입구 3칸)에 이름(`TREE_CLEAR_*`, `TREE_ENTRANCE_CLEARANCE_TILES`, 값 그대로)
+- 그대로 (낮음, 그림): 북쪽 벽의 닫힌 문은 밖에서 보면 윗면이 벽 윗면과 같고, 북쪽 도끼질은 광부의 등 곡괭이가 커서 곡괭이질처럼 읽힌다. 그림 단계와 사람이 정할 일이라 알려진 문제로 둠
+
+알려진 문제 (M7-fix):
+- 스폰 칸이 건설을 보지 않아서 건설 벽 너머나 건설한 방 안(지상 오염 둘레, 던전 도착점에서 14걸음 넘는 곳)에도 이단이 날 수 있다(빛 밖, 플레이어에게서 `HERETIC_SPAWN_MIN_PLAYER_PX` 밖). M7b의 던전은 벽으로 끊긴 곳을 뺐다(그래서 문 고리로 0이 됨). 벽 너머의 이단은 길을 찾지 않아 들어오지 못한다
+- 봉쇄 검사는 빛 둘레의 닫힌 고리에서 두 막힘 사이를 메우는 칸 몇 개가 아직 1~8ms(이 데스크탑). 건설 표시가 그 칸을 겨누면 10틱마다 한 번
+- 12칸보다 큰 고리는 남을 둘러도 된다(봉쇄 규칙의 거리). 갇힌 사람은 철거로 나온다(가득 차면 발 칸 드롭). 제단을 든 사람은 철거가 막혀 안에 제단을 내려놓고 철거한다
+- 바닥 조각 위에 벽·문을 못 짓는다(사람 확인 줄)
+- `TREE_STUMP_BLOCKS`를 끄면 다시 자라는 줄기가 몸을 보지 않는다(켠 동안은 생기지 않음)
+- 손 제작 키 C는 화면에 안내가 없다(README와 임시값 줄만)
+- 수리가 기본 꺼짐이라 1티어 장비는 닳기만 하고 0이 되면 기본 아이템처럼 쓰인다(사람이 "M7-fix 수리"를 정할 때까지)
+- `replay_jumps`는 있어도 되는 뜀(미는 사람에게 열린 문, 캔 벽)과 안 되는 뜀을 가르지 않는다. 시험은 뜀이 없어야 하는 흐름(방 짓기·닫힌 문·`house`)에서만 0을 본다
+- 열린 창고 창 다시 그리기 시험은 세션의 물리 틱이 부르는 함수를 혼자 할 때 바로 부른다(세션 Main 하나를 띄워 보는 시험은 없다)
+- 그림: 북쪽 벽 닫힌 문의 윗면, 북쪽 도끼질과 등 곡괭이(위)
 
 ### 검토 반영 (M5-fix, 2026-10-24)
 
@@ -2629,7 +3157,9 @@ H1 검토 에이전트들의 지적 14개와 처리. 하나씩 직접 재현하�
 - 테스트 포트: 러너끼리는 잠금으로 겹치지 않지만, 러너가 아닌 프로그램이 확인 뒤에 묶음 안 포트를 잡는 것은 막지 못한다 (위 "테스트 포트"). 확인 전부터 잡고 있는 프로그램은 IPv4만 잡았어도 이제 찾는다(H-fix)
 - 임시값 표의 모든 줄(특히 카메라 가장자리, 스폰, 같은 클래스 둘, 오염 구역 수, M2a의 키·조준·동작 줄, M3a·M3b 줄, M4a·M4b·M4-fix 줄 전부)은 사람이 확인해야 한다. M4-fix도 임시값 값을 하나도 바꾸지 않았다: 줄 셋을 더하고("M4-fix 화살 조준·맞는 상자": 구현 표의 8px·12px를 값 그대로 옮기고 28px를 더함, "M4-fix 빈 지도", "M4-fix 빛 안에서 쏘인 이단"), 표에 없던 M4a 동작 하나를 올리고("M4a 소생 뒤 무적"), "M4a 다운·소생·사망 시간"·"M4a 빛 가장자리"·"M4a 스폰"·"M4a 가방 자리"·"M4b 세션의 싸우는 지도"에 고친 동작과 문장을 적었다(값 그대로). M4a는 기존 임시값의 값을 하나도 바꾸지 않았다: "시작 인벤토리"(혼자 할 때 시작 무기), "마법·던지기를 부르는 아이템"(성광), "M3a 이단의 제단 자리"(부술 수 있음)는 줄의 값을 두고 M4a 줄이 대신한다고 적었고, 구현 표 "디버그 묶음"에 이끼 돌을 뺀 것을 적었다. M3-fix도 임시값을 하나도 바꾸지 않았다: 도착점의 4px에 이름(`ARRIVAL_FEET_INSET_PX`)을 붙였고, "M3a 벽 횃불 장식"·"출구 계단과 도착점"은 같은 값으로 적힌 규칙을 지키게 고쳤고(생성기가 바뀌어 던전 해시 둘이 바뀜, 시드 1은 벽 횃불만 8 → 10), "M3a 경도·타격"에 곡괭이 등급이 없다는 것과 문서 줄의 표시를, "M3a 횃불"·"묶음 크기"에 횃불 묶음·종류·벽 횃불이 떨어지는 것을 적었다. M3b도 있던 임시값은 바꾸지 않았다: "M3a 세션" 줄을 끝났다고 적고 줄 셋(지도 오가기, 다른 지도의 플레이어, 다시 참가할 때의 지도)을 더했다. M3a도 있던 임시값은 바꾸지 않고 줄만 더했다(F5 디버그 묶음은 구현 값이라 횃불을 넣었다). H1과 H-fix는 임시값을 하나도 바꾸지 않았다(새 값은 모두 "구현에서 고른 값"). M2a도 있던 임시값은 바꾸지 않고 줄만 더했다. M2-fix도 값은 바꾸지 않았다: "조준 기준" 줄의 발 칸을 그려진 발에 맞게 고쳤고(검토 지적, 사람이 볼 것), "채집물 자리"에 `GATHER_EDGE_TILES`(값 2 그대로)를 옮겨 적고, "디버그 주기"를 "주기·버리기"로 넓히고, "채집물 수"에 돌의 출처를 바로 적었다
 
+M7c에서 확인하지 않은 것: **두 기기**(서피스 ARM64)와 먼 회선에서 짓기·문·창고·갑옷·벌목(위 "두 기기에서 M7 해 보기", 사람이 한다. ARM64 exe는 내보내기만 했다), 사람이 키보드·마우스로 세션에서 창고 창·우클릭 철거·문 F·갑옷 칸(시험과 두 창 그림은 봇), 한 방향 약 140ms보다 먼 회선에서 문 닫힘(여유 24px), 대시로 닫히는 문간에 뛰어들기, 9인이 한 방을 지을 때의 트래픽(넷까지 쟀다), 실제 손실이 있는 회선에서 창고 경주(한 프로세스와 localhost만), 내보낸 exe의 창 스크린샷(헤드리스 스모크와 `--net-exe` 세션만).
 M5c에서 확인하지 않은 것: **두 기기**(서피스 ARM64)와 먼 회선에서 농사·정화·제단 옮기기(위 "두 기기에서 M5 해 보기", 사람이 한다. ARM64 exe는 내보내기만 했다), 사람이 키보드·마우스로 세션에서 일구기·심기·F 채널링·F 2초 들기(시험과 두 창 그림은 봇), 실제 손실이 있는 회선에서 F를 누르는 동안 프레임을 잃었을 때의 들기(한 프로세스 시험은 지연만), 9인이 한 밭에서 일할 때의 편집·트래픽(넷까지 쟀다), 내보낸 exe의 창 스크린샷(헤드리스 스모크와 `--net-exe` 세션만).
+
 M6b에서 확인하지 않은 것: **두 기기**(서피스 ARM64)와 먼 회선에서 제작·물약(위 "두 기기에서 M6 해 보기", 사람이 한다. ARM64 exe는 내보내기만 했다), 사람이 키보드·마우스로 세션의 제작 창·마시기·던지기(시험은 봇과 함수, 진짜 마우스·키는 M6a처럼 창에서 보지 않았다), 클라이언트 화면에서 왕복 뒤에 나타나는 자기 병이 거슬리는지(localhost에서는 한두 프레임), 버프된 사람이 많을 때의 트래픽을 실제 인터넷에서, 내보낸 exe의 창 스크린샷(헤드리스 스모크와 `--net-exe` 세션만).
 M6a에서 확인하지 않은 것: 사람이 키보드·마우스로 조제대를 놓고 Tab·W/S·F·Enter·클릭으로 만들어 보기(시험은 함수·입력 이벤트·`click_at`와 봇, 진짜 마우스의 줄 고르기는 창에서 보지 않았다), 1배 화면에서 제작 창·머리 위 표시·터짐이 읽히는지(스크린샷은 에이전트가 2~4배로 확대해 봤다. 저녁 빛 밖의 터짐 첫 프레임은 작고 어둡다), 버프 125%·독 5초의 손맛과 균형(이단 HP 40에 상급 독 30), 던지는 거리 6칸·반경 1.5칸이 마우스 조준으로 맞히기 쉬운지, 마법 동작을 빌린 마시기가 마시는 것으로 읽히는지, 세션(바꾸지 않았다. 세션 시험만 다시 돌림), 두 기기, 내보낸 exe의 창 스크린샷(헤드리스 스모크와 120프레임만).
 

@@ -6,6 +6,11 @@ extends RefCounted
 ## anywhere in assets/ yet, so their icons are PROVISIONAL placeholders drawn here from 16x16
 ## character maps (README "임시값"): the brief §4 palette's ash black outline and faith golds, the
 ## warm iron greys and copper of the 04-env items, no cool greys. Replace them when tool icons exist.
+## M7a (PLACEHOLDERS too): a tier-1 weapon's icon is its base weapon's map with a small gold tier mark at the top left
+## (TIER_MARK); the armour piece has a map of its own; the stations and the storage chest are their placed 04-env picture
+## shrunk to fit 16x16 (fit_icon: the opaque box scaled down by a whole-pixel nearest step, centred on the bottom).
+## M7b (PLACEHOLDERS too): the axe has a map of its own (a broad iron bit on a wooden haft, like the action sheet's axe); the
+## build pieces are composed from parts of their placed art (ItemDB.BUILD_ICONS, compose_parts).
 
 const SIZE: int = 16
 ## Map characters -> colour (brief §4 base / faith rows, 04-env iron and copper item colours).
@@ -198,7 +203,47 @@ const MAPS: Dictionary[StringName, Array] = {
 		".kkk........kkk.",
 		"................",
 	],
+	# M7a: the tier-1 armour (a banded iron shirt with gold shoulders and a copper hem; no armour art exists).
+	&"armor_t1": [
+		"................",
+		"....kk....kk....",
+		"...kggk..kggk...",
+		"..kmhgkkkkghmk..",
+		".kmhhhmggmhhhmk.",
+		".kkkkkkkkkkkkkk.",
+		"..kmhhhhhhhhmk..",
+		"..kkkkkkkkkkkk..",
+		"...kmhhchhhmk...",
+		"...kkkkkkkkkk...",
+		"...kmhhchhhmk...",
+		"...kkkkkkkkkk...",
+		"...kocococock...",
+		"...kkkkkkkkkk...",
+		"................",
+		"................",
+	],
+	# M7b: the axe (a broad iron bit with a light edge on a wooden haft; no axe icon art exists).
+	&"axe": [
+		"................",
+		"......kkk.......",
+		".....kmhhk......",
+		"....kmmhhhk.....",
+		"....kmmmhhkk....",
+		"....kmmmkdwk....",
+		".....kkkdwk.....",
+		"......kdwk......",
+		".....kdwk.......",
+		"....kdwk........",
+		"...kdwk.........",
+		"..kdwk..........",
+		".kdwk...........",
+		".kwk............",
+		"..k.............",
+		"................",
+	],
 }
+## M7a: the tier mark drawn over a tier-1 weapon's base icon (top left, 3x3, gold with an ash-black edge).
+const TIER_MARK: Array = ["kgk", "ggg", "kgk"]
 
 static var _cache: Dictionary[StringName, Texture2D] = {}
 
@@ -213,7 +258,15 @@ static func texture_for(id: StringName) -> Texture2D:
 		if not def.icon_code.is_empty():
 			var img: Image = image_from_map(def.icon_code)
 			if img != null:
+				if def.tier >= 1 and not def.base.is_empty():
+					_mark_tier(img)  # M7a: a tier-1 weapon = its base weapon's icon + the tier mark
 				tex = ImageTexture.create_from_image(img)
+		elif not def.icon_parts.is_empty() and ResourceLoader.exists(def.icon_path):
+			# M7b: a build piece's icon composed from parts of its art (ItemDB.BUILD_ICONS).
+			tex = ImageTexture.create_from_image(compose_parts(LightGen.to_rgba8((load(def.icon_path) as Texture2D).get_image()),
+				def.icon_parts))
+		elif def.icon_fit and ResourceLoader.exists(def.icon_path):
+			tex = ImageTexture.create_from_image(fit_icon(LightGen.to_rgba8((load(def.icon_path) as Texture2D).get_image())))
 		elif ResourceLoader.exists(def.icon_path):
 			tex = load(def.icon_path) as Texture2D
 			if tex != null and def.icon_region.has_area():
@@ -239,3 +292,49 @@ static func image_from_map(code: StringName) -> Image:
 			if PALETTE.has(ch):
 				img.set_pixel(x, y, PALETTE[ch])
 	return img
+
+
+## M7a: draws TIER_MARK at the top left of `img`.
+static func _mark_tier(img: Image) -> void:
+	for y: int in TIER_MARK.size():
+		var row: String = TIER_MARK[y]
+		for x: int in row.length():
+			if PALETTE.has(row[x]):
+				img.set_pixel(x, y, PALETTE[row[x]])
+
+
+## M7b: a 16x16 icon from parts of `src` (RGBA8): each [Rect2i source, Vector2i place] pair copied as it is (later parts
+## over earlier ones; transparent pixels stay transparent).
+static func compose_parts(src: Image, parts: Array) -> Image:
+	var out: Image = Image.create_empty(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	for part: Array in parts:
+		var r: Rect2i = part[0]
+		var at: Vector2i = part[1]
+		out.blend_rect(src, r, at)
+	return out
+
+
+## M7a: a 16x16 icon from a placed picture (`src`, RGBA8): its opaque box (alpha >= 128) shrunk by the smallest whole
+## step that fits 16x16 (every step-th pixel, nearest; no new colours), centred across and standing on the bottom row.
+static func fit_icon(src: Image) -> Image:
+	var lo: Vector2i = Vector2i(src.get_width(), src.get_height())
+	var hi: Vector2i = Vector2i(-1, -1)
+	for y: int in src.get_height():
+		for x: int in src.get_width():
+			if src.get_pixel(x, y).a8 >= 128:
+				lo = lo.min(Vector2i(x, y))
+				hi = hi.max(Vector2i(x, y))
+	var out: Image = Image.create_empty(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	if hi.x < 0:
+		return out
+	var box: Vector2i = hi - lo + Vector2i.ONE
+	var step: int = maxi(ceili(float(maxi(box.x, box.y)) / SIZE), 1)
+	var w: int = ceili(float(box.x) / step)
+	var h: int = ceili(float(box.y) / step)
+	var at: Vector2i = Vector2i((SIZE - w) / 2, SIZE - h)
+	for y: int in h:
+		for x: int in w:
+			var p: Color = src.get_pixel(lo.x + x * step, lo.y + y * step)
+			if p.a8 >= 128:
+				out.set_pixel(at.x + x, at.y + y, Color(p.r, p.g, p.b, 1.0))
+	return out

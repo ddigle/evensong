@@ -92,6 +92,13 @@ var vitals_corrections: int = 0
 var respawns: int = 0
 ## The last vitals mismatch without a host event (logged by the client: it should never happen).
 var last_vitals_mismatch: String = ""
+## M7-fix: replays that moved the shown position (sim.pos before and after replaying the pending frames on a host state)
+## although the state was no host event, and the largest such move in px. The other counters compare the host's state with
+## the prediction of that frame, and the prediction of a frame is replayed with the world as it is now (_replay rewrites
+## every pending frame's `after`): a world edit that arrived (a door closed, a wall put up) changes the replayed frames
+## and so what the player sees, while the next state matches the replayed prediction (no correction). These see it.
+var replay_jumps: int = 0
+var max_replay_jump_px: float = 0.0
 
 var _last_dir: Vector2i = Vector2i.ZERO
 var _last_interact: bool = false
@@ -229,8 +236,17 @@ func reconcile(state: NetProtocol.PlayerState) -> float:
 		pending.pop_front()
 	# Replay what the host has not handled yet, from the host's state, with the rule the host applies
 	# to each frame.
+	var shown: Vector2 = sim.pos
 	_replay(host)
+	var jump: float = shown.distance_to(sim.pos)
+	if not event and jump > REPLAY_JUMP_EPSILON_PX:
+		replay_jumps += 1
+		max_replay_jump_px = maxf(max_replay_jump_px, jump)
 	return error
+
+
+## M7-fix: a replay that moves the shown position less than this is no jump (float32 steps replayed alike land exactly).
+const REPLAY_JUMP_EPSILON_PX: float = 0.001
 
 
 ## M6b: the host put an effect on this player that the prediction does not have (a potion: a buff or a poison
@@ -320,4 +336,5 @@ func to_dict() -> Dictionary:
 		"map": map, "switches": switches, "other_map": other_map,
 		"event_corrections": event_corrections, "max_event_error_px": max_event_error_px,
 		"vitals_corrections": vitals_corrections, "respawns": respawns,
+		"replay_jumps": replay_jumps, "max_replay_jump_px": max_replay_jump_px,
 	}

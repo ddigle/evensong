@@ -83,6 +83,8 @@ static func run(tree: SceneTree) -> Report:
 	_check_potions(r)
 	_check_farm(r)
 	_check_purify(r)
+	_check_chain(r)
+	_check_build(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -279,9 +281,9 @@ static func _check_items(r: Report) -> void:
 		if def.is_tool():
 			tools += 1
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
-	r.expect_eq(tools, 7, "tools (M4a: + holy_light)")
+	r.expect_eq(tools, 13, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons; M7b: + the axe)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash", "skill_1"]:
+			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -348,8 +350,7 @@ static func _check_combat(r: Report) -> void:
 
 ## M6a: recipes, a craft, the table art and placement, a drink, a poison down, a thrown poison potion.
 static func _check_potions(r: Report) -> void:
-	var all: Array[Crafting.Recipe] = Crafting.recipes()
-	r.expect_eq(all.size(), 6, "recipes (3 potions x 2 grades)")
+	r.expect_eq(Crafting.recipes_for(Crafting.ALCHEMY).size(), 6, "recipes (3 potions x 2 grades)")
 	var inv: Inventory = Inventory.new()
 	inv.add(&"wild_healing", 2)
 	var miner_fine: Crafting.Recipe = Crafting.recipe(&"potion_healing_fine")
@@ -392,7 +393,7 @@ static func _check_potions(r: Report) -> void:
 		arena.step(no_players)
 	r.expect(arena.stat("splash_heretics") == 1 and h.poisoned(), "a thrown poison potion splashes the heretic")
 	thrower.free()
-	r.fields.append("potions=%d/%d" % [all.size(), arena.stat("splash_heretics")])
+	r.fields.append("potions=%d/%d" % [Crafting.recipes_for(Crafting.ALCHEMY).size(), arena.stat("splash_heretics")])
 
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
@@ -508,6 +509,123 @@ static func _check_purify(r: Report) -> void:
 	r.fields.append("altar=%d,%d" % [to.position.x, to.position.y])
 
 
+## M7a: the workbench chain from logs to a tier-1 sword (the recipes as Crafting has them), the stations' pictures and
+## one placed south of the seed's altar (drawn by its footprint), the tier-1 damage, the armour's defence, the death wear,
+## a chest in the light holding something (the content hash covers it). Field `chain=<recipes>/<crafts> gear=<sword_t1
+## damage>/<knife through armour>/<sword after a death> chest=<slots>`.
+static func _check_chain(r: Report) -> void:
+	for path: String in ["res://art/env/workbench_v03.png", "res://art/env/anvil_v03.png", "res://art/env/relic_bench_v03.png",
+			"res://art/env/storage_chest_v02.png", "res://art/env/flame_small_v01.png"]:
+		r.expect(ResourceLoader.exists(path), "%s missing" % path)
+	var inv: Inventory = Inventory.new()
+	inv.add(&"log", 9)
+	inv.add(&"stone_a", 10)
+	inv.add(&"ore_iron", 4)
+	var crafts: int = 0
+	for id: StringName in [&"workbench", &"planks", &"planks", &"anvil", &"ingot_iron", &"ingot_iron", &"sword_t1"]:
+		var o: Crafting.Outcome = Crafting.craft(Crafting.recipe(id), "paladin", inv)
+		r.expect(o.ok(), "chain step %s refused: %s" % [id, o.why])
+		crafts += 1 if o.ok() else 0
+	r.expect_eq(inv.count_of(&"sword_t1"), 1, "logs and ore -> a tier-1 sword")
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var bench: Inventory = Inventory.new()
+	bench.add(&"workbench", 1)
+	var placed: WorldItems.Outcome = WorldItems.place(data, Arena.spawn_feet(Vector2i(63, 52)), bench, 0, Vector2i(63, 51))
+	r.expect(placed.ok(), "workbench south of the altar refused: %s" % placed.why)
+	var sword: ItemStack = inv.stack_at(0)
+	for s: ItemStack in inv.slots:
+		if s != null and s.id == &"sword_t1":
+			sword = s
+	var dmg: int = Gear.attack_damage(sword, Combat.attack_for(&"sword_t1").damage)
+	r.expect_eq(dmg, 21, "tier-1 sword damage")
+	var armour: Inventory = Inventory.new()
+	armour.wear(ItemStack.new(&"armor_t1", 1, 0))
+	var knife: int = Gear.after_armor(Config.HERETIC_DAMAGE, armour)
+	r.expect_eq(knife, 8, "a knife through armour")
+	inv.wear(ItemStack.new(&"armor_t1", 1, 0))
+	Gear.wear_on_death(inv)
+	r.expect_eq(sword.durability, 96, "the sword after a death")
+	var chest_inv: Inventory = Inventory.new()
+	chest_inv.add(&"storage_chest", 1)
+	var before: String = data.content_hash()
+	var put: WorldItems.Outcome = WorldItems.place(data, Arena.spawn_feet(Vector2i(63, 45)), chest_inv, 0, Vector2i(63, 44))
+	r.expect(put.ok(), "a chest north of the altar refused: %s" % put.why)
+	for e: EditLog.WorldEdit in put.edits:
+		EditLog.apply_to_data(data, e)
+	var empty_chest: String = data.content_hash()
+	var c: WorldData.Chest = data.chest_at(Vector2i(63, 44))
+	var ore: Inventory = Inventory.new()
+	ore.add(&"ore_copper", 3)
+	r.expect(c != null and Storage.store(c, ore, 0).ok(), "storing in the chest")
+	r.expect(before != empty_chest and empty_chest != data.content_hash(), "the chest and its contents are in the hash")
+	r.fields.append("chain=%d/%d gear=%d/%d/%d chest=%d" % [Crafting.recipes().size() - Crafting.recipes_for(Crafting.ALCHEMY).size(),
+		crafts, dmg, knife, sword.durability, c.slots.size() if c != null else 0])
+
+
+## M7b: the build and tree art, the seed's trees (count, trunks block), a stone wall and a door south of the altar (one piece
+## each in the light, two outside), the wall and its face block and the closed door blocks until opened, right-click
+## gives a piece back, an axe fells a tree in Config.TREE_CHOP_HITS swings into logs and a stump that grows back. Field
+## `build=<pieces put down>/<cost in the light>/<cost outside> trees=<count>/<logs from one>`.
+static func _check_build(r: Report) -> void:
+	for path: String in ["res://art/env/build_stone_candA_v02.png", "res://art/env/tree_v02.png", "res://art/env/stump_v01.png",
+			"res://art/env/prop_lantern_post_c_v03_lit.png", "res://art/env/prop_lantern_post_c_v03_emissive.png",
+			"res://art/chars/base_body_v02_axe.png"]:
+		r.expect(ResourceLoader.exists(path), "%s missing" % path)
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var trees: Array[Vector2i] = Forest.tree_cells(data)
+	r.expect_eq(trees.size(), Config.TREE_COUNT, "the seed's trees")
+	r.expect(not trees.is_empty() and Movement.is_blocked(data, trees[0]), "a trunk blocks")
+	var inv: Inventory = Inventory.new()
+	inv.add(&"stone_wall", 4)
+	inv.add(&"door", 1)
+	var feet: Vector2 = Arena.spawn_feet(Vector2i(62, 51))
+	var placed: int = 0
+	var wall: WorldItems.Outcome = Building.build(data, feet, inv, 0, Vector2i(61, 52))
+	r.expect(wall.ok(), "a wall south-west of the altar refused: %s" % wall.why)
+	for e: EditLog.WorldEdit in wall.edits:
+		EditLog.apply_to_data(data, e)
+	placed += 1 if wall.ok() else 0
+	r.expect(Movement.is_blocked(data, Vector2i(61, 52)) and Movement.is_blocked(data, Vector2i(61, 53)), "the wall and its face block")
+	var door: WorldItems.Outcome = Building.build(data, feet, inv, 1, Vector2i(62, 52))
+	r.expect(door.ok(), "a door next to it refused: %s" % door.why)
+	for e2: EditLog.WorldEdit in door.edits:
+		EditLog.apply_to_data(data, e2)
+	placed += 1 if door.ok() else 0
+	r.expect(Movement.is_blocked(data, Vector2i(62, 52)), "a closed door blocks")
+	var opened: WorldItems.Outcome = Building.toggle_door(data, feet, Vector2i(62, 52))
+	for e3: EditLog.WorldEdit in opened.edits:
+		EditLog.apply_to_data(data, e3)
+	r.expect(opened.ok() and not Movement.is_blocked(data, Vector2i(62, 52)) and not Movement.is_blocked(data, Vector2i(62, 53)),
+		"an open door and its face let through")
+	var cost_in: int = Building.cost_at(data, Vector2i(61, 52))
+	var cost_out: int = Building.cost_at(data, trees[0] + Vector2i(1, 0)) if not trees.is_empty() else 0
+	r.expect(cost_in < cost_out, "cheaper in the light (%d) than outside (%d)" % [cost_in, cost_out])
+	var down: WorldItems.Outcome = Building.demolish(data, feet, inv, Vector2i(61, 52))
+	r.expect(down.ok() and down.item == &"stone_wall", "right-click takes the wall down: %s" % down.why)
+	var logs: int = 0
+	if not trees.is_empty():
+		var t: Vector2i = trees[0]
+		var forest: Forest = Forest.new(data)
+		forest.regrow_ticks = 3
+		var axe: Inventory = Inventory.new()
+		axe.add(&"axe", 1)
+		var at: Vector2 = Arena.spawn_feet(t + Vector2i(0, 1))
+		var res: Forest.Result = null
+		for i: int in Config.TREE_CHOP_HITS:
+			res = forest.chop(at, axe, &"axe", t)
+			for e4: EditLog.WorldEdit in res.edits:
+				EditLog.apply_to_data(data, e4)
+		r.expect(res != null and res.felled and data.get_value(WorldData.Layer.PLACEABLE, t) == WorldData.PLACEABLE_STUMP,
+			"felled in %d swings: a stump" % Config.TREE_CHOP_HITS)
+		logs = axe.count_of(&"log")
+		r.expect_eq(logs, Config.TREE_LOGS, "logs from a tree")
+		for i2: int in 3:
+			for e5: EditLog.WorldEdit in forest.step():
+				EditLog.apply_to_data(data, e5)
+		r.expect_eq(data.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_TREE, "the stump grows back")
+	r.fields.append("build=%d/%d/%d trees=%d/%d" % [placed, cost_in, cost_out, trees.size(), logs])
+
+
 static func _check_light(r: Report) -> void:
 	var zone: SafeZone = SafeZone.for_world(SurfaceGen.generate(Config.DEFAULT_SEED))
 	var img: Image = LightGen.zone_light_image(zone, LightGen.Edge.HARD, 0)
@@ -608,6 +726,7 @@ static func _check_net(r: Report) -> void:
 	_check_net_combat(r, s)
 	_check_net_potions(r, s)
 	_check_net_fields(r)
+	_check_net_builds(r)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -791,6 +910,63 @@ static func _check_net_fields(r: Report) -> void:
 		"a farm's growth and its withering once the altar left reach a client's world as edits (M5c: %s)" % (
 		f.describe() if f != null else "none"))
 	r.fields.append("fields_wire=%dB/%dB" % [state_bytes, edit_bytes])
+
+
+## M7c: stations, gear, the chest, building and trees on the wire: the four new requests round trip, an inventory with a
+## worn tier-1 sword and the armour, and a host world with a built wall, an open door, a stump, an anvil and a chest holding
+## something reaches a client as the snapshot (the same hash) and the edits after it (a chest slot, the door closing).
+static func _check_net_builds(r: Report) -> void:
+	var frames: Array[NetProtocol.InputFrame] = []
+	for op: int in [NetProtocol.Op.DEMOLISH, NetProtocol.Op.DOOR, NetProtocol.Op.ARMOR, NetProtocol.Op.CHEST]:
+		var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(40 + frames.size(), Vector2i.ZERO)
+		f.op = op
+		f.cell = Vector2i(61, 61) if op != NetProtocol.Op.ARMOR else Vector2i.ZERO  # ARMOR names a slot, no tile
+		f.slot = 3 if op == NetProtocol.Op.ARMOR or op == NetProtocol.Op.CHEST else 0  # DEMOLISH and DOOR carry no slot
+		f.chest_take = op == NetProtocol.Op.CHEST
+		frames.append(f)
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs(frames))
+	var same: bool = up.ok and up.frames.size() == frames.size()
+	for i: int in frames.size():
+		same = same and up.frames[i].same_request(frames[i])
+	r.expect(same, "DEMOLISH, DOOR, ARMOR and CHEST round trip (M7c)")
+	var inv: Inventory = Inventory.new()
+	inv.add(&"sword_t1", 1)
+	inv.stack_at(0).durability = 57
+	inv.wear(ItemStack.new(&"armor_t1", 1, ItemDB.Grade.NONE, 33))
+	var inv_bytes: PackedByteArray = NetProtocol.encode_inventory(inv, 5)
+	var ib: NetProtocol.InventoryState = NetProtocol.decode_inventory(inv_bytes)
+	r.expect(ib.ok and ib.stacks[0] != null and ib.stacks[0].durability == 57 and ib.armor != null and ib.armor.durability == 33,
+		"an inventory with durability and the armour round trips (M7c)")
+	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var tree: Vector2i = Forest.tree_cells(host)[0]
+	for e: EditLog.WorldEdit in [Building.edit_for(Building.STONE_WALL, Vector2i(66, 56)),
+			EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_DOOR_OPEN, 0)),
+			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, tree, WorldData.PLACEABLE_STUMP),
+			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(62, 51), WorldData.PLACEABLE_ANVIL),
+			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(63, 51), WorldData.PLACEABLE_ANVIL)]:
+		EditLog.apply_to_data(host, e)
+	host.put_placeable(Rect2i(62, 44, 3, 1), WorldData.PLACEABLE_CHEST)
+	host.chest_at(Vector2i(62, 44)).slots[2] = ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 9)
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host)
+	var client: WorldData = WorldSnapshot.unpack(packed.bytes, packed.raw_size)
+	r.expect(client != null and client.content_hash() == host.content_hash(),
+		"a built world (wall, open door, stump, anvil, a chest holding a worn sword) reaches a client as its snapshot (M7c)")
+	if client == null:
+		return
+	var later: Array[EditLog.WorldEdit] = [EditLog.WorldEdit.chest_slot(Vector2i(62, 44), 2, null),
+		EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_DOOR, 0))]
+	var edit_bytes: int = 0
+	for i: int in later.size():
+		EditLog.apply_to_data(host, later[i])
+		var wire: PackedByteArray = EditLog.encode_one(later[i], i, Config.MAP_SURFACE)
+		edit_bytes += wire.size()
+		var got: Array = EditLog.decode_one(wire)
+		var ge: EditLog.WorldEdit = got[1]
+		EditLog.apply_to_data(client, ge)
+	r.expect(client.content_hash() == host.content_hash() and Walls.is_door(client, Vector2i(64, 56))
+		and not Walls.is_open_door(client, Vector2i(64, 56)) and client.chest_at(Vector2i(62, 44)).is_empty(),
+		"a chest slot edit and the door closing follow (M7c)")
+	r.fields.append("builds_wire=%dB/%dB/%dB" % [inv_bytes.size(), packed.bytes.size(), edit_bytes])
 
 
 ## Applies `edits` to `data` and returns them.

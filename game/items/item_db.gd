@@ -25,11 +25,45 @@ extends RefCounted
 ## M6a: POTION = drunk with "use" (left click), thrown with the herbalist's skill (items/potions.gd).
 ## M5b: CONSUMABLE = used up on a target tile with "use" (holy water purifies the corrupted tiles around it,
 ## items/purify.gd).
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE }
+## M7a: ARMOR = worn in the inventory's armour slot (items/gear.gd; a click while it is selected puts it on).
+## M7a also adds the wood and the ingots (MATERIAL), the three stations and the storage chest (PLACEABLE, items/crafting.gd,
+## items/storage.gd) and the tier-1 weapons (TOOL: each plays its base weapon's action, Config.GEAR_T1_BASE), all at the
+## end of the table (the wire sends items by index).
+## M7b: BUILD = a build piece (items/building.gd: a click puts one down on the target tile, at the light's cost; right-click
+## takes a built one down): the stone wall, the door, the stone floor and the lantern post. The axe (TOOL, its own body
+## action RigData.Anim.AXE) chops trees (world/forest.gd). Both appended at the end.
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
-const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable"]
+const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable", "armor",
+	"build"]
+## M7a: the icons of the wood and the ingots (04-env 묶음 2 #62 log, #46 planks, #42 / #44 ingots: the 3/4 icons v02, like the
+## stone block and the ores; whether material icons are 3/4 v02 or front v03 is ○ brief §5.7).
+const WOOD_ICONS: Dictionary[StringName, String] = {
+	&"log": "item_log_v02.png", &"planks": "item_planks_a_v02.png",
+	&"ingot_copper": "item_ingot_copper_a_v02.png", &"ingot_iron": "item_ingot_iron_a_v02.png",
+}
+## M7a: the placeable stations and the chest, by item, with the 04-env picture their inventory icon is shrunk from
+## (ItemIcons.fit_icon: a PLACEHOLDER composed from the placed picture; no icon art exists).
+const STATION_ITEMS: Dictionary[StringName, Array] = {
+	&"workbench": [WorldData.PLACEABLE_WORKBENCH, "res://art/env/workbench_v03.png"],
+	&"anvil": [WorldData.PLACEABLE_ANVIL, "res://art/env/anvil_v03.png"],
+	&"relic_bench": [WorldData.PLACEABLE_RELIC, "res://art/env/relic_bench_v03.png"],
+	&"storage_chest": [WorldData.PLACEABLE_CHEST, "res://art/env/storage_chest_v02.png"],
+}
+## M7b: the build pieces' icons (PLACEHOLDERS composed from our art: no icon art exists): parts of the build sheet
+## (04-env build_stone_candA_v02: the stone wall = the lone wall top's upper rows over the lone face's lower rows, the door =
+## the closed door's arch over its threshold rows, the floor = floor piece A) and of the lantern post (its lantern head), as
+## [source rect, place in the 16x16 icon] pairs (ItemIcons.texture_for).
+const BUILD_SHEET: String = "res://art/env/build_stone_candA_v02.png"
+const LANTERN_POST: String = "res://art/env/prop_lantern_post_c_v03_lit.png"
+const BUILD_ICONS: Dictionary[StringName, Array] = {
+	&"stone_wall": [BUILD_SHEET, [[Rect2i(0, 0, 16, 7), Vector2i(0, 0)], [Rect2i(0, 63, 16, 9), Vector2i(0, 7)]]],
+	&"door": [BUILD_SHEET, [[Rect2i(64, 48, 16, 8), Vector2i(0, 0)], [Rect2i(64, 64, 16, 8), Vector2i(0, 8)]]],
+	&"stone_floor": [BUILD_SHEET, [[Rect2i(64, 32, 16, 16), Vector2i(0, 0)]]],
+	&"lantern": [LANTERN_POST, [[Rect2i(8, 5, 16, 16), Vector2i(0, 0)]]],
+}
 ## M5b: holy water's icon (04-env 묶음 2 #58 "a small glass vial of holy water", 판정 좋음; the a / b / c vials are
 ## candidates, a is the first of the two marked good).
 const HOLY_WATER_ICON: String = "item_holy_water_a_v02.png"
@@ -70,6 +104,15 @@ class ItemDef:
 	var icon_region: Rect2i = Rect2i()
 	## M6a: a potion's effect (Potions.Effect; -1: not a potion).
 	var effect: int = -1
+	## M7a: full durability (0 = none: only the tier-1 gear has it, Config.GEAR_DURABILITY), the base item a tier-1 weapon
+	## stands for (&"" = itself; Gear.base), its tier (0 = the basic items), and whether the icon is the placed picture
+	## shrunk to 16x16 (icon_path then names that picture; ItemIcons.fit_icon).
+	var durability: int = 0
+	var base: StringName = &""
+	var tier: int = 0
+	var icon_fit: bool = false
+	## M7b: the icon is composed from parts of icon_path ([Rect2i source, Vector2i place] pairs; empty = none).
+	var icon_parts: Array = []
 
 	func _init(p_id: StringName, p_kind: int, p_stack: int, p_graded: bool = false, p_action: int = -1) -> void:
 		id = p_id
@@ -83,6 +126,14 @@ class ItemDef:
 
 	func is_potion() -> bool:
 		return kind == Kind.POTION
+
+	## M7a: worn in the armour slot.
+	func is_armor() -> bool:
+		return kind == Kind.ARMOR
+
+	## M7b: a build piece (items/building.gd).
+	func is_build() -> bool:
+		return kind == Kind.BUILD
 
 
 static var _table: Dictionary[StringName, ItemDef] = {}
@@ -239,6 +290,47 @@ static func _build() -> void:
 	# that sells it is M8). Kind CONSUMABLE, no grade, stack Config.STACK_HOLY_WATER. No action of its own: a click pours it
 	# (Config.HOLY_WATER_ANIM, items/purify.gd). How it is had is PROVISIONAL (README "M5b 성수 얻기": --give only).
 	_art(&"holy_water", Kind.CONSUMABLE, Config.STACK_HOLY_WATER, false, HOLY_WATER_ICON)
+	# M7a (appended): wood (logs: the tree is M7b, until then --give; planks are sawn at the workbench) and the ingots
+	# smelted at the anvil (README "임시값" M7a 작업대 체인), materials like the ores.
+	for wood_id: StringName in WOOD_ICONS:
+		_art(wood_id, Kind.MATERIAL, Config.STACK_MATERIAL, false, WOOD_ICONS[wood_id])
+	# M7a: the three stations and the storage chest, put down like the alchemy table (PROVISIONAL: made at the previous
+	# station, the workbench by hand; --give gives them too). Icons: the placed 04-env picture shrunk (PLACEHOLDER).
+	for station_id: StringName in STATION_ITEMS:
+		var st: ItemDef = ItemDef.new(station_id, Kind.PLACEABLE, Config.STACK_MATERIAL)
+		st.place = STATION_ITEMS[station_id][0]
+		st.icon_path = STATION_ITEMS[station_id][1]
+		st.icon_fit = true
+		_add(st)
+	# M7a: the tier-1 weapons (● gameplay-design §3.5: tier 1 anyone's at the anvil): each plays its base weapon's body
+	# action and attacks like it, harder (Config.GEAR_T1_BASE, GEAR_T1_DAMAGE_PCT), and wears (Config.GEAR_DURABILITY).
+	# Icons: the base weapon's code icon with a gold tier mark (PLACEHOLDER, ItemIcons). No new looks (● R21).
+	for t1_id: StringName in Config.GEAR_T1_BASE:
+		var base_def: ItemDef = _table[Config.GEAR_T1_BASE[t1_id]]
+		var w: ItemDef = ItemDef.new(t1_id, Kind.TOOL, Config.STACK_TOOL, false, base_def.action)
+		w.icon_code = base_def.icon_code
+		w.base = base_def.id
+		w.tier = 1
+		w.durability = Config.GEAR_DURABILITY.get(t1_id, 0)
+		_add(w)
+	# M7a: the one armour piece (○ gameplay-design §2.4 "방어력"; README "임시값" M7a 갑옷), worn in the armour slot.
+	var armor: ItemDef = ItemDef.new(&"armor_t1", Kind.ARMOR, Config.STACK_TOOL)
+	armor.icon_code = &"armor_t1"
+	armor.tier = 1
+	armor.durability = Config.GEAR_DURABILITY.get(&"armor_t1", 0)
+	_add(armor)
+	# M7b (appended): the axe (○ game-concept §12 R37 "벌목 도구는 도끼"; a hand recipe from stones, Config.BUILD_RECIPES): a
+	# hand tool with its own body action (03-pixel base_body_v02_axe, ● brief §5.6 R25: the tool is drawn into the action).
+	# Icon drawn in code (PLACEHOLDER, no axe icon art).
+	_tool(&"axe", RigData.Anim.AXE)
+	# M7b: the four build pieces (○ gameplay-design §3.3 "벽·바닥·문·작업대·조명은 공용"; ● R37 walls are stone only), made at
+	# the basic workbench (Config.BUILD_RECIPES). Stack Config.STACK_MATERIAL. Icons composed from the build art (BUILD_ICONS).
+	for piece_id: StringName in BUILD_ICONS:
+		var b: ItemDef = ItemDef.new(piece_id, Kind.BUILD, Config.STACK_MATERIAL)
+		var spec: Array = BUILD_ICONS[piece_id]
+		b.icon_path = spec[0]
+		b.icon_parts = spec[1]
+		_add(b)
 
 
 static func _tool(id: StringName, action: int) -> void:

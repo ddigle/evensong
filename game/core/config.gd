@@ -572,6 +572,186 @@ const ALTAR_CARRIED_JOIN_AT_HOME: bool = true
 ## where it was picked up.
 const ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES: bool = true
 
+# --- PROVISIONAL, M7a (the workbench chain, tier-1 gear, durability, shared storage) ---------------------------------
+# M7a added these offline first; M7c's host runs the same rules in sessions. README "임시값" M7a.
+
+## PROVISIONAL (○ gameplay-design §3.5 "기본 작업대 → 모루(대장간) → 성물 제작대 → (이후 티어)"; the slice takes "작업대 체인
+## 2~3단계", game-concept §12, a proposal there too): the footprints (tiles) of the three stations and the storage chest. Each 48x32 / 32x32
+## 04-env picture stands on its footprint with its opaque bottom row on the footprint's bottom row of pixels (like the
+## alchemy table, M6a). The anvil's picture is 28 px wide: two tiles; the others are 42-44 px: three.
+const WORKBENCH_FOOTPRINT: Vector2i = Vector2i(3, 1)
+const ANVIL_FOOTPRINT: Vector2i = Vector2i(2, 1)
+const RELIC_BENCH_FOOTPRINT: Vector2i = Vector2i(3, 1)
+const CHEST_FOOTPRINT: Vector2i = Vector2i(3, 1)
+## PROVISIONAL (○ §3.5 the chain; recipes, amounts and which station smelts are not in the docs). One row per recipe:
+## [station kind, output item, output count, [[input item, count], ...]]. Stations: "hand" (no station: Tab away from
+## every station once a hand recipe is unlocked), "workbench", "anvil", "relic". The chain: the basic workbench from logs
+## by hand -> planks, the anvil and the storage chest at the workbench -> smelting ore into ingots (1 : 1, no furnace:
+## the docs name none), the tier-1 gear (● §3.0 R11 "누구나 모루에서 1~2티어 제작", so no class limit) and the relic bench at the
+## anvil -> at the relic bench only the torch (the slice has no relic yet: prayer M10, the altar upgrade M12, the
+## collection M11 are what a relic bench would make; the torch's placed picture is the 04-env brass lantern, the relic
+## bench's picture shows a brass lamp being made, and lights are anyone's to build, ○ §3.3). Logs come from --give until
+## the tree (M7b); stone_a is the mined rock (Config.MINED_ROCK_ITEM) and lies on the surface.
+const STATION_RECIPES: Array = [
+	["hand", &"workbench", 1, [[&"log", 4]]],
+	["workbench", &"planks", 2, [[&"log", 1]]],
+	["workbench", &"anvil", 1, [[&"stone_a", 10], [&"ore_iron", 2], [&"planks", 2]]],
+	["workbench", &"storage_chest", 1, [[&"planks", 8], [&"ingot_iron", 1]]],
+	["anvil", &"ingot_copper", 1, [[&"ore_copper", 1]]],
+	["anvil", &"ingot_iron", 1, [[&"ore_iron", 1]]],
+	["anvil", &"sword_t1", 1, [[&"ingot_iron", 2], [&"planks", 1]]],
+	["anvil", &"bow_t1", 1, [[&"planks", 3], [&"ingot_copper", 1]]],
+	["anvil", &"holy_light_t1", 1, [[&"ingot_copper", 2], [&"ingot_iron", 1]]],
+	["anvil", &"pickaxe_t1", 1, [[&"ingot_iron", 2], [&"planks", 2]]],
+	["anvil", &"sickle_t1", 1, [[&"ingot_iron", 1], [&"ingot_copper", 1], [&"planks", 1]]],
+	["anvil", &"armor_t1", 1, [[&"ingot_iron", 3], [&"ingot_copper", 1]]],
+	["anvil", &"relic_bench", 1, [[&"planks", 4], [&"ingot_copper", 2], [&"ingot_iron", 1]]],
+	["relic", &"torch", 4, [[&"ingot_copper", 1], [&"planks", 1]]],
+]
+## PROVISIONAL (● gameplay-design §3.0 R11: tier 1 is anyone's at the anvil, ○ §3.5 too; the items, numbers and kinds are not
+## in the docs): each tier-1 weapon is its class's basic weapon made better (Config.CLASS_WEAPONS: same body action, same
+## attack shape, the miner's pickaxe mines exactly as the pickaxe does), by base item. Gear never changes looks (● game-concept
+## §12 R21 default looks): the picture is the base weapon's.
+const GEAR_T1_BASE: Dictionary[StringName, StringName] = {
+	&"sword_t1": &"sword", &"bow_t1": &"bow", &"holy_light_t1": &"holy_light", &"pickaxe_t1": &"pickaxe",
+	&"sickle_t1": &"sickle",
+}
+## PROVISIONAL (not in docs): a tier-1 weapon's damage in percent of its base weapon's (Config.WEAPON_ATTACKS), while not
+## broken. 150: the sword's 14 becomes 21, so a heretic (40 HP) falls in two swings instead of three.
+const GEAR_T1_DAMAGE_PCT: int = 150
+## PROVISIONAL (○ gameplay-design §2.4 "HP + 방어력(피해 감소)"; numbers and slots are not in the docs): one armour piece,
+## worn in the inventory's one armour slot (equipped with a click while it is selected in the hotbar). While worn and not
+## broken it takes this much off every heretic knife hit (Config.HERETIC_DAMAGE 12 -> 8), never below ARMOR_MIN_DAMAGE.
+## Poison is not lessened (M6a: poison ignores defence).
+const ARMOR_T1_DEFENCE: int = 4
+const ARMOR_MIN_DAMAGE: int = 1
+## PROVISIONAL (● gameplay-design §2.6 R12: "장착 장비는 유지하되 내구도 손상"; the amounts, use wear and which items wear
+## are not in the docs): durability points of the items that have it (only the tier-1 gear: the basic tools and weapons
+## everyone starts with, M2-M4, have none, so nobody is ever left without a basic attack or a pickaxe).
+const GEAR_DURABILITY: Dictionary[StringName, int] = {
+	&"sword_t1": 120, &"bow_t1": 120, &"holy_light_t1": 120, &"pickaxe_t1": 120, &"sickle_t1": 120, &"armor_t1": 100,
+}
+## PROVISIONAL (not in docs): use wear. A weapon loses GEAR_WEAR_PER_ATTACK on every attack it lands on its hit frame (a
+## swing or a shot let go, hit or miss; not a mining or harvest swing of the tier-1 pickaxe / sickle, whose mining power is
+## the base tool's); the worn armour loses GEAR_WEAR_PER_HIT on every knife hit it takes.
+const GEAR_WEAR_PER_ATTACK: int = 1
+const GEAR_WEAR_PER_HIT: int = 1
+## PROVISIONAL (● §2.6 "장착 장비는 유지하되 내구도 손상"; the amount is not in the docs): on death every item with
+## durability the player carries (the worn armour and every tier-1 weapon in the inventory) keeps its place and loses this
+## percent of its full durability (rounded up). The death bag rule (M4a) is unchanged: gear never goes into the bag.
+const GEAR_DEATH_WEAR_PCT: int = 20
+## PROVISIONAL (not in docs): what a broken item (durability 0) does. False = it still works as its base item (a broken
+## sword_t1 hits like the basic sword, broken armour takes nothing off); true = it cannot be used at all.
+const GEAR_BROKEN_UNUSABLE: bool = false
+## PROVISIONAL (? ● gameplay-design §2.6 R12 "(기술자 수리 = 기술자 일감)": repair is the engineer's work, and the engineer is
+## not in the slice; README "M7-fix 수리" asks the human): whether anyone may repair at the anvil. False (M7-fix: following the
+## ● line, nobody repairs in the slice; worn gear works on as its base item at 0, GEAR_BROKEN_UNUSABLE off): the repair rows
+## are never shown and a repair craft is refused (Crafting.WHY_NO_REPAIR). True = M7a's rule: anyone, below.
+const GEAR_REPAIR_AT_ANVIL: bool = false
+## PROVISIONAL (with GEAR_REPAIR_AT_ANVIL on; not in the docs): repairing one item at the anvil costs one of this material and
+## gives it full durability (the most worn one of that item the player carries, the worn armour included).
+const GEAR_REPAIR_MATERIAL: Dictionary[StringName, StringName] = {
+	&"sword_t1": &"ingot_iron", &"pickaxe_t1": &"ingot_iron", &"armor_t1": &"ingot_iron",
+	&"bow_t1": &"ingot_copper", &"holy_light_t1": &"ingot_copper", &"sickle_t1": &"ingot_copper",
+}
+## PROVISIONAL (○ gameplay-design §5 "공유 창고: 제단 옆"; the size and the rule are not in the docs): a storage chest's
+## slots, and whether it may only be put down with its whole footprint inside the altar's light (true: "next to the
+## altar" read as "in its light"; every corner of every footprint tile inside the safe zone, the field rule
+## Farming.in_light). It stays where it is when the altar moves (its contents belong to the map, not to a player).
+const CHEST_SLOTS: int = 16
+const CHEST_ONLY_IN_LIGHT: bool = true
+
+# --- PROVISIONAL, M7b (building, the tree and the axe) ---------------------------------------------------------------
+# M7b added these offline first; M7c's host runs the same rules in sessions. README "임시값" M7b.
+
+## PROVISIONAL (○ gameplay-design §3.3 "제단 반경 안은 건설 비용 감소 또는 즉시 건설"; the chosen half is the cost: a
+## piece goes down at once everywhere): how many of a build piece one tile takes, inside the altar's light (every corner of
+## the tile inside the safe zone, the field rule Farming.in_light) and outside it (and in the dungeon, which has no altar).
+const BUILD_COST_IN_LIGHT: int = 1
+const BUILD_COST_OUTSIDE_LIGHT: int = 2
+## PROVISIONAL (○ §3.3 "우클릭 철거"; what it gives back is not in the docs): right-click takes any built piece down (anyone's:
+## the docs track no owner) and gives this many of its piece back (M7b: a full inventory refused it; M7-fix: what does not
+## fit lies at the feet as a drop, README "M7-fix 철거").
+const BUILD_REFUND: int = 1
+## PROVISIONAL (○ §3.1 the surface is "사는 층", building is listed there; whether the dungeon allows it is not in the docs):
+## build pieces may go down in the dungeon too (outside the light, so at BUILD_COST_OUTSIDE_LIGHT).
+const BUILD_IN_DUNGEON: bool = true
+## PROVISIONAL (not in the docs; the task's "never sealing the spawn slots or arrival points"): a piece (or any other blocking
+## thing put down: a station, the chest, the altar) may not leave a spot where players appear (WorldItems.reserved_feet:
+## the altar's spawn slots, the arrival point below the way in) unable to walk this many tiles (Chebyshev) away from its
+## tile, when it could before. Doors count as open (anyone opens them); trees, walls and blocking placeables block. 12 is
+## more than the light's radius + the spawn slots' reach, so a closed ring without a door can not wall the light in.
+## M7-fix: the other players' feet walk the same way (a piece or a station may not wall another player in; README "M7-fix
+## 다른 사람 가두기").
+const BUILD_SEAL_REACH_TILES: int = 12
+## PROVISIONAL (○ gameplay-design §1 F "상호작용 (… 문 …)"; who opens is not in the docs): any player opens and closes a
+## door with F (heretics never do: a closed door is a wall to them). False = only the player who built it (not modelled
+## yet: there is no owner, so false would mean nobody).
+const DOOR_ANYONE: bool = true
+## PROVISIONAL (○ §3.3 "벽·바닥·문·작업대·조명은 공용"; recipes and amounts are not in the docs; ● R37 walls are stone only):
+## the build pieces made at the basic workbench, rows like STATION_RECIPES ([station, output, count, [[input, count]]]),
+## appended after the repairs (a CRAFT index keeps its meaning). The stone wall, door, floor and lantern post are the four
+## pieces of §3.3 (the brief's build sheet build_stone_candA: wall, door, floor; the 04-env lantern post c with its stone
+## base and wooden pole = the light). The axe (○ game-concept §12 R37 "벌목 도구는 도끼") is a hand recipe from stones:
+## the tree needs the axe before any log exists (the workbench needs logs), and stone_a lies on the surface.
+const BUILD_RECIPES: Array = [
+	["workbench", &"stone_wall", 2, [[&"stone_a", 2]]],
+	["workbench", &"door", 1, [[&"planks", 3], [&"stone_a", 2]]],
+	["workbench", &"stone_floor", 4, [[&"stone_a", 2]]],
+	["workbench", &"lantern", 1, [[&"planks", 2], [&"stone_a", 1]]],
+	["hand", &"axe", 1, [[&"stone_a", 2]]],
+]
+## PROVISIONAL (○ brief §5.7 "랜턴(건설 조명)"; its reach is not in the docs: the 04-env mockup draws a small pool): the lantern
+## post's light (light/torch_light.gd, the placed torch's hard steps). Light only: the safe zone is still the altar's alone.
+const LANTERN_LIGHT_RADIUS_PX: int = 80
+const LANTERN_LIGHT_ENERGY: float = 0.95
+## PROVISIONAL (● game-concept §12 R37 "나무 1종을 누구나 벤다"; how many, where and how far apart are not in the docs):
+## SurfaceGen step 6 puts this many trees (each the trunk's one tile) on clean grass, at least TREE_SPACING_TILES apart
+## (Chebyshev), every trunk centre at least TREE_LIGHT_CLEARANCE_TILES beyond the safe radius (20 tiles from the altar's
+## centre: the start's meadow stays open for building and for moving the altar a screen away; wood is a walk out of the
+## light), no ash within TREE_ASH_CLEARANCE_TILES (corruption zones and the heretics'
+## spawn band around them have no trees), at least TREE_EDGE_TILES from the map's sides and TREE_TOP_TILES from its top
+## (the crown), nothing growing, lying or standing in the crown's tiles and around the trunk (TREE_CLEAR_SIDE_TILES to
+## either side, from TREE_CLEAR_ABOVE_TILES above to TREE_CLEAR_BELOW_TILES below the trunk; M7-fix named them, the values
+## are M7b's), not within TREE_ENTRANCE_CLEARANCE_TILES of the entrance's footprint. Its own random stream (TREE_SALT), so
+## the M1-M3 steps are as they were.
+const TREE_COUNT: int = 30
+const TREE_SPACING_TILES: int = 4
+const TREE_LIGHT_CLEARANCE_TILES: int = 13
+const TREE_ASH_CLEARANCE_TILES: int = 3
+const TREE_EDGE_TILES: int = 3
+const TREE_TOP_TILES: int = 6
+const TREE_CLEAR_SIDE_TILES: int = 2
+const TREE_CLEAR_ABOVE_TILES: int = 4
+const TREE_CLEAR_BELOW_TILES: int = 1
+const TREE_ENTRANCE_CLEARANCE_TILES: int = 3
+const TREE_SALT: int = 0x7EE5
+## PROVISIONAL (○ game-concept §12 "○ 벌목 도구는 도끼"; numbers not in the docs): only the axe chops (any class: ● R37
+## anyone; another tool aimed at a trunk does what it always did); a tree falls after TREE_CHOP_HITS swings that land
+## (Config.AXE_IMPACT_FRAME of the axe action) and gives TREE_LOGS logs (what does not fit lies on the trunk tile as a
+## drop), leaving its stump. The stump blocks like the trunk (TREE_STUMP_BLOCKS) and grows back into a tree after
+## TREE_REGROW_TICKS (0 = never: the stump stays).
+const TREE_CHOP_HITS: int = 5
+const TREE_LOGS: int = 4
+const TREE_REGROW_TICKS: int = 5 * 60 * 60
+const TREE_STUMP_BLOCKS: bool = true
+## PROVISIONAL (03-pixel 14차 "M7b에 넘길 것": every direction strikes on sheet column 4 = frame index 3, like the pickaxe
+## and the hoe): the axe's swing lands on this frame of its action.
+const AXE_IMPACT_FRAME: int = 3
+
+# --- PROVISIONAL, M7c (sessions: building, doors, trees, stations, gear, the chest) ----------------------------------
+# M7c brings M7a and M7b into sessions (the host decides every result). README "임시값" M7c.
+
+## PROVISIONAL (not in the docs; README "임시값" M7c 막기 여유): a door that closes and a new wall, door or lantern post block at
+## once on the host, but a client walking there meets them a round trip later (its frames reach the host first, the edit
+## comes back after), so its prediction would walk where the host does not and be pulled back. So a door does not close, and
+## a blocking piece does not go down, while another player's feet box is within this many px of the tiles that would block:
+## no frame that player predicted before the edit arrived can reach them. 24 px is what a walk covers (Config.WALK_SPEED
+## 72 px/s) in 333 ms: a round trip plus the host's input buffering up to about 280 ms (a dash covers 40 px: README "M7c 예측").
+## The closer's or the builder's own feet keep the M7b rules (not in the doorway, not under the piece); heretics too (nobody
+## predicts them). Offline the same rule holds against the other players there (--test-ally).
+const BLOCK_CLEARANCE_PX: float = 24.0
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

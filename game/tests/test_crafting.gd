@@ -47,8 +47,10 @@ static func inv_text(inv: Inventory) -> String:
 
 
 func _check_recipes() -> void:
-	var all: Array[Crafting.Recipe] = Crafting.recipes()
-	check_eq(all.size(), 6, "six recipes: three potions x two grades")
+	var all: Array[Crafting.Recipe] = Crafting.recipes().slice(0, 6)  # M7a: the workbench chain's come after (test_workbench.gd)
+	check_eq(Crafting.recipes_for(Crafting.ALCHEMY).size(), 6, "six alchemy recipes: three potions x two grades")
+	check_eq(Crafting.recipes().size(), 6 + Config.STATION_RECIPES.size() + Config.GEAR_REPAIR_MATERIAL.size()
+		+ Config.BUILD_RECIPES.size(), "M7a: after them the chain's recipes and the repairs (M7b: then the build pieces, the axe)")
 	var want: Dictionary[StringName, Array] = {  # id: [herb, potion, grade, herbalist only]
 		&"potion_healing_common": [&"wild_healing", &"potion_healing", ItemDB.Grade.COMMON, not Config.COMMON_POTIONS_ANYONE],
 		&"potion_healing_fine": [&"wild_healing", &"potion_healing", ItemDB.Grade.FINE, true],
@@ -74,7 +76,7 @@ func _check_recipes() -> void:
 		for c: String in Config.CLASSES:
 			check_eq(r.allows(c), not only or c == "herbalist", "%s allowed for %s" % [r.id, c])
 	check_eq(Crafting.recipes_for(Crafting.ALCHEMY).size(), 6, "the alchemy table has all six")
-	check_eq(Crafting.recipes_for(&"anvil").size(), 0, "no other station yet (M7)")
+	check_eq(Crafting.recipes_for(&"alchemy").size(), 6, "M7a: no chain recipe at the alchemy table")
 	check_eq(Crafting.station_kind(WorldData.PLACEABLE_ALCHEMY), Crafting.ALCHEMY, "the table is a station")
 	for p: int in [WorldData.PLACEABLE_TORCH, WorldData.PLACEABLE_ALTAR, WorldData.PLACEABLE_SHRINE, WorldData.PLACEABLE_BAG]:
 		check(Crafting.station_kind(p).is_empty(), "%s is no station" % WorldData.PLACEABLE_NAMES[p])

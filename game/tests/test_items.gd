@@ -43,6 +43,25 @@ const SEEDS: Dictionary[StringName, int] = {&"seed_healing": 0, &"seed_buff": 1,
 ## M5b: holy water (kind CONSUMABLE, no grade, the 04-env vial a), appended after the seeds.
 const CONSUMABLES: Dictionary[StringName, String] = {&"holy_water": "item_holy_water_a_v02.png"}
 const HERBS: Array[StringName] = [&"wild_healing", &"wild_buff", &"wild_poison", &"herb_clump"]
+## M7a (appended after holy water): wood and ingots (materials, 04-env v02 icons), the stations and the chest (placeables
+## whose icon is their placed picture shrunk), the tier-1 weapons (tools playing their base weapon's action, the base's
+## code icon) and the armour (kind ARMOR, a code icon). Written out here on purpose.
+const M7_MATERIALS: Dictionary[StringName, String] = {&"log": "item_log_v02.png", &"planks": "item_planks_a_v02.png",
+	&"ingot_copper": "item_ingot_copper_a_v02.png", &"ingot_iron": "item_ingot_iron_a_v02.png"}
+const M7_PLACEABLES: Dictionary[StringName, Array] = {
+	&"workbench": [WorldData.PLACEABLE_WORKBENCH, "res://art/env/workbench_v03.png"],
+	&"anvil": [WorldData.PLACEABLE_ANVIL, "res://art/env/anvil_v03.png"],
+	&"relic_bench": [WorldData.PLACEABLE_RELIC, "res://art/env/relic_bench_v03.png"],
+	&"storage_chest": [WorldData.PLACEABLE_CHEST, "res://art/env/storage_chest_v02.png"]}
+const M7_WEAPONS: Dictionary[StringName, StringName] = {&"sword_t1": &"sword", &"bow_t1": &"bow",
+	&"holy_light_t1": &"holy_light", &"pickaxe_t1": &"pickaxe", &"sickle_t1": &"sickle"}
+const M7_ARMOR: Array[StringName] = [&"armor_t1"]
+## M7b (appended after the armour): the axe (a tool with its own action, a code icon) and the four build pieces (kind BUILD,
+## stack 99, icons composed from their placed art). Written out here on purpose.
+const M7B_TOOLS: Dictionary[StringName, int] = {&"axe": RigData.Anim.AXE}
+const M7B_PIECES: Dictionary[StringName, String] = {&"stone_wall": "res://art/env/build_stone_candA_v02.png",
+	&"door": "res://art/env/build_stone_candA_v02.png", &"stone_floor": "res://art/env/build_stone_candA_v02.png",
+	&"lantern": "res://art/env/prop_lantern_post_c_v03_lit.png"}
 
 
 func run() -> Array[String]:
@@ -61,13 +80,21 @@ func run() -> Array[String]:
 
 func _check_table() -> void:
 	var ids: Array[StringName] = ItemDB.ids()
+	var m7: int = M7_MATERIALS.size() + M7_PLACEABLES.size() + M7_WEAPONS.size() + M7_ARMOR.size()
+	var m7b: int = M7B_TOOLS.size() + M7B_PIECES.size()
 	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size() + SEEDS.size()
-		+ CONSUMABLES.size(),
-		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b)")
-	check_eq(ItemDB.ids().slice(ids.size() - 4, ids.size() - 1), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
+		+ CONSUMABLES.size() + m7 + m7b,
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b)")
+	var before_m7: int = ids.size() - m7 - m7b
+	check_eq(ItemDB.index_of(&"armor_t1"), 47, "M7b: the M7a items keep their wire indices")
+	check_eq(ItemDB.ids().slice(48), [&"axe", &"stone_wall", &"door", &"stone_floor", &"lantern"] as Array[StringName],
+		"M7b: the axe and the build pieces appended at the end")
+	check_eq(ItemDB.ids().slice(before_m7 - 4, before_m7 - 1), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
 		"M5a: the seeds appended at the end (the wire's item indices of the others unchanged)")
-	check_eq(ItemDB.ids().slice(ids.size() - 1), [&"holy_water"] as Array[StringName], "M5b: holy water appended after them")
+	check_eq(ItemDB.ids().slice(before_m7 - 1, before_m7), [&"holy_water"] as Array[StringName], "M5b: holy water appended after them")
 	check_eq(ItemDB.index_of(&"seed_poison"), 32, "M5b: the earlier items keep their wire indices")
+	check_eq(ItemDB.index_of(&"holy_water"), 33, "M7a: holy water keeps its wire index")
+	check_eq(ItemDB.index_of(&"log"), 34, "M7a: the new items come after it")
 	var kinds: Dictionary[int, int] = {}
 	for id: StringName in ids:
 		var def: ItemDB.ItemDef = ItemDB.get_def(id)
@@ -75,6 +102,51 @@ func _check_table() -> void:
 			continue
 		var seen: int = kinds.get(def.kind, 0)
 		kinds[def.kind] = seen + 1
+		if M7_MATERIALS.has(id):
+			check_eq(def.kind, ItemDB.Kind.MATERIAL, "M7a: %s is a material" % id)
+			check_eq(def.icon_path, ItemDB.ART_DIR + M7_MATERIALS[id], "M7a: %s icon file" % id)
+			check_eq(def.stack_max, Config.STACK_MATERIAL, "M7a: %s stack size" % id)
+			check(not def.graded and def.durability == 0 and def.action == -1, "M7a: %s no grade, durability, action" % id)
+			continue
+		if M7_PLACEABLES.has(id):
+			check_eq(def.kind, ItemDB.Kind.PLACEABLE, "M7a: %s is a placeable" % id)
+			check_eq(def.place, M7_PLACEABLES[id][0], "M7a: %s puts its placeable down" % id)
+			check_eq(def.icon_path, M7_PLACEABLES[id][1], "M7a: %s icon from its placed picture" % id)
+			check(def.icon_fit and def.icon_code.is_empty() and def.action == -1, "M7a: %s icon shrunk, no action" % id)
+			continue
+		if M7_WEAPONS.has(id):
+			var base_def: ItemDB.ItemDef = ItemDB.get_def(M7_WEAPONS[id])
+			check_eq(def.kind, ItemDB.Kind.TOOL, "M7a: %s is a tool" % id)
+			check_eq(def.action, base_def.action, "M7a: %s plays its base weapon's action" % id)
+			check_eq(def.base, base_def.id, "M7a: %s base" % id)
+			check_eq(Gear.base(id), base_def.id, "M7a: Gear.base(%s)" % id)
+			check_eq(def.tier, 1, "M7a: %s tier 1" % id)
+			check_eq(def.durability, Config.GEAR_DURABILITY[id], "M7a: %s durability" % id)
+			check_eq(String(def.icon_code), String(base_def.icon_code), "M7a: %s icon = its base's map (+ the tier mark)" % id)
+			check_eq(def.stack_max, Config.STACK_TOOL, "M7a: %s stacks to one" % id)
+			continue
+		if M7B_TOOLS.has(id):
+			check_eq(def.kind, ItemDB.Kind.TOOL, "M7b: %s is a tool" % id)
+			check_eq(def.action, M7B_TOOLS[id], "M7b: %s plays the axe action" % id)
+			check_eq(def.stack_max, Config.STACK_TOOL, "M7b: %s stacks to one" % id)
+			check(def.durability == 0 and def.tier == 0 and not def.graded, "M7b: %s no durability, tier, grade" % id)
+			check_eq(String(def.icon_code), String(id), "M7b: %s icon drawn in code" % id)
+			continue
+		if M7B_PIECES.has(id):
+			check_eq(def.kind, ItemDB.Kind.BUILD, "M7b: %s is a build piece" % id)
+			check(def.is_build() and not def.is_tool() and def.action == -1 and def.place == WorldData.PLACEABLE_NONE,
+				"M7b: %s is put down by the building rules, not as a placeable or an action" % id)
+			check_eq(def.stack_max, Config.STACK_MATERIAL, "M7b: %s stack size" % id)
+			check_eq(def.icon_path, M7B_PIECES[id], "M7b: %s icon from its placed art" % id)
+			check(not def.icon_parts.is_empty() and def.icon_code.is_empty(), "M7b: %s icon composed of parts" % id)
+			check(Building.is_piece(id), "M7b: Building knows %s" % id)
+			continue
+		if M7_ARMOR.has(id):
+			check_eq(def.kind, ItemDB.Kind.ARMOR, "M7a: %s is armour" % id)
+			check(def.is_armor() and not def.is_tool() and def.action == -1, "M7a: %s worn, not used" % id)
+			check_eq(def.durability, Config.GEAR_DURABILITY[id], "M7a: %s durability" % id)
+			check_eq(String(def.icon_code), String(id), "M7a: %s icon drawn in code" % id)
+			continue
 		if TOOLS.has(id) or M4_TOOLS.has(id):
 			var want_action: int = TOOLS[id] if TOOLS.has(id) else M4_TOOLS[id]
 			check_eq(def.kind, ItemDB.Kind.TOOL, "%s is a tool" % id)
@@ -125,14 +197,15 @@ func _check_table() -> void:
 			check_eq(def.graded, HERBS.has(id), "%s graded only if a herb" % id)
 	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0),
 		kinds.get(ItemDB.Kind.PLACEABLE, 0), kinds.get(ItemDB.Kind.POTION, 0), kinds.get(ItemDB.Kind.SEED, 0),
-		kinds.get(ItemDB.Kind.CONSUMABLE, 0)], [7, 3, 15, 2, 3, 3, 1],
-		"items per kind (tool (M4a: 7), material, gatherable, placeable (M6a: + table), potion (M6a), seed (M5a), consumable (M5b))")
+		kinds.get(ItemDB.Kind.CONSUMABLE, 0), kinds.get(ItemDB.Kind.ARMOR, 0), kinds.get(ItemDB.Kind.BUILD, 0)],
+		[13, 7, 15, 6, 3, 3, 1, 1, 4],
+		"items per kind (tool (M4a: 7, M7a: + 5 tier-1, M7b: + axe), material (M7a: + wood, ingots), gatherable, placeable (M6a: + table, M7a: + 3 stations, chest), potion (M6a), seed (M5a), consumable (M5b), armour (M7a), build (M7b))")
 	# Every action with a hand tool has exactly one tool; throw has none (README). M4a: magic has the
 	# cleric's holy light.
 	var actions: Array[int] = []
 	for id: StringName in ids:
 		var a: int = ItemDB.get_def(id).action
-		if a >= 0:
+		if a >= 0 and ItemDB.get_def(id).tier == 0:  # M7a: a tier-1 weapon plays its base's action (counted once)
 			check(not actions.has(a), "one tool per action (%s)" % RigData.ANIM_NAMES[a])
 			actions.append(a)
 	check(not actions.has(RigData.Anim.THROW), "no item plays throw")

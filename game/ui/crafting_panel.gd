@@ -7,6 +7,10 @@ extends Node2D
 ## that cannot be crafted now (Crafting.refusal) are dimmed. The selected row has a gold frame. PLACEHOLDER
 ## (no UI art exists; the sacred-fire UI, game-concept §10, is 2차). No text: counts are the HUD's 3x5 digits.
 ## Small for 480x270 at integer scale (● R31): 60 px wide at the top right.
+## M7a: a row shows every input of its recipe (up to three, 1 px apart; the panel is as wide as its widest row needs, so
+## the alchemy table's stays 60 px), a repair row shows the worn item and its material -> the item with a full
+## durability bar (Hud.draw_durability), the hand panel (Crafting.HAND) is headed by the log, and rows beyond what fits
+## the view scroll (the selection stays in view; a 1 px gold notch at the top / bottom edge says more rows are there).
 ##
 ## Mouse: hovering a row selects it, a left click crafts it (craft_requested). Keys (Main, PROVISIONAL README
 ## "M6a 키"): W / S or the arrows move the selection, F or Enter crafts, Tab or Esc closes. Main does the
@@ -22,6 +26,9 @@ const ROW_GAP: int = 2
 const ARROW_GAP: int = 3
 const ARROW_W: int = 5
 const MARK_W: int = 3
+## M7a: between two input slots of a row.
+const INPUT_GAP: int = 1
+## The width with one input a row (M6a's panel).
 const WIDTH: int = PAD + Hud.SLOT + ARROW_GAP + ARROW_W + ARROW_GAP + Hud.SLOT + 2 + MARK_W + PAD
 const MARGIN: int = 4
 const DIM: Color = Color(0.102, 0.090, 0.078, 0.62)      # #1a1714 (§4 base) over a row that cannot be crafted
@@ -35,6 +42,8 @@ var class_id: String = ""
 var station: Crafting.StationAt
 var recipes: Array[Crafting.Recipe] = []
 var selected: int = 0
+## M7a: the first row in view (rows scroll when more than rows_fit()).
+var first: int = 0
 
 
 func _init() -> void:
@@ -52,6 +61,7 @@ func open_for(at: Crafting.StationAt, inv: Inventory, p_class: String) -> void:
 	inventory = inv
 	class_id = p_class
 	selected = 0
+	first = 0
 	visible = true
 	refresh()
 
@@ -68,6 +78,7 @@ func refresh() -> void:
 	else:
 		recipes = Crafting.shown_recipes(station.kind, inventory)
 	selected = clampi(selected, 0, maxi(recipes.size() - 1, 0))
+	_keep_in_view()
 	queue_redraw()
 
 
@@ -75,6 +86,7 @@ func move_selection(step: int) -> void:
 	if recipes.is_empty():
 		return
 	selected = posmod(selected + step, recipes.size())
+	_keep_in_view()
 	queue_redraw()
 
 
@@ -82,28 +94,65 @@ func selected_recipe() -> Crafting.Recipe:
 	return recipes[selected] if selected >= 0 and selected < recipes.size() else null
 
 
-## The panel's rect in viewport px for a view of `view` px and `rows` rows (at least one row of room).
-static func panel_rect_for(view: Vector2i, rows: int) -> Rect2i:
-	var h: int = PAD + HEADER + maxi(rows, 1) * (ROW + ROW_GAP) - ROW_GAP + PAD
-	return Rect2i(view.x - MARGIN - WIDTH, MARGIN, WIDTH, h)
+## M7a: the input slots a row of recipe `r` shows (a repair: the worn item and its material).
+static func inputs_shown(r: Crafting.Recipe) -> int:
+	return r.inputs.size() + (1 if r.is_repair() else 0)
+
+
+## M7a: the panel's width for rows of `n` inputs.
+static func width_for(n: int) -> int:
+	var k: int = maxi(n, 1)
+	return WIDTH + (k - 1) * (Hud.SLOT + INPUT_GAP)
+
+
+## M7a: the most input slots any shown row needs.
+func inputs_max() -> int:
+	var n: int = 1
+	for r: Crafting.Recipe in recipes:
+		n = maxi(n, inputs_shown(r))
+	return n
+
+
+## M7a: how many rows fit a view of `view` px.
+static func rows_fit(view: Vector2i) -> int:
+	return maxi((view.y - 2 * MARGIN - 2 * PAD - HEADER + ROW_GAP) / (ROW + ROW_GAP), 1)
+
+
+## The panel's rect in viewport px for a view of `view` px and `rows` rows (at least one row of room; M7a: at most
+## rows_fit) of `n` inputs.
+static func panel_rect_for(view: Vector2i, rows: int, n: int = 1) -> Rect2i:
+	var shown: int = clampi(rows, 1, rows_fit(view))
+	var h: int = PAD + HEADER + shown * (ROW + ROW_GAP) - ROW_GAP + PAD
+	var w: int = width_for(n)
+	return Rect2i(view.x - MARGIN - w, MARGIN, w, h)
 
 
 func panel_rect() -> Rect2i:
-	return panel_rect_for(_view(), recipes.size())
+	return panel_rect_for(_view(), recipes.size(), inputs_max())
 
 
-## Row `i`'s rect (its input slot to its mark).
+## Whether row `i` is in view (M7a: the rows scroll).
+func in_view(i: int) -> bool:
+	return i >= first and i < first + rows_fit(_view()) and i < recipes.size()
+
+
+## Row `i`'s rect (its input slot to its mark), where it is drawn (M7a: counted from the first row in view).
 func row_rect(i: int) -> Rect2i:
 	var p: Rect2i = panel_rect()
-	return Rect2i(p.position + Vector2i(PAD, PAD + HEADER + i * (ROW + ROW_GAP)), Vector2i(WIDTH - 2 * PAD, ROW))
+	return Rect2i(p.position + Vector2i(PAD, PAD + HEADER + (i - first) * (ROW + ROW_GAP)), Vector2i(p.size.x - 2 * PAD, ROW))
 
 
-func input_slot(i: int) -> Vector2i:
-	return row_rect(i).position
+func input_slot(i: int, j: int = 0) -> Vector2i:
+	return row_rect(i).position + Vector2i(j * (Hud.SLOT + INPUT_GAP), 0)
+
+
+func arrow_at(i: int) -> Vector2i:
+	var n: int = inputs_max()
+	return row_rect(i).position + Vector2i(n * Hud.SLOT + (n - 1) * INPUT_GAP + ARROW_GAP, (ROW - 5) / 2)
 
 
 func output_slot(i: int) -> Vector2i:
-	return row_rect(i).position + Vector2i(Hud.SLOT + ARROW_GAP + ARROW_W + ARROW_GAP, 0)
+	return arrow_at(i) + Vector2i(ARROW_W + ARROW_GAP, -(ROW - 5) / 2)
 
 
 func header_icon_at() -> Vector2i:
@@ -113,7 +162,7 @@ func header_icon_at() -> Vector2i:
 ## The row at viewport point `point`, or -1.
 func row_at(point: Vector2) -> int:
 	for i: int in recipes.size():
-		if Rect2(row_rect(i)).has_point(point):
+		if in_view(i) and Rect2(row_rect(i)).has_point(point):
 			return i
 	return -1
 
@@ -126,6 +175,15 @@ func click_at(point: Vector2) -> int:
 		queue_redraw()
 		craft_requested.emit(i)
 	return i
+
+
+func _keep_in_view() -> void:
+	var fit: int = rows_fit(_view())
+	first = clampi(first, 0, maxi(recipes.size() - fit, 0))
+	if selected < first:
+		first = selected
+	elif selected >= first + fit:
+		first = selected - fit + 1
 
 
 func _input(event: InputEvent) -> void:
@@ -158,20 +216,36 @@ func _draw() -> void:
 		draw_texture(icon, Vector2(header_icon_at()))
 	draw_rect(Rect2(p.position.x + PAD, p.position.y + PAD + HEADER - 1, p.size.x - 2 * PAD, 1), Hud.SELECT_INNER)
 	for i: int in recipes.size():
+		if not in_view(i):
+			continue
 		var r: Crafting.Recipe = recipes[i]
-		var ing: Crafting.Ingredient = r.inputs[0]
-		_slot(input_slot(i), ing.item, ing.count, ing.grade)
-		_pixels(ARROW, row_rect(i).position + Vector2i(Hud.SLOT + ARROW_GAP, (ROW - 5) / 2), Hud.DIGIT)
-		_slot(output_slot(i), r.output, r.out_count, r.out_grade)
+		if r.is_repair():
+			# M7a: the worn item (its bar as it is) and the material -> the item at full durability.
+			var worn: ItemStack = Gear.most_worn(inventory, r.repair)
+			_slot(input_slot(i, 0), r.repair, 1, ItemDB.Grade.NONE, worn.durability if worn != null else 0)
+			_slot(input_slot(i, 1), r.inputs[0].item, r.inputs[0].count, r.inputs[0].grade)
+		else:
+			for j: int in r.inputs.size():
+				var ing: Crafting.Ingredient = r.inputs[j]
+				_slot(input_slot(i, j), ing.item, ing.count, ing.grade)
+		_pixels(ARROW, arrow_at(i), Hud.DIGIT)
+		_slot(output_slot(i), r.output, r.out_count, r.out_grade, Gear.max_durability(r.output) if r.is_repair() else -1)
 		if not r.classes.is_empty():
 			_pixels(MARK, output_slot(i) + Vector2i(Hud.SLOT + 2, (ROW - 5) / 2), MARK_OK if r.allows(class_id) else MARK_NO)
 		if not Crafting.refusal(r, class_id, inventory).is_empty():
 			draw_rect(Rect2(row_rect(i)), DIM)
 		if i == selected:
 			_frame(row_rect(i).grow(1), Hud.SELECT)
+	# M7a: more rows above / below the view.
+	if first > 0:
+		draw_rect(Rect2(p.position.x + p.size.x / 2 - 2, p.position.y + PAD + HEADER, 4, 1), Hud.SELECT)
+	if first + rows_fit(_view()) < recipes.size():
+		draw_rect(Rect2(p.position.x + p.size.x / 2 - 2, p.end.y - 2, 4, 1), Hud.SELECT)
 
 
-func _slot(o: Vector2i, item: StringName, count: int, grade: int) -> void:
+## A slot at `o` with `item`, its count and grade dot; M7a: `durability` >= 0 draws its bar (Hud.draw_durability) when less
+## than full (a repair's output: full, so no bar).
+func _slot(o: Vector2i, item: StringName, count: int, grade: int, durability: int = -1) -> void:
 	var r: Rect2i = Rect2i(o, Vector2i(Hud.SLOT, Hud.SLOT))
 	draw_rect(Rect2(r), Hud.FILL)
 	_frame(r, Hud.FRAME_DARK)
@@ -183,6 +257,8 @@ func _slot(o: Vector2i, item: StringName, count: int, grade: int) -> void:
 		draw_rect(Rect2(Vector2(o + Vector2i(2, 2)), Vector2(2, 2)), Hud.FINE_MARK)
 	if count > 1:
 		_number(count, o + Vector2i(Hud.SLOT - 3, Hud.SLOT - 3))
+	if durability >= 0:
+		Hud.draw_durability(self, o, durability, Gear.max_durability(item))
 
 
 ## `rows` ("1" = lit) at `at` in `color`.

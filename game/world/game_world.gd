@@ -22,6 +22,10 @@ extends Node2D
 ## M5b: purification's effects with a PurifyView (Purify, above the decals); the altar follows its footprint in the
 ## world: an edit that picks it up or puts it down (WorldData.refresh_altar_rect) moves the safe zone, the altar's node and
 ## its light here (_altar_moved) and says so (altar_moved).
+## M7b: built pieces (walls, doors, floor pieces: the WALL layer's built kinds) with a BuildView (Builds, right above the
+## decals, below the entities, on both maps; a dungeon's own walls stay the CaveView's). Trees, stumps and lantern posts
+## are placeables the FixtureView draws. `revision` counts the edits applied (the build ghost works its answer out again
+## only when it moves or the world changed).
 
 signal generated
 ## M5b: the altar was picked up or put down (its footprint changed through world edits).
@@ -52,6 +56,11 @@ var decals: Node2D
 var fields: FieldView
 ## M5b: purification's effects (world/purify_view.gd), above the decals, below the entities.
 var purify_view: PurifyView
+## M7b: the built pieces (world/build_view.gd), above the decals, below the purification view and the entities.
+var builds: BuildView
+## M7b: edits applied since this world was loaded. M7c: chest slot edits applied (an open chest panel redraws on them).
+var revision: int = 0
+var chest_edits: int = 0
 var generation_ms: float = 0.0
 var view_ms: float = 0.0
 
@@ -117,6 +126,11 @@ func load_data(p_data: WorldData) -> void:
 		add_child(fields)
 		move_child(fields, decals.get_index())  # right above the ground, below the decals and the entities
 	fields.setup(data, ground, entities)
+	if builds == null:
+		builds = BuildView.new()
+		add_child(builds)
+		move_child(builds, decals.get_index() + 1)  # above the decals (entrance debris), below the entities
+	builds.setup(data)
 	if purify_view == null:
 		purify_view = PurifyView.new()
 		add_child(purify_view)
@@ -192,6 +206,7 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 	var altar_before: Rect2i = data.altar_rect
 	if not EditLog.apply_to_data(data, edit):
 		return false
+	revision += 1
 	if data.altar_rect != altar_before:
 		# M5-fix: where it stood (picked up: the place it left; put down: the new one).
 		last_altar_rect = data.altar_rect if data.altar_rect.has_area() else altar_before
@@ -199,6 +214,8 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 	match edit.kind:
 		EditLog.Kind.DROP_PUT, EditLog.Kind.DROP_REMOVE:
 			items.update_drop(edit.drop_id)
+		EditLog.Kind.CHEST:
+			chest_edits += 1  # M7c: a chest's slot (nothing drawn in the world; an open chest panel reads WorldData.chests)
 		_:
 			if edit.layer == WorldData.Layer.FLOOR:
 				if cave == null:
@@ -210,6 +227,8 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 			elif edit.layer == WorldData.Layer.WALL or edit.layer == WorldData.Layer.ORE:
 				if cave != null:
 					cave.redraw_wall(edit.cell)
+				if edit.layer == WorldData.Layer.WALL:
+					builds.update_cell(edit.cell)  # M7b: built walls, doors, floor pieces
 			elif edit.layer == WorldData.Layer.PLACEABLE:
 				fixtures.update_cell(edit.cell)
 				items.update_bag_cell(edit.cell)

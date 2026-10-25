@@ -95,6 +95,34 @@ extends SceneTree
 ##            the host's carrier and channelling paladin and the client's copies of them from a state batch (the carrier
 ##            bit, the channel in the action bits) with the channel's motes. Around the old fields and at the zone's edge
 ##            both screens are the same pixels and differ from the bare world.
+##   stations (M7a) evening off, the workbench, the anvil, the relic bench and the storage chest put down through the world's
+##            edits: the screen equals the background plus each picture at a place written out here (centred on its
+##            footprint, its last opaque row on the footprint's last pixel row) and the relic bench's flame (frame 0, held)
+##            at (37, -4) of its picture, pixel for pixel.
+##   gear_hud (M7a) the HUD's durability bars on worn tier-1 gear (gold, amber, rust, broken; none when full) and the armour
+##            slot with the worn piece and its bar, on their exact pixels (colours and rules written out here).
+##   m7_panels (M7a) the chest panel over the open inventory (its place, frames, header, slots, icons, counts, a worn bow's
+##            bar) and the anvil's crafting panel with one-, two- and three-input rows and the repair row of a worn sword
+##            (the widened panel's place, the slots and arrows at the layout written out here), every opaque pixel.
+##   builds   (M7b) evening off, the entities hidden: built pieces put down through the world's edits (a room of stone walls
+##            with a closed door and floor pieces inside, an open door, an L, a vertical run, a lone wall, a pair): the
+##            screen equals the background plus a CPU composite from the build sheet PNG by the sheet's assembly rule written
+##            out here (floor pieces first by the variant rule; then row by row from the north: each wall's top by its
+##            neighbour mask, its inner corner dots, its face from the tile below's top when that is no wall, its kind by the
+##            west / east neighbours' faces, a door's face the door), pixel for pixel. Then a lantern post (its PNG at its
+##            tile's bottom, centred) with the entities shown.
+##   trees    (M7b) evening off, the seed's trees on screen (the other entities hidden): the screen equals the background
+##            plus each tree's PNG at (x*16 + 8 - 32, (y+1)*16 - 1 - 72), pasted in the order of their feet (the y-sort); then
+##            one felled (a stump edit): its stump PNG at the same place.
+##   build_ghost (M7b) evening on, the build ghost on a tile: allowed = the piece's own pixels (the lone top over the lone
+##            face for a wall, the post for a lantern) on the world's even checkerboard squares and the blocked tiles'
+##            1 px outline in faith gold; refused = the same squares and outline in deep red; unshaded (their colours in
+##            the evening), on their exact pixels (rules written out here).
+##   builds_net (M7c) a session's built world on a client: the host's world with a room of stone walls, an open door, a
+##            floor piece, a lantern post, the three stations and the chest, the client's from a surface snapshot plus the
+##            rest as edits through the wire codec (a wall, the door closing, a chest slot, a tree felled to a stump), and
+##            a miner's axe swing from a state batch: around the room, the stations, the stump and the swing both screens are
+##            the same pixels, differ from the bare world, and the client's build and fixture views equal its data.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -134,6 +162,12 @@ func _run() -> void:
 	world.auto_generate = false
 	root.add_child(world)
 	world.generate(Config.DEFAULT_SEED)
+	# M7b: the quiet spot most parts look at, (400, 400), stays open meadow as it was before the trees: the trees whose
+	# pictures could reach that screen are taken away from this check's world (the trees part looks elsewhere).
+	var quiet: Rect2i = Rect2i(Vector2i(400, 400) - Config.VIEW_SIZE / 2 - Vector2i(48, 16), Config.VIEW_SIZE + Vector2i(96, 112))
+	for t: Vector2i in Forest.tree_cells(world.data):
+		if quiet.has_point(t * Config.TILE):
+			world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, t, WorldData.PLACEABLE_NONE))
 	world.overlay.visible = false
 	world.camera.set_process(false)
 	world.camera.make_current()
@@ -159,6 +193,13 @@ func _run() -> void:
 		await _check_purify()
 		await _check_altar_move()
 		await _check_fields_net()
+		await _check_stations()
+		await _check_gear_hud()
+		await _check_m7_panels()
+		await _check_builds()
+		await _check_trees()
+		await _check_build_ghost()
+		await _check_builds_net()  # M7c
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -2066,6 +2107,259 @@ func _surface_world(generate: bool = true) -> GameWorld:
 	return w
 
 
+# --- M7b ----------------------------------------------------------------------------------------------------------------
+
+const BUILD_PNG: String = "env/build_stone_candA_v02.png"
+
+
+## The sheet's assembly rule, written out here (04-env/prompts.md "건설 벽·문·바닥 후보" 조립), from the data: what tile `c`
+## of `d` draws (built walls and doors; the floor piece is drawn apart): [sheet rect, world px] pairs in order.
+static func build_parts(d: WorldData, c: Vector2i) -> Array[Array]:
+	var out: Array[Array] = []
+	var k: int = Walls.kind_at(d, c)
+	if k != Walls.KIND_STONE and k != Walls.KIND_DOOR and k != Walls.KIND_DOOR_OPEN:
+		return out
+	var built: Callable = func(t: Vector2i) -> bool:
+		var kk: int = Walls.kind_at(d, t)
+		return kk == Walls.KIND_STONE or kk == Walls.KIND_DOOR or kk == Walls.KIND_DOOR_OPEN
+	var walled: Callable = func(t: Vector2i) -> bool:
+		var kk: int = Walls.kind_at(d, t)
+		return kk != Walls.KIND_NONE and kk != Walls.KIND_FLOOR
+	var m: int = (1 if built.call(c + Vector2i(0, -1)) else 0) + (2 if built.call(c + Vector2i(1, 0)) else 0) \
+		+ (4 if built.call(c + Vector2i(0, 1)) else 0) + (8 if built.call(c + Vector2i(-1, 0)) else 0)
+	out.append([Rect2i((m % 8) * 16, (m / 8) * 16, 16, 16), c * 16])
+	# Dots: NE, NW, SE, SW at x 0, 16, 32, 48 of row 32.
+	var corners: Array = [[1, -1], [-1, -1], [1, 1], [-1, 1]]
+	for i: int in 4:
+		var dx: int = corners[i][0]
+		var dy: int = corners[i][1]
+		if built.call(c + Vector2i(dx, 0)) and built.call(c + Vector2i(0, dy)) and not built.call(c + Vector2i(dx, dy)):
+			out.append([Rect2i(i * 16, 32, 16, 16), c * 16])
+	var face: Callable = func(t: Vector2i) -> bool:
+		return built.call(t) and d.in_bounds(t + Vector2i(0, 1)) and not walled.call(t + Vector2i(0, 1))
+	if face.call(c):
+		var src_x: int = 0
+		if k == Walls.KIND_DOOR:
+			src_x = 64
+		elif k == Walls.KIND_DOOR_OPEN:
+			src_x = 80
+		else:
+			var w: bool = face.call(c + Vector2i(-1, 0))
+			var e: bool = face.call(c + Vector2i(1, 0))
+			src_x = 32 if (w and e) else (16 if e else (48 if w else 0))
+		out.append([Rect2i(src_x, 48, 16, 24), (c + Vector2i(0, 1)) * 16])
+	return out
+
+
+func _check_builds() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(560, 1200))
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var bg: Image = await _capture()
+	var o: Vector2i = origin / 16 + Vector2i(3, 2)
+	var walls: Array[Vector2i] = []
+	for x: int in range(0, 6):
+		walls.append(o + Vector2i(x, 0))
+		walls.append(o + Vector2i(x, 5))
+	for y: int in range(1, 5):
+		walls.append(o + Vector2i(0, y))
+		walls.append(o + Vector2i(5, y))
+	for t: Vector2i in [Vector2i(9, 2), Vector2i(10, 2), Vector2i(9, 3), Vector2i(9, 4), Vector2i(13, 1), Vector2i(13, 2),
+			Vector2i(13, 3), Vector2i(16, 4), Vector2i(19, 6), Vector2i(20, 6), Vector2i(22, 3), Vector2i(23, 3), Vector2i(24, 3)]:
+		walls.append(o + t)
+	var edits: Array[Array] = []
+	for c: Vector2i in walls:
+		edits.append([c, Walls.KIND_STONE])
+	edits.append([o + Vector2i(2, 5), Walls.KIND_DOOR])
+	edits.append([o + Vector2i(23, 3), Walls.KIND_DOOR_OPEN])
+	for y2: int in range(1, 5):
+		for x2: int in range(1, 5):
+			edits.append([o + Vector2i(x2, y2), Walls.KIND_FLOOR])
+	edits.append([o + Vector2i(11, 7), Walls.KIND_FLOOR])
+	edits.append([o + Vector2i(12, 7), Walls.KIND_FLOOR])
+	for e: Array in edits:
+		var ec: Vector2i = e[0]
+		var ek: int = e[1]
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, ec, Walls.pack(ek, 0)))
+	var sheet: Image = _png(BUILD_PNG)
+	var expected: Image = bg.duplicate() as Image
+	var d: WorldData = world.data
+	var cells: Array[Vector2i] = []
+	for e2: Array in edits:
+		var c2: Vector2i = e2[0]
+		if not cells.has(c2):
+			cells.append(c2)
+	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	for c3: Vector2i in cells:
+		if Walls.kind_at(d, c3) == Walls.KIND_FLOOR:
+			var v: int = posmod(c3.x * 7 + c3.y * 13 + (c3.x / 3) * 5, 3)
+			_paste_at(expected, sheet.get_region(Rect2i(64 + v * 16, 32, 16, 16)), c3 * 16 - origin)
+	for c4: Vector2i in cells:
+		for part: Array in build_parts(d, c4):
+			var src: Rect2i = part[0]
+			var at: Vector2i = part[1]
+			_paste_at(expected, sheet.get_region(src), at - origin)
+	await _frames(1)
+	var got: Image = await _capture()
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "builds_got.png")
+		_save(expected, "builds_expected.png")
+	# The lantern post among the entities (shown again), its picture at its tile's bottom, centred.
+	var post_at: Vector2i = o + Vector2i(16, 8)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, post_at, WorldData.PLACEABLE_LANTERN))
+	var with_post: Image = got.duplicate() as Image
+	var post: Image = _png("env/prop_lantern_post_c_v03_lit.png")
+	_paste_at(with_post, post, Vector2i(post_at.x * 16 + 8 - 16, (post_at.y + 1) * 16 - 1 - 46) - origin)
+	var got2: Image = await _capture()
+	var n2: int = count_diff(got2, with_post)
+	if n2 > 0 or save_all:
+		_save(got2, "builds_post_got.png")
+		_save(with_post, "builds_post_expected.png")
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, post_at, WorldData.PLACEABLE_NONE))
+	for e3: Array in edits:
+		var c5: Vector2i = e3[0]
+		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, c5, 0))
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	var line: String = "pieces=%d drawn=%d mismatches=%d post_mismatches=%d" % [cells.size(), drawn, n, n2]
+	if n == 0 and n2 == 0 and drawn > 5000:
+		print("EVENSONG_RENDER builds ok %s" % line)
+	else:
+		_fail("builds", line)
+
+
+func _check_trees() -> void:
+	world.lighting.set_evening(false)
+	var d: WorldData = world.data
+	var trees: Array[Vector2i] = Forest.tree_cells(d)
+	# The screen with the most trees on it (their pictures wholly inside), by a 16 px grid of centres.
+	var best: Vector2i = Vector2i.ZERO
+	var best_n: int = -1
+	for cy: int in range(Config.VIEW_SIZE.y / 2, d.size.y * 16 - Config.VIEW_SIZE.y / 2, 32):
+		for cx: int in range(Config.VIEW_SIZE.x / 2, d.size.x * 16 - Config.VIEW_SIZE.x / 2, 32):
+			var view: Rect2i = Rect2i(Vector2i(cx, cy) - Config.VIEW_SIZE / 2, Config.VIEW_SIZE)
+			var n0: int = 0
+			for t: Vector2i in trees:
+				if view.encloses(Rect2i(Vector2i(t.x * 16 + 8 - 32, (t.y + 1) * 16 - 1 - 72), Vector2i(64, 80))):
+					n0 += 1
+			if n0 > best_n:
+				best_n = n0
+				best = Vector2i(cx, cy)
+	var origin: Vector2i = _look_at(best)
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var bg: Image = await _capture()
+	var on_screen: Array[Vector2i] = []
+	for t2: Vector2i in trees:
+		if Rect2i(origin, Config.VIEW_SIZE).intersects(Rect2i(Vector2i(t2.x * 16 + 8 - 32, (t2.y + 1) * 16 - 1 - 72), Vector2i(64, 80))):
+			on_screen.append(t2)
+			var node: CanvasItem = world.fixtures.nodes[t2] as CanvasItem
+			node.visible = true
+	on_screen.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	var tree_img: Image = _png("env/tree_v02.png")
+	var stump_img: Image = _png("env/stump_v01.png")
+	var expected: Image = bg.duplicate() as Image
+	for t3: Vector2i in on_screen:
+		_paste_at(expected, tree_img, Vector2i(t3.x * 16 + 8 - 32, (t3.y + 1) * 16 - 1 - 72) - origin)
+	var got: Image = await _capture()
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "trees_got.png")
+		_save(expected, "trees_expected.png")
+	# One felled: the stump on the same canvas and place.
+	var felled: Vector2i = on_screen[0] if not on_screen.is_empty() else trees[0]
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, felled, WorldData.PLACEABLE_STUMP))
+	var expected2: Image = bg.duplicate() as Image
+	for t4: Vector2i in on_screen:
+		_paste_at(expected2, stump_img if t4 == felled else tree_img, Vector2i(t4.x * 16 + 8 - 32, (t4.y + 1) * 16 - 1 - 72) - origin)
+	var got2: Image = await _capture()
+	var n2: int = count_diff(got2, expected2)
+	if n2 > 0 or save_all:
+		_save(got2, "trees_stump_got.png")
+		_save(expected2, "trees_stump_expected.png")
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, felled, WorldData.PLACEABLE_TREE))
+	for ci: CanvasItem in hidden:
+		if is_instance_valid(ci):
+			ci.visible = true  # (the felled tree's node was replaced: its new one is visible)
+	var line: String = "trees=%d drawn=%d mismatches=%d stump_mismatches=%d" % [on_screen.size(), drawn, n, n2]
+	if n == 0 and n2 == 0 and on_screen.size() >= 2 and drawn > 2 * 1500:
+		print("EVENSONG_RENDER trees ok %s" % line)
+	else:
+		_fail("trees", line)
+
+
+## The ghost's pixels (rules written out here): the piece's picture's opaque pixels on even (x + y) world squares (the tile's
+## top-left is even) in their colours (allowed) or deep red (refused), and the blocked tiles' border in gold / deep red.
+static func ghost_pixels(piece: StringName, cell: Vector2i, allowed: bool) -> Dictionary[Vector2i, Color]:
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var red: Color = Color8(0x5c, 0x10, 0x10)
+	var want: Dictionary[Vector2i, Color] = {}
+	var pic: Image
+	var at: Vector2i = cell * 16
+	var tall: bool = false
+	if piece == &"lantern":
+		pic = _png("env/prop_lantern_post_c_v03_lit.png")
+		at = Vector2i(cell.x * 16 + 8 - 16, (cell.y + 1) * 16 - 1 - 46)
+	else:
+		var sheet: Image = _png(BUILD_PNG)
+		pic = Image.create_empty(16, 40, false, Image.FORMAT_RGBA8)
+		pic.blit_rect(sheet, Rect2i(0, 0, 16, 16), Vector2i.ZERO)
+		pic.blend_rect(sheet, Rect2i(0, 48, 16, 24), Vector2i(0, 16))
+		tall = true
+	for y: int in pic.get_height():
+		for x: int in pic.get_width():
+			var p: Vector2i = at + Vector2i(x, y)
+			var px: Color = pic.get_pixel(x, y)
+			if px.a8 >= 128 and posmod(p.x + p.y, 2) == 0:
+				want[p] = Color(px.r, px.g, px.b, 1.0) if allowed else red
+	var h: int = 32 if tall else 16
+	for x2: int in 16:
+		want[cell * 16 + Vector2i(x2, 0)] = gold if allowed else red
+		want[cell * 16 + Vector2i(x2, h - 1)] = gold if allowed else red
+	for y2: int in range(1, h - 1):
+		want[cell * 16 + Vector2i(0, y2)] = gold if allowed else red
+		want[cell * 16 + Vector2i(15, y2)] = gold if allowed else red
+	return want
+
+
+func _check_build_ghost() -> void:
+	world.lighting.set_evening(true)
+	var origin: Vector2i = _look_at(Vector2i(560, 1200))
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var ghost: BuildGhost = BuildGhost.new()
+	world.add_child(ghost)
+	world.move_child(ghost, world.entities.get_index())
+	var cell: Vector2i = origin / 16 + Vector2i(10, 6)
+	var bad: int = 0
+	var pixels: int = 0
+	for spec: Array in [[&"stone_wall", true], [&"stone_wall", false], [&"lantern", true], [&"lantern", false]]:
+		var piece: StringName = spec[0]
+		var allowed: bool = spec[1]
+		ghost.show_at(piece, cell, allowed)
+		var got: Image = await _capture()
+		var want: Dictionary[Vector2i, Color] = ghost_pixels(piece, cell, allowed)
+		var shifted: Dictionary[Vector2i, Color] = {}
+		for p: Vector2i in want:
+			shifted[p - origin] = want[p]
+		var wrong: int = _count_wrong(got, shifted)
+		pixels += want.size()
+		bad += wrong
+		if wrong > 0 or save_all:
+			_save(got, "ghost_%s_%s_got.png" % [piece, allowed])
+	ghost.get_parent().remove_child(ghost)
+	ghost.free()
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	world.lighting.set_evening(false)
+	var line: String = "pixels=%d mismatches=%d" % [pixels, bad]
+	if bad == 0 and pixels > 600:
+		print("EVENSONG_RENDER build_ghost ok %s" % line)
+	else:
+		_fail("build_ghost", line)
+
+
 ## A still player for the check (no input, no idle animation) on world `w`.
 static func _still_player(w: GameWorld, class_id: String, feet: Vector2) -> Player:
 	var p: Player = Player.new()
@@ -2257,3 +2551,410 @@ func _load_surface_snapshot(host_w: GameWorld, client_w: GameWorld) -> void:
 	client_w.load_data(got)
 	client_w.lighting.set_evening(false)
 	client_w.purify_view.auto_tick = false
+
+
+# --- M7a ---------------------------------------------------------------------------------------------------------------
+
+## M7a: the three stations and the chest put down through the world's edits (evening off, the flames held on frame 0):
+## the screen equals the background plus each picture at a place written out here (centred on its footprint, its last
+## opaque row, measured from the image, on the footprint's last pixel row) and the relic bench's flame frame 0 at (37, -4)
+## of its picture.
+func _check_stations() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var y: int = origin.y / Config.TILE + 9
+	var x0: int = origin.x / Config.TILE + 5
+	var rows: Array[Array] = [[WorldData.PLACEABLE_WORKBENCH, Vector2i(3, 1), "res://art/env/workbench_v03.png"],
+		[WorldData.PLACEABLE_ANVIL, Vector2i(2, 1), "res://art/env/anvil_v03.png"],
+		[WorldData.PLACEABLE_RELIC, Vector2i(3, 1), "res://art/env/relic_bench_v03.png"],
+		[WorldData.PLACEABLE_CHEST, Vector2i(3, 1), "res://art/env/storage_chest_v02.png"]]
+	var expected: Image = bg.duplicate() as Image
+	var rects: Array[Rect2i] = []
+	var x: int = x0
+	for row: Array in rows:
+		var p: int = row[0]
+		var size: Vector2i = row[1]
+		var rect: Rect2i = Rect2i(Vector2i(x, y), size)
+		x += size.x + 1
+		rects.append(rect)
+		for ty: int in range(rect.position.y, rect.end.y):
+			for tx: int in range(rect.position.x, rect.end.x):
+				world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(tx, ty), p))
+		var path: String = row[2]
+		var img: Image = LightGen.to_rgba8((load(path) as Texture2D).get_image())
+		var bottom: int = 0
+		for iy: int in img.get_height():
+			for ix: int in img.get_width():
+				if img.get_pixel(ix, iy).a8 > 0:
+					bottom = iy
+		var top_left: Vector2i = Vector2i(rect.position.x * Config.TILE + (rect.size.x * Config.TILE - img.get_width()) / 2,
+			rect.end.y * Config.TILE - 1 - bottom)
+		_paste_at(expected, img, top_left - origin)
+		if p == WorldData.PLACEABLE_RELIC:
+			var flame: Image = LightGen.to_rgba8((load("res://art/env/flame_small_v01.png") as Texture2D).get_image())
+			_paste_at(expected, flame.get_region(Rect2i(0, 0, 4, 7)), top_left + Vector2i(37, -4) - origin)
+	world.fixtures.set_process(false)
+	for anchor: Vector2i in world.fixtures.nodes:
+		var f: Sprite2D = world.fixtures.nodes[anchor].get_node_or_null(^"Flame") as Sprite2D
+		if f != null:
+			f.frame = 0
+	var got: Image = await _capture()
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "stations_got.png")
+		_save(expected, "stations_expected.png")
+	world.fixtures.set_process(true)
+	for rect2: Rect2i in rects:
+		for ty2: int in range(rect2.position.y, rect2.end.y):
+			for tx2: int in range(rect2.position.x, rect2.end.x):
+				world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(tx2, ty2), WorldData.PLACEABLE_NONE))
+	var line: String = "drawn=%d mismatches=%d" % [drawn, n]
+	if n == 0 and drawn > 1500:
+		print("EVENSONG_RENDER stations ok %s" % line)
+	else:
+		_fail("stations", line)
+
+
+## M7a: the HUD with worn gear: the hotbar's durability bars (14x2 at (2, 14) of the slot: ash black under, gold over half,
+## amber over a quarter, rust under, all rust when broken; none when full) and the armour slot left of the hotbar (6 px
+## apart) with the worn piece and its bar, on their exact pixels (colours and rules written out here).
+func _check_gear_hud() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var inv: Inventory = Inventory.new()
+	var lefts: Array[int] = [120, 70, 40, 20, 0]  # full, gold, amber, rust, broken
+	for id: StringName in [&"sword_t1", &"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1"]:
+		inv.add(id, 1)
+	for i: int in lefts.size():
+		inv.stack_at(i).durability = lefts[i]
+	inv.wear(ItemStack.new(&"armor_t1", 1, 0, 30))
+	inv.select(7)
+	hud.bind(inv)
+	var got: Image = await _capture()
+	var view: Vector2i = Config.VIEW_SIZE
+	var width: int = 8 * 18 + 7 * 2
+	var left: int = (view.x - width) / 2
+	var top: int = view.y - 4 - 18
+	var want: Dictionary[Vector2i, Color] = {}
+	var dark: Color = Color8(0x1a, 0x17, 0x14)
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var amber: Color = Color8(0xe0, 0x86, 0x1a)
+	var rust: Color = Color8(0xb8, 0x43, 0x2f)
+	var bars: Array[Array] = []
+	for i2: int in lefts.size():
+		bars.append([Vector2i(left + i2 * 20, top), lefts[i2], 120])
+	var armour_at: Vector2i = Vector2i(left - 6 - 18, top)
+	bars.append([armour_at, 30, 100])
+	var bar_px: int = 0
+	for b: Array in bars:
+		var o: Vector2i = b[0]
+		var l: int = b[1]
+		var full: int = b[2]
+		if l >= full:
+			continue
+		var w: int = 0 if l <= 0 else clampi(ceili(float(l) / full * 14.0), 1, 14)
+		var ratio: float = float(l) / full
+		var c: Color = gold if ratio > 0.5 else (amber if ratio > 0.25 else rust)
+		for by: int in 2:
+			for bx: int in 14:
+				var px: Vector2i = o + Vector2i(2 + bx, 14 + by)
+				if l <= 0:
+					want[px] = rust
+				else:
+					want[px] = c if bx < w else dark
+				bar_px += 1
+	# The full sword's slot shows no bar: where its icon is opaque the icon, elsewhere never a bar colour.
+	var no_bar: int = 0
+	var sword_icon: Image = LightGen.to_rgba8(ItemIcons.texture_for(&"sword_t1").get_image())
+	for by2: int in 2:
+		for bx2: int in 14:
+			var q: Vector2i = Vector2i(left + 2 + bx2, top + 14 + by2)
+			var col: Color = got.get_pixelv(q)
+			var ic: Color = sword_icon.get_pixel(1 + bx2, 13 + by2)
+			if ic.a8 == 255:
+				if col.to_rgba32() != ic.to_rgba32():
+					no_bar += 1
+			elif col.to_rgba32() == gold.to_rgba32() or col.to_rgba32() == dark.to_rgba32():
+				no_bar += 1
+	# The armour slot: its frames and the armour icon above the bar.
+	_frame_pixels(want, Rect2i(armour_at, Vector2i(18, 18)), dark)
+	_frame_pixels(want, Rect2i(armour_at, Vector2i(18, 18)).grow(-1), Color8(0x4a, 0x42, 0x3a))
+	_icon_pixels(want, &"armor_t1", armour_at + Vector2i(1, 1), Rect2i(armour_at + Vector2i(2, 14), Vector2i(14, 2)))
+	var bad: int = _count_wrong(got, want)
+	if bad > 0 or save_all:
+		_save(got, "gear_hud_got.png")
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "bar_pixels=%d pixels=%d full_slot_bar=%d mismatches=%d" % [bar_px, want.size(), no_bar, bad]
+	if bad == 0 and bar_px == 5 * 28 and no_bar == 0:
+		print("EVENSONG_RENDER gear_hud ok %s" % line)
+	else:
+		_fail("gear_hud", line)
+
+
+## M7a: the chest panel (above the open inventory grid) and the anvil's crafting panel with rows of one, two and three
+## inputs and a repair row: every opaque pixel they draw on its place (frames, header icons and underlines, slot frames,
+## icons, counts left out, the durability bars), the slots and arrows placed by the layout written out here. M7-fix: the
+## repair row shows only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL, off by default): on for this part, put back.
+func _check_m7_panels() -> void:
+	Gear.repair_on = true
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var inv: Inventory = Inventory.new()
+	inv.add(&"planks", 12)
+	inv.add(&"ingot_iron", 9)
+	inv.add(&"ingot_copper", 5)
+	inv.add(&"ore_copper", 3)
+	inv.add(&"ore_iron", 2)
+	inv.add(&"sword_t1", 1)
+	inv.stack_at(5).durability = 30
+	hud.bind(inv)
+	hud.set_open(true)
+	var chest: WorldData.Chest = WorldData.Chest.new()
+	chest.slots[0] = ItemStack.new(&"stone_a", 40, 0)
+	chest.slots[3] = ItemStack.new(&"bow_t1", 1, 0, 50)
+	chest.slots[9] = ItemStack.new(&"log", 7, 0)
+	hud.chest.open_for(chest, Rect2i(10, 10, 3, 1), Config.MAP_SURFACE, inv)
+	var got: Image = await _capture()
+	var want: Dictionary[Vector2i, Color] = {}
+	var panel: ChestPanel = hud.chest
+	var p: Rect2i = panel.panel_rect()
+	var view: Vector2i = Config.VIEW_SIZE
+	var grid_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
+	var top_inv_row: int = view.y - 4 - 18 - 4 - 18 - 20
+	var chest_h: int = 3 + 18 + 2 * 18 + 2 + 3
+	var chest_ok: bool = p == Rect2i(grid_left - 3, top_inv_row - 6 - chest_h, 8 * 18 + 7 * 2 + 6, chest_h)
+	_frame_pixels(want, p, Hud.FRAME_DARK)
+	_frame_pixels(want, p.grow(-1), Hud.FRAME)
+	_icon_pixels(want, &"storage_chest", p.position + Vector2i(4, 4), Rect2i())
+	for ux: int in range(p.position.x + 3, p.end.x - 3):
+		want[Vector2i(ux, p.position.y + 3 + 18 - 1)] = Hud.SELECT_INNER
+	for i: int in chest.slots.size():
+		var o: Vector2i = p.position + Vector2i(3 + (i % 8) * 20, 3 + 18 + (i / 8) * 20)
+		_slot_pixels(want, o, chest.slots[i])
+	var bad_chest: int = _count_wrong(got, want)
+	if bad_chest > 0 or save_all:
+		_save(got, "chest_panel_got.png")
+	hud.chest.close()
+	hud.set_open(false)
+	# The anvil's panel: smelting (one input), the gear (two, three inputs), the relic bench, the sword's repair.
+	var at: Crafting.StationAt = Crafting.StationAt.new()
+	at.kind = Crafting.ANVIL
+	at.rect = Rect2i(10, 10, 2, 1)
+	hud.crafting.open_for(at, inv, "miner")
+	hud.crafting.selected = 0
+	hud.crafting.queue_redraw()
+	var got2: Image = await _capture()
+	var cp: CraftingPanel = hud.crafting
+	var want2: Dictionary[Vector2i, Color] = {}
+	var n_in: int = 3
+	var width: int = 3 + n_in * 18 + (n_in - 1) + 3 + 5 + 3 + 18 + 2 + 3 + 3
+	var pr: Rect2i = cp.panel_rect()
+	var layout_ok: bool = pr.size.x == width and pr.end.x == view.x - 4 and pr.position.y == 4
+	_frame_pixels(want2, pr, Hud.FRAME_DARK)
+	_frame_pixels(want2, pr.grow(-1), Hud.FRAME)
+	_icon_pixels(want2, &"anvil", pr.position + Vector2i(4, 4), Rect2i())
+	for ux2: int in range(pr.position.x + 3, pr.end.x - 3):
+		want2[Vector2i(ux2, pr.position.y + 3 + 18 - 1)] = Hud.SELECT_INNER
+	var repair_rows: int = 0
+	var three_rows: int = 0
+	for i2: int in cp.recipes.size():
+		if not cp.in_view(i2):
+			continue
+		var r: Crafting.Recipe = cp.recipes[i2]
+		var row: Vector2i = cp.row_rect(i2).position
+		var ins: Array[ItemStack] = []
+		if r.is_repair():
+			repair_rows += 1
+			ins.append(ItemStack.new(r.repair, 1, 0, Gear.most_worn(inv, r.repair).durability))
+			ins.append(ItemStack.new(r.inputs[0].item, r.inputs[0].count, 0))
+		else:
+			for ing: Crafting.Ingredient in r.inputs:
+				ins.append(ItemStack.new(ing.item, ing.count, 0))
+		if r.inputs.size() == 3:
+			three_rows += 1
+		for j: int in ins.size():
+			_slot_pixels(want2, row + Vector2i(j * 19, 0), ins[j])
+		var arrow: Vector2i = row + Vector2i(n_in * 18 + (n_in - 1) + 3, (18 - 5) / 2)
+		_rows_pixels(want2, CraftingPanel.ARROW, arrow, Hud.DIGIT)
+		_slot_pixels(want2, arrow + Vector2i(5 + 3, -6), ItemStack.new(r.output, r.out_count, r.out_grade))
+		if i2 == cp.selected:
+			_frame_pixels(want2, cp.row_rect(i2).grow(1), Hud.SELECT)
+	# Rows that cannot be crafted now are dimmed: compare only the rows that can.
+	var free_want: Dictionary[Vector2i, Color] = {}
+	for q: Vector2i in want2:
+		var dimmed: bool = false
+		for i3: int in cp.recipes.size():
+			if cp.in_view(i3) and cp.row_rect(i3).grow(1).has_point(q) and not Crafting.refusal(cp.recipes[i3], "miner", inv).is_empty():
+				dimmed = true
+		if not dimmed:
+			free_want[q] = want2[q]
+	var bad_panel: int = _count_wrong(got2, free_want)
+	if bad_panel > 0 or save_all:
+		_save(got2, "crafting_anvil_got.png")
+	var rows: int = cp.recipes.size()
+	root.remove_child(hud)
+	hud.free()
+	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
+	var line: String = "chest_pixels=%d chest_mismatches=%d chest_place=%s anvil_rows=%d three_input_rows=%d repair_rows=%d anvil_pixels=%d anvil_mismatches=%d width=%d" % [
+		want.size(), bad_chest, str(chest_ok), rows, three_rows, repair_rows, free_want.size(), bad_panel, pr.size.x]
+	if bad_chest == 0 and chest_ok and bad_panel == 0 and layout_ok and repair_rows == 1 and three_rows >= 1 and rows == 10:
+		print("EVENSONG_RENDER m7_panels ok %s" % line)
+	else:
+		_fail("m7_panels", line)
+
+
+## The pixels one HUD-style slot at `o` draws for `stack` (null = an empty slot): frames, the icon (not under the count),
+## the FINE dot, the durability bar (written out: 14x2 at (2, 14); gold over half, amber over a quarter, rust under; all rust
+## when broken).
+static func _slot_pixels(want: Dictionary[Vector2i, Color], o: Vector2i, stack: ItemStack) -> void:
+	var sq: Rect2i = Rect2i(o, Vector2i(18, 18))
+	_frame_pixels(want, sq, Hud.FRAME_DARK)
+	_frame_pixels(want, sq.grow(-1), Hud.FRAME)
+	if stack == null:
+		return
+	var n: int = stack.count
+	var skip: Rect2i = Rect2i(o + Vector2i(18 - 3 - 4 * str(n).length(), 18 - 8), Vector2i(4 * str(n).length() + 2, 7)) if n > 1 else Rect2i()
+	var bar: Rect2i = Rect2i(o + Vector2i(2, 14), Vector2i(14, 2)) if stack.worn() else Rect2i()
+	_icon_pixels(want, stack.id, o + Vector2i(1, 1), skip, bar)
+	for sy: int in range(skip.position.y, skip.end.y):
+		for sx: int in range(skip.position.x, skip.end.x):
+			want.erase(Vector2i(sx, sy))
+	if stack.worn():
+		var full: int = stack.max_durability()
+		var l: int = stack.durability
+		var ratio: float = float(l) / full
+		var w: int = 0 if l <= 0 else clampi(ceili(ratio * 14.0), 1, 14)
+		var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+		var amber: Color = Color8(0xe0, 0x86, 0x1a)
+		var rust: Color = Color8(0xb8, 0x43, 0x2f)
+		var c: Color = gold if ratio > 0.5 else (amber if ratio > 0.25 else rust)
+		for by: int in 2:
+			for bx: int in 14:
+				var px: Vector2i = o + Vector2i(2 + bx, 14 + by)
+				want[px] = rust if l <= 0 else (c if bx < w else Color8(0x1a, 0x17, 0x14))
+
+
+# --- M7c ----------------------------------------------------------------------------------------------------------------
+
+## M7c: a session's built world drawn on a client = the host's. The host's world gets a closed room with an open door, a
+## floor piece and a lantern post south of the light, the three stations and the chest by the altar, a stump where a tree
+## was, by edits; a client's world loads a surface snapshot taken half way and takes the rest as edits through the wire
+## codec (EditLog.encode_one / decode_one: another wall, the door closing, a chest slot, a tree felled). A miner swinging the
+## axe on the host and its copy from a state batch on the client (the axe action's frame from the wire). Around the room,
+## the stations and the stump both screens must be the same pixels and differ from the bare world.
+func _check_builds_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _surface_world()
+	var client_w: GameWorld = _surface_world(false)
+	var bare_w: GameWorld = _surface_world()
+	var d: WorldData = host_w.data
+	var edits: Array[EditLog.WorldEdit] = []
+	var room: Array[Vector2i] = []
+	for x: int in range(60, 66):
+		room.append(Vector2i(x, 57))
+	for y: int in range(58, 61):
+		room.append_array([Vector2i(60, y), Vector2i(65, y)])
+	for x2: int in [60, 62, 63, 64]:
+		room.append(Vector2i(x2, 61))
+	for c: Vector2i in room:
+		edits.append(Building.edit_for(Building.STONE_WALL, c))
+	edits.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(61, 61), Walls.pack(Walls.KIND_DOOR_OPEN, 0)))
+	edits.append(Building.edit_for(Building.STONE_FLOOR, Vector2i(62, 59)))
+	edits.append(Building.edit_for(Building.LANTERN, Vector2i(67, 60)))
+	for st: Array in [[WorldData.PLACEABLE_WORKBENCH, Rect2i(59, 51, 3, 1)], [WorldData.PLACEABLE_ANVIL, Rect2i(62, 51, 2, 1)],
+			[WorldData.PLACEABLE_RELIC, Rect2i(65, 51, 3, 1)], [WorldData.PLACEABLE_CHEST, Rect2i(62, 44, 3, 1)]]:
+		var value: int = st[0]
+		var rect: Rect2i = st[1]
+		for y3: int in range(rect.position.y, rect.end.y):
+			for x3: int in range(rect.position.x, rect.end.x):
+				edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(x3, y3), value))
+	var trees: Array[Vector2i] = Forest.tree_cells(d)
+	var tree: Vector2i = Vector2i(83, 52)
+	for e: EditLog.WorldEdit in edits:
+		host_w.apply_edit(e)
+	_load_surface_snapshot(host_w, client_w)
+	if client_w.data == null:
+		_fail("builds_net", "no client world")
+		return
+	var snap: int = edits.size()
+	var later: Array[EditLog.WorldEdit] = [Building.edit_for(Building.STONE_WALL, Vector2i(65, 61)),
+		EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(61, 61), Walls.pack(Walls.KIND_DOOR, 0)),
+		EditLog.WorldEdit.chest_slot(Vector2i(62, 44), 0, ItemStack.new(&"stone_a", 30, ItemDB.Grade.NONE)),
+		EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, tree, WorldData.PLACEABLE_STUMP)]
+	var wired: int = 0
+	for i: int in later.size():
+		host_w.apply_edit(later[i])
+		edits.append(later[i])
+		var got: Array = EditLog.decode_one(EditLog.encode_one(later[i], snap + i, Config.MAP_SURFACE))
+		var ge: EditLog.WorldEdit = got[1]
+		if ge != null and client_w.apply_edit(ge):
+			wired += 1
+	var same_data: bool = client_w.data.content_hash() == d.content_hash()
+	# A miner swinging the axe beside another tree: the host's player, and the client's from a state batch.
+	var other: Vector2i = trees[1] if trees[1] != tree else trees[2]
+	var axe_feet: Vector2 = Arena.spawn_feet(other + Vector2i(1, 1))
+	var hp: Player = _still_player(host_w, "miner", axe_feet)
+	var axe_frame: int = 3
+	hp.show_state(axe_feet, RigData.Dir.WEST, false, false, RigData.Anim.AXE, axe_frame * Config.ACTION_FRAME_TICKS)
+	var s: NetProtocol.PlayerState = NetProtocol.PlayerState.new()
+	s.pos = hp.sim_position
+	s.facing = hp.facing
+	s.action = hp.action_anim
+	s.action_tick = hp.action_tick
+	s.held = &"axe"
+	var batch: NetProtocol.StateBatch = NetProtocol.decode_states(NetProtocol.encode_states(1, [s] as Array[NetProtocol.PlayerState]))
+	var cp: Player = _still_player(client_w, "miner", axe_feet)
+	if batch.ok:
+		var st2: NetProtocol.PlayerState = batch.states[0]
+		cp.show_state(st2.pos, st2.facing, st2.walking, false, st2.action, st2.action_tick)
+	var spots: Array[Vector2i] = [Vector2i(63 * Config.TILE, 58 * Config.TILE), Vector2i(63 * Config.TILE, 48 * Config.TILE),
+		Vector2i(tree.x * Config.TILE, (tree.y - 1) * Config.TILE), Vector2i(other.x * Config.TILE, (other.y - 1) * Config.TILE)]
+	var host_vs_client: int = 0
+	var drawn: int = 0
+	var shots: Array[Image] = []
+	# M7-fix: the relic bench's candle animates by time and the worlds are captured one after the other, so every flame is
+	# held on frame 0 (like `stations`): a first M7-fix run differed by 3 px there, the candle's frame.
+	for fw: GameWorld in [host_w, client_w, bare_w]:
+		fw.fixtures.set_process(false)
+		for anchor: Vector2i in fw.fixtures.nodes:
+			var flame: Sprite2D = fw.fixtures.nodes[anchor].get_node_or_null(^"Flame") as Sprite2D
+			if flame != null:
+				flame.frame = 0
+	for spot: Vector2i in spots:
+		var imgs: Array[Image] = []
+		for w: GameWorld in [host_w, client_w, bare_w]:
+			for o: GameWorld in [host_w, client_w, bare_w]:
+				o.visible = o == w
+			w.camera.make_current()
+			_cave_look_at(w, spot)
+			imgs.append(await _capture())
+		host_vs_client += count_diff(imgs[0], imgs[1])
+		drawn += count_diff(imgs[1], imgs[2])
+		shots.append_array(imgs)
+	var b: Dictionary = SessionReport.builds_of(client_w.data)
+	var view: Dictionary[String, int] = client_w.builds.verify()
+	var fx: Dictionary[String, int] = client_w.fixtures.verify()
+	var line: String = "%d edits (%d after the client's snapshot, %d through the wire), same data %s, walls %d doors %d open %d stumps %d chests %s, build view %s, fixtures %s, axe frame %d, host vs client %d, drawn %d" % [
+		edits.size(), edits.size() - snap, wired, same_data, b["walls"], b["doors"], b["open_doors"], b["stumps"], b["chests"],
+		view, fx, cp.action_tick / Config.ACTION_FRAME_TICKS, host_vs_client, drawn]
+	if host_vs_client > 0 or save_all:
+		for i2: int in shots.size():
+			_save(shots[i2], "builds_net_%d.png" % i2)
+	var mism: int = view.get("mismatches", -1) + fx.get("mismatches", -1)
+	if same_data and wired == later.size() and host_vs_client == 0 and drawn > 4000 and mism == 0 and b["walls"] == room.size() + 1 \
+			and b["doors"] == 1 and b["stumps"] == 1 and cp.action_anim == RigData.Anim.AXE and cp.action_tick == hp.action_tick:
+		print("EVENSONG_RENDER builds_net ok %s" % line)
+	else:
+		_fail("builds_net", line)
+	for w2: GameWorld in [host_w, client_w, bare_w]:
+		root.remove_child(w2)
+		w2.free()
+	world.visible = true
+	world.camera.make_current()

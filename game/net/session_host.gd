@@ -91,6 +91,23 @@ extends RefCounted
 ## where AltarMove.place_refusal allows with the host's bodies and heretics. A carrier going down (or leaving) sets it down
 ## near it (AltarMove.set_down_rect); while it is carried nobody respawns (they wait), joiners appear at the spawn slots
 ## of where it was picked up, and the carrier may not travel, channel, use or throw.
+##
+## M7c (the workbench chain, gear, the chest, building, doors and trees: M7a / M7b offline first, here the host decides): a
+## USE of a station or the chest places it like the alchemy table (WorldItems.place; the chest only in the light); CRAFT
+## takes every recipe (the chain, the repairs, the build pieces; HAND needs no station); a USE of a build piece builds
+## (Building.build with the other players' and the heretics' feet, the carried-altar slots and the M7c clearance: no other
+## player within Config.BLOCK_CLEARANCE_PX); DEMOLISH (right-click) takes a built piece down (Building.demolish); DOOR (F on a
+## door) opens or closes it (Building.toggle_door, the same clearance on closing); ARMOR puts the armour on or takes it off
+## (Gear.equip / unequip); CHEST stores or takes one stack at a chest the player stands at (Storage.transfer). All of them pay
+## the request budget like a pick up ("rate"). The axe's landing frame chops (one Forest per map, forest_of: its stumps grow
+## back every tick, like the farms). A weapon's hit frame attacks with its tier-1 damage and wears it (Gear.attack_damage /
+## wear_weapon), the worn armour takes its part of a knife hit and wears (Player.take_hit, gear_on), a death wears every item
+## with durability (Gear.wear_on_death): the owner gets its inventory (durability and the armour slot ride in it, NetProtocol
+## v8). Built pieces, doors, trees, stumps and stations are cell edits of their map; a chest's contents change by chest slot
+## edits (EditLog.Kind.CHEST) that go to that map's players, and the snapshot carries every chest's contents, so a late
+## joiner or a player entering the map gets them. Members are handled in slot order and every edit is applied at once: two
+## players taking the same stack in one tick, the lower slot gets it and the other finds the slot empty (nothing doubles,
+## nothing is lost).
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -161,6 +178,14 @@ var altar_home: Rect2i = Rect2i()
 var purified: int = 0
 var altar_lifts: int = 0
 var altar_puts: int = 0
+## M7c: the forests by map (the trees' swings, the stumps' regrowth); counters: pieces built and taken down, doors opened
+## and closed, chest moves, trees felled.
+var forests: Dictionary[int, Forest] = {}
+var builds_done: int = 0
+var demolished: int = 0
+var doors_toggled: int = 0
+var chest_moves: int = 0
+var felled: int = 0
 
 
 func _init(p_session: NetSession) -> void:
@@ -177,6 +202,7 @@ func on_opened() -> void:
 	_equip(s.local)
 	_setup_combat()
 	_setup_farms()
+	_setup_forests()  # M7c
 	s.active = true
 	_last_take_usec = Time.get_ticks_usec()
 	s.log_event("hosting", "port=%d slot=%d class=%s" % [s.options.port, slot, s.local.class_id])
@@ -431,8 +457,18 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_altar_lift(m, frame)
 	elif frame.op == NetProtocol.Op.ALTAR_PLACE:
 		_altar_place(m, frame)
+	elif frame.op == NetProtocol.Op.DEMOLISH:
+		_demolish(m, frame)  # M7c
+	elif frame.op == NetProtocol.Op.DOOR:
+		_door(m, frame)
+	elif frame.op == NetProtocol.Op.ARMOR:
+		_armor(m, frame)
+	elif frame.op == NetProtocol.Op.CHEST:
+		_chest(m, frame)
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
+	elif frame.op == NetProtocol.Op.USE and not Building.piece_in(p.inventory, frame.slot).is_empty():
+		_build(m, frame)  # M7c
 	elif frame.op == NetProtocol.Op.USE and _potion_in(p, frame.slot):
 		_drink(m, frame)
 	elif frame.op == NetProtocol.Op.USE and Farming.seed_kind_in(p.inventory, frame.slot) != Farming.KIND_NONE:
@@ -440,6 +476,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	elif frame.op == NetProtocol.Op.USE and frame.slot >= 0 and frame.slot < p.inventory.size() \
 			and p.inventory.stack_at(frame.slot) != null and Purify.is_holy_water(p.inventory.stack_at(frame.slot).id):
 		_pour_start(m, frame)  # M5c
+	elif frame.op == NetProtocol.Op.USE and p.gear_on and frame.slot >= 0 and frame.slot < p.inventory.size() \
+			and Gear.unusable(p.inventory.stack_at(frame.slot)):
+		_refuse_op(m, frame, Gear.WHY_BROKEN)  # M7-fix: Config.GEAR_BROKEN_UNUSABLE is the host's rule too (Player.make_frame)
 	elif frame.op == NetProtocol.Op.USE:
 		var why: Array[String] = []
 		var anim: int = WorldItems.use_action(p.sim_position, p.inventory, frame.slot, frame.cell, why)
@@ -493,7 +532,12 @@ func _impact(m: NetMember) -> void:
 	if item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(p.data, item, p.action_cell):
 		_farm_impact(m, item)  # M5c: the sickle aimed at a crop harvests instead of attacking (M5a's rule)
 		return
-	if item == Mining.PICKAXE and p.action_anim == RigData.Anim.PICKAXE:
+	if Gear.base(item) == Forest.AXE:
+		_chop(m)  # M7c: the axe chops the tree it is aimed at (M7b's rule)
+		return
+	# M7a: a tier-1 pickaxe mines as the pickaxe (Gear.base); aimed elsewhere it attacks (M7c: with its tier-1 damage and
+	# wear, _attack).
+	if Gear.base(item) == Mining.PICKAXE and p.action_anim == RigData.Anim.PICKAXE:
 		if Combat.is_mining_swing(p.data, item, p.action_cell):
 			_mine(m)
 			return
@@ -503,13 +547,24 @@ func _impact(m: NetMember) -> void:
 		_attack(m, item)
 
 
-## M4b: member `m`'s weapon lands on its map's arena (host state, host time: no rewind).
+## M4b: member `m`'s weapon lands on its map's arena (host state, host time: no rewind). M7c: with the damage of the stack
+## that plays it (Gear.attack_damage: a tier-1 weapon's, while not broken) and its use wear (Gear.wear_weapon, offline
+## Main._attack's rule); the owner gets its inventory when it wore.
 func _attack(m: NetMember, item: StringName) -> void:
 	var a: Arena = arenas.get(m.map_id, null)
 	if a == null:
 		return
 	m.count_combat("attacks")
-	var edits: Array[EditLog.WorldEdit] = a.player_attack(m.player, item, m.player.action_aim, players_on(m.map_id), m.slot)
+	var p: Player = m.player
+	var stack: ItemStack = Gear.playing_stack(p.inventory, p.action_slot, item)
+	var damage: int = Gear.attack_damage(stack, Combat.attack_for(item).damage) if p.gear_on else -1
+	var edits: Array[EditLog.WorldEdit] = a.player_attack(p, item, p.action_aim, players_on(m.map_id), m.slot, damage)
+	if p.gear_on and stack != null and stack.max_durability() > 0:
+		var was_broken: bool = stack.broken()
+		Gear.wear_weapon(p.inventory, p.action_slot, item)
+		m.inventory_dirty = true
+		if stack.broken() and not was_broken:
+			s.log_event("gear", "slot=%d broke item=%s" % [m.slot, item])
 	for e: EditLog.WorldEdit in edits:
 		apply_world_edit(e, m.map_id)
 		_changed = true
@@ -533,6 +588,12 @@ func _died(m: NetMember) -> void:
 		_changed = true
 	s.log_event("died", "slot=%d map=%s bag=%s items=%d" % [m.slot, Config.MAP_NAMES[m.map_id],
 		"%d,%d" % [o.edits[0].cell.x, o.edits[0].cell.y] if o.ok() else "none (%s)" % o.why, o.count])
+	if p.gear_on:
+		# M7c: ● gameplay-design §2.6 R12 the gear stays and wears (Gear.wear_on_death, offline Main._on_died's rule).
+		var worn: int = Gear.wear_on_death(p.inventory)
+		if worn > 0:
+			m.inventory_dirty = true
+			s.log_event("gear", "slot=%d death wear items=%d %s" % [m.slot, worn, _gear_line(p.inventory)])
 
 
 ## M4b: member `m`'s respawn time is up: back at its spawn slot on the surface (● §2.6 "부활 지점: 제단"),
@@ -639,7 +700,8 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var extra: Array[Vector2] = []
 	if m.map_id == Config.MAP_SURFACE:
 		extra = carried_reserved_feet()
-	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies, extra)
+	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies, extra,
+		others_on(m.map_id, p))
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return
@@ -853,7 +915,8 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 ## applies a hotbar selection at once (predicted). M3b: F (PICKUP) on an entrance or stairs tile of the
 ## player's map is a TRAVEL there, and every tile request names the map the player is on. M5c: F held on the altar
 ## counts toward ALTAR_LIFT (hold_altar), and F with nothing to pick up next to corruption is the paladin's CHANNEL
-## (wants_channel).
+## (wants_channel). M7c: F at a chest in reach opens its panel here (NetSession.chest_wanted, no request), F on a door is
+## DOOR, a DEMOLISH aims at the target tile.
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
 	hold_altar(p, f, players_with(session, p))  # M5c: may put ALTAR_LIFT on this frame
 	var q: NetProtocol.InputFrame = null
@@ -876,10 +939,18 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 	f.grade = q.grade
 	f.cell = q.cell
 	f.recipe = q.recipe
-	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP:
+	f.chest_take = q.chest_take
+	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP or q.op == NetProtocol.Op.DEMOLISH:
 		f.cell = p.aim_cell
 	if q.op == NetProtocol.Op.PICKUP and p.data != null and WorldItems.is_portal(p.data, f.cell):
 		f.op = NetProtocol.Op.TRAVEL
+	elif q.op == NetProtocol.Op.PICKUP and p.data != null and Storage.chest_for(p.data, p.sim_position, f.cell).has_area():
+		# M7c: F at a chest opens its panel on this machine (Main); nothing goes to the host until a click moves a stack.
+		session.chest_wanted.emit(Storage.chest_for(p.data, p.sim_position, f.cell))
+		f.op = NetProtocol.Op.NONE
+		return
+	elif q.op == NetProtocol.Op.PICKUP and p.data != null and Building.door_cell(p.data, f.cell) != Walls.NO_CELL:
+		f.op = NetProtocol.Op.DOOR  # M7c: F on a door or its face opens or closes it (offline Main.pick_up's order)
 	if q.op == NetProtocol.Op.DROP and q.slot < 0:
 		f.slot = p.inventory.selected
 	if q.op == NetProtocol.Op.PICKUP and f.op == NetProtocol.Op.PICKUP and wants_channel(p, f.cell):
@@ -980,6 +1051,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 	_step_arenas()
 	_check_carriers()  # M5c: a carrier who went down this tick sets the altar down
 	_step_farms()  # M5c: after the players and the arenas, like offline (Main: players, combat, farms)
+	_step_forests()  # M7c: then the stumps grow back (offline Main: farms, forests)
 	# A request's change, or any client frame handled (its acknowledgement goes out): not quiet.
 	if _changed or _frames > 0:
 		broadcast.note_activity(s.tick)
@@ -991,6 +1063,13 @@ func tick(action: NetBot.Action, now: int) -> void:
 			break
 	if action.edit != null:
 		edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR, action.edit.cell, action.edit.terrain))
+	if action.heretic != null:
+		# M7c, test only (bot "heretic"): a heretic on the host's map now (a session test brings one in on cue).
+		var hc: Vector2i = action.heretic
+		var ha: Arena = arenas.get(s.local.map_id, null)
+		if ha != null:
+			var h: HereticSim = ha.spawn_heretic(Arena.spawn_feet(hc))
+			s.log_event("heretic", "map=%d id=%d at=%d,%d" % [s.local.map_id, h.id, hc.x, hc.y])
 	if not action.mark.is_empty():
 		s.bots.mark(action.mark)
 	if action.leave:
@@ -1125,6 +1204,7 @@ func settled() -> bool:
 ## (--test-start-hp=<class>:<hp>), its hits logged and counted.
 func _equip(m: NetMember) -> void:
 	Main.give_start_weapon(m.player)
+	m.player.gear_on = true  # M7c: armour, its defence and its wear on knife hits, tier-1 damage and wear (the host's rules)
 	m.inventory_dirty = true
 	if s.options.test_start_hp.has(m.class_id):
 		m.player.vitals.hp = clampi(s.options.test_start_hp[m.class_id], 1, Config.PLAYER_HP_MAX)
@@ -1137,6 +1217,8 @@ func _on_member_hurt(amount: int, downed: bool, m: NetMember) -> void:
 	m.count_combat("hurt")
 	if downed:
 		m.count_combat("downed")
+	if m.player.gear_on and m.player.inventory.armor != null:
+		m.inventory_dirty = true  # M7c: the worn armour took its part and wore (Player.take_hit): the owner sees its durability
 	s.log_event("hurt", "slot=%d map=%d amount=%d hp=%d%s" % [m.slot, m.map_id, amount, m.player.vitals.hp,
 		" DOWN" if downed else ""])
 
@@ -1567,10 +1649,11 @@ func _purified(m: NetMember, r: Purify.Result, what: String, cell: Vector2i) -> 
 		what, cell.x, cell.y, r.cells.size(), Purify.corrupted_count(m.player.data), spawn_tiles])
 
 
-## What a carrier may not do (its click is the altar's, M5b): use, throw, channel, travel, lift.
+## What a carrier may not do (its click is the altar's, M5b): use, throw, channel, travel, lift. M7c: take a piece down
+## (offline Main.demolish refuses it too).
 static func _blocked_while_carrying(op: int) -> bool:
 	return op == NetProtocol.Op.USE or op == NetProtocol.Op.THROW or op == NetProtocol.Op.CHANNEL \
-		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT
+		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT or op == NetProtocol.Op.DEMOLISH
 
 
 ## Where member slot `slot` appears: its spawn slot around the altar (GameWorld.spawn_point); while the altar is carried,
@@ -1741,3 +1824,226 @@ func fields_result() -> Dictionary:
 		by_map[str(map)] = farms[map].stats
 	return {"farms": by_map, "purified": purified, "altar_lifts": altar_lifts, "altar_puts": altar_puts,
 		"altar_home": "%d,%d" % [altar_home.position.x, altar_home.position.y] if altar_home.has_area() else "none"}
+
+
+# --- building, doors, trees, gear, the chest (M7c) ---------------------------------------------------------------------
+
+## The other players' feet on map `map` (player `p` left out): M7c's clearance (Building.clear_of_others).
+func others_on(map: int, p: Player) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for q: Player in players_on(map):
+		if q != p:
+			out.append(q.sim_position)
+	return out
+
+
+## The bodies a blocking piece may not cover on map `map`, player `p`'s own feet left out (Building checks them apart):
+## the other players' and the live heretics'.
+func bodies_but(map: int, p: Player) -> Array[Vector2]:
+	var out: Array[Vector2] = others_on(map, p)
+	out.append_array(heretic_feet(map))
+	return out
+
+
+## A USE of a build piece: request rate (like a torch), then Building.build on the member's map (the M7b rules: reach, the
+## cost in or out of the light, open ground, bodies, the spots where players appear and sealing; M7c: no other player within
+## Config.BLOCK_CLEARANCE_PX). The edit goes to the map, the owner gets its inventory.
+func _build(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var extra: Array[Vector2] = carried_reserved_feet() if m.map_id == Config.MAP_SURFACE else [] as Array[Vector2]
+	var o: WorldItems.Outcome = Building.build(p.data, p.sim_position, p.inventory, frame.slot, frame.cell,
+		bodies_but(m.map_id, p), extra, others_on(m.map_id, p))
+	if not o.ok():
+		_refuse_op(m, frame, o.why)
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		apply_world_edit(e, m.map_id)
+	builds_done += 1
+	m.count_done("build")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("build", "slot=%d map=%d piece=%s cost=%d at=%d,%d" % [m.slot, m.map_id, o.item, o.count, frame.cell.x,
+		frame.cell.y])
+
+
+## DEMOLISH (right-click): request rate, not while carrying the altar (offline Main.demolish), then Building.demolish on the
+## member's map (anyone's piece, in reach; a dungeon wall is mined, not taken down; M7-fix: the refund that does not fit is
+## a drop at the feet, and an open door under a wall comes down only as a closing door would: the host's bodies and the
+## other players' clearance).
+func _demolish(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var o: WorldItems.Outcome = Building.demolish(p.data, p.sim_position, p.inventory, frame.cell, bodies_but(m.map_id, p),
+		others_on(m.map_id, p))
+	if not o.ok():
+		_refuse_op(m, frame, o.why)
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		apply_world_edit(e, m.map_id)
+	demolished += 1
+	m.count_done("demolish")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("demolish", "slot=%d map=%d piece=%s at=%d,%d" % [m.slot, m.map_id, o.item, o.edits[0].cell.x,
+		o.edits[0].cell.y])
+
+
+## DOOR (F on a door or its face): request rate, then Building.toggle_door on the member's map with the host's bodies (the
+## other players and the live heretics: nobody in the doorway when it closes) and, M7c, no other player within
+## Config.BLOCK_CLEARANCE_PX of the doorway when it closes (README "M7c 예측": a door never closes on a client's prediction).
+func _door(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var o: WorldItems.Outcome = Building.toggle_door(p.data, p.sim_position, frame.cell, bodies_but(m.map_id, p),
+		others_on(m.map_id, p))
+	if not o.ok():
+		_refuse_op(m, frame, o.why)
+		return
+	for e: EditLog.WorldEdit in o.edits:
+		apply_world_edit(e, m.map_id)
+	doors_toggled += 1
+	m.count_done("door")
+	_changed = true
+	s.log_event("door", "slot=%d map=%d %s at=%d,%d" % [m.slot, m.map_id, o.item, o.edits[0].cell.x, o.edits[0].cell.y])
+
+
+## ARMOR: request rate, then put the armour in that hotbar slot on (Gear.equip: alive, no action playing, not carrying the
+## altar: offline the click only puts it on then) or take it off (ARMOR_OFF, Gear.unequip: a free slot). The owner gets its
+## inventory.
+func _armor(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var off: bool = frame.slot == NetProtocol.ARMOR_OFF
+	var why: String = ""
+	if not off and not p.vitals.alive():
+		why = WHY_DOWN
+	elif not off and p.carrying_altar:
+		why = AltarMove.WHY_CARRYING
+	elif not off and busy(p):
+		why = WHY_BUSY
+	else:
+		why = Gear.unequip(p.inventory) if off else Gear.equip(p.inventory, frame.slot)
+	if not why.is_empty():
+		_refuse_op(m, frame, why)
+		return
+	m.count_done("armor_off" if off else "armor_on")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("armor", "slot=%d %s worn=%s" % [m.slot, "off" if off else "on", Gear.describe(p.inventory.armor)])
+
+
+## CHEST (a click in the open chest panel): request rate, then Storage.transfer on the member's map (a chest with a tile at
+## the request's tile, the player within Config.STATION_REACH_TILES of it, store or take what fits). The chest slot edits go
+## to the map (a late joiner gets the contents in its snapshot), the owner gets its inventory. Two players moving the same
+## stack in one tick: members run in slot order and the edits are applied at once, so the second finds what the first left.
+func _chest(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	var moved: Storage.Moved = Storage.transfer(p.data, p.sim_position, p.inventory, frame.cell, frame.chest_take, frame.slot)
+	if not moved.ok():
+		_refuse_op(m, frame, moved.why)
+		return
+	for e: EditLog.WorldEdit in moved.edits:
+		apply_world_edit(e, m.map_id)
+	chest_moves += 1
+	m.count_done("chest_take" if frame.chest_take else "chest_store")
+	m.inventory_dirty = true
+	_changed = true
+	var key: Vector2i = moved.edits[0].cell if not moved.edits.is_empty() else frame.cell
+	s.log_event("chest", "slot=%d map=%d %s item=%s count=%d left=%d at=%d,%d" % [m.slot, m.map_id,
+		"take" if frame.chest_take else "store", moved.item, moved.count, moved.left, key.x, key.y])
+
+
+## The forest of map `map` (made when missing, or when the map got other data); null for a map this session has none of.
+func forest_of(map: int) -> Forest:
+	var w: GameWorld = s.world_of(map)
+	if w == null or w.data == null:
+		return null
+	var f: Forest = forests.get(map, null)
+	if f == null or f.data != w.data:
+		f = Forest.new(w.data)
+		forests[map] = f
+	return f
+
+
+## A forest for every map this host has, and the test pieces (--test-build) on the surface before anyone joins (straight
+## into the world past the rules, like --test-field: a joiner gets them with its snapshot).
+func _setup_forests() -> void:
+	for map: int in s.worlds:
+		forest_of(map)
+	if s.options != null and not s.options.test_build.is_empty():
+		Main.put_test_build(s.world, s.options.test_build)
+
+
+## One forest tick on every map (the stumps grow back: their edits go to that map's players), in map order (offline
+## Main.step_forests: every map).
+func _step_forests() -> void:
+	var maps: Array[int] = []
+	maps.assign(forests.keys())
+	maps.sort()
+	for map: int in maps:
+		var f: Forest = forest_of(map)
+		if f == null:
+			continue
+		for e: EditLog.WorldEdit in f.step():
+			apply_world_edit(e, map)
+			s.log_event("tree", "map=%d regrown at=%d,%d" % [map, e.cell.x, e.cell.y])
+
+
+## The axe's landing frame for member `m`: Forest.chop on its map's forest from the host's state of it now (its feet, its
+## inventory, its action's target tile). A swing that chops nothing is counted by reason (swings_missed, like mining).
+## The tree shakes on the host's screen; the stump and the logs (a drop for what does not fit) are edits and inventory.
+func _chop(m: NetMember) -> void:
+	var p: Player = m.player
+	var f: Forest = forest_of(m.map_id)
+	if f == null:
+		return
+	var r: Forest.Result = f.chop(p.sim_position, p.inventory, p.action_item, p.action_cell)
+	if not r.ok():
+		var n: int = m.swings_missed.get(r.why, 0)
+		m.swings_missed[r.why] = n + 1
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		apply_world_edit(e, m.map_id)
+	m.count_done("chop")
+	_changed = true
+	if r.felled:
+		felled += 1
+		m.inventory_dirty = true
+		s.log_event("tree", "slot=%d map=%d felled at=%d,%d %s" % [m.slot, m.map_id, p.action_cell.x, p.action_cell.y,
+			r.describe()])
+		return
+	var w: GameWorld = s.world_of(m.map_id)
+	if w != null and w.fixtures != null:
+		w.fixtures.shake(p.action_cell)
+	s.log_event("tree", "slot=%d map=%d chop at=%d,%d hits=%d/%d" % [m.slot, m.map_id, p.action_cell.x, p.action_cell.y,
+		r.hits, Config.TREE_CHOP_HITS])
+
+
+## A log line's gear part: the durability of every item with durability `inv` holds and the armour worn.
+static func _gear_line(inv: Inventory) -> String:
+	var parts: PackedStringArray = []
+	for st: ItemStack in inv.slots:
+		if st != null and st.max_durability() > 0:
+			parts.append(Gear.describe(st))
+	return "gear=[%s] armor=%s" % [", ".join(parts), Gear.describe(inv.armor)]
+
+
+## M7c results: pieces built and taken down, doors toggled, chest moves, trees felled, every forest's counters.
+func builds_result() -> Dictionary:
+	var by_map: Dictionary = {}
+	for map: int in forests:
+		by_map[str(map)] = forests[map].stats
+	return {"built": builds_done, "demolished": demolished, "doors": doors_toggled, "chest_moves": chest_moves,
+		"felled": felled, "forests": by_map}
