@@ -654,3 +654,73 @@ size 32 묶음의 통·상자·자루는 캔버스를 채워 캐릭터(기본 �
 - 측정: §6(`arttool.py measure`) 낮·저녁 v06, 던전 v07(3배·1배), `stage4_s4_compare`, 다시 만든 `stage4_scale_compare_v01` 모두 차가운 색 0%, 보라 0.00% (OK). 가장 밝은 점은 세 목업 모두 그대로 거룩한 불꽃 심 #fff6dc(245.7)
 - 손질 규칙 검사(`stage4_fix6.py rules`, s4 새 파일 11장): 소품 24색 이하(통 24·24, 자루 17, 던전 16~22), 최대 밝기 213.2, 파란·보라 기운 회색 0, 반투명 0. 외곽선은 통·자루 100%, 던전 소품 v04는 v03과 같은 예외 (다)(구운 그림자, 빼면 92~100%)
 - 남은 것 (고치지 않음): 저장 항아리 v03 20(목표보다 1px)과 땅 랜턴 v03 21(5px)은 줄 지우기를 하지 않았다(항아리는 창고 옆에 놓이지 않고, 땅 랜턴은 5px을 줄이면 창·고리 모양이 바뀐다). 문 크기, 랜턴 불꽃·심 밝기, 정면 재료 아이콘, 목표 키 표는 사람이 정한다(3. 5·6)
+
+## M7 나무·그루터기 (2026-10-25, PixelLab 3회 사용)
+
+슬라이스 M7(game-concept §12 R37 "나무 1종 = 목재 원천, 누구나 벤다", brief §5.7 범위 표 "나무": ● 나무 1종과 벌목 동작, ○ 도구는 도끼)에 필요한 나무 그림·그루터기·도끼질 몸 동작을 만들었다. 사람이 이 일 전체에 PixelLab 12회를 승인했다(2026-10-25, 사람이 자리에 없어 질문하지 않음). **이 일에서 모두 10회를 썼다**: 나무 3회(이 절), 도끼질 7회(03-pixel/prompts.md "PixelLab 14차": 첫 판 5회 + 검토 뒤 북 다시 뽑기 2회). 잔액 1,709 → 1,699, 2회는 쓰지 않았다(이 일의 하한 1,697). 같은 시각에 PixelLab을 쓴 다른 작업은 없어서 잔액 차이가 모두 이 일의 값이고, 생성 호출마다 앞뒤로 `get_balance`를 불러 값을 확인했다. 힉스필드는 쓰지 않았다. 나무는 글만 썼고(이미지 레퍼런스 없음), 다른 사람 팩 이미지는 어디에도 넣지 않았다. 내려받기 주소는 적지 않는다(계정 경로가 들어 있다). 모두 채택 후보이고 사람 확인 전이다.
+
+### 1. 나무 후보 (`create_map_object`, 1장 1회)
+
+공통: 기본 모드(바탕 그림 없음, 배경 투명), `view: "low top-down"`, `outline: "single color outline"`, `shading: "medium shading"`, `detail: "medium detail"` (작업대·모루와 같은 설정). 정렬 문구 "seen straight from the front, flat elevation"과 "standing on a level ground line exactly horizontal"을 넣었다. 원본은 `tree_v01_{a,b,c}.png` (받은 그대로).
+
+| 판 | 캔버스 | object | job | 값 (잔액) | 그림 | 판정 |
+|---|---|---|---|---|---|---|
+| a | 48×64 | a08110dd-ca72-422e-abe9-3a80a6b4b0bd | c60fbd0e-9330-40f9-bb43-4c7e002e2341 | 1 (1,709 → 1,708) | 42×52, 31색 | 탈락. 둥근 덤불 수관에 짧은 줄기. 밑동에 풀 조각을 그렸고("no grass or ground patch"인데도), 수관이 노란 올리브라 풀·병든 올리브와 가깝다 |
+| b | 64×80 | 78e8c178-2c8b-4ac0-b70f-3881711c92dd | 054848e9-b4e8-40ea-8fed-5e724ff8a606 | 1 (→ 1,707) | 52×72, 29색 | **채택**. 덩어리 서넛의 둥근 수관, 두 갈래 가지로 갈라지는 굵은 줄기, 퍼진 뿌리가 1배에서 보인다. 풀 조각·그림자 없음, 정면 정렬. 흠: 수관 밝은 면이 올리브 노랑(#9db043, 색상 70°, 풀 #80bd5a와 같은 밝기)이라 풀밭에 묻힘, 수관 가장자리가 청록 어둠(#1b322c, 차가운 색), 껍질이 분홍빛 갈색, 외곽선이 보랏빛 검정, 가운데 곧은뿌리가 땅줄 아래로 2px |
+| c | 48×72 | a2d45c9e-cbe8-49cc-9047-0ce6ff58ff34 | 2ec3c79b-f1ca-4c0e-8e48-2a2aa57c09b1 | 1 (→ 1,706) | 41×64, 30색 | 탈락. "clearly darker than meadow grass"라고 했는데 채도 높은 연두의 원뿔꼴 수관(배나무·침엽수처럼), 가늘고 어두운 줄기 |
+
+- description
+  - a: "a single round leafy broadleaf tree seen straight from the front, flat elevation: a big round bushy crown of clumped leaves in warm deep greens with soft yellow-green highlights and dark warm brown-green shadows, under it a sturdy straight brown trunk clearly visible for its lower third, the trunk base slightly flared with a few small roots standing on a level ground line exactly horizontal, the trunk centred, not rotated, not isometric; no grass or ground patch at its base, no shadow, no fruit, no flowers, no face; cozy warm colours"
+  - b: "a tall oak tree seen straight from the front, flat elevation: a broad rounded crown made of three or four big clumps of leaves in warm rich greens with light yellow-green highlights and dark warm olive shadows, a thick brown bark trunk clearly visible between the crown and the ground, its base flaring into short roots standing on a level ground line exactly horizontal, the trunk centred, not rotated, not isometric; no grass or ground patch at its base, no shadow, no fruit, no flowers, no face; cozy warm colours"
+  - c: "a sturdy leafy tree seen straight from the front, flat elevation: a rounded crown of big leaf clumps in deep warm forest greens, clearly darker than meadow grass, with light yellow-green highlights on the top of each clump and dark warm brown-green shadows underneath, a thick brown bark trunk clearly visible below the crown with one short side branch, its base flaring into short roots standing on a level ground line exactly horizontal, the trunk centred, not rotated, not isometric; no grass or ground patch at its base, no shadow, no fruit, no flowers, no face; cozy warm colours"
+- 요령: 세 판 모두 정면 정렬로 나왔다(앞면이 높은 물체는 정렬 문구로 잘 된다는 4단계 결과와 같다). 값은 캔버스 크기(48×64 ~ 64×80)와 상관없이 1회였다. 큰 캔버스의 b도 캔버스를 거의 채웠다. 글의 색("warm deep greens", "clearly darker than meadow grass")은 지켜지지 않아 색은 손질로 맞췄다(4단계 요령과 같음)
+- 고른 이유: b가 "벨 수 있는 나무"로 가장 잘 읽힌다(줄기·밑동·뿌리가 1배에서 보인다). 크기는 캐릭터(걷기 키 28~29px)의 약 2.5배로, 480×270 화면에서 나무로 읽히고 제단(57px)보다 크며 목업에 8그루를 놓아도 화면을 덮지 않는다
+
+### 2. 손질 (생성 없음, 무료)
+
+`uv run -q --python 3.14.6 --script tools/art/m7_tree_axe.py tree` (고정 버전 `m7_tree_axe.py.lock`. `--python 3.14.6`을 빼면 SSH·샌드박스 셸에서 uv가 3.14 바로가기를 못 읽을 수 있다, os error 448). 다시 돌리면 같은 파일이 나온다(해시로 확인, 아래 4).
+
+- `tree_v02.png` (64×80, 원본 b와 같은 캔버스·같은 자리)
+  - 색: raw 29색 → 14색. raw 색마다 묶음·단을 표(`TREE_MAP`)로 정해 바꿨다
+    - 수관 7단 #1f331c #2a4723 #375d2b #477633 #5a8f3e #6ea448 #98d072. 색상 95~112°로 생활 쪽 풀(#80bd5a, 97°)과 같은 쪽이고 병든 올리브(#6f8f3a, 82.6°, 오염 신호 brief §4)에서 12° 이상 떨어진다. 수관 몸통(#6ea448)은 밝기 137로 풀(160)보다 어둡게 해서 풀밭 위에서 덩어리로 갈린다. 어두운 초록은 모두 R ≥ B(차가운 색 아님)
+    - 껍질 6단은 04-env 통나무 아이템 `item_log_v02`의 껍질 색 그대로 #3e241a #492312 #5b2e15 #794725 #8c5a2c #a96e43 (벤 나무와 떨어진 통나무가 같은 나무로 읽히게)
+    - raw의 보랏빛·청록 어두운 색(#1c1327 #251a24 #2c1e27 #20242b, #1a2f2a #1b322c #22372e)은 실루엣 가장자리면 외곽선, 안쪽이면 수관 맨 아래 단(#1f331c)이나 껍질 맨 아래 단(#3e241a)
+  - 땅줄: y 72 아래(가운데 곧은뿌리 끝과 오른쪽 뿌리 끝, 9px)를 지우고 72줄에서 닫았다. 맨 아래 불투명 줄이 곧 땅에 닿는 줄이다
+  - 외곽선: #1a1714 1px (heretic.py와 같은 규칙: 가장자리 픽셀이 어두우면 그 자리를, 밝으면 바깥에 더함. 24px 바꿈, 87px 더함)
+  - 결과: 그림 53×71 (x 6~58, y 2~72), 14색, 최대 밝기 180.5, 어두운 색 중 차가운 색 0, 반투명 0, 실루엣 가장자리 237/237이 외곽선 색
+- `stump_v01.png` (64×80, 나무와 같은 캔버스·같은 줄기 자리. 게임에서 그림만 바꾸면 된다): 생성하지 않았다. tree_v02의 줄기 밑동(y 63~72의 줄기와 뿌리)을 그대로 두고, 그 위 y 59~63에 위에서 본 나이테 면(8×4 타원, `STUMP_CAP` 판)을 손으로 얹었다. 나이테 면 색은 통나무 아이템의 나뭇결·널판(`item_planks_a_v03`) 색 #d79149 #bc8440 #a05f22 #8c4a22. 그림 22×14 (x 22~43, y 59~72), 11색, 최대 밝기 157.7. 손 그림이 1배·3배에서 그루터기로 읽혀 생성 1회를 아꼈다
+
+### 3. 미리보기·목업 (생성 없음, `m7_tree_axe.py preview`, `mockup`)
+
+- `tree_v02_board.png` (912×1656, 글자 없음)
+  - 맨 위 줄(1배) 셋: 낮 풀밭 띠(240×120: 나무 + 서쪽 칸에서 동쪽을 보고 도끼질하는 캐릭터(도끼 시트 동 4열 = 허리 높이 내리침. 검토 전 시트의 동 3열과 같은 그림, 날이 밑동에 닿음), 그루터기 + 남쪽을 보는 idle, 나무 + 바로 아래 칸에서 북쪽을 보고 도끼질(북 4열)) | 같은 띠의 저녁(왼쪽 나무만 제단 빛 안, 4단계 목업 `darken`과 같은 값) | 후보 a·b·c 원본, tree_v02, stump_v01
+  - 둘째·셋째 줄: 낮·저녁 띠 3배
+  - 넷째·다섯째 줄: `03-pixel/base_body_v02_axe.png`(위)와 `base_body_v02_sickle.png`(아래) 2배. 빨간 줄 = 발 줄 바로 아래(칸 y 48)
+- `stage4_tree_mockup_v01_day.png` / `_eve.png` (3배) + `_1x` (480×270): 4단계 목업 코드(`stage4_mockup.py`의 `surface_ground`·`altar_lit`·`darken`)로 풀밭·흙길·제단(공유 불꽃, 저녁 빛 안 100px·밖 150px)을 깔고 나무 8그루, 그루터기 3, 도끼질하는 캐릭터 셋(동, 서 = 동 2열 반전, 북), 그루터기 옆 idle, 길을 걷는 캐릭터를 놓았다. 나무·그루터기는 아래 5의 자리 규칙, 그리기 순서는 발·자리 아래 변으로 y 정렬
+- §6 측정(`arttool.py measure`): 목업 낮·저녁 3배·1배 모두 차가운 색 0%, 보라 0.00% (OK)
+
+### 4. 판정과 남은 흠
+
+- 1배: 나무는 풀밭 위에서 수관 덩어리 + 갈색 줄기로 바로 읽히고, 퍼진 뿌리가 보여 땅에 선 "벨 나무"로 읽힌다. 그루터기는 주황 나이테 면으로 1배에서 보인다. 저녁 빛 밖에서도 외곽선과 수관 명암으로 남는다
+- 다시 돌리기: `all`을 두 번(`--script`와 `--with` 두 명령으로) 돌려 결과 9개 파일의 sha256이 같았다. 손질 규칙 검사(`check`): 나무 14색·그루터기 11색(24색 이하), 최대 밝기 215 이하, 차가운 어두운 색 0, 반투명 0, 가장자리 100% 외곽선
+- 남은 흠 (고치지 않음)
+  - 수관 밝은 면(#6ea448)이 풀(#80bd5a)과 색상이 같아 풀밭에서는 외곽선과 명암으로만 갈린다. 더 갈리게 하려면 수관을 한 단 더 어둡게 하거나 발밑 그림자(엔진)를 둔다
+  - 줄기 북쪽 약 4칸 안에 선 캐릭터는 수관에 가린다(목업 왼쪽 아래, 길 위 캐릭터의 다리). 수관을 반투명으로 할지는 게임 쪽 일이다(○, M7b)
+  - 그루터기 나이테 면이 8×4로 작다. 3배에서는 나이테가 보이고 1배에서는 주황 덩어리로 읽힌다
+  - 나무는 한 장뿐이다(변형, 흔들림, 쓰러짐 프레임 없음). 벨 때 흔들림은 엔진에서 그림을 1px씩 옮기는 정도를 생각할 수 있다(○)
+  - 껍질·나이테 색(통나무 아이템 색)은 04-env 채택 후보 색이고 §4 팔레트 밖이다(사람 확인)
+
+### 4b. 검토 (2026-10-25, 생성한 에이전트와 다른 에이전트가 판정·마무리)
+
+- 확인한 것: tree_v02·stump_v01을 raw b와 나란히 6배, 목업을 잘라 4배(낮·저녁), 보드 1배·3배로 봤다. 색 표(나무 14색·그루터기 11색, 모두 24색 이하), 반투명 0, 가장자리 100% 외곽선 #1a1714, 어두운 색 중 차가운 색 0, 줄마다 실루엣(수관 y 2~52, 줄기 y 50~72, 뿌리 y 65~72)을 쟀다
+- 판정: **그대로 쓸 수 있다.** 1배에서 수관 덩어리 + 갈색 줄기 + 퍼진 뿌리로 "벨 나무"로 읽히고, 키 71px(캐릭터 28~29px의 약 2.5배)로 480×270에서 크기가 맞다. 수관 초록은 풀 타일과 같은 따뜻한 쪽이고 병든 올리브와 갈린다. 그루터기는 같은 줄기·뿌리 픽셀이라 같은 나무의 그루터기로 읽힌다. 저녁 빛 밖에서도 외곽선으로 남는다. 손질할 것이 없어 나무·그루터기·목업은 바뀌지 않았다(sha256 그대로)
+- 다시 돌리기: 스크래치 복사본에서 손질판·보드·목업을 지우고 raw만으로 `all`을 돌려 저장소 파일과 sha256이 같았다(검토 전·후 두 번). 검토 뒤 바뀐 것은 도끼 시트 열 배치(03-pixel 14차 "검토")를 따라 다시 만든 `tree_v02_board.png` 아래 판뿐이다
+- 잔액: 검토 시작 때 `get_balance` 1,701(사용 299)로 기록 8회와 맞았다. 검토에서 나무는 다시 뽑지 않았다(도끼질 북 2회만, 03-pixel 14차)
+- 남은 흠은 위 4와 같다. 덧붙임: 줄기 가운데는 그림 x 33(줄기 외곽선 포함 x 30~36, y 53~62), 밑동은 x 29~36이라 그림 열 32를 칸 가운데에 두면 줄기가 칸 가운데보다 1px 오른쪽에 선다(1배에서 보이지 않음)
+
+### 5. M7b에 넘길 것 (game/은 고치지 않았다)
+
+- 그림: `tree_v02.png`, `stump_v01.png` 64×80, 같은 캔버스·같은 자리. 벨 때 텍스처만 바꾼다. game/art/env/로 바이트 그대로 복사하고 game/README.md "그림 출처" 표와 `test_actors.gd`의 `ART_SOURCES` 표(md5 비교)에 더한다
+- 자리: 줄기 1칸(자리 칸 = 막는 칸, 크기는 ○). 줄기(외곽선 포함)는 그림 x 30~36(밑동 x 29~36)이고, 그림 열 32를 칸 가운데(칸 x 8)에 두면 줄기가 칸 x 6~12(밑동 5~12)에 온다. 맨 아래 불투명 줄 72 = 자리 아래 변의 줄(`FixtureView` 조제대와 같은 규칙). 그림 왼쪽 위 = (tx·16 + 8 − 32, (ty + 1)·16 − 1 − 72). 노드 = 자리 아래 변(y 정렬). 뿌리는 옆 칸(그림 x 22~43)에, 수관은 위로 약 4.4칸·옆으로 1칸씩 그려질 뿐이다
+- 빛: 월드 빛을 받는 그림(`Config.LIGHT_LAYER_WORLD`). 빛나는 픽셀 없음
+- 도끼질 몸 동작은 03-pixel/prompts.md "PixelLab 14차"의 "M7b에 넘길 것"
