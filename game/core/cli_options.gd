@@ -134,6 +134,10 @@ var test_start_hp: Dictionary[String, int] = {}
 var test_fields: Array[Array] = []
 ## M5c test flag: ticks per crop stage (0 = Config.CROP_STAGE_TICKS).
 var test_crop_ticks: int = 0
+## M7a test flags: durability left per inventory slot ([slot 0-based, points]) after --give; the armour in that hotbar slot
+## (1-based, 0 = none) is put on at the start.
+var test_durability: Array[Vector2i] = []
+var test_wear: int = 0
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -321,6 +325,18 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: expected --test-crop-ticks=<1..%d>" % [raw, Config.CROP_STAGE_TICKS])
 				else:
 					o.test_crop_ticks = value.to_int()
+			"test-durability":
+				for part: String in value.split("/", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not kv[0].is_valid_int() or not kv[1].is_valid_int() or kv[0].to_int() < 1 							or kv[0].to_int() > Config.INVENTORY_SLOTS or kv[1].to_int() < 0 or kv[1].to_int() > 65535:
+						o.errors.append("%s: expected --test-durability=<1..%d>:<points>[/...]" % [raw, Config.INVENTORY_SLOTS])
+						break
+					o.test_durability.append(Vector2i(kv[0].to_int() - 1, kv[1].to_int()))
+			"test-wear":
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.HOTBAR_SLOTS:
+					o.errors.append("%s: expected --test-wear=<1..%d>" % [raw, Config.HOTBAR_SLOTS])
+				else:
+					o.test_wear = value.to_int()
 			_:
 				o.unknown.append(raw)
 	if o.host and o.join:

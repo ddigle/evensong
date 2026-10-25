@@ -49,11 +49,15 @@ extends RefCounted
 ## M5c (the fields as this machine's world has them, `world`, set by the session or Main before each step):
 ##   waitfield:<x>,<y>,<soil|0..4>[,<ticks>]   stand until tile x,y is tilled soil (soil) or holds a crop at that
 ##                                stage or later, not withered (default 1800 ticks)
+## M7a (offline: Main handles them):
+##   store:<n>                    click inventory slot <n> (1 = the hotbar's first) of the open chest panel: store it
+##   take:<n>                     click chest slot <n> (1 = the top left) of the open chest panel: take it
+##   unequip                      click the armour slot (the open inventory): take the worn armour off
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
-	"walkdown", "tab", "craft", "throw", "waitfield"]
+	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip"]
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -104,6 +108,10 @@ class Action:
 	var tab: bool = false
 	var craft_row: int = -1
 	var skill: bool = false
+	## M7a: a chest panel click this tick (0-based inventory / chest slot, -1 = none), the armour slot clicked.
+	var store_slot: int = -1
+	var take_slot: int = -1
+	var unequip: bool = false
 
 
 var commands: Array[Command] = []
@@ -239,9 +247,13 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimfoe":
 			if args.size() != 0:
 				return "aimfoe takes no arguments"
-		"tab", "throw":
+		"tab", "throw", "unequip":
 			if args.size() != 0:
 				return "%s takes no arguments" % c.op
+		"store", "take":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected %s:<slot>" % c.op
+			c.count = args[0].to_int() - 1
 		"craft":
 			if args.size() != 1 or not _whole(args[0], 1):
 				return "expected craft:<row>"
@@ -409,6 +421,18 @@ func _advance(a: Action, feet: Vector2) -> void:
 				return
 			"throw":
 				a.skill = true
+				_next()
+				return
+			"store":
+				a.store_slot = c.count
+				_next()
+				return
+			"take":
+				a.take_slot = c.count
+				_next()
+				return
+			"unequip":
+				a.unequip = true
 				_next()
 				return
 			"hold":

@@ -226,9 +226,9 @@ static func impact_tick(item: StringName) -> int:
 	return -1
 
 
-## The sickle swing on tile `c` harvests (a crop there, any stage) instead of attacking.
+## The sickle swing on tile `c` harvests (a crop there, any stage) instead of attacking. M7a: the tier-1 sickle too (Gear.base).
 static func is_harvest_swing(data: WorldData, item: StringName, c: Vector2i) -> bool:
-	if item != SICKLE:
+	if Gear.base(item) != SICKLE:
 		return false
 	var f: Field = field_at(data, c)
 	return f != null and f.kind != KIND_NONE

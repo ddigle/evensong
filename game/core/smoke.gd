@@ -83,6 +83,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_potions(r)
 	_check_farm(r)
 	_check_purify(r)
+	_check_chain(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -279,7 +280,7 @@ static func _check_items(r: Report) -> void:
 		if def.is_tool():
 			tools += 1
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
-	r.expect_eq(tools, 7, "tools (M4a: + holy_light)")
+	r.expect_eq(tools, 12, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
 			"interact", "debug_drop", "dash", "skill_1"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
@@ -348,8 +349,7 @@ static func _check_combat(r: Report) -> void:
 
 ## M6a: recipes, a craft, the table art and placement, a drink, a poison down, a thrown poison potion.
 static func _check_potions(r: Report) -> void:
-	var all: Array[Crafting.Recipe] = Crafting.recipes()
-	r.expect_eq(all.size(), 6, "recipes (3 potions x 2 grades)")
+	r.expect_eq(Crafting.recipes_for(Crafting.ALCHEMY).size(), 6, "recipes (3 potions x 2 grades)")
 	var inv: Inventory = Inventory.new()
 	inv.add(&"wild_healing", 2)
 	var miner_fine: Crafting.Recipe = Crafting.recipe(&"potion_healing_fine")
@@ -392,7 +392,7 @@ static func _check_potions(r: Report) -> void:
 		arena.step(no_players)
 	r.expect(arena.stat("splash_heretics") == 1 and h.poisoned(), "a thrown poison potion splashes the heretic")
 	thrower.free()
-	r.fields.append("potions=%d/%d" % [all.size(), arena.stat("splash_heretics")])
+	r.fields.append("potions=%d/%d" % [Crafting.recipes_for(Crafting.ALCHEMY).size(), arena.stat("splash_heretics")])
 
 
 ## The actor light texture of the default world's zone equals is_in_safe_zone() at every texel,
@@ -506,6 +506,59 @@ static func _check_purify(r: Report) -> void:
 	r.expect(data.altar_rect == to and SafeZone.for_world(data).center == centre, "put down: the altar and its light there")
 	r.expect(WorldItems.reserved_feet(data).has(centre + Vector2(Config.SPAWN_SLOTS[0])), "the spawn slots follow it")
 	r.fields.append("altar=%d,%d" % [to.position.x, to.position.y])
+
+
+## M7a: the workbench chain from logs to a tier-1 sword (the recipes as Crafting has them), the stations' pictures and
+## one placed south of the seed's altar (drawn by its footprint), the tier-1 damage, the armour's defence, the death wear,
+## a chest in the light holding something (the content hash covers it). Field `chain=<recipes>/<crafts> gear=<sword_t1
+## damage>/<knife through armour>/<sword after a death> chest=<slots>`.
+static func _check_chain(r: Report) -> void:
+	for path: String in ["res://art/env/workbench_v03.png", "res://art/env/anvil_v03.png", "res://art/env/relic_bench_v03.png",
+			"res://art/env/storage_chest_v02.png", "res://art/env/flame_small_v01.png"]:
+		r.expect(ResourceLoader.exists(path), "%s missing" % path)
+	var inv: Inventory = Inventory.new()
+	inv.add(&"log", 9)
+	inv.add(&"stone_a", 10)
+	inv.add(&"ore_iron", 4)
+	var crafts: int = 0
+	for id: StringName in [&"workbench", &"planks", &"planks", &"anvil", &"ingot_iron", &"ingot_iron", &"sword_t1"]:
+		var o: Crafting.Outcome = Crafting.craft(Crafting.recipe(id), "paladin", inv)
+		r.expect(o.ok(), "chain step %s refused: %s" % [id, o.why])
+		crafts += 1 if o.ok() else 0
+	r.expect_eq(inv.count_of(&"sword_t1"), 1, "logs and ore -> a tier-1 sword")
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var bench: Inventory = Inventory.new()
+	bench.add(&"workbench", 1)
+	var placed: WorldItems.Outcome = WorldItems.place(data, Arena.spawn_feet(Vector2i(63, 52)), bench, 0, Vector2i(63, 51))
+	r.expect(placed.ok(), "workbench south of the altar refused: %s" % placed.why)
+	var sword: ItemStack = inv.stack_at(0)
+	for s: ItemStack in inv.slots:
+		if s != null and s.id == &"sword_t1":
+			sword = s
+	var dmg: int = Gear.attack_damage(sword, Combat.attack_for(&"sword_t1").damage)
+	r.expect_eq(dmg, 21, "tier-1 sword damage")
+	var armour: Inventory = Inventory.new()
+	armour.wear(ItemStack.new(&"armor_t1", 1, 0))
+	var knife: int = Gear.after_armor(Config.HERETIC_DAMAGE, armour)
+	r.expect_eq(knife, 8, "a knife through armour")
+	inv.wear(ItemStack.new(&"armor_t1", 1, 0))
+	Gear.wear_on_death(inv)
+	r.expect_eq(sword.durability, 96, "the sword after a death")
+	var chest_inv: Inventory = Inventory.new()
+	chest_inv.add(&"storage_chest", 1)
+	var before: String = data.content_hash()
+	var put: WorldItems.Outcome = WorldItems.place(data, Arena.spawn_feet(Vector2i(63, 45)), chest_inv, 0, Vector2i(63, 44))
+	r.expect(put.ok(), "a chest north of the altar refused: %s" % put.why)
+	for e: EditLog.WorldEdit in put.edits:
+		EditLog.apply_to_data(data, e)
+	var empty_chest: String = data.content_hash()
+	var c: WorldData.Chest = data.chest_at(Vector2i(63, 44))
+	var ore: Inventory = Inventory.new()
+	ore.add(&"ore_copper", 3)
+	r.expect(c != null and Storage.store(c, ore, 0).ok(), "storing in the chest")
+	r.expect(before != empty_chest and empty_chest != data.content_hash(), "the chest and its contents are in the hash")
+	r.fields.append("chain=%d/%d gear=%d/%d/%d chest=%d" % [Crafting.recipes().size() - Crafting.recipes_for(Crafting.ALCHEMY).size(),
+		crafts, dmg, knife, sword.durability, c.slots.size() if c != null else 0])
 
 
 static func _check_light(r: Report) -> void:

@@ -95,6 +95,15 @@ extends SceneTree
 ##            the host's carrier and channelling paladin and the client's copies of them from a state batch (the carrier
 ##            bit, the channel in the action bits) with the channel's motes. Around the old fields and at the zone's edge
 ##            both screens are the same pixels and differ from the bare world.
+##   stations (M7a) evening off, the workbench, the anvil, the relic bench and the storage chest put down through the world's
+##            edits: the screen equals the background plus each picture at a place written out here (centred on its
+##            footprint, its last opaque row on the footprint's last pixel row) and the relic bench's flame (frame 0, held)
+##            at (37, -4) of its picture, pixel for pixel.
+##   gear_hud (M7a) the HUD's durability bars on worn tier-1 gear (gold, amber, rust, broken; none when full) and the armour
+##            slot with the worn piece and its bar, on their exact pixels (colours and rules written out here).
+##   m7_panels (M7a) the chest panel over the open inventory (its place, frames, header, slots, icons, counts, a worn bow's
+##            bar) and the anvil's crafting panel with one-, two- and three-input rows and the repair row of a worn sword
+##            (the widened panel's place, the slots and arrows at the layout written out here), every opaque pixel.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -159,6 +168,9 @@ func _run() -> void:
 		await _check_purify()
 		await _check_altar_move()
 		await _check_fields_net()
+		await _check_stations()
+		await _check_gear_hud()
+		await _check_m7_panels()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -2257,3 +2269,288 @@ func _load_surface_snapshot(host_w: GameWorld, client_w: GameWorld) -> void:
 	client_w.load_data(got)
 	client_w.lighting.set_evening(false)
 	client_w.purify_view.auto_tick = false
+
+
+# --- M7a ---------------------------------------------------------------------------------------------------------------
+
+## M7a: the three stations and the chest put down through the world's edits (evening off, the flames held on frame 0):
+## the screen equals the background plus each picture at a place written out here (centred on its footprint, its last
+## opaque row, measured from the image, on the footprint's last pixel row) and the relic bench's flame frame 0 at (37, -4)
+## of its picture.
+func _check_stations() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var y: int = origin.y / Config.TILE + 9
+	var x0: int = origin.x / Config.TILE + 5
+	var rows: Array[Array] = [[WorldData.PLACEABLE_WORKBENCH, Vector2i(3, 1), "res://art/env/workbench_v03.png"],
+		[WorldData.PLACEABLE_ANVIL, Vector2i(2, 1), "res://art/env/anvil_v03.png"],
+		[WorldData.PLACEABLE_RELIC, Vector2i(3, 1), "res://art/env/relic_bench_v03.png"],
+		[WorldData.PLACEABLE_CHEST, Vector2i(3, 1), "res://art/env/storage_chest_v02.png"]]
+	var expected: Image = bg.duplicate() as Image
+	var rects: Array[Rect2i] = []
+	var x: int = x0
+	for row: Array in rows:
+		var p: int = row[0]
+		var size: Vector2i = row[1]
+		var rect: Rect2i = Rect2i(Vector2i(x, y), size)
+		x += size.x + 1
+		rects.append(rect)
+		for ty: int in range(rect.position.y, rect.end.y):
+			for tx: int in range(rect.position.x, rect.end.x):
+				world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(tx, ty), p))
+		var path: String = row[2]
+		var img: Image = LightGen.to_rgba8((load(path) as Texture2D).get_image())
+		var bottom: int = 0
+		for iy: int in img.get_height():
+			for ix: int in img.get_width():
+				if img.get_pixel(ix, iy).a8 > 0:
+					bottom = iy
+		var top_left: Vector2i = Vector2i(rect.position.x * Config.TILE + (rect.size.x * Config.TILE - img.get_width()) / 2,
+			rect.end.y * Config.TILE - 1 - bottom)
+		_paste_at(expected, img, top_left - origin)
+		if p == WorldData.PLACEABLE_RELIC:
+			var flame: Image = LightGen.to_rgba8((load("res://art/env/flame_small_v01.png") as Texture2D).get_image())
+			_paste_at(expected, flame.get_region(Rect2i(0, 0, 4, 7)), top_left + Vector2i(37, -4) - origin)
+	world.fixtures.set_process(false)
+	for anchor: Vector2i in world.fixtures.nodes:
+		var f: Sprite2D = world.fixtures.nodes[anchor].get_node_or_null(^"Flame") as Sprite2D
+		if f != null:
+			f.frame = 0
+	var got: Image = await _capture()
+	var n: int = count_diff(got, expected)
+	var drawn: int = count_diff(got, bg)
+	if n > 0 or save_all:
+		_save(got, "stations_got.png")
+		_save(expected, "stations_expected.png")
+	world.fixtures.set_process(true)
+	for rect2: Rect2i in rects:
+		for ty2: int in range(rect2.position.y, rect2.end.y):
+			for tx2: int in range(rect2.position.x, rect2.end.x):
+				world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(tx2, ty2), WorldData.PLACEABLE_NONE))
+	var line: String = "drawn=%d mismatches=%d" % [drawn, n]
+	if n == 0 and drawn > 1500:
+		print("EVENSONG_RENDER stations ok %s" % line)
+	else:
+		_fail("stations", line)
+
+
+## M7a: the HUD with worn gear: the hotbar's durability bars (14x2 at (2, 14) of the slot: ash black under, gold over half,
+## amber over a quarter, rust under, all rust when broken; none when full) and the armour slot left of the hotbar (6 px
+## apart) with the worn piece and its bar, on their exact pixels (colours and rules written out here).
+func _check_gear_hud() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var inv: Inventory = Inventory.new()
+	var lefts: Array[int] = [120, 70, 40, 20, 0]  # full, gold, amber, rust, broken
+	for id: StringName in [&"sword_t1", &"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1"]:
+		inv.add(id, 1)
+	for i: int in lefts.size():
+		inv.stack_at(i).durability = lefts[i]
+	inv.wear(ItemStack.new(&"armor_t1", 1, 0, 30))
+	inv.select(7)
+	hud.bind(inv)
+	var got: Image = await _capture()
+	var view: Vector2i = Config.VIEW_SIZE
+	var width: int = 8 * 18 + 7 * 2
+	var left: int = (view.x - width) / 2
+	var top: int = view.y - 4 - 18
+	var want: Dictionary[Vector2i, Color] = {}
+	var dark: Color = Color8(0x1a, 0x17, 0x14)
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var amber: Color = Color8(0xe0, 0x86, 0x1a)
+	var rust: Color = Color8(0xb8, 0x43, 0x2f)
+	var bars: Array[Array] = []
+	for i2: int in lefts.size():
+		bars.append([Vector2i(left + i2 * 20, top), lefts[i2], 120])
+	var armour_at: Vector2i = Vector2i(left - 6 - 18, top)
+	bars.append([armour_at, 30, 100])
+	var bar_px: int = 0
+	for b: Array in bars:
+		var o: Vector2i = b[0]
+		var l: int = b[1]
+		var full: int = b[2]
+		if l >= full:
+			continue
+		var w: int = 0 if l <= 0 else clampi(ceili(float(l) / full * 14.0), 1, 14)
+		var ratio: float = float(l) / full
+		var c: Color = gold if ratio > 0.5 else (amber if ratio > 0.25 else rust)
+		for by: int in 2:
+			for bx: int in 14:
+				var px: Vector2i = o + Vector2i(2 + bx, 14 + by)
+				if l <= 0:
+					want[px] = rust
+				else:
+					want[px] = c if bx < w else dark
+				bar_px += 1
+	# The full sword's slot shows no bar: where its icon is opaque the icon, elsewhere never a bar colour.
+	var no_bar: int = 0
+	var sword_icon: Image = LightGen.to_rgba8(ItemIcons.texture_for(&"sword_t1").get_image())
+	for by2: int in 2:
+		for bx2: int in 14:
+			var q: Vector2i = Vector2i(left + 2 + bx2, top + 14 + by2)
+			var col: Color = got.get_pixelv(q)
+			var ic: Color = sword_icon.get_pixel(1 + bx2, 13 + by2)
+			if ic.a8 == 255:
+				if col.to_rgba32() != ic.to_rgba32():
+					no_bar += 1
+			elif col.to_rgba32() == gold.to_rgba32() or col.to_rgba32() == dark.to_rgba32():
+				no_bar += 1
+	# The armour slot: its frames and the armour icon above the bar.
+	_frame_pixels(want, Rect2i(armour_at, Vector2i(18, 18)), dark)
+	_frame_pixels(want, Rect2i(armour_at, Vector2i(18, 18)).grow(-1), Color8(0x4a, 0x42, 0x3a))
+	_icon_pixels(want, &"armor_t1", armour_at + Vector2i(1, 1), Rect2i(armour_at + Vector2i(2, 14), Vector2i(14, 2)))
+	var bad: int = _count_wrong(got, want)
+	if bad > 0 or save_all:
+		_save(got, "gear_hud_got.png")
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "bar_pixels=%d pixels=%d full_slot_bar=%d mismatches=%d" % [bar_px, want.size(), no_bar, bad]
+	if bad == 0 and bar_px == 5 * 28 and no_bar == 0:
+		print("EVENSONG_RENDER gear_hud ok %s" % line)
+	else:
+		_fail("gear_hud", line)
+
+
+## M7a: the chest panel (above the open inventory grid) and the anvil's crafting panel with rows of one, two and three
+## inputs and a repair row: every opaque pixel they draw on its place (frames, header icons and underlines, slot frames,
+## icons, counts left out, the durability bars), the slots and arrows placed by the layout written out here.
+func _check_m7_panels() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var inv: Inventory = Inventory.new()
+	inv.add(&"planks", 12)
+	inv.add(&"ingot_iron", 9)
+	inv.add(&"ingot_copper", 5)
+	inv.add(&"ore_copper", 3)
+	inv.add(&"ore_iron", 2)
+	inv.add(&"sword_t1", 1)
+	inv.stack_at(5).durability = 30
+	hud.bind(inv)
+	hud.set_open(true)
+	var chest: WorldData.Chest = WorldData.Chest.new()
+	chest.slots[0] = ItemStack.new(&"stone_a", 40, 0)
+	chest.slots[3] = ItemStack.new(&"bow_t1", 1, 0, 50)
+	chest.slots[9] = ItemStack.new(&"log", 7, 0)
+	hud.chest.open_for(chest, Rect2i(10, 10, 3, 1), Config.MAP_SURFACE, inv)
+	var got: Image = await _capture()
+	var want: Dictionary[Vector2i, Color] = {}
+	var panel: ChestPanel = hud.chest
+	var p: Rect2i = panel.panel_rect()
+	var view: Vector2i = Config.VIEW_SIZE
+	var grid_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
+	var top_inv_row: int = view.y - 4 - 18 - 4 - 18 - 20
+	var chest_h: int = 3 + 18 + 2 * 18 + 2 + 3
+	var chest_ok: bool = p == Rect2i(grid_left - 3, top_inv_row - 6 - chest_h, 8 * 18 + 7 * 2 + 6, chest_h)
+	_frame_pixels(want, p, Hud.FRAME_DARK)
+	_frame_pixels(want, p.grow(-1), Hud.FRAME)
+	_icon_pixels(want, &"storage_chest", p.position + Vector2i(4, 4), Rect2i())
+	for ux: int in range(p.position.x + 3, p.end.x - 3):
+		want[Vector2i(ux, p.position.y + 3 + 18 - 1)] = Hud.SELECT_INNER
+	for i: int in chest.slots.size():
+		var o: Vector2i = p.position + Vector2i(3 + (i % 8) * 20, 3 + 18 + (i / 8) * 20)
+		_slot_pixels(want, o, chest.slots[i])
+	var bad_chest: int = _count_wrong(got, want)
+	if bad_chest > 0 or save_all:
+		_save(got, "chest_panel_got.png")
+	hud.chest.close()
+	hud.set_open(false)
+	# The anvil's panel: smelting (one input), the gear (two, three inputs), the relic bench, the sword's repair.
+	var at: Crafting.StationAt = Crafting.StationAt.new()
+	at.kind = Crafting.ANVIL
+	at.rect = Rect2i(10, 10, 2, 1)
+	hud.crafting.open_for(at, inv, "miner")
+	hud.crafting.selected = 0
+	hud.crafting.queue_redraw()
+	var got2: Image = await _capture()
+	var cp: CraftingPanel = hud.crafting
+	var want2: Dictionary[Vector2i, Color] = {}
+	var n_in: int = 3
+	var width: int = 3 + n_in * 18 + (n_in - 1) + 3 + 5 + 3 + 18 + 2 + 3 + 3
+	var pr: Rect2i = cp.panel_rect()
+	var layout_ok: bool = pr.size.x == width and pr.end.x == view.x - 4 and pr.position.y == 4
+	_frame_pixels(want2, pr, Hud.FRAME_DARK)
+	_frame_pixels(want2, pr.grow(-1), Hud.FRAME)
+	_icon_pixels(want2, &"anvil", pr.position + Vector2i(4, 4), Rect2i())
+	for ux2: int in range(pr.position.x + 3, pr.end.x - 3):
+		want2[Vector2i(ux2, pr.position.y + 3 + 18 - 1)] = Hud.SELECT_INNER
+	var repair_rows: int = 0
+	var three_rows: int = 0
+	for i2: int in cp.recipes.size():
+		if not cp.in_view(i2):
+			continue
+		var r: Crafting.Recipe = cp.recipes[i2]
+		var row: Vector2i = cp.row_rect(i2).position
+		var ins: Array[ItemStack] = []
+		if r.is_repair():
+			repair_rows += 1
+			ins.append(ItemStack.new(r.repair, 1, 0, Gear.most_worn(inv, r.repair).durability))
+			ins.append(ItemStack.new(r.inputs[0].item, r.inputs[0].count, 0))
+		else:
+			for ing: Crafting.Ingredient in r.inputs:
+				ins.append(ItemStack.new(ing.item, ing.count, 0))
+		if r.inputs.size() == 3:
+			three_rows += 1
+		for j: int in ins.size():
+			_slot_pixels(want2, row + Vector2i(j * 19, 0), ins[j])
+		var arrow: Vector2i = row + Vector2i(n_in * 18 + (n_in - 1) + 3, (18 - 5) / 2)
+		_rows_pixels(want2, CraftingPanel.ARROW, arrow, Hud.DIGIT)
+		_slot_pixels(want2, arrow + Vector2i(5 + 3, -6), ItemStack.new(r.output, r.out_count, r.out_grade))
+		if i2 == cp.selected:
+			_frame_pixels(want2, cp.row_rect(i2).grow(1), Hud.SELECT)
+	# Rows that cannot be crafted now are dimmed: compare only the rows that can.
+	var free_want: Dictionary[Vector2i, Color] = {}
+	for q: Vector2i in want2:
+		var dimmed: bool = false
+		for i3: int in cp.recipes.size():
+			if cp.in_view(i3) and cp.row_rect(i3).grow(1).has_point(q) and not Crafting.refusal(cp.recipes[i3], "miner", inv).is_empty():
+				dimmed = true
+		if not dimmed:
+			free_want[q] = want2[q]
+	var bad_panel: int = _count_wrong(got2, free_want)
+	if bad_panel > 0 or save_all:
+		_save(got2, "crafting_anvil_got.png")
+	var rows: int = cp.recipes.size()
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "chest_pixels=%d chest_mismatches=%d chest_place=%s anvil_rows=%d three_input_rows=%d repair_rows=%d anvil_pixels=%d anvil_mismatches=%d width=%d" % [
+		want.size(), bad_chest, str(chest_ok), rows, three_rows, repair_rows, free_want.size(), bad_panel, pr.size.x]
+	if bad_chest == 0 and chest_ok and bad_panel == 0 and layout_ok and repair_rows == 1 and three_rows >= 1 and rows == 10:
+		print("EVENSONG_RENDER m7_panels ok %s" % line)
+	else:
+		_fail("m7_panels", line)
+
+
+## The pixels one HUD-style slot at `o` draws for `stack` (null = an empty slot): frames, the icon (not under the count),
+## the FINE dot, the durability bar (written out: 14x2 at (2, 14); gold over half, amber over a quarter, rust under; all rust
+## when broken).
+static func _slot_pixels(want: Dictionary[Vector2i, Color], o: Vector2i, stack: ItemStack) -> void:
+	var sq: Rect2i = Rect2i(o, Vector2i(18, 18))
+	_frame_pixels(want, sq, Hud.FRAME_DARK)
+	_frame_pixels(want, sq.grow(-1), Hud.FRAME)
+	if stack == null:
+		return
+	var n: int = stack.count
+	var skip: Rect2i = Rect2i(o + Vector2i(18 - 3 - 4 * str(n).length(), 18 - 8), Vector2i(4 * str(n).length() + 2, 7)) if n > 1 else Rect2i()
+	var bar: Rect2i = Rect2i(o + Vector2i(2, 14), Vector2i(14, 2)) if stack.worn() else Rect2i()
+	_icon_pixels(want, stack.id, o + Vector2i(1, 1), skip, bar)
+	for sy: int in range(skip.position.y, skip.end.y):
+		for sx: int in range(skip.position.x, skip.end.x):
+			want.erase(Vector2i(sx, sy))
+	if stack.worn():
+		var full: int = stack.max_durability()
+		var l: int = stack.durability
+		var ratio: float = float(l) / full
+		var w: int = 0 if l <= 0 else clampi(ceili(ratio * 14.0), 1, 14)
+		var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+		var amber: Color = Color8(0xe0, 0x86, 0x1a)
+		var rust: Color = Color8(0xb8, 0x43, 0x2f)
+		var c: Color = gold if ratio > 0.5 else (amber if ratio > 0.25 else rust)
+		for by: int in 2:
+			for bx: int in 14:
+				var px: Vector2i = o + Vector2i(2 + bx, 14 + by)
+				want[px] = rust if l <= 0 else (c if bx < w else Color8(0x1a, 0x17, 0x14))

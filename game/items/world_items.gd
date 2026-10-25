@@ -73,8 +73,17 @@ const WHY_TOO_CLOSE: String = "too close to another"
 ## (reserved_feet: the arrival below the way in, the altar's spawn slots).
 const WHY_RESERVED: String = "where players appear"
 ## M6-fix: the footprint (tiles) of each placeable that covers more than its own tile (place_rect; any other is
-## one tile). M7's stations add theirs here.
-const FOOTPRINT_OF: Dictionary[int, Vector2i] = {WorldData.PLACEABLE_ALCHEMY: Config.ALCHEMY_FOOTPRINT}
+## one tile). M7a: the three stations and the storage chest.
+const FOOTPRINT_OF: Dictionary[int, Vector2i] = {WorldData.PLACEABLE_ALCHEMY: Config.ALCHEMY_FOOTPRINT,
+	WorldData.PLACEABLE_WORKBENCH: Config.WORKBENCH_FOOTPRINT, WorldData.PLACEABLE_ANVIL: Config.ANVIL_FOOTPRINT,
+	WorldData.PLACEABLE_RELIC: Config.RELIC_BENCH_FOOTPRINT, WorldData.PLACEABLE_CHEST: Config.CHEST_FOOTPRINT}
+## M7a: the placeables a session refuses until M7c (the three stations, the storage chest), and why.
+const M7_PLACEABLES: Dictionary[int, String] = {WorldData.PLACEABLE_WORKBENCH: Crafting.WHY_OFFLINE,
+	WorldData.PLACEABLE_ANVIL: Crafting.WHY_OFFLINE, WorldData.PLACEABLE_RELIC: Crafting.WHY_OFFLINE,
+	WorldData.PLACEABLE_CHEST: Storage.WHY_OFFLINE}
+## M7a: a worn item (less than full durability) is not dropped with the debug drop (a drop keeps no durability: picking it
+## up would repair it).
+const WHY_WORN: String = "worn gear stays"
 ## M4a: how far (tiles, rings around the death tile) the bag looks for a free tile.
 const BAG_SEARCH_TILES: int = 3
 ## Most of one item a single give request carries (its count is one byte on the wire); a bigger
@@ -297,7 +306,8 @@ static func death_drop_counts(inv: Inventory, rule: int, seed_value: int) -> Dic
 	var kinds: Array[StringName] = []
 	for slot: int in inv.size():
 		var stack: ItemStack = inv.stack_at(slot)
-		if stack == null or stack.def() == null or stack.def().is_tool():
+		# M7a: armour stays too (gear, ● §2.6 "장착 장비는 유지"), like the tools and weapons
+		if stack == null or stack.def() == null or stack.def().is_tool() or stack.def().is_armor():
 			continue
 		if rule == Config.DEATH_DROP_HALF:
 			out[slot] = (stack.count + 1) / 2
@@ -334,6 +344,8 @@ static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, coun
 		return Outcome.refused(WHY_BLOCKED)
 	if data.drops.size() >= Config.MAX_DROPS:
 		return Outcome.refused(WHY_TOO_MANY)
+	if stack.worn():
+		return Outcome.refused(WHY_WORN)  # M7a
 	var n: int = stack.count if count <= 0 else mini(count, stack.count)
 	var o: Outcome = Outcome.new()
 	o.item = stack.id
@@ -464,9 +476,13 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 	var rect: Rect2i = place_rect(value, c)
 	for y: int in range(rect.position.y, rect.end.y):
 		for x: int in range(rect.position.x, rect.end.x):
-			var t: Vector2i = Vector2i(x, y)
-			if not data.in_bounds(t):
+			if not data.in_bounds(Vector2i(x, y)):
 				return Outcome.refused(WHY_OUTSIDE)
+	if value == WorldData.PLACEABLE_CHEST and Config.CHEST_ONLY_IN_LIGHT and not Storage.in_light(data, rect):
+		return Outcome.refused(Storage.WHY_LIGHT)  # M7a: the shared storage stands in the altar's light
+	for y: int in range(rect.position.y, rect.end.y):
+		for x: int in range(rect.position.x, rect.end.x):
+			var t: Vector2i = Vector2i(x, y)
 			if Walls.blocks(data, t) or data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE \
 					or data.get_value(WorldData.Layer.VEGETATION, t) != 0 \
 					or (rect.size != Vector2i.ONE and not data.drops_at(t).is_empty()):

@@ -530,7 +530,7 @@ func _knife(h: HereticSim, players: Array[Player]) -> void:
 		if not Config.HERETIC_ENTERS_LIGHT and in_light(p.sim_position):
 			continue
 		if Combat.melee_hits(data, h.pos, h.attack_dir, p.sim_position, Config.HERETIC_HIT_REACH_PX, Config.HERETIC_HIT_ARC_DEG):
-			var ev: int = p.take_hit(Config.HERETIC_DAMAGE)
+			var ev: int = p.take_hit(Config.HERETIC_DAMAGE, true)  # M7a: armour (offline, Player.gear_on) takes its part off
 			if ev & PlayerSim.HURT:
 				count("player_hits")
 			else:
@@ -828,24 +828,26 @@ func heretic_at(point: Vector2) -> HereticSim:
 ## Player `p`'s weapon `item` lands (its hit frame) along aim code `aim`: a melee arc hits every heretic
 ## (and the standing shrine) in it, a bow or holy light lets a shot go. Returns world edits (the shrine
 ## breaking). `owner_slot` (M4b): the attacker's session slot, for the shot events.
-func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = [], owner_slot: int = 255) -> Array[EditLog.WorldEdit]:
+func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = [], owner_slot: int = 255,
+		damage: int = -1) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
 	var a: Combat.Attack = Combat.attack_for(item)
 	if a == null:
 		return edits
+	var dmg: int = a.damage if damage < 0 else damage  # M7a: offline Main passes a tier-1 weapon's (Gear.attack_damage)
 	var dir: Vector2 = Combat.aim_vector(aim)
 	count("player_attacks")
 	if a.kind == Combat.Kind.MELEE:
 		for h: HereticSim in heretics:
 			if h.alive() and Combat.melee_hits(data, p.sim_position, dir, h.pos, a.reach, a.arc_deg):
-				hit_heretic(h, a.damage, p.get_instance_id())
+				hit_heretic(h, dmg, p.get_instance_id())
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
 				if o != p and Combat.melee_hits(data, p.sim_position, dir, o.sim_position, a.reach, a.arc_deg):
-					o.take_hit(a.damage)
+					o.take_hit(dmg)
 		var rect: Rect2i = shrine_rect()
 		if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, a.reach, a.arc_deg):
-			edits.append_array(damage_shrine(a.damage))
+			edits.append_array(damage_shrine(dmg))
 		return edits
 	var s: Shot = Shot.new()
 	s.id = next_id
@@ -855,7 +857,7 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	s.pos = Combat.body_point(p.sim_position)
 	s.speed = a.speed
 	s.left = a.life_ticks()
-	s.damage = a.damage
+	s.damage = dmg
 	s.owner_id = p.get_instance_id()
 	s.aim = posmod(aim, Combat.AIM_STEPS)
 	s.item = item

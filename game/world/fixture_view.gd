@@ -24,6 +24,12 @@ extends Node
 ## M6a:
 ##   alchemy table  04-env alchemy_table_v05 (adoption candidate) on its footprint (Config.ALCHEMY_FOOTPRINT),
 ##             its opaque bottom row on the footprint's bottom, centred; its back half over the tile behind
+## M7a (the same rule for each: FURNITURE, its opaque bottom row on the footprint's bottom, centred):
+##   workbench    04-env workbench_v03 (the latest touch-up: a mallet and a saw drawn by hand on the top)
+##   anvil        04-env anvil_v03 (the iron brightened: v02 read as a black lump at 1x, its known weak spot)
+##   relic bench  04-env relic_bench_v03 (its candle's flame is the shared flame_small_v01 at (37, -4) of the picture,
+##             4 frames looped, unshaded, like the wall torch's large flame; no light of its own: PROVISIONAL)
+##   storage chest  04-env storage_chest_v02 (the long low chest, adoption candidate)
 
 const ARCH: Texture2D = preload("res://art/env/dungeon_entrance_v02.png")
 const STAIRS: Texture2D = preload("res://art/env/dungeon_entrance_stairs_v01.png")
@@ -37,6 +43,23 @@ const SACK: Texture2D = preload("res://art/env/prop_sack_small_v03.png")
 ## M6a: the alchemy table (04-env alchemy_table_v05, 48x32: opaque rows 3..27, columns 4..43, centred).
 const TABLE: Texture2D = preload("res://art/env/alchemy_table_v05.png")
 const TABLE_BOTTOM_ROW: int = 27
+## M7a: the station and chest pictures and their opaque bottom rows (measured: workbench_v03 rows 4..25, anvil_v03 3..27,
+## relic_bench_v03 2..30, storage_chest_v02 7..25); the relic bench's flame (flame_small_v01: 5 frames of 4x7, the 5th the
+## ember) and where its frame's top-left sits in the bench's picture.
+const WORKBENCH: Texture2D = preload("res://art/env/workbench_v03.png")
+const ANVIL: Texture2D = preload("res://art/env/anvil_v03.png")
+const RELIC_BENCH: Texture2D = preload("res://art/env/relic_bench_v03.png")
+const CHEST: Texture2D = preload("res://art/env/storage_chest_v02.png")
+const SMALL_FLAME: Texture2D = preload("res://art/env/flame_small_v01.png")
+const RELIC_FLAME_AT: Vector2i = Vector2i(37, -4)
+## Placeable -> [picture, opaque bottom row, node name prefix] (the alchemy table's row is M6a's).
+const FURNITURE: Dictionary[int, Array] = {
+	WorldData.PLACEABLE_ALCHEMY: [TABLE, TABLE_BOTTOM_ROW, "AlchemyTable"],
+	WorldData.PLACEABLE_WORKBENCH: [WORKBENCH, 25, "Workbench"],
+	WorldData.PLACEABLE_ANVIL: [ANVIL, 27, "Anvil"],
+	WorldData.PLACEABLE_RELIC: [RELIC_BENCH, 30, "RelicBench"],
+	WorldData.PLACEABLE_CHEST: [CHEST, 25, "StorageChest"],
+}
 const BONES: Texture2D = preload("res://art/env/prop_bone_pile_a_v02.png")
 ## M4a: the shrine art's slab starts at this row (the skull stack is above it); the bone pile's opaque
 ## bottom row and where it lands on the slab (shrine image row); the sack's opaque bottom row and centre.
@@ -116,8 +139,8 @@ func update_cell(c: Vector2i) -> void:
 	if p == WorldData.PLACEABLE_SHRINE or p == WorldData.PLACEABLE_SHRINE_BROKEN or _shrine_anchor_of(c) != Walls.NO_CELL:
 		_add_shrines()
 		return
-	if p == WorldData.PLACEABLE_ALCHEMY or _anchor_with(&"table_rect", c) != Walls.NO_CELL:
-		_add_tables()  # M6a: a table is three tile edits; each redraws the tables
+	if FURNITURE.has(p) or _anchor_with(&"table_rect", c) != Walls.NO_CELL:
+		_add_tables()  # M6a: a table is three tile edits; each redraws the tables (M7a: every station and chest)
 		return
 	if nodes.has(c) and (p == WorldData.PLACEABLE_TORCH or p == WorldData.PLACEABLE_WALL_TORCH or p == WorldData.PLACEABLE_NONE
 			or p == WorldData.PLACEABLE_BAG):
@@ -174,25 +197,48 @@ func _anchor_with(key: StringName, c: Vector2i) -> Vector2i:
 	return Walls.NO_CELL
 
 
-## M6a: (re)draws every alchemy table footprint.
+## M6a: (re)draws every alchemy table footprint. M7a: every FURNITURE footprint (the stations, the chest).
 func _add_tables() -> void:
 	for anchor: Vector2i in nodes.keys():
 		var n: Node2D = nodes[anchor]
 		if is_instance_valid(n) and n.has_meta(&"table_rect"):
+			var old_flame: Sprite2D = n.get_node_or_null(^"Flame") as Sprite2D
+			if old_flame != null:
+				_flames.erase(old_flame)
 			_free(n)
 			nodes.erase(anchor)
-	for rect: Rect2i in data.footprints(WorldData.PLACEABLE_ALCHEMY):
-		var foot: Vector2 = foot_of(rect)
-		var n2: Node2D = _node(rect.position, "AlchemyTable_%d_%d" % [rect.position.x, rect.position.y], foot)
-		n2.set_meta(&"table_rect", rect)
-		_sprite(n2, TABLE, Vector2(table_origin(rect)), foot, Config.LIGHT_LAYER_WORLD).name = &"Sprite"
+	for p: int in FURNITURE:
+		var row: Array = FURNITURE[p]
+		var tex: Texture2D = row[0]
+		for rect: Rect2i in data.footprints(p):
+			var foot: Vector2 = foot_of(rect)
+			var n2: Node2D = _node(rect.position, "%s_%d_%d" % [row[2], rect.position.x, rect.position.y], foot)
+			n2.set_meta(&"table_rect", rect)
+			var origin: Vector2i = furniture_origin(p, rect)
+			_sprite(n2, tex, Vector2(origin), foot, Config.LIGHT_LAYER_WORLD).name = &"Sprite"
+			if p == WorldData.PLACEABLE_RELIC:
+				var f: Sprite2D = _sprite(n2, SMALL_FLAME, Vector2(origin + RELIC_FLAME_AT), foot, Config.LIGHT_LAYER_WORLD)
+				f.name = &"Flame"
+				f.hframes = FLAME_FRAMES
+				f.material = unshaded_material()
+				f.set_meta(&"phase", posmod(rect.position.x * 7 + rect.position.y * 3, FLAME_LOOP))
+				_flames.append(f)
 
 
 ## M6a: top-left (world px) of the table art on footprint `rect`: centred, its opaque bottom row on the
 ## footprint's bottom row of pixels.
 static func table_origin(rect: Rect2i) -> Vector2i:
-	return Vector2i(rect.position.x * Config.TILE + rect.size.x * Config.TILE / 2 - TABLE.get_width() / 2,
-		rect.end.y * Config.TILE - 1 - TABLE_BOTTOM_ROW)
+	return furniture_origin(WorldData.PLACEABLE_ALCHEMY, rect)
+
+
+## M7a: top-left (world px) of placeable `p`'s FURNITURE picture on footprint `rect` (centred, its opaque bottom row on the
+## footprint's bottom row of pixels).
+static func furniture_origin(p: int, rect: Rect2i) -> Vector2i:
+	var row: Array = FURNITURE[p]
+	var tex: Texture2D = row[0]
+	var bottom: int = row[1]
+	return Vector2i(rect.position.x * Config.TILE + rect.size.x * Config.TILE / 2 - tex.get_width() / 2,
+		rect.end.y * Config.TILE - 1 - bottom)
 
 
 func _process(_delta: float) -> void:
@@ -363,7 +409,8 @@ func verify() -> Dictionary[String, int]:
 	var bad: int = 0
 	var want: int = 0
 	for p: int in [WorldData.PLACEABLE_ENTRANCE, WorldData.PLACEABLE_EXIT, WorldData.PLACEABLE_SHRINE,
-			WorldData.PLACEABLE_SHRINE_BROKEN, WorldData.PLACEABLE_ALCHEMY]:
+			WorldData.PLACEABLE_SHRINE_BROKEN, WorldData.PLACEABLE_ALCHEMY, WorldData.PLACEABLE_WORKBENCH,
+			WorldData.PLACEABLE_ANVIL, WorldData.PLACEABLE_RELIC, WorldData.PLACEABLE_CHEST]:
 		for rect: Rect2i in data.footprints(p):
 			want += 1
 			if not nodes.has(rect.position) or nodes[rect.position].position != foot_of(rect) \

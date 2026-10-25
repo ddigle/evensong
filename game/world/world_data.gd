@@ -48,8 +48,14 @@ const PLACEABLE_BAG: int = 7
 const PLACEABLE_SHRINE_BROKEN: int = 8
 ## M6a: the alchemy table (Config.ALCHEMY_FOOTPRINT, a crafting station, items/crafting.gd; it blocks).
 const PLACEABLE_ALCHEMY: int = 9
+## M7a: the workbench chain's stations (Config.WORKBENCH_FOOTPRINT, ANVIL_FOOTPRINT, RELIC_BENCH_FOOTPRINT; items/crafting.gd)
+## and the storage chest (Config.CHEST_FOOTPRINT, items/storage.gd: its contents are `chests`). All block.
+const PLACEABLE_WORKBENCH: int = 10
+const PLACEABLE_ANVIL: int = 11
+const PLACEABLE_RELIC: int = 12
+const PLACEABLE_CHEST: int = 13
 const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch", "bag",
-	"shrine_broken", "alchemy"]
+	"shrine_broken", "alchemy", "workbench", "anvil", "relic_bench", "chest"]
 
 var size: Vector2i = Vector2i.ZERO
 var world_seed: int = 0
@@ -62,6 +68,33 @@ var layers: Array[PackedByteArray] = []
 var drops: Dictionary[int, Drop] = {}
 ## Next id new_drop_id() hands out (not part of the world's content: only the host makes drops).
 var drop_serial: int = 1
+## M7a: what each storage chest holds, by its footprint's top-left tile (items/storage.gd). A chest without an entry is
+## empty. The world's, not a player's (○ gameplay-design §5 "공유 창고"): the content hash covers the chests that hold
+## something (none on a generated map, so the golden hashes stay); the late-join snapshot does not carry them yet (M7c:
+## M7a has no chest in a session).
+var chests: Dictionary[Vector2i, Chest] = {}
+
+
+## M7a: one storage chest's slots (Config.CHEST_SLOTS; null = empty). Stacks keep their durability.
+class Chest:
+	extends RefCounted
+	var slots: Array[ItemStack] = []
+
+	func _init(n: int = Config.CHEST_SLOTS) -> void:
+		slots.resize(maxi(n, 1))
+
+	func is_empty() -> bool:
+		for st: ItemStack in slots:
+			if st != null:
+				return false
+		return true
+
+	func describe() -> String:
+		var parts: PackedStringArray = []
+		for i: int in slots.size():
+			if slots[i] != null:
+				parts.append("%d:%s" % [i, str(slots[i])])
+		return ", ".join(parts)
 
 
 ## An item lying on the ground (M2b, debug drop). Whoever picks it up first gets it
@@ -191,7 +224,7 @@ func soil_ash_contacts() -> int:
 ## Whether placeable value `p` blocks walking (M3a: everything but a torch; a wall torch sits on a
 ## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block"). M4a: a
 ## death bag does not block; the broken shrine does (PROVISIONAL, README "임시값" M4a). M6a: the alchemy table
-## blocks, like the other fixtures.
+## blocks, like the other fixtures; M7a: so do the three stations and the storage chest.
 static func placeable_blocks(p: int) -> bool:
 	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH and p != PLACEABLE_BAG
 
@@ -265,7 +298,51 @@ func content_hash() -> String:
 	for grid: PackedByteArray in layers:
 		ctx.update(grid)
 	ctx.update(drops_bytes())
+	var held: PackedByteArray = chests_bytes()
+	if not held.is_empty():
+		ctx.update(held)  # M7a: only when a chest holds something (a world without one hashes as before)
 	return ctx.finish().hex_encode()
+
+
+# --- storage chests (M7a) ----------------------------------------------------------------------
+
+## The chest whose footprint holds tile `c` (made empty the first time), or null when `c` is no chest tile.
+func chest_at(c: Vector2i) -> Chest:
+	if get_value(Layer.PLACEABLE, c) != PLACEABLE_CHEST:
+		return null
+	var key: Vector2i = footprint_at(c).position
+	if not chests.has(key):
+		chests[key] = Chest.new()
+	return chests[key]
+
+
+## Every chest that holds something, by its key row by row: u16 x, u16 y, then per slot u8 item index + 1 (0 = empty),
+## u8 count, u8 grade, u16 durability. Empty when no chest holds anything.
+func chests_bytes() -> PackedByteArray:
+	var keys: Array[Vector2i] = []
+	for k: Vector2i in chests:
+		if not chests[k].is_empty():
+			keys.append(k)
+	var out: PackedByteArray = PackedByteArray()
+	if keys.is_empty():
+		return out
+	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	for k: Vector2i in keys:
+		var at: int = out.size()
+		var slots: Array[ItemStack] = chests[k].slots
+		out.resize(at + 4 + 5 * slots.size())
+		out.encode_u16(at, k.x)
+		out.encode_u16(at + 2, k.y)
+		for i: int in slots.size():
+			var st: ItemStack = slots[i]
+			var o: int = at + 4 + 5 * i
+			if st == null:
+				continue
+			out.encode_u8(o, ItemDB.index_of(st.id) + 1)
+			out.encode_u8(o + 1, st.count)
+			out.encode_u8(o + 2, st.grade)
+			out.encode_u16(o + 3, maxi(st.durability, 0))
+	return out
 
 
 # --- drops (M2b) -----------------------------------------------------------------------------

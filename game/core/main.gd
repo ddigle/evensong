@@ -79,6 +79,13 @@ extends Node2D
 ## requests (a seed's or holy water's USE, CHANNEL, ALTAR_LIFT, ALTAR_PLACE: net/session_host.gd) and the host decides.
 ## Main shows what this machine has: the channels' motes (_show_purify, from the players' states) and the ghost while
 ## the local player carries the altar (from the host's state).
+## M7a (offline; in a session the stations, the chest, the new recipes and armour are refused and nothing wears until
+## M7c): the workbench, the anvil and the relic bench are stations like the alchemy table (Tab next to one); Tab away from
+## every station opens the hand recipes once one is unlocked (the workbench from logs). A weapon's hit frame attacks with
+## its tier-1 damage (Gear.attack_damage) and wears it (Gear.wear_weapon); a click with armour selected puts it on (a
+## click on the armour slot of the open inventory takes it off); a death wears every item with durability (Gear.
+## wear_on_death). F at a storage chest opens the chest panel (ui/chest_panel.gd) with the inventory: a click moves a
+## stack between them (Storage.store / take).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -260,6 +267,12 @@ func _bot_tick(delta: float) -> void:
 		toggle_tab()  # M6a
 	if a.craft_row >= 0:
 		craft_row(a.craft_row)
+	if a.store_slot >= 0:
+		chest_store(a.store_slot)  # M7a
+	if a.take_slot >= 0:
+		chest_take(a.take_slot)
+	if a.unequip:
+		unequip_armor()
 	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill)
 	if a.op == null:
 		return
@@ -293,8 +306,10 @@ func spawn(local_class: String) -> void:
 	player.potions_on = true  # M6a: offline only until M6b
 	player.farming_on = true  # M5a (M5c: a session's local player too, _on_local_player_ready)
 	player.purify_on = true  # M5b (M5c: likewise)
+	player.gear_on = true  # M7a: offline only until M7c
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
+	_connect_gear(player)
 	player.action_started.connect(_on_action_started)
 	player.action_impact.connect(_on_action_impact)
 	player.place_requested.connect(_on_place_requested)
@@ -386,6 +401,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if crafting_open():
 		_crafting_input(event)
 		return
+	if chest_open():
+		_chest_input(event)  # M7a
+		return
 	if event.is_action_pressed(&"hotbar_prev"):
 		select_hotbar(-1)
 	elif event.is_action_pressed(&"hotbar_next"):
@@ -456,6 +474,10 @@ func pick_up() -> void:
 	var to: int = WorldItems.travel(data, player.sim_position, cell)
 	if to >= 0:
 		travel(to)  # refused (and logged) for a map never received; F on a way is never a pick up
+		return
+	var chest_rect: Rect2i = Storage.chest_for(data, player.sim_position, cell)
+	if chest_rect.has_area():
+		open_chest(chest_rect)  # M7a: F at a storage chest opens it (nothing lies on a chest tile to pick up)
 		return
 	var o: WorldItems.Outcome = WorldItems.pickup(data, player.sim_position, player.class_id(), player.inventory, cell)
 	if not o.ok() and o.why == WorldItems.WHY_NOTHING and purify_on and not player.carrying_altar \
@@ -547,8 +569,8 @@ func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 	if Combat.attack_for(item) != null and not Combat.is_mining_swing(w.data, item, target):
 		_attack(player, item)
 		return
-	if item != Mining.PICKAXE:
-		return
+	if Gear.base(item) != Mining.PICKAXE:
+		return  # M7a: the tier-1 pickaxe mines as the pickaxe (no wear: mining power and cost unchanged)
 	var r: Mining.Result = Mining.strike(w.data, player.sim_position, player.class_id(), player.inventory, target)
 	if r.why == Mining.WHY_NO_WALL:
 		return  # a swing at open ground (the surface): nothing to report, as in M2
@@ -676,7 +698,17 @@ func _attack(p: Player, item: StringName) -> void:
 		return
 	var a: Arena = arenas[current_map]
 	var before: int = a.stats.get("heretic_hits", 0) + a.stats.get("shrine_hits", 0)
-	var edits: Array[EditLog.WorldEdit] = a.player_attack(p, item, p.action_aim, players_on(current_map))
+	# M7a: the stack that plays it (its tier-1 damage while not broken), then its use wear.
+	var stack: ItemStack = p.inventory.stack_at(p.action_slot)
+	if stack != null and stack.id != item:
+		stack = null
+	var damage: int = Gear.attack_damage(stack, Combat.attack_for(item).damage) if p.gear_on else -1
+	var edits: Array[EditLog.WorldEdit] = a.player_attack(p, item, p.action_aim, players_on(current_map), 255, damage)
+	if p.gear_on and stack != null and stack.max_durability() > 0:
+		var was_broken: bool = stack.broken()
+		Gear.wear_weapon(p.inventory, p.action_slot, item)
+		if stack.broken() and not was_broken:
+			print("EVENSONG_GEAR broke item=%s who=%s" % [item, p.name])
 	for e: EditLog.WorldEdit in edits:
 		current_world().apply_edit(e)
 		_log_edit(e)
@@ -709,6 +741,10 @@ func _on_died(p: Player) -> void:
 		w.apply_edit(e)
 	print("EVENSONG_DEATH died who=%s map=%s bag=%s items=%d" % [p.name, Config.MAP_NAMES[w.map_id],
 		"none (%s)" % o.why if not o.ok() else "%d,%d" % [o.edits[0].cell.x, o.edits[0].cell.y], o.count])
+	if p.gear_on:
+		var worn: int = Gear.wear_on_death(p.inventory)  # M7a: ● §2.6 the gear stays and wears
+		if worn > 0:
+			print("EVENSONG_GEAR death wear who=%s items=%d" % [p.name, worn])
 
 
 ## M4a: player `p`'s respawn time is up: back at its altar spawn slot on the surface (● §2.6 "부활 지점:
@@ -767,6 +803,9 @@ func _go_offline_combat() -> void:
 	player.purify_on = true
 	purify_on = true
 	_connect_purify(player)
+	# M7a: and gear (its wear starts from what the host's inventory had: full, the wire carries no durability yet).
+	player.gear_on = true
+	_connect_gear(player)
 
 
 ## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
@@ -815,15 +854,23 @@ func crafting_open() -> bool:
 
 
 ## Tab: closes the crafting panel when it is open; next to a station (Crafting.station_near; M6b: in a session
-## too, on the map the local player has) opens it, else shows / hides the inventory as before (M2a).
+## too, on the map the local player has) opens it, else shows / hides the inventory as before (M2a). M7a: closes the
+## chest panel; away from every station, offline, opens the hand recipes once one is unlocked (else the inventory).
 func toggle_tab() -> void:
 	if crafting_open():
 		close_crafting()
+		return
+	if chest_open():
+		close_chest()
 		return
 	if player.vitals.alive():
 		var at: Crafting.StationAt = Crafting.station_near(current_world().data, player.sim_position)
 		if at != null:
 			open_crafting(at)
+			return
+		if not hud.open and not _in_session() \
+				and not Crafting.shown_recipes(Crafting.HAND, player.inventory).is_empty():
+			open_crafting(Crafting.hand_station(current_map))
 			return
 	hud.toggle_open()
 
@@ -845,8 +892,13 @@ func close_crafting() -> void:
 		player.ui_locked = false
 
 
-## Closes the panel when the player is no longer at its station (down, another map, the table gone).
+## Closes the panel when the player is no longer at its station (down, another map, the table gone). M7a: the chest
+## panel likewise (Storage.still_at).
 func _check_crafting() -> void:
+	if chest_open() and (not player.vitals.alive() or hud.chest.map != current_map
+			or not Storage.still_at(current_world().data, player.sim_position, hud.chest.rect)):
+		close_chest()
+		print("EVENSONG_CHEST closed: not at the chest")
 	if not crafting_open():
 		return
 	if not player.vitals.alive() or not Crafting.still_at(current_world().data, player.sim_position, hud.crafting.station):
@@ -910,6 +962,104 @@ static func _is_enter(event: InputEvent) -> bool:
 		return false
 	var k: InputEventKey = event as InputEventKey
 	return k.pressed and not k.echo and (k.physical_keycode == KEY_ENTER or k.physical_keycode == KEY_KP_ENTER)
+
+
+# --- M7a: gear and the storage chest (offline) -----------------------------------------------------------
+
+func _connect_gear(p: Player) -> void:
+	for pair: Array in [[p.equip_requested, equip_armor], [p.gear_refused, _on_gear_refused]]:
+		var sig: Signal = pair[0]
+		var handler: Callable = pair[1]
+		if not sig.is_connected(handler):
+			sig.connect(handler)
+	if hud != null and not hud.armor_clicked.is_connected(unequip_armor):
+		hud.armor_clicked.connect(unequip_armor)
+	if hud != null and not hud.chest.store_requested.is_connected(chest_store):
+		hud.chest.store_requested.connect(chest_store)
+		hud.chest.take_requested.connect(chest_take)
+
+
+## A click with armour selected in hotbar slot `slot`: put it on (Gear.equip; the piece worn before goes to that slot).
+func equip_armor(slot: int) -> void:
+	if _in_session() or player == null or not player.gear_on:
+		return
+	var why: String = Gear.equip(player.inventory, slot)
+	if why.is_empty():
+		print("EVENSONG_GEAR equip item=%s durability=%d/%d" % [player.inventory.armor.id, player.inventory.armor.durability,
+			player.inventory.armor.max_durability()])
+	else:
+		print("EVENSONG_GEAR equip refused: %s" % why)
+
+
+## A click on the armour slot of the open inventory: take the worn armour off (Gear.unequip).
+func unequip_armor() -> void:
+	if _in_session() or player == null or not player.gear_on:
+		return
+	var why: String = Gear.unequip(player.inventory)
+	print("EVENSONG_GEAR unequip %s" % ("done" if why.is_empty() else "refused: " + why))
+
+
+func _on_gear_refused(what: String, why: String) -> void:
+	print("EVENSONG_GEAR %s refused: %s" % [what, why])
+
+
+func chest_open() -> bool:
+	return hud != null and hud.chest.is_open()
+
+
+## F at the storage chest on footprint `rect` (offline; a session has none until M7c): its panel with the inventory, the
+## player stands while it is open.
+func open_chest(rect: Rect2i) -> void:
+	if _in_session() or crafting_open():
+		return
+	var chest: WorldData.Chest = current_world().data.chest_at(rect.position)
+	if chest == null:
+		return
+	hud.chest.open_for(chest, rect, current_map, player.inventory)
+	hud.set_open(true)
+	player.ui_locked = true
+	print("EVENSONG_CHEST open at=%d,%d items=%s" % [rect.position.x, rect.position.y, chest.describe()])
+
+
+func close_chest() -> void:
+	hud.chest.close()
+	hud.set_open(false)
+	if player != null and is_instance_valid(player):
+		player.ui_locked = false
+
+
+## A click on inventory slot `slot` while the chest is open: store that stack (as much as fits).
+func chest_store(slot: int) -> void:
+	if not chest_open():
+		return
+	var m: Storage.Moved = Storage.store(hud.chest.chest, player.inventory, slot)
+	_log_chest("store", m)
+
+
+## A click on chest slot `slot` while it is open: take that stack (as much as fits).
+func chest_take(slot: int) -> void:
+	if not chest_open():
+		return
+	var m: Storage.Moved = Storage.take(hud.chest.chest, player.inventory, slot)
+	_log_chest("take", m)
+
+
+func _log_chest(what: String, m: Storage.Moved) -> void:
+	hud.chest.queue_redraw()
+	if m.ok():
+		print("EVENSONG_CHEST %s item=%s count=%d left=%d" % [what, m.item, m.count, m.left])
+	else:
+		print("EVENSONG_CHEST %s refused: %s" % [what, m.why])
+
+
+func _chest_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"toggle_inventory") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"interact"):
+		close_chest()
+	elif event.is_action_pressed(&"hotbar_prev"):
+		select_hotbar(-1)
+	elif event.is_action_pressed(&"hotbar_next"):
+		select_hotbar(1)
 
 
 ## A potion's effect frame (drink) or release frame (throw) for player `p` (Player.action_slot / action_grade
@@ -1324,6 +1474,13 @@ func _apply_test_options(options: CliOptions) -> void:
 		combat_views[current_map].sync(players_on(current_map))
 	if not options.test_fields.is_empty():
 		apply_test_fields(options.test_fields)  # M5a
+	for d: Vector2i in options.test_durability:
+		var st: ItemStack = player.inventory.stack_at(d.x)  # M7a: a worn item for screenshots and tests
+		if st != null and st.max_durability() > 0:
+			st.durability = clampi(d.y, 0, st.max_durability())
+			player.inventory.changed.emit()
+	if options.test_wear > 0:
+		equip_armor(options.test_wear - 1)
 	if arenas.has(Config.MAP_DUNGEON):
 		for c: Vector2i in options.test_dungeon_heretics:
 			arenas[Config.MAP_DUNGEON].spawn_heretic(Arena.spawn_feet(c))

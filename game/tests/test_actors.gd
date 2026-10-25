@@ -103,6 +103,16 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/env/decal_ashcreep_1_v01.png": "assets/concept/04-env/decal_ashcreep_1_v01.png",
 	"res://art/env/decal_ashcreep_2_v01.png": "assets/concept/04-env/decal_ashcreep_2_v01.png",
 	"res://art/env/decal_ashcreep_3_v01.png": "assets/concept/04-env/decal_ashcreep_3_v01.png",
+	# M7a: the stations, the chest, the relic bench's flame, wood and ingots.
+	"res://art/env/workbench_v03.png": "assets/concept/04-env/workbench_v03.png",
+	"res://art/env/anvil_v03.png": "assets/concept/04-env/anvil_v03.png",
+	"res://art/env/relic_bench_v03.png": "assets/concept/04-env/relic_bench_v03.png",
+	"res://art/env/storage_chest_v02.png": "assets/concept/04-env/storage_chest_v02.png",
+	"res://art/env/flame_small_v01.png": "assets/concept/04-env/flame_small_v01.png",
+	"res://art/items/item_log_v02.png": "assets/concept/04-env/item_log_v02.png",
+	"res://art/items/item_planks_a_v02.png": "assets/concept/04-env/item_planks_a_v02.png",
+	"res://art/items/item_ingot_copper_a_v02.png": "assets/concept/04-env/item_ingot_copper_a_v02.png",
+	"res://art/items/item_ingot_iron_a_v02.png": "assets/concept/04-env/item_ingot_iron_a_v02.png",
 }
 const SIZES: Dictionary[String, Vector2i] = {
 	"res://art/chars/base_body_v02_walk.png": Vector2i(192, 96),

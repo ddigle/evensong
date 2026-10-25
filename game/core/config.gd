@@ -572,6 +572,92 @@ const ALTAR_CARRIED_JOIN_AT_HOME: bool = true
 ## where it was picked up.
 const ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES: bool = true
 
+# --- PROVISIONAL, M7a (the workbench chain, tier-1 gear, durability, shared storage) ---------------------------------
+# Offline first (M7a); in a session the new stations, the chest, the new recipes and wearing armour are refused and
+# gear does not wear until M7c (as M5a / M6a did). README "임시값" M7a.
+
+## PROVISIONAL (○ gameplay-design §3.5 "기본 작업대 → 모루(대장간) → 성물 제작대 → (이후 티어)"; the slice takes "작업대 체인
+## 2~3단계", ● game-concept §12): the footprints (tiles) of the three stations and the storage chest. Each 48x32 / 32x32
+## 04-env picture stands on its footprint with its opaque bottom row on the footprint's bottom row of pixels (like the
+## alchemy table, M6a). The anvil's picture is 28 px wide: two tiles; the others are 42-44 px: three.
+const WORKBENCH_FOOTPRINT: Vector2i = Vector2i(3, 1)
+const ANVIL_FOOTPRINT: Vector2i = Vector2i(2, 1)
+const RELIC_BENCH_FOOTPRINT: Vector2i = Vector2i(3, 1)
+const CHEST_FOOTPRINT: Vector2i = Vector2i(3, 1)
+## PROVISIONAL (○ §3.5 the chain; recipes, amounts and which station smelts are not in the docs). One row per recipe:
+## [station kind, output item, output count, [[input item, count], ...]]. Stations: "hand" (no station: Tab away from
+## every station once a hand recipe is unlocked), "workbench", "anvil", "relic". The chain: the basic workbench from logs
+## by hand -> planks, the anvil and the storage chest at the workbench -> smelting ore into ingots (1 : 1, no furnace:
+## the docs name none), the tier-1 gear (● §3.5 "1티어는 누구나 모루에서", so no class limit) and the relic bench at the
+## anvil -> at the relic bench only the torch (the slice has no relic yet: prayer M10, the altar upgrade M12, the
+## collection M11 are what a relic bench would make; the torch's placed picture is the 04-env brass lantern, the relic
+## bench's picture shows a brass lamp being made, and lights are anyone's to build, ○ §3.3). Logs come from --give until
+## the tree (M7b); stone_a is the mined rock (Config.MINED_ROCK_ITEM) and lies on the surface.
+const STATION_RECIPES: Array = [
+	["hand", &"workbench", 1, [[&"log", 4]]],
+	["workbench", &"planks", 2, [[&"log", 1]]],
+	["workbench", &"anvil", 1, [[&"stone_a", 10], [&"ore_iron", 2], [&"planks", 2]]],
+	["workbench", &"storage_chest", 1, [[&"planks", 8], [&"ingot_iron", 1]]],
+	["anvil", &"ingot_copper", 1, [[&"ore_copper", 1]]],
+	["anvil", &"ingot_iron", 1, [[&"ore_iron", 1]]],
+	["anvil", &"sword_t1", 1, [[&"ingot_iron", 2], [&"planks", 1]]],
+	["anvil", &"bow_t1", 1, [[&"planks", 3], [&"ingot_copper", 1]]],
+	["anvil", &"holy_light_t1", 1, [[&"ingot_copper", 2], [&"ingot_iron", 1]]],
+	["anvil", &"pickaxe_t1", 1, [[&"ingot_iron", 2], [&"planks", 2]]],
+	["anvil", &"sickle_t1", 1, [[&"ingot_iron", 1], [&"ingot_copper", 1], [&"planks", 1]]],
+	["anvil", &"armor_t1", 1, [[&"ingot_iron", 3], [&"ingot_copper", 1]]],
+	["anvil", &"relic_bench", 1, [[&"planks", 4], [&"ingot_copper", 2], [&"ingot_iron", 1]]],
+	["relic", &"torch", 4, [[&"ingot_copper", 1], [&"planks", 1]]],
+]
+## PROVISIONAL (● gameplay-design §3.5 / §3.0 R11: tier 1 is anyone's at the anvil; the items, numbers and kinds are not
+## in the docs): each tier-1 weapon is its class's basic weapon made better (Config.CLASS_WEAPONS: same body action, same
+## attack shape, the miner's pickaxe mines exactly as the pickaxe does), by base item. Gear never changes looks (● game-concept
+## §12 R21 default looks): the picture is the base weapon's.
+const GEAR_T1_BASE: Dictionary[StringName, StringName] = {
+	&"sword_t1": &"sword", &"bow_t1": &"bow", &"holy_light_t1": &"holy_light", &"pickaxe_t1": &"pickaxe",
+	&"sickle_t1": &"sickle",
+}
+## PROVISIONAL (not in docs): a tier-1 weapon's damage in percent of its base weapon's (Config.WEAPON_ATTACKS), while not
+## broken. 150: the sword's 14 becomes 21, so a heretic (40 HP) falls in two swings instead of three.
+const GEAR_T1_DAMAGE_PCT: int = 150
+## PROVISIONAL (○ gameplay-design §2.4 "HP + 방어력(피해 감소)"; numbers and slots are not in the docs): one armour piece,
+## worn in the inventory's one armour slot (equipped with a click while it is selected in the hotbar). While worn and not
+## broken it takes this much off every heretic knife hit (Config.HERETIC_DAMAGE 12 -> 8), never below ARMOR_MIN_DAMAGE.
+## Poison is not lessened (M6a: poison ignores defence).
+const ARMOR_T1_DEFENCE: int = 4
+const ARMOR_MIN_DAMAGE: int = 1
+## PROVISIONAL (● gameplay-design §2.6 R12: "장착 장비는 유지하되 내구도 손상"; the amounts, use wear and which items wear
+## are not in the docs): durability points of the items that have it (only the tier-1 gear: the basic tools and weapons
+## everyone starts with, M2-M4, have none, so nobody is ever left without a basic attack or a pickaxe).
+const GEAR_DURABILITY: Dictionary[StringName, int] = {
+	&"sword_t1": 120, &"bow_t1": 120, &"holy_light_t1": 120, &"pickaxe_t1": 120, &"sickle_t1": 120, &"armor_t1": 100,
+}
+## PROVISIONAL (not in docs): use wear. A weapon loses GEAR_WEAR_PER_ATTACK on every attack it lands on its hit frame (a
+## swing or a shot let go, hit or miss; not a mining or harvest swing of the tier-1 pickaxe / sickle, whose mining power is
+## the base tool's); the worn armour loses GEAR_WEAR_PER_HIT on every knife hit it takes.
+const GEAR_WEAR_PER_ATTACK: int = 1
+const GEAR_WEAR_PER_HIT: int = 1
+## PROVISIONAL (● §2.6 "장착 장비는 유지하되 내구도 손상"; the amount is not in the docs): on death every item with
+## durability the player carries (the worn armour and every tier-1 weapon in the inventory) keeps its place and loses this
+## percent of its full durability (rounded up). The death bag rule (M4a) is unchanged: gear never goes into the bag.
+const GEAR_DEATH_WEAR_PCT: int = 20
+## PROVISIONAL (not in docs): what a broken item (durability 0) does. False = it still works as its base item (a broken
+## sword_t1 hits like the basic sword, broken armour takes nothing off); true = it cannot be used at all.
+const GEAR_BROKEN_UNUSABLE: bool = false
+## PROVISIONAL (● §2.6 "기술자 수리 = 기술자 일감"; the engineer is not in the slice, so the ● §3.0 fallback "누구나 … 낮은
+## 효율" is taken: anyone repairs at the anvil): repairing one item at the anvil costs one of this material and gives it full
+## durability (the most worn one of that item the player carries, the worn armour included).
+const GEAR_REPAIR_MATERIAL: Dictionary[StringName, StringName] = {
+	&"sword_t1": &"ingot_iron", &"pickaxe_t1": &"ingot_iron", &"armor_t1": &"ingot_iron",
+	&"bow_t1": &"ingot_copper", &"holy_light_t1": &"ingot_copper", &"sickle_t1": &"ingot_copper",
+}
+## PROVISIONAL (○ gameplay-design §5 "공유 창고: 제단 옆"; the size and the rule are not in the docs): a storage chest's
+## slots, and whether it may only be put down with its whole footprint inside the altar's light (true: "next to the
+## altar" read as "in its light"; every corner of every footprint tile inside the safe zone, the field rule
+## Farming.in_light). It stays where it is when the altar moves (its contents belong to the map, not to a player).
+const CHEST_SLOTS: int = 16
+const CHEST_ONLY_IN_LIGHT: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

@@ -493,7 +493,9 @@ func _impact(m: NetMember) -> void:
 	if item == Farming.HOE or item == Farming.WATERING_CAN or Farming.is_harvest_swing(p.data, item, p.action_cell):
 		_farm_impact(m, item)  # M5c: the sickle aimed at a crop harvests instead of attacking (M5a's rule)
 		return
-	if item == Mining.PICKAXE and p.action_anim == RigData.Anim.PICKAXE:
+	# M7a: a tier-1 pickaxe mines as the pickaxe (Gear.base); in a session it attacks as its base weapon too (no tier-1
+	# damage, no wear until M7c: Arena.player_attack gets no damage of its own here).
+	if Gear.base(item) == Mining.PICKAXE and p.action_anim == RigData.Anim.PICKAXE:
 		if Combat.is_mining_swing(p.data, item, p.action_cell):
 			_mine(m)
 			return
@@ -639,6 +641,10 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var extra: Array[Vector2] = []
 	if m.map_id == Config.MAP_SURFACE:
 		extra = carried_reserved_feet()
+	var value: int = WorldItems.placeable_in(p.inventory, frame.slot)
+	if WorldItems.M7_PLACEABLES.has(value):
+		_refuse_op(m, frame, WorldItems.M7_PLACEABLES[value])  # M7a: the stations and the chest wait for M7c
+		return
 	var o: WorldItems.Outcome = WorldItems.place(p.data, p.sim_position, p.inventory, frame.slot, frame.cell, bodies, extra)
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
@@ -750,6 +756,9 @@ func _craft(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var r: Crafting.Recipe = Crafting.recipe_at(frame.recipe)
 	if r == null:
 		_refuse_op(m, frame, Crafting.WHY_BAD_RECIPE)
+		return
+	if Crafting.is_m7(r):
+		_refuse_op(m, frame, Crafting.WHY_OFFLINE)  # M7a: the workbench chain's recipes and the repairs wait for M7c
 		return
 	var at: Crafting.StationAt = Crafting.station_of_kind_near(p.data, p.sim_position, r.station)
 	if at == null:

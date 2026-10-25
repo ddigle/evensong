@@ -11,6 +11,9 @@ extends RefCounted
 ##   to COMMON (ItemDB.normalize_grade).
 ## - split: moves part of a stack to the first empty slot; nothing happens when the inventory is full.
 ## - move: onto an empty slot moves, onto the same item and grade merges what fits, otherwise swaps.
+## M7a: `armor` = the one armour slot (items/gear.gd: a click with armour selected puts it on, PROVISIONAL README "M7a
+## 갑옷"). It is not one of `slots` (the death bag, crafting and the wire never see it; M7a has no armour in a session).
+## add_stack() puts a stack in as it is (its durability kept: the chest, taking armour off).
 
 signal changed
 
@@ -22,6 +25,8 @@ var selected: int = 0
 ## (Crafting.unlocked, ○ gameplay-design §3.5). Kept when the items leave (it is knowledge). load_state() does not
 ## touch it: a session client marks what the host's inventories hold (SessionClient.take_inventory, M6b).
 var seen: Dictionary[StringName, bool] = {}
+## M7a: the armour worn (null = none).
+var armor: ItemStack = null
 
 
 func _init(size: int = Config.INVENTORY_SLOTS, hotbar: int = Config.HOTBAR_SLOTS) -> void:
@@ -94,6 +99,52 @@ func add(id: StringName, count: int, grade: int = -1) -> int:
 		seen[id] = true
 		changed.emit()
 	return left
+
+
+## M7a: adds a copy of `stack` keeping its durability (and grade): onto stacks of the same item and grade first (items
+## with durability never stack), then the first empty slots. Returns how many did not fit.
+func add_stack(stack: ItemStack) -> int:
+	if stack == null or stack.def() == null or stack.count <= 0:
+		return 0 if stack == null else maxi(stack.count, 0)
+	var left: int = stack.count
+	if stack.max_durability() <= 0:
+		for s: ItemStack in slots:
+			if left == 0:
+				break
+			if s != null and s.same_kind(stack.id, stack.grade) and s.room() > 0:
+				var n: int = mini(left, s.room())
+				s.count += n
+				left -= n
+	for i: int in slots.size():
+		if left == 0:
+			break
+		if slots[i] == null:
+			var n2: int = mini(left, stack.max_count())
+			slots[i] = ItemStack.new(stack.id, n2, stack.grade, stack.durability)
+			left -= n2
+	if left != stack.count:
+		seen[stack.id] = true
+		changed.emit()
+	return left
+
+
+## M7a: how many of `stack` (its item, grade and durability) would still fit.
+func room_for_stack(stack: ItemStack) -> int:
+	if stack == null or stack.def() == null:
+		return 0
+	if stack.max_durability() <= 0:
+		return room_for(stack.id, stack.grade)
+	return free_slots() * stack.max_count()
+
+
+## M7a: puts `stack` in the armour slot (the one there, if any, is returned; null = none). Emits changed.
+func wear(stack: ItemStack) -> ItemStack:
+	var old: ItemStack = armor
+	armor = stack
+	if stack != null:
+		seen[stack.id] = true
+	changed.emit()
+	return old
 
 
 ## M6a: whether item `id` was ever added (seen).
@@ -171,6 +222,7 @@ func count_of(id: StringName, grade: int = -1) -> int:
 func clear() -> void:
 	for i: int in slots.size():
 		slots[i] = null
+	armor = null
 	changed.emit()
 
 
