@@ -243,11 +243,6 @@ func floor_piece_count() -> int:
 	return layers[Layer.FLOOR_PIECE].size() - layers[Layer.FLOOR_PIECE].count(FLOOR_PIECE_NONE)
 
 
-## M7-rf: whether `v` is a FLOOR_PIECE value (the snapshot refuses any other).
-static func valid_floor_piece(v: int) -> bool:
-	return v >= FLOOR_PIECE_NONE and v < FLOOR_PIECE_NAMES.size()
-
-
 ## Display cells whose corners mix soil and ash (no art). 0 on a valid surface.
 func soil_ash_contacts() -> int:
 	var n: int = 0

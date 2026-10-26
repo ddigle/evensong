@@ -764,6 +764,9 @@ const BLOCK_CLEARANCE_PX: float = 24.0
 ## PROVISIONAL (not in the docs, nor in the decision; README "임시값" M7-rf 벽 아래 바닥): whether a floor piece may go down on a
 ## tile that already holds a built wall or door (slid under it). False (the recommendation): refused, "lay the floor first"
 ## (Building.WHY_FLOOR_FIRST): the floor goes down first, then the wall or door on it; a wall taken down shows the floor again.
+## M7-rf review: the same for the tile below a standing built wall or door (its face tile, a door's doorway, open or closed:
+## what is drawn there is the wall's face or the door, and it belongs to that wall, Walls.owner_of). Tests turn it on through
+## Building.floor_under_wall.
 const BUILD_FLOOR_UNDER_WALL: bool = false
 
 # --- IMPL (agent choices) -------------------------------------------------------------------

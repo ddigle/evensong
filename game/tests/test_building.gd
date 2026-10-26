@@ -16,7 +16,9 @@ extends "res://tests/base_test.gd"
 ## top piece taken down first (each its own piece back, a full inventory's drops), what else stands on a floor piece,
 ## purification under one, the dungeon, the content hash (generated worlds as before), the snapshot (seven layers), the
 ## build view (a wall on a floor piece, the map's last piece taken up redraws) and main.tscn (floor, wall on it, two
-## right-clicks).
+## right-clicks). M7-rf review: "lay the floor first" on a wall's face tile and a door's doorway too, nothing comes down
+## where a placeable that is no build piece stands on a floor piece (PROVISIONAL "something stands on it"), the provisional
+## switch turned on (Building.floor_under_wall), the session's DEMOLISH naming the piece seen on top.
 
 const SessionHostScript := preload("res://net/session_host.gd")
 const TICK: float = 1.0 / 60.0
@@ -50,6 +52,7 @@ func run() -> Array[String]:
 	_check_mining()
 	_check_fields_and_altar()
 	_check_floor_layer()
+	_check_floor_under_wall_on()
 	await _check_view()
 	await _check_main()
 	_check_session()
@@ -278,15 +281,23 @@ func _check_rules() -> void:
 	var on_floor: WorldItems.Outcome = Building.build(d, feet, inv_with([[&"stone_wall", 4]]), 0, Vector2i(9, 11))
 	check(on_floor.ok() and on_floor.edits.size() == 1 and on_floor.edits[0].layer == WorldData.Layer.WALL,
 		"built on the floor piece: one WALL edit, the floor piece's layer untouched (%s)" % on_floor.why)
-	# PROVISIONAL Config.BUILD_FLOOR_UNDER_WALL (off, README "M7-rf 벽 아래 바닥"): no floor piece under a built wall or door.
-	check(not Config.BUILD_FLOOR_UNDER_WALL, "the provisional rule: lay the floor first")
+	# PROVISIONAL Config.BUILD_FLOOR_UNDER_WALL (off, README "M7-rf 벽 아래 바닥"): no floor piece under a built wall or door,
+	# nor (M7-rf review) on the tile below it: its face, a door's doorway (open or closed), drawn over by the wall or door.
+	check(not Config.BUILD_FLOOR_UNDER_WALL and not Building.floor_under_wall, "the provisional rule: lay the floor first")
 	var under: WorldData = _plain()
 	for k: int in [Walls.KIND_STONE, Walls.KIND_DOOR, Walls.KIND_DOOR_OPEN]:
 		put(under, Vector2i(11, 9), k)
 		check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 9), 9), Building.WHY_FLOOR_FIRST,
 			"a floor piece under a standing %s: lay the floor first" % Walls.KIND_NAMES[k])
+		check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 10), 9), Building.WHY_FLOOR_FIRST,
+			"a floor piece on a standing %s's %s: lay the floor first (M7-rf review)" % [Walls.KIND_NAMES[k],
+			"face tile" if k == Walls.KIND_STONE else "doorway"])
+	put(under, Vector2i(11, 9), Walls.KIND_ROCK)
+	check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 10), 9), WorldItems.WHY_NOT_OPEN,
+		"a dungeon wall's face: not open (as before, not 'lay the floor first')")
 	put(under, Vector2i(11, 9), Walls.KIND_NONE)
 	check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 9), 9), "", "taken down: the floor goes there")
+	check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 10), 9), "", "and below it")
 	var fo: WorldItems.Outcome = Building.build(under, feet, inv_with([[&"stone_floor", 4]]), 0, Vector2i(11, 9))
 	check(fo.ok() and fo.edits.size() == 1 and fo.edits[0].layer == WorldData.Layer.FLOOR_PIECE
 		and fo.edits[0].value == WorldData.FLOOR_PIECE_STONE and fo.edits[0].cell == Vector2i(11, 9) and fo.count == 2,
@@ -336,7 +347,8 @@ func _check_rules() -> void:
 	put(d, Vector2i(11, 10), Walls.KIND_DOOR)
 	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"stone_wall", Vector2i(11, 11), 9), Building.WHY_DOOR_BELOW,
 		"a wall right below a door")
-	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"stone_floor", Vector2i(11, 11), 9), "", "a floor below a door")
+	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"stone_floor", Vector2i(11, 11), 9), Building.WHY_FLOOR_FIRST,
+		"a floor below a door, in its doorway: lay the floor first (M7-rf review; M7b allowed it)")
 	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"lantern", Vector2i(11, 11), 9), WorldItems.WHY_NOT_OPEN,
 		"no lantern in a doorway (a face tile)")
 	put(d, Vector2i(11, 10), Walls.KIND_NONE)
@@ -349,7 +361,8 @@ func _check_rules() -> void:
 	check_eq(Building.refusal(d, on(Vector2i(13, 6)), &"stone_wall", Vector2i(14, 6), 9), "", "a wall on a built wall's face")
 	put(d, Vector2i(14, 6), Walls.KIND_STONE)
 	check(not Walls.is_face(d, Vector2i(14, 6)) and Walls.is_face(d, Vector2i(14, 7)), "the face moved down one tile")
-	check_eq(Building.refusal(d, on(Vector2i(13, 7)), &"stone_floor", Vector2i(14, 7), 9), "", "a floor on the new face tile")
+	check_eq(Building.refusal(d, on(Vector2i(13, 7)), &"stone_floor", Vector2i(14, 7), 9), Building.WHY_FLOOR_FIRST,
+		"a floor on the new face tile: lay the floor first (M7-rf review; M7b allowed it)")
 	# Spots where players appear: the seed's spawn slots and the entrance's arrival point.
 	var w: WorldData = _seed_world()
 	var slot: Vector2 = w.altar_center_px() + Vector2(Config.SPAWN_SLOTS[4])  # (36, 52): tile (65, 50)
@@ -1158,11 +1171,30 @@ func _check_floor_layer() -> void:
 	for x2: int in range(62, 65):
 		kept += 1 if d.has_floor_piece(Vector2i(x2, 51)) and d.has_floor_piece(Vector2i(x2, 44)) else 0
 	check_eq(kept, 3, "the floor pieces stay under the workbench and the chest")
-	# As M7b: a station is never taken down, so a right-click on its tile takes the floor piece under it up (built_at's
-	# order, unchanged), the workbench stays.
+	# M7-rf review (top piece first, PROVISIONAL README "M7-rf 위에 선 것"; M7b took the floor piece out from under it): a
+	# station is never taken down, so a right-click on its tile takes nothing: the floor piece stays under it.
 	var rug: WorldItems.Outcome = Building.demolish(d, on(Vector2i(63, 52)), Inventory.new(), Vector2i(63, 51))
-	check(rug.ok() and rug.item == &"stone_floor" and rug.edits[0].layer == WorldData.Layer.FLOOR_PIECE,
-		"a right-click on the workbench takes the floor piece under it (as M7b), not the workbench (%s)" % rug.why)
+	check(not rug.ok() and rug.why == Building.WHY_ON_TOP and d.has_floor_piece(Vector2i(63, 51))
+		and d.get_value(WorldData.Layer.PLACEABLE, Vector2i(63, 51)) == WorldData.PLACEABLE_WORKBENCH,
+		"a right-click on the workbench: something stands on it, the floor piece stays (%s %s)" % [rug.item, rug.why])
+	check_eq(Building.built_at(d, Vector2i(63, 51))[0], &"", "nothing to take down there (built_at)")
+	# Every placeable no right-click takes down, on a floor piece: the same (a torch, a death bag, the stations, the chest's
+	# tile, the altar's); the lantern alone is a build piece (_check_demolish_top_first).
+	var stands: WorldData = _plain()
+	var sf: Vector2 = on(Vector2i(10, 10))
+	for p: int in [WorldData.PLACEABLE_TORCH, WorldData.PLACEABLE_BAG, WorldData.PLACEABLE_WORKBENCH, WorldData.PLACEABLE_ANVIL,
+			WorldData.PLACEABLE_RELIC, WorldData.PLACEABLE_ALCHEMY, WorldData.PLACEABLE_CHEST, WorldData.PLACEABLE_ALTAR]:
+		lay(stands, Vector2i(11, 10))
+		stands.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 10), p)
+		var why_p: String = Building.demolish(stands, sf, Inventory.new(), Vector2i(11, 10)).why
+		check(why_p == Building.WHY_ON_TOP and stands.has_floor_piece(Vector2i(11, 10)),
+			"a %s on a floor piece: a right-click takes nothing (%s)" % [WorldData.PLACEABLE_NAMES[p], why_p])
+		stands.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 10), WorldData.PLACEABLE_NONE)
+	var bare: WorldItems.Outcome = Building.demolish(stands, sf, Inventory.new(), Vector2i(11, 10))
+	check(bare.ok() and bare.item == &"stone_floor", "once it is gone (a bag picked up): the floor piece comes up (%s)" % bare.why)
+	stands.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 11), WorldData.PLACEABLE_TORCH)
+	check_eq(Building.demolish(stands, sf, Inventory.new(), Vector2i(11, 11)).why, Building.WHY_NOT_BUILT,
+		"a torch with no floor piece under it: nothing built there (as before)")
 	# Purification under a floor piece keeps the piece (the FLOOR byte's ash becomes grass, the floor piece's byte stays).
 	var ash: Vector2i = Walls.NO_CELL
 	for i: int in d.size.x * d.size.y:
@@ -1232,6 +1264,54 @@ func _check_floor_layer() -> void:
 	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(s)
 	var un: WorldData = WorldSnapshot.unpack(packed.bytes, packed.raw_size)
 	check(un != null and un.content_hash() == s.content_hash(), "packed and unpacked: the same")
+
+
+## M7-rf review: the other side of PROVISIONAL Config.BUILD_FLOOR_UNDER_WALL (README "M7-rf 벽 아래 바닥"), through the
+## Building.floor_under_wall hook: turned on, a floor piece slides under a standing wall, a closed door, an open door and onto
+## a wall's face tile (one FLOOR_PIECE edit each, the wall's byte untouched); the view counts the tile once; right-click takes
+## the wall or door first, then the floor piece (each its own piece back); the snapshot carries both. Put back after.
+func _check_floor_under_wall_on() -> void:
+	Building.floor_under_wall = true
+	var d: WorldData = _plain()
+	put(d, Vector2i(9, 11), Walls.KIND_STONE)  # its face (9, 12)
+	put(d, Vector2i(10, 10), Walls.KIND_DOOR)  # its doorway (10, 11)
+	put(d, Vector2i(11, 11), Walls.KIND_DOOR_OPEN)  # its doorway (11, 12)
+	var view: BuildView = BuildView.new()
+	_nodes.append(view)
+	view.setup(d)
+	var inv: Inventory = inv_with([[&"stone_floor", 40]])
+	var laid: int = 0
+	for c: Vector2i in [Vector2i(9, 11), Vector2i(9, 12), Vector2i(10, 10), Vector2i(10, 11), Vector2i(11, 11)]:
+		var before: int = d.get_value(WorldData.Layer.WALL, c)
+		var o: WorldItems.Outcome = Building.build(d, on(c + Vector2i(1, 0)), inv, 0, c)  # a floor piece checks no body
+		check(o.ok() and o.edits.size() == 1 and o.edits[0].layer == WorldData.Layer.FLOOR_PIECE and o.edits[0].cell == c,
+			"switch on: a floor piece slides under / onto %s (%s)" % [c, o.why])
+		apply(d, o.edits)
+		view.update_cell(c)
+		laid += 1 if d.has_floor_piece(c) and d.get_value(WorldData.Layer.WALL, c) == before else 0
+	check_eq(laid, 5, "switch on: five floor pieces down, every wall byte as it was")
+	check_eq(view.verify(), {"built": 5, "mismatches": 0} as Dictionary[String, int],
+		"switch on: the view counts a wall and its floor piece as one tile (3 walls on floor pieces + 2 floors alone: 5)")
+	var raw: PackedByteArray = WorldSnapshot.raw_bytes(d)
+	var back: WorldData = WorldSnapshot.decode_raw(raw)
+	check(back != null and back.content_hash() == d.content_hash() and back.floor_piece_count() == 5,
+		"switch on: the snapshot carries the floor pieces under the walls")
+	# [aimed tile, what comes down]: the face tile and the doorway aim at the wall or door above first.
+	for row: Array in [[Vector2i(9, 12), &"stone_wall"], [Vector2i(9, 12), &"stone_floor"], [Vector2i(9, 11), &"stone_floor"],
+			[Vector2i(10, 11), &"door"], [Vector2i(10, 10), &"stone_floor"], [Vector2i(10, 11), &"stone_floor"],
+			[Vector2i(11, 11), &"door"], [Vector2i(11, 11), &"stone_floor"], [Vector2i(11, 12), &""]]:
+		var at: Vector2i = row[0]
+		var want: StringName = row[1]
+		var o2: WorldItems.Outcome = Building.demolish(d, on(at + Vector2i(1, 0)), Inventory.new(), at)
+		check(o2.item == want and (o2.ok() or (want.is_empty() and o2.why == Building.WHY_NOT_BUILT)),
+			"switch on: a right-click on %s takes %s (%s %s)" % [at, want if not want.is_empty() else &"nothing", o2.item, o2.why])
+		apply(d, o2.edits)
+		for e: EditLog.WorldEdit in o2.edits:
+			view.update_cell(e.cell)
+	check(d.floor_piece_count() == 0 and Walls.wall_cells(d).is_empty(), "switch on: everything taken down, a piece a click")
+	check_eq(view.verify(), {"built": 0, "mismatches": 0} as Dictionary[String, int], "switch on: the view has nothing left")
+	Building.floor_under_wall = Config.BUILD_FLOOR_UNDER_WALL
+	check(not Building.floor_under_wall, "the switch is back off")
 
 
 # --- the build view -------------------------------------------------------------------------------------------
@@ -1494,6 +1574,7 @@ func _check_session() -> void:
 		g.op = op[0]
 		g.cell = op[1]
 		g.map = Config.MAP_SURFACE
+		g.piece = Building.top_code(world.data, g.cell)  # M7-rf review: a DEMOLISH names the piece seen on top (DOOR: unused)
 		m.player.begin_tick()
 		host.run_frame(m, g)
 		for t: int in Config.NET_OP_INTERVAL_TICKS:

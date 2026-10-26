@@ -330,7 +330,8 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.count = WALL_NAMES[args[2]]
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
 		"waitfloor":
-			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not WorldData.FLOOR_PIECE_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or not WorldData.FLOOR_PIECE_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
 				return "expected waitfloor:<x>,<y>,<%s>[,<ticks>]" % "|".join(WorldData.FLOOR_PIECE_NAMES)
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.count = WorldData.FLOOR_PIECE_NAMES.find(args[2])

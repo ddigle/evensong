@@ -943,6 +943,8 @@ static func _check_net_builds(r: Report) -> void:
 		f.cell = Vector2i(61, 61) if op != NetProtocol.Op.ARMOR else Vector2i.ZERO  # ARMOR names a slot, no tile
 		f.slot = 3 if op == NetProtocol.Op.ARMOR or op == NetProtocol.Op.CHEST else 0  # DEMOLISH and DOOR carry no slot
 		f.chest_take = op == NetProtocol.Op.CHEST
+		if op == NetProtocol.Op.DEMOLISH:
+			f.piece = Building.piece_code(Building.STONE_WALL)  # M7-rf review: the piece its sender saw on top
 		frames.append(f)
 	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs(frames))
 	var same: bool = up.ok and up.frames.size() == frames.size()
