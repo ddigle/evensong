@@ -916,7 +916,7 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 ## player's map is a TRAVEL there, and every tile request names the map the player is on. M5c: F held on the altar
 ## counts toward ALTAR_LIFT (hold_altar), and F with nothing to pick up next to corruption is the paladin's CHANNEL
 ## (wants_channel). M7c: F at a chest in reach opens its panel here (NetSession.chest_wanted, no request), F on a door is
-## DOOR, a DEMOLISH aims at the target tile.
+## DOOR, a DEMOLISH aims at the target tile (M7-rf review: and carries the piece this machine's world has on top there).
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
 	hold_altar(p, f, players_with(session, p))  # M5c: may put ALTAR_LIFT on this frame
 	var q: NetProtocol.InputFrame = null
@@ -942,6 +942,8 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 	f.chest_take = q.chest_take
 	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP or q.op == NetProtocol.Op.DEMOLISH:
 		f.cell = p.aim_cell
+	if q.op == NetProtocol.Op.DEMOLISH:
+		f.piece = Building.top_code(p.data, f.cell) if p.data != null else 0  # M7-rf review: what it shows on top
 	if q.op == NetProtocol.Op.PICKUP and p.data != null and WorldItems.is_portal(p.data, f.cell):
 		f.op = NetProtocol.Op.TRAVEL
 	elif q.op == NetProtocol.Op.PICKUP and p.data != null and Storage.chest_for(p.data, p.sim_position, f.cell).has_area():
@@ -1872,14 +1874,16 @@ func _build(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 ## DEMOLISH (right-click): request rate, not while carrying the altar (offline Main.demolish), then Building.demolish on the
 ## member's map (anyone's piece, in reach; a dungeon wall is mined, not taken down; M7-fix: the refund that does not fit is
 ## a drop at the feet, and an open door under a wall comes down only as a closing door would: the host's bodies and the
-## other players' clearance).
+## other players' clearance). M7-rf review: only the piece the sender saw on top (frame.piece), else `the top piece changed`
+## (two clicks on one wall, from two players in one tick or one player's second click before the first came back, never take
+## the floor piece under it unseen).
 func _demolish(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
 		return
 	var o: WorldItems.Outcome = Building.demolish(p.data, p.sim_position, p.inventory, frame.cell, bodies_but(m.map_id, p),
-		others_on(m.map_id, p))
+		others_on(m.map_id, p), frame.piece)
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return

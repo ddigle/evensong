@@ -1,7 +1,9 @@
 class_name BuildView
 extends Node2D
 ## M7b: draws a map's built pieces (items/building.gd) from its WALL layer: stone walls, doors (closed, open) and floor
-## pieces. ● gameplay-design §3.3 R37: a built wall is the wall layer, so it draws like the dungeon's walls: under the
+## pieces (M7-rf: from the FLOOR_PIECE layer, WorldData.Layer.FLOOR_PIECE: a tile may hold a floor piece and a wall or door
+## standing on it; the floor piece is drawn first, so it shows where the wall's art lets it, and again once the wall comes
+## down). ● gameplay-design §3.3 R37: a built wall is the wall layer, so it draws like the dungeon's walls: under the
 ## y-sorted entities (Main and GameWorld put this node between the ground and them), its face hanging over the tile below,
 ## which blocks (collision = what is drawn, Walls.blocks). Lit by the world light (Config.LIGHT_LAYER_WORLD) like the ground.
 ##
@@ -33,7 +35,7 @@ const DOTS: Array = [[Vector2i(1, -1), Vector2i(0, -1), Vector2i(1, 0)], [Vector
 	[Vector2i(1, 1), Vector2i(0, 1), Vector2i(1, 0)], [Vector2i(-1, 1), Vector2i(0, 1), Vector2i(-1, 0)]]
 
 var data: WorldData
-## Built tiles (walls, doors, floor pieces), by tile.
+## Built tiles (walls, doors, floor pieces; M7-rf: a tile with a floor piece and a wall on it once), by tile.
 var cells: Dictionary[Vector2i, bool] = {}
 var draws: int = 0
 
@@ -47,23 +49,31 @@ func setup(p_data: WorldData) -> void:
 	data = p_data
 	cells.clear()
 	var grid: PackedByteArray = data.layers[WorldData.Layer.WALL]
+	var floors: PackedByteArray = data.layers[WorldData.Layer.FLOOR_PIECE]
 	for i: int in grid.size():
-		var k: int = grid[i] & Walls.KIND_MASK
-		if Walls.is_built_kind(k) or k == Walls.KIND_FLOOR:
+		if Walls.is_built_kind(grid[i] & Walls.KIND_MASK) or floors[i] != WorldData.FLOOR_PIECE_NONE:
 			cells[Vector2i(i % data.size.x, i / data.size.x)] = true
 	queue_redraw()
 
 
-## A WALL edit on tile `c` (built, taken down, a door opened or closed, a dungeon wall mined): what the data has now.
+## Whether tile `c` of `p_data` holds anything this view draws: a built wall or door, or (M7-rf) a floor piece.
+static func is_built_tile(p_data: WorldData, c: Vector2i) -> bool:
+	return Walls.is_built(p_data, c) or p_data.has_floor_piece(c)
+
+
+## A WALL or (M7-rf) FLOOR_PIECE edit on tile `c` (built, taken down, a door opened or closed, a dungeon wall mined, a floor
+## piece laid or taken up): what the data has now.
+## M7-rf: also when the tile held the last built thing on the map (M7b redrew only while something stayed built or the tile
+## was a wall, so the map's last piece taken down stayed drawn until the next build).
 func update_cell(c: Vector2i) -> void:
 	if data == null:
 		return
-	var k: int = Walls.kind_at(data, c)
-	if Walls.is_built_kind(k) or k == Walls.KIND_FLOOR:
+	var had: bool = cells.has(c)
+	if is_built_tile(data, c):
 		cells[c] = true
 	else:
 		cells.erase(c)
-	if not cells.is_empty() or k != Walls.KIND_NONE:
+	if had or not cells.is_empty():
 		queue_redraw()  # the neighbours' masks, faces and dots follow (one draw of every built tile)
 
 
@@ -75,7 +85,7 @@ func _draw() -> void:
 	list.assign(cells.keys())
 	list.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
 	for c: Vector2i in list:
-		if Walls.is_floor_piece(data, c):
+		if data.has_floor_piece(c):  # M7-rf: every floor piece first, those under a wall or door too
 			draw_texture_rect_region(SHEET, Rect2(Vector2(c * Config.TILE), Vector2(Config.TILE, Config.TILE)),
 				Rect2(floor_rect(c)))
 	for c2: Vector2i in list:
@@ -155,14 +165,15 @@ static func wall_parts(data: WorldData, c: Vector2i) -> Array[Array]:
 	return out
 
 
-## The drawing against the data: every built tile listed, nothing else.
+## The drawing against the data: every built tile listed, nothing else (M7-rf: a tile with a floor piece and a wall counts
+## once).
 func verify() -> Dictionary[String, int]:
 	var want: int = 0
 	var bad: int = 0
 	var grid: PackedByteArray = data.layers[WorldData.Layer.WALL]
+	var floors: PackedByteArray = data.layers[WorldData.Layer.FLOOR_PIECE]
 	for i: int in grid.size():
-		var k: int = grid[i] & Walls.KIND_MASK
-		if Walls.is_built_kind(k) or k == Walls.KIND_FLOOR:
+		if Walls.is_built_kind(grid[i] & Walls.KIND_MASK) or floors[i] != WorldData.FLOOR_PIECE_NONE:
 			want += 1
 			if not cells.has(Vector2i(i % data.size.x, i / data.size.x)):
 				bad += 1

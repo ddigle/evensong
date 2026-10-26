@@ -9,11 +9,18 @@ extends "res://tests/test_net_session.gd"
 ##          the door closes; c1 walks into it and is stopped where the host stops it; the host opens it once c1 stands
 ##          still, c1 comes in to the far corner and the host shuts it. A heretic brought in outside never reaches anyone in
 ##          the closed room. c2 joins then and gets the walls and the closed door in its snapshot.
+##          M7-rf (the human's decision: floor pieces on the floor side, protocol v9): the three walls built in the session
+##          and the door go onto floor pieces put down before anyone joins (and one in the doorway): c1's walls through the
+##          wire stand on floor pieces, and c2's snapshot has them under the walls.
 ## The runner flags of test_net_session.gd apply (--net-exe, --net-keep; --net-sessions=house).
 
 ## The room's pieces put down before anyone joins: every wall but the top's (63,57) and the bottom right two; no door.
+## M7-rf: floor pieces where those three walls and the door go, and in the doorway below the door.
 const HOUSE_BUILD: String = ("--test-build=60,57:wall/61,57:wall/62,57:wall/64,57:wall/65,57:wall/60,58:wall/65,58:wall/" +
-	"60,59:wall/65,59:wall/60,60:wall/65,60:wall/60,61:wall/62,61:wall/63,61:wall")
+	"60,59:wall/65,59:wall/60,60:wall/65,60:wall/60,61:wall/62,61:wall/63,61:wall/" +
+	"63,57:floor/64,61:floor/65,61:floor/61,61:floor/61,62:floor")
+## M7-rf: the floor pieces (all under a wall or the door at the end, but the doorway's).
+const HOUSE_FLOORS: int = 5
 const HOUSE_HOST_GIVE: String = "--give=stone_wall:6,door:2"
 const HOUSE_HOST: String = ("wait:20;select:1;walkto:60,50;walkto:63,52;walkto:63,56;aimat:63,57;use:1;wait:20;" +
 	"walkto:58,56;walkto:58,63;walkto:61,63;waitwall:64,61,wall;waitwall:65,61,wall;waitat:68,66;" +
@@ -115,10 +122,12 @@ func _session_house() -> void:
 		var b: Dictionary = mr.get("builds", {})
 		check(roundi(_num(b, "walls")) == HOUSE_WALLS and roundi(_num(b, "doors")) == 1 and roundi(_num(b, "open_doors")) == 0,
 			"house/%s: %d walls and the closed door (%s)" % [inst.name, HOUSE_WALLS, b])
+		check_eq(roundi(_num(b, "floors")), HOUSE_FLOORS, "house/%s: the floor pieces under the walls and the door (M7-rf)" % inst.name)
 		var bv: Dictionary = mr.get("builds_view", {})
 		check_eq(_num(bv, "mismatches", -1.0), 0.0, "house/%s: the walls drawn = data" % inst.name)
 	var welcome: String = _line_with(_log_lines(c2), " welcome slot=")
-	check(welcome.contains(" walls=%d doors=1 open_doors=0 " % HOUSE_WALLS), "house/c2 (late): its snapshot had the room and its closed door (%s)" % welcome)
+	check(welcome.contains(" walls=%d doors=1 open_doors=0 floors=%d " % [HOUSE_WALLS, HOUSE_FLOORS]),
+		"house/c2 (late): its snapshot had the room, its closed door and the floor pieces under them (%s)" % welcome)
 	var p1: Dictionary = c1.result.get("prediction", {})
 	check(_num(p1, "corrections", 99.0) == 0.0, "house/c1: never pulled back (walked through, into the closed door; %s)" % p1)
 	# M7-fix: as shown (Prediction.replay_jumps: a pull-back caused by an edit does not show as a correction).

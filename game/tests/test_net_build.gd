@@ -20,6 +20,14 @@ extends "res://tests/test_net_fields.gd"
 ##     the host's durability throughout; a client chops a tree to a stump both see, a late joiner gets the stump, the
 ##     walls, the doors and the chest; four players with a delay build, chop and use the chest and agree
 ##   - traffic: building, a door, a chest session (README "측정")
+##   - M7-rf (protocol v9, the human's decision: floor pieces on the floor side): a floor piece is an ordinary cell edit on
+##     layer 6 (11 B); the bot's waitfloor; a client lays floor pieces, the host builds a wall and a door on them, a late
+##     joiner gets both in its snapshot, the client's right-click takes the wall down first (the floor piece stays) and then
+##     the floor piece, the host's the door and then its floor piece, every world and inventory as the host has them
+##   - M7-rf review: DEMOLISH carries the piece its sender saw on top (6 B; out of range refused); the host refuses another
+##     ("the top piece changed"); two clients clicking one wall on a floor piece in one tick, and one client clicking a door
+##     again before its first click came back, never take the floor piece unseen; the bot's waitfloor at run time (the rig's
+##     bots read their machine's world); a hello of version 8 or 10 is refused
 
 ## Seed 1 (README "M7c"): the room south of the light (outside it: the heretic test), its walls, the door in the bottom row.
 const ROOM_LEFT: int = 60
@@ -49,6 +57,7 @@ func run() -> Array[String]:
 	_check_inventory_codec_v8()
 	_check_chest_edit_codec()
 	_check_snapshot_chests()
+	_check_floor_codec()
 	await _check_build_requests()
 	await _check_gear_requests()
 	await _check_chest_requests()
@@ -60,6 +69,9 @@ func run() -> Array[String]:
 	await _check_gear_flow()
 	await _check_chop_flow()
 	await _check_four_builders()
+	await _check_floor_flow()
+	await _check_demolish_race()
+	await _check_version_refused()
 	await _measure_build_traffic()
 	return failures
 
@@ -131,6 +143,9 @@ func bot_run(r: Rig, c: Client, script: String, limit: int = 900, host_script: S
 		hbot.parse(host_script)
 	var t: int = 0
 	while t < limit and (not bot.finished or (hbot != null and not hbot.finished)):
+		bot.world = c.s.local.player.data  # M7-rf review: what waitfloor / waitwall read (SessionBots does the same)
+		if hbot != null:
+			hbot.world = r.s.local.player.data
 		c.action = bot.step(c.s.local.player.sim_position) if not bot.finished else null
 		r.action = hbot.step(r.s.local.player.sim_position) if hbot != null and not hbot.finished else null
 		_tick(r)
@@ -147,11 +162,22 @@ func host_run(r: Rig, script: String, limit: int = 900) -> int:
 	check(why.is_empty(), "host bot script parses (%s)" % why)
 	var t: int = 0
 	while t < limit and not bot.finished:
+		bot.world = r.s.local.player.data  # M7-rf review: what waitfloor / waitwall read
 		r.action = bot.step(r.s.local.player.sim_position)
 		_tick(r)
 		t += 1
 	r.action = null
 	return t
+
+
+## M7-rf: a right-click aimed at tile `c` (a DEMOLISH request, as Main makes it from the bot's wreck), for the host's own
+## player or a client.
+static func wreck_at(c: Vector2i) -> NetBot.Action:
+	var a: NetBot.Action = NetBot.Action.new()
+	a.op = Main.request(NetProtocol.Op.DEMOLISH)
+	a.mouse = centre_of(c)
+	a.aiming = true
+	return a
 
 
 ## F aimed at tile `c` (a pick up request: a door's F, the chest's panel), for the host's own player or a client.
@@ -208,17 +234,18 @@ func put_room(r: Rig, door_open: bool) -> void:
 # --- the wire (protocol v8) --------------------------------------------------------------------------------------------
 
 func _check_m7_codec() -> void:
-	check_eq(NetProtocol.VERSION, 8, "protocol version 8 (M7c)")
+	check_eq(NetProtocol.VERSION, 9, "protocol version 9 (M7c: 8; M7-rf: 9, the floor piece layer)")
 	check_eq(NetProtocol.CODE_COUNT, 180, "the frame is still one byte (180 codes)")
 	var cases: Array[NetProtocol.InputFrame] = []
 	var d: NetProtocol.InputFrame = _op(NetProtocol.Op.DEMOLISH, Config.MAP_DUNGEON, Vector2i(-3, 700))
+	d.piece = Building.piece_code(Building.LANTERN)  # M7-rf review: the piece the sender saw on top (the last code)
 	var door: NetProtocol.InputFrame = _op(NetProtocol.Op.DOOR, Config.MAP_SURFACE, Vector2i(61, 61))
 	var on: NetProtocol.InputFrame = _op(NetProtocol.Op.ARMOR, Config.MAP_SURFACE, Vector2i.ZERO, Config.HOTBAR_SLOTS - 1)
 	var off: NetProtocol.InputFrame = _op(NetProtocol.Op.ARMOR, Config.MAP_SURFACE, Vector2i.ZERO, NetProtocol.ARMOR_OFF)
 	var store: NetProtocol.InputFrame = chest_req(Vector2i(63, 44), false, Config.INVENTORY_SLOTS - 1)
 	var take: NetProtocol.InputFrame = chest_req(Vector2i(65, 44), true, Config.CHEST_SLOTS - 1)
 	cases.append_array([d, door, on, off, store, take])
-	var sizes: Array[int] = [5, 5, 1, 1, 7, 7]
+	var sizes: Array[int] = [6, 5, 1, 1, 7, 7]  # M7-rf review: DEMOLISH 5 -> 6 (the piece seen)
 	for i: int in cases.size():
 		var f: NetProtocol.InputFrame = cases[i]
 		f.seq = 10
@@ -235,6 +262,12 @@ func _check_m7_codec() -> void:
 	check(not NetProtocol.op_has_map(NetProtocol.Op.ARMOR) and NetProtocol.op_has_map(NetProtocol.Op.CHEST)
 		and NetProtocol.op_has_map(NetProtocol.Op.DOOR) and NetProtocol.op_has_map(NetProtocol.Op.DEMOLISH),
 		"DEMOLISH, DOOR and CHEST name their map; ARMOR does not")
+	# M7-rf review: the piece seen is part of the request (two DEMOLISH frames that differ only in it are not the same).
+	var d2: NetProtocol.InputFrame = _op(NetProtocol.Op.DEMOLISH, Config.MAP_DUNGEON, Vector2i(-3, 700))
+	d2.piece = Building.piece_code(Building.STONE_FLOOR)
+	check(not d2.same_request(d) and d2.describe_op().ends_with("saw=stone_floor"), "the piece seen tells two DEMOLISH apart (%s)" % (
+		d2.describe_op()))
+	check_eq(Building.PIECE_CODES.size(), 5, "piece codes: none, stone wall, door, stone floor, lantern")
 	# Out of range: the map, the armour slot, the chest move byte, the slots.
 	var bad: Dictionary[String, PackedByteArray] = {}
 	var b: PackedByteArray = NetProtocol.encode_inputs([door] as Array[NetProtocol.InputFrame])
@@ -255,6 +288,9 @@ func _check_m7_codec() -> void:
 	b = NetProtocol.encode_inputs([door] as Array[NetProtocol.InputFrame])
 	b[NetProtocol.INPUT_HEADER + 1 + 1 + 1] = NetProtocol.OP_SIZES.size()
 	bad["an op past CHEST"] = b
+	b = NetProtocol.encode_inputs([d] as Array[NetProtocol.InputFrame])
+	b[NetProtocol.INPUT_HEADER + 1 + 1 + 2 + 5] = Building.PIECE_CODES.size()
+	bad["DEMOLISH having seen piece %d (none of Building.PIECE_CODES)" % Building.PIECE_CODES.size()] = b
 	for label: String in bad:
 		check(not NetProtocol.decode_inputs(bad[label]).ok, "refused: %s" % label)
 
@@ -403,6 +439,50 @@ func _check_snapshot_chests() -> void:
 		check(WorldSnapshot.decode_raw(cases[label]) == null, "snapshot refused: %s" % label)
 
 
+## M7-rf: a floor piece laid or taken up is a cell edit on WorldData.Layer.FLOOR_PIECE (code 6): 11 B like every cell edit,
+## round trip, applied under a wall (the wall's byte untouched); the bot waits for one with waitfloor (waitwall's "floor" is
+## gone: no wall kind is a floor piece now).
+func _check_floor_codec() -> void:
+	var e: EditLog.WorldEdit = Building.edit_for(Building.STONE_FLOOR, Vector2i(64, 56))
+	var bytes: PackedByteArray = EditLog.encode_one(e, 3, Config.MAP_SURFACE)
+	check_eq(bytes.size(), 11, "a floor piece edit is an 11 B cell edit")
+	check_eq(bytes[EditLog.HEADER_SIZE], 6, "its code: layer 6 (FLOOR_PIECE)")
+	var got: Array = EditLog.decode_one(bytes)
+	var ge: EditLog.WorldEdit = got[1]
+	var gi: int = got[0]
+	check(gi == 3 and ge != null and ge.kind == EditLog.Kind.CELL and ge.layer == WorldData.Layer.FLOOR_PIECE
+		and ge.cell == Vector2i(64, 56) and ge.value == WorldData.FLOOR_PIECE_STONE, "it round trips (%s)" % (
+		ge.describe() if ge != null else "refused"))
+	check(ge != null and ge.describe().begins_with("floor_piece 64,56=1"), "described as the floor piece layer")
+	var data: WorldData = SurfaceGen.generate(SEED, Config.MAP_SIZE)
+	data.set_value(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_STONE, 0))
+	check(EditLog.apply_to_data(data, ge) and data.has_floor_piece(Vector2i(64, 56))
+		and Walls.kind_at(data, Vector2i(64, 56)) == Walls.KIND_STONE, "applied under a standing wall: both there")
+	var bot: NetBot = NetBot.new()
+	check_eq(bot.parse("waitfloor:64,56,stone;waitfloor:64,56,none,30"), "", "the bot's waitfloor parses")
+	# M7-rf review: and waits at run time (NetBot reads its machine's world): no floor piece yet, it stands; laid, it goes on
+	# to the next, which stands until it is taken up.
+	var wait: NetBot = NetBot.new()
+	wait.parse("waitfloor:65,56,stone,600;waitfloor:65,56,none,600")
+	wait.world = data
+	for i: int in 5:
+		wait.step()
+	var stood: int = wait.index
+	EditLog.apply_to_data(data, Building.edit_for(Building.STONE_FLOOR, Vector2i(65, 56)))
+	wait.step()
+	var went: int = wait.index
+	for i2: int in 5:
+		wait.step()
+	var stood2: int = wait.index
+	EditLog.apply_to_data(data, EditLog.WorldEdit.new(WorldData.Layer.FLOOR_PIECE, Vector2i(65, 56), WorldData.FLOOR_PIECE_NONE))
+	wait.step()
+	check([stood, went, stood2, wait.finished] == [0, 1, 1, true],
+		"waitfloor waits for the floor piece, then for none (index %d -> %d -> %d, finished %s)" % [stood, went, stood2,
+		wait.finished])
+	check(not NetBot.new().parse("waitwall:64,56,floor").is_empty(), "waitwall has no floor kind now")
+	check(not NetBot.new().parse("waitfloor:64,56,wood").is_empty(), "nor waitfloor an unknown piece")
+
+
 # --- the host against a malicious client -------------------------------------------------------------------------------
 
 func _check_build_requests() -> void:
@@ -497,10 +577,22 @@ func _check_build_requests() -> void:
 	run_one(r, m, dmap)
 	check(m.refused(WorldItems.WHY_WRONG_MAP) - wrong_d == 1 and Walls.kind_at(data, Vector2i(67, 55)) == Walls.KIND_STONE,
 		"a right-click aimed on the dungeon: wrong map, the wall stands")
+	# M7-rf review: a DEMOLISH names the piece its sender saw on top; any other is refused, the wall stands.
+	var changed_d: int = m.refused(Building.WHY_TOP_CHANGED)
+	for seen: int in [0, Building.piece_code(Building.DOOR), Building.piece_code(Building.STONE_FLOOR),
+			Building.piece_code(Building.LANTERN)]:
+		var dseen: NetProtocol.InputFrame = req(NetProtocol.Op.DEMOLISH, Vector2i(67, 55))
+		dseen.piece = seen
+		refill(m)
+		run_one(r, m, dseen)
+	check(m.refused(Building.WHY_TOP_CHANGED) - changed_d == 4 and Walls.kind_at(data, Vector2i(67, 55)) == Walls.KIND_STONE,
+		"a right-click that saw nothing, a door, a floor piece or a lantern there: the top piece changed, the wall stands")
+	var dwall: NetProtocol.InputFrame = req(NetProtocol.Op.DEMOLISH, Vector2i(67, 55))
+	dwall.piece = Building.piece_code(Building.STONE_WALL)
 	refill(m)
-	run_one(r, m, req(NetProtocol.Op.DEMOLISH, Vector2i(67, 55)))
+	run_one(r, m, dwall)
 	check(Walls.kind_at(data, Vector2i(67, 55)) == Walls.KIND_NONE and m.player.inventory.count_of(&"stone_wall") >= 39,
-		"its own wall taken down, one piece back")
+		"its own wall taken down (it saw the wall), one piece back")
 	# Doors: out of reach, closing on someone near (M7c), closing with them farther.
 	refill(m)
 	m.player.teleport(feet_in(Vector2i(66, 54)))
@@ -668,34 +760,42 @@ func _check_gear_requests() -> void:
 	refill(m)
 	run_one(r, m, req(NetProtocol.Op.ARMOR, Vector2i.ZERO, arm))
 	check(m.player.inventory.armor != null, "free again: worn")
-	# Repairs at an anvil the host placed. M7-fix: with Config.GEAR_REPAIR_AT_ANVIL off (the engineer's work) the host
-	# refuses every repair; then the rule itself (Gear.repair_on for these checks, put back): nothing worn, no material,
-	# far from the anvil, then done.
+	# Repairs at an anvil the host placed. M7-rf (the human's decision): Config.GEAR_REPAIR_AT_ANVIL is on and anyone repairs
+	# at the higher common cost, two ingots (Config.GEAR_REPAIR_COST_ANYONE). The switch turned off for one check (put back):
+	# refused. Then nothing worn, no material, one ingot (missing inputs), far from the anvil, then done for two.
+	check(Gear.repair_on and Config.GEAR_REPAIR_AT_ANVIL, "repair at the anvil is on (M7-rf, the human's decision)")
 	r.host.apply_world_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(62, 51), WorldData.PLACEABLE_ANVIL))
 	r.host.apply_world_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(63, 51), WorldData.PLACEABLE_ANVIL))
 	m.player.inventory.clear()
 	give(m, &"sword_t1", 1)
-	give(m, &"ingot_iron", 1)
+	give(m, &"ingot_iron", 2)
 	m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability = 40
 	m.player.teleport(feet_in(Vector2i(63, 52)))
 	Gear.repair_on = false
 	refill(m)
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
-	check(m.refused(Crafting.WHY_NO_REPAIR) == 1 and m.player.inventory.count_of(&"ingot_iron") == 1
+	check(m.refused(Crafting.WHY_NO_REPAIR) == 1 and m.player.inventory.count_of(&"ingot_iron") == 2
 		and m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability == 40,
-		"repair off: refused at the anvil (the engineer's work), the sword and the ingot as they were")
-	Gear.repair_on = true
+		"repair switched off: refused at the anvil, the sword and the ingots as they were")
+	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
 	m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability = 120
-	m.player.inventory.remove(slot_of(m.player.inventory, &"ingot_iron"), 1)  # seen, not held
+	m.player.inventory.remove(slot_of(m.player.inventory, &"ingot_iron"), 2)  # seen, not held
 	refill(m)
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
 	check_eq(m.refused(Crafting.WHY_MISSING), 1, "a repair with no iron ingot: missing inputs")
-	give(m, &"ingot_iron", 1)
+	give(m, &"ingot_iron", 2)
 	refill(m)
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
-	check(m.refused(Crafting.WHY_NOTHING_TO_REPAIR) == 1 and m.player.inventory.count_of(&"ingot_iron") == 1,
-		"a repair with nothing worn: nothing to repair, the ingot kept")
+	check(m.refused(Crafting.WHY_NOTHING_TO_REPAIR) == 1 and m.player.inventory.count_of(&"ingot_iron") == 2,
+		"a repair with nothing worn: nothing to repair, the ingots kept")
 	m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability = 40
+	m.player.inventory.remove(slot_of(m.player.inventory, &"ingot_iron"), 1)
+	refill(m)
+	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
+	check(m.refused(Crafting.WHY_MISSING) == 2 and m.player.inventory.count_of(&"ingot_iron") == 1
+		and m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability == 40,
+		"a repair with one iron ingot (the cost is two): missing inputs, the sword and the ingot as they were")
+	give(m, &"ingot_iron", 1)
 	m.player.teleport(feet_in(Vector2i(63, 56)))
 	refill(m)
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
@@ -704,8 +804,7 @@ func _check_gear_requests() -> void:
 	refill(m)
 	run_one(r, m, _craft(Config.MAP_SURFACE, &"repair_sword_t1"))
 	check(m.player.inventory.stack_at(slot_of(m.player.inventory, &"sword_t1")).durability == 120
-		and m.player.inventory.count_of(&"ingot_iron") == 0, "at the anvil: repaired to 120 for the ingot")
-	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
+		and m.player.inventory.count_of(&"ingot_iron") == 0, "at the anvil: repaired to 120 for the two ingots")
 	# M7-fix: Config.GEAR_BROKEN_UNUSABLE is the host's rule too (turned on for this check through Gear.broken_unusable, put
 	# back): a broken tier-1 sword's USE is refused on the host; off, it swings as the basic sword.
 	var bs: int = slot_of(m.player.inventory, &"sword_t1")
@@ -1288,6 +1387,184 @@ func _check_four_builders() -> void:
 		check_eq(c.s.local.player.inventory.describe(), hm(r, c).player.inventory.describe(), "four: %s's inventory = the host's" % c.s.local.class_id)
 		check_eq(c.s.local.player.sim_position, hm(r, c).player.sim_position, "four: %s stands where the host has it" % c.s.local.class_id)
 		check_prediction("four: %s" % c.s.local.class_id, c)
+	_free_rig(r)
+
+
+## M7-rf (the human's decision, protocol v9): floor pieces in a session. A client lays two floor pieces (USE through the
+## wire, outside the light: two each), steps back; the host builds a wall on one and a door on the other (its clicks); both
+## worlds and drawings agree. A late joiner gets the walls on their floor pieces in its snapshot. The client's right-click
+## (DEMOLISH) on the wall takes the wall down first, the floor piece stays, its stone wall back; again: the floor piece up.
+## The host's right-click on the door the same. Every world, drawing and inventory as the host has them; one-way delay 2.
+func _check_floor_flow() -> void:
+	var r: Rig = _rig("paladin")
+	r.delay = 2
+	await await_frames(1)
+	var data: WorldData = r.surface.data
+	var hp: Player = r.s.local.player
+	hp.inventory.clear()
+	give(r.s.local, &"stone_wall", 10)
+	give(r.s.local, &"door", 2)
+	var a: Vector2i = Vector2i(68, 57)
+	var b: Vector2i = Vector2i(70, 57)
+	var c: Client = _join(r, 101, "miner", feet_in(Vector2i(69, 53)), false)
+	var m: NetMember = hm(r, c)
+	m.player.inventory.clear()
+	give(m, &"stone_floor", 8)
+	_tick(r, 2 * r.delay + 2)
+	var cinv: Inventory = c.s.local.player.inventory
+	var pause: int = 2 * r.delay + 4
+	# M7-rf review: the client's bot waits for each of its floor pieces to come back from the host (waitfloor at run time).
+	var took: int = bot_run(r, c, ("select:%d;walkto:69,56;aimat:%d,%d;use:1;waitfloor:%d,%d,stone,120;aimat:%d,%d;use:1;" +
+		"waitfloor:%d,%d,stone,120;walkto:69,52") % [slot_of(cinv, &"stone_floor") + 1, a.x, a.y, a.x, a.y, b.x, b.y, b.x, b.y], 900)
+	check(took < 200, "the client's bot saw both floor pieces come back (waitfloor; %d ticks, a wait times out at 120)" % took)
+	_tick(r, pause)
+	check(data.has_floor_piece(a) and data.has_floor_piece(b) and m.player.inventory.count_of(&"stone_floor") == 4,
+		"the client laid two floor pieces through the wire (two each outside the light)")
+	check(c.surface.data.has_floor_piece(a) and c.surface.data.has_floor_piece(b), "the client sees them (FLOOR_PIECE edits)")
+	check(host_builds(r, Building.STONE_WALL, a), "the host built a wall on the client's floor piece")
+	check(host_builds(r, Building.DOOR, b), "and a door on the other")
+	hp.teleport(feet_in(Vector2i(66, 53)))
+	_tick(r, 2 * r.delay + 2)
+	for w: WorldData in [data, c.surface.data]:
+		check(Walls.kind_at(w, a) == Walls.KIND_STONE and w.has_floor_piece(a) and Walls.is_door(w, b) and w.has_floor_piece(b),
+			"%s: the wall and the door each stand on a floor piece" % ("host" if w == data else "client"))
+	check(worlds_agree(r), "the client's world = the host's")
+	check_eq(c.surface.builds.verify(), {"built": 2, "mismatches": 0} as Dictionary[String, int], "the client draws them = its data")
+	# A late joiner: the walls on their floor pieces in the snapshot.
+	var late: Client = _join(r, 102, "archer", feet_in(Vector2i(60, 50)), false)
+	check(late.s.active and late.surface.data.content_hash() == data.content_hash(), "the late joiner has the host's world")
+	check(late.surface.data.has_floor_piece(a) and Walls.kind_at(late.surface.data, a) == Walls.KIND_STONE
+		and late.surface.data.has_floor_piece(b) and Walls.is_door(late.surface.data, b) and late.surface.data.floor_piece_count() == 2,
+		"its snapshot: the wall and the door on their floor pieces")
+	check_eq(late.surface.builds.verify(), {"built": 2, "mismatches": 0} as Dictionary[String, int], "and draws them")
+	# The client's right-click on the wall: the wall first, then the floor piece (its own piece back each time).
+	var stones_before: int = m.player.inventory.count_of(&"stone_wall")
+	bot_run(r, c, "walkto:67,56", 600)
+	_tick(r, pause)
+	press(r, null, c, wreck_at(a))
+	_tick(r, pause)
+	for w2: WorldData in [data, c.surface.data, late.surface.data]:
+		check(Walls.kind_at(w2, a) == Walls.KIND_NONE and w2.has_floor_piece(a), "a right-click: the wall down, the floor piece stays")
+	check_eq(m.player.inventory.count_of(&"stone_wall") - stones_before, Config.BUILD_REFUND, "the client got its stone wall back")
+	check(worlds_agree(r), "every world = the host's after the wall came down")
+	_tick(r, Config.NET_OP_INTERVAL_TICKS)
+	press(r, null, c, wreck_at(a))
+	_tick(r, pause)
+	check(not data.has_floor_piece(a) and not c.surface.data.has_floor_piece(a) and not late.surface.data.has_floor_piece(a),
+		"again: the floor piece up on every machine")
+	check_eq(m.player.inventory.count_of(&"stone_floor"), 4 + Config.BUILD_REFUND, "the client got its stone floor back")
+	check_eq(m.ops_done.get("demolish", 0), 2, "two DEMOLISH requests done")
+	# The host's right-click on the door: the door, then its floor piece.
+	var doors_before: int = hp.inventory.count_of(&"door")
+	hp.teleport(feet_in(b + Vector2i(1, -1)))
+	press(r, wreck_at(b))
+	_tick(r, pause)
+	check(not Walls.is_door(data, b) and data.has_floor_piece(b) and not Walls.is_door(c.surface.data, b)
+		and c.surface.data.has_floor_piece(b) and hp.inventory.count_of(&"door") == doors_before + Config.BUILD_REFUND,
+		"the host's right-click: the door down (its door back), the floor piece stays, the client sees it")
+	_tick(r, Config.NET_OP_INTERVAL_TICKS)
+	press(r, wreck_at(b))
+	_tick(r, pause)
+	check(not data.has_floor_piece(b) and not c.surface.data.has_floor_piece(b) and hp.inventory.count_of(&"stone_floor") == 1,
+		"again: the floor piece up (a stone floor back)")
+	check(worlds_agree(r) and late.surface.data.content_hash() == data.content_hash(), "every world = the host's at the end")
+	for cl: Client in [c, late]:
+		check_eq(cl.surface.builds.verify(), {"built": 0, "mismatches": 0} as Dictionary[String, int],
+			"%s draws nothing built" % cl.s.local.class_id)
+	check_eq(c.s.local.player.inventory.describe(), m.player.inventory.describe(), "the client's inventory = the host's")
+	check_prediction("floor pieces", c)
+	check_no_jump("floor pieces", c)
+	_free_rig(r)
+
+
+## M7-rf review (IMPL README "M7-rf 철거 요청의 본 조각"): a DEMOLISH names the piece its sender saw on top, so two right-clicks
+## on one wall standing on a floor piece never take the floor piece unseen. Two clients click the same wall in one tick: one
+## gets the wall, the other's is refused (the top piece changed), the floor piece stays. One client with a 200 ms round trip
+## clicks a door again before its first click came back: the same; a click once the edit is there takes the floor piece. Every
+## world and inventory as the host has them.
+func _check_demolish_race() -> void:
+	var r: Rig = _rig("paladin")
+	r.delay = 2
+	await await_frames(1)
+	var data: WorldData = r.surface.data
+	var w: Vector2i = Vector2i(68, 57)
+	r.host.apply_world_edit(Building.edit_for(Building.STONE_FLOOR, w))
+	r.host.apply_world_edit(Building.edit_for(Building.STONE_WALL, w))
+	var a: Client = _join(r, 101, "miner", feet_in(w + Vector2i(-1, 0)), false)
+	var b: Client = _join(r, 102, "archer", feet_in(w + Vector2i(1, 0)), false)
+	_tick(r, 2 * r.delay + 2)
+	check(a.surface.data.has_floor_piece(w) and Walls.is_built(a.surface.data, w) and Walls.is_built(b.surface.data, w),
+		"both clients see the wall on its floor piece")
+	var ma: NetMember = hm(r, a)
+	var mb: NetMember = hm(r, b)
+	var walls0: int = ma.player.inventory.count_of(&"stone_wall") + mb.player.inventory.count_of(&"stone_wall")
+	var floors0: int = ma.player.inventory.count_of(&"stone_floor") + mb.player.inventory.count_of(&"stone_floor")
+	a.action = wreck_at(w)
+	b.action = wreck_at(w)
+	_tick(r)
+	a.action = null
+	b.action = null
+	_tick(r, 2 * r.delay + 4)
+	var walls_back: int = ma.player.inventory.count_of(&"stone_wall") + mb.player.inventory.count_of(&"stone_wall") - walls0
+	var floors_back: int = ma.player.inventory.count_of(&"stone_floor") + mb.player.inventory.count_of(&"stone_floor") - floors0
+	var changed: int = ma.refused(Building.WHY_TOP_CHANGED) + mb.refused(Building.WHY_TOP_CHANGED)
+	check(not Walls.is_built(data, w) and data.has_floor_piece(w) and walls_back == Config.BUILD_REFUND and floors_back == 0
+		and changed == 1, "two right-clicks on the wall in one tick: the wall down once, the other refused (the top piece " +
+		"changed), the floor piece stays (walls back %d, floors back %d, refused %d)" % [walls_back, floors_back, changed])
+	check(worlds_agree(r), "both clients' worlds = the host's")
+	_free_rig(r)
+	# One client, one-way delay 6: a second click on a door before the first click's edit came back.
+	var r2: Rig = _rig("paladin")
+	r2.delay = 6
+	await await_frames(1)
+	var data2: WorldData = r2.surface.data
+	var dc: Vector2i = Vector2i(70, 57)
+	r2.host.apply_world_edit(Building.edit_for(Building.STONE_FLOOR, dc))
+	r2.host.apply_world_edit(Building.edit_for(Building.DOOR, dc))
+	var c: Client = _join(r2, 101, "miner", feet_in(dc + Vector2i(-1, 0)), false)
+	_tick(r2, 2 * r2.delay + 2)
+	var m: NetMember = hm(r2, c)
+	var doors0: int = m.player.inventory.count_of(&"door")
+	var floors1: int = m.player.inventory.count_of(&"stone_floor")
+	press(r2, null, c, wreck_at(dc))
+	_tick(r2, Config.NET_OP_INTERVAL_TICKS + 1)
+	var saw_door: bool = Walls.is_door(c.surface.data, dc)
+	press(r2, null, c, wreck_at(dc))
+	_tick(r2, 2 * r2.delay + 4)
+	check(saw_door and not Walls.is_door(data2, dc) and data2.has_floor_piece(dc) and m.refused(Building.WHY_TOP_CHANGED) == 1
+		and m.player.inventory.count_of(&"door") - doors0 == Config.BUILD_REFUND and m.player.inventory.count_of(&"stone_floor") == floors1,
+		"a second click while it still saw the door (%s): refused, the floor piece stays, one door back (refusals %s)" % [
+		saw_door, m.ops_refused])
+	press(r2, null, c, wreck_at(dc))
+	_tick(r2, 2 * r2.delay + 4)
+	check(not data2.has_floor_piece(dc) and m.player.inventory.count_of(&"stone_floor") - floors1 == Config.BUILD_REFUND,
+		"a click once the door's edit was there: the floor piece up (a stone floor back)")
+	check(worlds_agree(r2) and c.s.local.player.inventory.describe() == m.player.inventory.describe(),
+		"the client's world and inventory = the host's")
+	check_prediction("demolish race", c)
+	_free_rig(r2)
+
+
+## M7-rf review: a hello of another protocol version (8 = M7c, 10) is refused with `version`: no member, no world stream, one
+## refused message to that peer and nothing else (README "M7-rf": a version 8 peer would misread the floor piece layer).
+func _check_version_refused() -> void:
+	var r: Rig = _rig("paladin")
+	await await_frames(1)
+	var peer: int = 150
+	for v: int in [NetProtocol.VERSION - 1, NetProtocol.VERSION + 1]:
+		var before: int = r.host.refusals.get("version", 0)
+		r.host.on_hello(peer, NetProtocol.encode_hello(NetProtocol.class_index("miner"), v))
+		var to_peer: Array[Array] = r.s.take_for(peer)
+		var refused: int = 0
+		for msg: Array in to_peer:
+			var payload: PackedByteArray = msg[2]
+			if str(msg[1]) == "refused" and NetProtocol.decode_refusal(payload) == "version":
+				refused += 1
+		var after: int = r.host.refusals.get("version", 0)
+		check(after - before == 1 and member_of_peer(r, peer) == null and not r.host.streams.has(peer) and refused == 1
+			and to_peer.size() == 1, "a hello of version %d: refused (version), no member, no stream, one message (%d)" % [v,
+			to_peer.size()])
+		peer += 1  # a new peer for the next try (a refused peer's second hello is a bad message)
 	_free_rig(r)
 
 

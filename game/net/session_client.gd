@@ -213,16 +213,16 @@ func on_welcome(payload: PackedByteArray) -> void:
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
 	var fields: Dictionary = SessionReport.fields_of(data)  # M5c: what the snapshot brought of the fields and the altar
 	var crops: Dictionary = fields["crops"]
-	var built: Dictionary = SessionReport.builds_of(data)  # M7c: and of the built pieces, doors, stumps, stations, chests
+	var built: Dictionary = SessionReport.builds_of(data)  # M7c: and of the built pieces, doors, stumps, stations, chests (M7-rf: floors)
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
 		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d elsewhere=%d altar=%s tilled=%d crops=%d withered=%d " +
-		"corrupted=%d walls=%d doors=%d open_doors=%d stumps=%d stations=%d chests=%d chest_items=%d generator=%s") % [w.slot,
+		"corrupted=%d walls=%d doors=%d open_doors=%d floors=%d stumps=%d stations=%d chests=%d chest_items=%d generator=%s") % [w.slot,
 		s.local.class_id,
 		s.members.size(), w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size,
 		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
 		others_on_welcome, "%d,%d" % [data.altar_rect.position.x, data.altar_rect.position.y] if data.altar_rect.has_area() else "none",
 		fields["tilled"], crops.size(), fields["withered"], Purify.corrupted_count(data), built["walls"], built["doors"],
-		built["open_doors"], built["stumps"], built["workbenches"] + built["anvils"] + built["relic_benches"], built["chest_count"],
+		built["open_doors"], built["floors"], built["stumps"], built["workbenches"] + built["anvils"] + built["relic_benches"], built["chest_count"],
 		_chest_items(data), "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12), host_generator_hash.left(12)]])
 	for info2: NetProtocol.PlayerInfo in w.players:
 		if info2.state.vitals != null and info2.state.vitals.has_effects():

@@ -1,7 +1,8 @@
 class_name WorldData
 extends RefCounted
 ## The tile world as plain data: one byte per cell for each of the six layers of
-## gameplay-design §3.1 (● floor / wall / ore / vegetation / corruption / placeables).
+## gameplay-design §3.1 (● floor / wall / ore / vegetation / corruption / placeables), and (M7-rf) a seventh byte for the
+## floor layer's built half, the laid floor pieces (FLOOR_PIECE, below).
 ##
 ## Floor = vertex grid of the dual grid: the floor value of world cell (x, y) is the terrain at
 ## the vertex in the centre of that cell. The ground view draws display cells shifted by half a
@@ -26,11 +27,27 @@ extends RefCounted
 ## M5b: purified corruption is FLOOR grass + CORRUPTION 0 (items/purify.gd). The altar can move (items/altar_move.gd):
 ## picking it up and putting it down are PLACEABLE cell edits, and altar_rect follows them (refresh_altar_rect, called by
 ## EditLog.apply_to_data): empty while the altar is carried.
+##
+## M7-rf (the human's decision of 2026-10-26; ● gameplay-design §3.1 "바닥 / 벽 / ...", ● §3.3 R37 "건설 벽은 바닥 위 별도 층"):
+## FLOOR_PIECE is the built half of §3.1's floor layer: a laid floor piece (FLOOR_PIECE_STONE; 0 = none) on a tile, under
+## whatever stands there (a built wall, a door, a lantern, a station, the altar). It is a byte of its own so the FLOOR byte
+## stays the ground's dual-grid terrain (grass / soil / ash: the corner keys, the ground view, the fields, purification,
+## corruption and the snapshot's terrain check read it as before). M7b kept the floor piece in the WALL byte (Walls kind 6,
+## retired), so a tile held a wall or a floor piece, never both. Edits on it are ordinary cell edits (net/edit_log.gd), the
+## snapshot carries it like the other layers (net/world_snapshot.gd); the content hash covers it only when it holds a piece
+## (content_hash: a world without floor pieces hashes as before, so the generators' golden hashes stay).
 
-enum Layer { FLOOR, WALL, ORE, VEGETATION, CORRUPTION, PLACEABLE }
+enum Layer { FLOOR, WALL, ORE, VEGETATION, CORRUPTION, PLACEABLE, FLOOR_PIECE }
 
-const LAYER_COUNT: int = 6
-const LAYER_NAMES: PackedStringArray = ["floor", "wall", "ore", "vegetation", "corruption", "placeable"]
+const LAYER_COUNT: int = 7
+const LAYER_NAMES: PackedStringArray = ["floor", "wall", "ore", "vegetation", "corruption", "placeable", "floor_piece"]
+## M7-rf: the layers the content hash always covers (M1-M7's six: its header counts them); FLOOR_PIECE only when it holds a
+## piece (content_hash).
+const HASH_LAYERS: int = 6
+## M7-rf: FLOOR_PIECE values (the slice's material is stone only, ● §3.3 R37).
+const FLOOR_PIECE_NONE: int = 0
+const FLOOR_PIECE_STONE: int = 1
+const FLOOR_PIECE_NAMES: PackedStringArray = ["none", "stone"]
 const OUTSIDE_TERRAIN: int = Terrain.GRASS
 const PLACEABLE_NONE: int = 0
 const PLACEABLE_ALTAR: int = 1
@@ -216,6 +233,16 @@ func count_value(layer: int, value: int) -> int:
 	return layers[layer].count(value)
 
 
+## M7-rf: whether a floor piece is laid on tile `c` (FLOOR_PIECE; none outside the map).
+func has_floor_piece(c: Vector2i) -> bool:
+	return get_value(Layer.FLOOR_PIECE, c) != FLOOR_PIECE_NONE
+
+
+## M7-rf: how many tiles hold a floor piece.
+func floor_piece_count() -> int:
+	return layers[Layer.FLOOR_PIECE].size() - layers[Layer.FLOOR_PIECE].count(FLOOR_PIECE_NONE)
+
+
 ## Display cells whose corners mix soil and ash (no art). 0 on a valid surface.
 func soil_ash_contacts() -> int:
 	var n: int = 0
@@ -297,18 +324,26 @@ func refresh_altar_rect() -> bool:
 
 
 ## md5 of the size, seed, altar, every layer and the drops. Equal hashes = equal worlds.
+## M7-rf: the header counts HASH_LAYERS (M1-M7's six layers, hashed as before); the floor pieces (FLOOR_PIECE) come last, after
+## a tag of their own (the layer's index and how many tiles hold one), and only when a tile holds one, like M7a's chests: a
+## world without floor pieces (every generated one) hashes as before, so SurfaceGen.GOLDEN_HASH, DungeonGen.GOLDEN_HASH /
+## SEEDS_GOLDEN and the smoke's hashes stay.
 func content_hash() -> String:
 	var ctx: HashingContext = HashingContext.new()
 	ctx.start(HashingContext.HASH_MD5)
 	var header: PackedInt64Array = PackedInt64Array([size.x, size.y, world_seed, altar_rect.position.x,
-		altar_rect.position.y, altar_rect.size.x, altar_rect.size.y, LAYER_COUNT])
+		altar_rect.position.y, altar_rect.size.x, altar_rect.size.y, HASH_LAYERS])
 	ctx.update(header.to_byte_array())
-	for grid: PackedByteArray in layers:
-		ctx.update(grid)
+	for i: int in HASH_LAYERS:
+		ctx.update(layers[i])
 	ctx.update(drops_bytes())
 	var held: PackedByteArray = chests_bytes()
 	if not held.is_empty():
 		ctx.update(held)  # M7a: only when a chest holds something (a world without one hashes as before)
+	var floors: int = floor_piece_count()
+	if floors > 0:
+		ctx.update(PackedInt64Array([Layer.FLOOR_PIECE, floors]).to_byte_array())
+		ctx.update(layers[Layer.FLOOR_PIECE])
 	return ctx.finish().hex_encode()
 
 

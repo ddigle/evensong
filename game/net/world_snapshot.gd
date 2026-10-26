@@ -6,12 +6,13 @@ extends RefCounted
 ## might generate a different world from the same seed. The seed and the generator's hash travel in
 ## the welcome only as a diagnostic.
 ##
-## Raw      header + the six layers in WorldData.Layer order, w x h bytes each (row-major) + the
+## Raw      header + the layers in WorldData.Layer order (six; M7-rf, protocol v9: seven, the floor pieces' FLOOR_PIECE
+##          last), w x h bytes each (row-major) + the
 ##          drops (M2b: WorldData.drops_bytes(), u16 count + 11 B each, by id; gatherables are the
 ##          VEGETATION layer) + (M7c) the storage chests that hold something: u16 count, then per chest
 ##          WorldData.chests_bytes()'s form (u16 x, u16 y of its footprint's top-left tile, Config.CHEST_SLOTS
 ##          slots of EditLog.STACK_BYTES), row by row
-##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (6),
+##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (WorldData.LAYER_COUNT: 7),
 ##          u8 map id (M3b: which map this is; not in the content hash)
 ## M3b: the same path sends a map to a player who enters it (net/session_host.gd: a stream per entry,
 ## the map entry message in place of the welcome), so the dungeon (walls with their hits = cracks,
@@ -29,8 +30,9 @@ const HEADER_SIZE: int = 2 + 2 + 8 + 2 + 2 + 2 + 2 + 1 + 1
 const CHUNK_HEADER: int = 4
 const COMPRESSION: FileAccess.CompressionMode = FileAccess.COMPRESSION_ZSTD
 ## Cells per axis a snapshot may claim (bounds what a joiner allocates; u16 on the wire). 4x the M1
-## map's width: the biggest world the join flow can take. Even incompressible (MAX_PACKED, 1.6 MB)
-## it streams in about 3.3 s at NET_SNAPSHOT_CHUNKS_PER_TICK, inside NET_CONNECT_TIMEOUT_SEC, and
+## map's width: the biggest world the join flow can take. Even incompressible (MAX_PACKED, 1.6 MB; M7c's chests 1.69 MB;
+## M7-rf's seventh layer 1.95 MB) it streams in about 3.3 s (M7-rf: 4.0 s) at NET_SNAPSHOT_CHUNKS_PER_TICK, inside
+## NET_CONNECT_TIMEOUT_SEC, and
 ## loads (GameWorld.load_data) in under a second here; 2048 would mean ~25 MB, minutes of streaming
 ## and ~13 s / 1.4 GB to load. Raise it together with those when maps grow.
 const MAX_SIDE: int = 512
@@ -179,7 +181,8 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 
 
 ## The world from raw_bytes(), or null when the bytes do not describe a valid one (size, layer
-## count, a known map id, altar inside the map, floor values that are terrains, drops: at most
+## count, a known map id, altar inside the map, floor values that are terrains, M7-rf: floor piece values that are floor
+## pieces, drops: at most
 ## Config.MAX_DROPS, each a valid item stack inside the map, ids unique, nothing after them).
 static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < HEADER_SIZE:
@@ -215,6 +218,13 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 	for t: int in Terrain.COUNT:
 		terrains += floor_grid.count(t)
 	if terrains != cells:
+		return null
+	# M7-rf: the floor layer's built half holds known floor pieces only (none, stone), like its terrain half above.
+	var pieces: PackedByteArray = data.layers[WorldData.Layer.FLOOR_PIECE]
+	var known: int = 0
+	for v: int in WorldData.FLOOR_PIECE_NAMES.size():
+		known += pieces.count(v)
+	if known != cells:
 		return null
 	for i: int in drop_count:
 		var d: WorldData.Drop = WorldData.read_drop(raw, drops_at + 2 + WorldData.DROP_BYTES * i, size)

@@ -11,6 +11,14 @@ extends "res://tests/base_test.gd"
 ## refund, dungeon walls are mined, a full inventory), doors (F, the face tile, the doorway), mining (built pieces are not
 ## mined; the miner's 3x3 skips them), fields (no tilling a floor piece), the altar move, the build view (masks, faces,
 ## dots, doors, floors) and main.tscn (clicks, right-click, F, the ghost), a session (refused), determinism.
+## M7-rf (the human's decision of 2026-10-26: floor pieces on the floor side, WorldData.Layer.FLOOR_PIECE): the retired wall
+## kind 6, a wall or a door on a floor piece (and a floor piece under one refused: PROVISIONAL "lay the floor first"), the
+## top piece taken down first (each its own piece back, a full inventory's drops), what else stands on a floor piece,
+## purification under one, the dungeon, the content hash (generated worlds as before), the snapshot (seven layers), the
+## build view (a wall on a floor piece, the map's last piece taken up redraws) and main.tscn (floor, wall on it, two
+## right-clicks). M7-rf review: "lay the floor first" on a wall's face tile and a door's doorway too, nothing comes down
+## where a placeable that is no build piece stands on a floor piece (PROVISIONAL "something stands on it"), the provisional
+## switch turned on (Building.floor_under_wall), the session's DEMOLISH naming the piece seen on top.
 
 const SessionHostScript := preload("res://net/session_host.gd")
 const TICK: float = 1.0 / 60.0
@@ -43,6 +51,8 @@ func run() -> Array[String]:
 	_check_doors()
 	_check_mining()
 	_check_fields_and_altar()
+	_check_floor_layer()
+	_check_floor_under_wall_on()
 	await _check_view()
 	await _check_main()
 	_check_session()
@@ -78,6 +88,11 @@ static func put(data: WorldData, c: Vector2i, kind: int) -> void:
 	data.set_value(WorldData.Layer.WALL, c, Walls.pack(kind, 0))
 
 
+## M7-rf: a stone floor piece on tile `c` (the FLOOR_PIECE layer; `on` false takes it up), past the rules.
+static func lay(data: WorldData, c: Vector2i, on_tile: bool = true) -> void:
+	data.set_value(WorldData.Layer.FLOOR_PIECE, c, WorldData.FLOOR_PIECE_STONE if on_tile else WorldData.FLOOR_PIECE_NONE)
+
+
 ## Feet standing on tile `c` (low in the tile, like an arrival point).
 static func on(c: Vector2i) -> Vector2:
 	return Arena.spawn_feet(c)
@@ -98,15 +113,21 @@ func _check_kinds() -> void:
 	put(d, Vector2i(2, 2), Walls.KIND_STONE)
 	put(d, Vector2i(5, 2), Walls.KIND_DOOR)
 	put(d, Vector2i(8, 2), Walls.KIND_DOOR_OPEN)
-	put(d, Vector2i(11, 2), Walls.KIND_FLOOR)
+	lay(d, Vector2i(11, 2))
 	put(d, Vector2i(14, 2), Walls.KIND_ROCK)
-	check_eq(Walls.KIND_NAMES, PackedStringArray(["none", "rock", "bedrock", "stone", "door", "door_open", "floor"]), "kind names")
+	# M7-rf: kind 6 (M7b's floor piece in the WALL byte) is retired; the other numbers stay.
+	check_eq(Walls.KIND_NAMES, PackedStringArray(["none", "rock", "bedrock", "stone", "door", "door_open"]), "kind names (6 retired)")
+	check_eq([Walls.KIND_ROCK, Walls.KIND_BEDROCK, Walls.KIND_STONE, Walls.KIND_DOOR, Walls.KIND_DOOR_OPEN], [1, 2, 3, 4, 5],
+		"the kept kinds keep their numbers")
+	check_eq(WorldData.LAYER_NAMES, PackedStringArray(["floor", "wall", "ore", "vegetation", "corruption", "placeable",
+		"floor_piece"]), "M7-rf: the seventh layer, the floor's built half")
+	check_eq([WorldData.Layer.FLOOR_PIECE, WorldData.LAYER_COUNT, WorldData.HASH_LAYERS], [6, 7, 6], "its index, the count, hashed")
 	# [tile, is_wall, is_built, is_natural, blocks, face below blocks, hardness unbreakable]
 	for row: Array in [[Vector2i(2, 2), true, true, false, true, true, true], [Vector2i(5, 2), true, true, false, true, true, true],
 			[Vector2i(8, 2), true, true, false, false, false, true], [Vector2i(11, 2), false, false, false, false, false, false],
 			[Vector2i(14, 2), true, false, true, true, true, false]]:
 		var c: Vector2i = row[0]
-		var name: String = Walls.KIND_NAMES[Walls.kind_at(d, c)]
+		var name: String = Walls.KIND_NAMES[Walls.kind_at(d, c)] if not d.has_floor_piece(c) else "floor piece"
 		check_eq(Walls.is_wall(d, c), row[1], "%s is a wall" % name)
 		check_eq(Walls.is_built(d, c), row[2], "%s is built" % name)
 		check_eq(Walls.is_natural(d, c), row[3], "%s is natural" % name)
@@ -115,7 +136,22 @@ func _check_kinds() -> void:
 		check_eq(Walls.blocks(d, c + DOWN), row[5], "%s's face blocks" % name)
 		check_eq(Walls.hardness(d, c) == Walls.UNBREAKABLE, row[6], "%s unbreakable for the pickaxe" % name)
 		check_eq(Movement.is_blocked(d, c), row[4], "%s: Movement.is_blocked = Walls.blocks" % name)
-	check(Walls.is_floor_piece(d, Vector2i(11, 2)) and not Walls.is_floor_piece(d, Vector2i(2, 2)), "a floor piece")
+	check(d.has_floor_piece(Vector2i(11, 2)) and not d.has_floor_piece(Vector2i(2, 2)) and Walls.kind_at(d, Vector2i(11, 2)) == 0,
+		"a floor piece: the FLOOR_PIECE layer, nothing in the WALL byte (M7-rf)")
+	# M7-rf: a stray retired kind 6 in the WALL byte is nothing (no wall, not built, no face, nothing to mine).
+	put(d, Vector2i(17, 2), 6)
+	var stray: StringName = Building.built_at(d, Vector2i(17, 2))[0]
+	check(not Walls.is_wall(d, Vector2i(17, 2)) and not Walls.is_built(d, Vector2i(17, 2)) and not Walls.blocks(d, Vector2i(17, 2))
+		and not Walls.is_face(d, Vector2i(17, 3)) and Walls.hardness(d, Vector2i(17, 2)) == 0
+		and stray.is_empty(), "the retired kind 6 is no wall and nothing built")
+	put(d, Vector2i(17, 2), Walls.KIND_NONE)
+	# M7-rf: a wall standing on a floor piece: a wall in every way, the floor piece kept under it.
+	put(d, Vector2i(20, 2), Walls.KIND_STONE)
+	lay(d, Vector2i(20, 2))
+	check(Walls.is_wall(d, Vector2i(20, 2)) and Walls.blocks(d, Vector2i(20, 2)) and Walls.blocks(d, Vector2i(20, 3))
+		and Movement.is_blocked(d, Vector2i(20, 2)) and d.has_floor_piece(Vector2i(20, 2)), "a wall on a floor piece blocks as a wall")
+	put(d, Vector2i(20, 2), Walls.KIND_NONE)
+	lay(d, Vector2i(20, 2), false)
 	check(Walls.is_door(d, Vector2i(5, 2)) and Walls.is_door(d, Vector2i(8, 2)) and Walls.is_open_door(d, Vector2i(8, 2))
 		and not Walls.is_open_door(d, Vector2i(5, 2)), "doors: closed, open")
 	check_eq(Walls.vertex(d, Vector2i(2, 2)), Walls.V_FLOOR, "the cave view's vertex ignores a built wall")
@@ -236,10 +272,36 @@ func _check_rules() -> void:
 	check_eq(Building.refusal(d, feet, &"stone_floor", Vector2i(11, 11), 9, bodies), "", "a floor under a body")
 	check_eq(Building.refusal(d, feet, &"lantern", Vector2i(11, 10), 9, bodies), "", "a lantern beside the body")
 	# Pieces, placeables, plants, fields, drops.
-	put(d, Vector2i(9, 11), Walls.KIND_FLOOR)
-	check_eq(Building.refusal(d, feet, &"stone_wall", Vector2i(9, 11), 9), Building.WHY_PIECE_THERE, "a wall on a floor piece")
+	lay(d, Vector2i(9, 11))
+	# M7-rf (the human's decision: ● §3.1, §3.3 R37 "건설 벽은 바닥 위 별도 층"): a wall and a door stand on a floor piece.
+	check_eq(Building.refusal(d, feet, &"stone_wall", Vector2i(9, 11), 9), "", "a wall on a floor piece (M7-rf; M7b: refused)")
+	check_eq(Building.refusal(d, feet, &"door", Vector2i(9, 11), 9), "", "a door on a floor piece (M7-rf)")
 	check_eq(Building.refusal(d, feet, &"stone_floor", Vector2i(9, 11), 9), Building.WHY_PIECE_THERE, "a floor on a floor piece")
 	check_eq(Building.refusal(d, feet, &"lantern", Vector2i(9, 11), 9), "", "a lantern on a floor piece")
+	var on_floor: WorldItems.Outcome = Building.build(d, feet, inv_with([[&"stone_wall", 4]]), 0, Vector2i(9, 11))
+	check(on_floor.ok() and on_floor.edits.size() == 1 and on_floor.edits[0].layer == WorldData.Layer.WALL,
+		"built on the floor piece: one WALL edit, the floor piece's layer untouched (%s)" % on_floor.why)
+	# PROVISIONAL Config.BUILD_FLOOR_UNDER_WALL (off, README "M7-rf 벽 아래 바닥"): no floor piece under a built wall or door,
+	# nor (M7-rf review) on the tile below it: its face, a door's doorway (open or closed), drawn over by the wall or door.
+	check(not Config.BUILD_FLOOR_UNDER_WALL and not Building.floor_under_wall, "the provisional rule: lay the floor first")
+	var under: WorldData = _plain()
+	for k: int in [Walls.KIND_STONE, Walls.KIND_DOOR, Walls.KIND_DOOR_OPEN]:
+		put(under, Vector2i(11, 9), k)
+		check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 9), 9), Building.WHY_FLOOR_FIRST,
+			"a floor piece under a standing %s: lay the floor first" % Walls.KIND_NAMES[k])
+		check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 10), 9), Building.WHY_FLOOR_FIRST,
+			"a floor piece on a standing %s's %s: lay the floor first (M7-rf review)" % [Walls.KIND_NAMES[k],
+			"face tile" if k == Walls.KIND_STONE else "doorway"])
+	put(under, Vector2i(11, 9), Walls.KIND_ROCK)
+	check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 10), 9), WorldItems.WHY_NOT_OPEN,
+		"a dungeon wall's face: not open (as before, not 'lay the floor first')")
+	put(under, Vector2i(11, 9), Walls.KIND_NONE)
+	check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 9), 9), "", "taken down: the floor goes there")
+	check_eq(Building.refusal(under, feet, &"stone_floor", Vector2i(11, 10), 9), "", "and below it")
+	var fo: WorldItems.Outcome = Building.build(under, feet, inv_with([[&"stone_floor", 4]]), 0, Vector2i(11, 9))
+	check(fo.ok() and fo.edits.size() == 1 and fo.edits[0].layer == WorldData.Layer.FLOOR_PIECE
+		and fo.edits[0].value == WorldData.FLOOR_PIECE_STONE and fo.edits[0].cell == Vector2i(11, 9) and fo.count == 2,
+		"a floor piece is one FLOOR_PIECE edit (two pieces outside the light)")
 	for p: int in [WorldData.PLACEABLE_TORCH, WorldData.PLACEABLE_TREE, WorldData.PLACEABLE_STUMP, WorldData.PLACEABLE_LANTERN,
 			WorldData.PLACEABLE_WORKBENCH, WorldData.PLACEABLE_ENTRANCE, WorldData.PLACEABLE_ALTAR, WorldData.PLACEABLE_BAG]:
 		d.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 9), p)
@@ -285,7 +347,8 @@ func _check_rules() -> void:
 	put(d, Vector2i(11, 10), Walls.KIND_DOOR)
 	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"stone_wall", Vector2i(11, 11), 9), Building.WHY_DOOR_BELOW,
 		"a wall right below a door")
-	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"stone_floor", Vector2i(11, 11), 9), "", "a floor below a door")
+	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"stone_floor", Vector2i(11, 11), 9), Building.WHY_FLOOR_FIRST,
+		"a floor below a door, in its doorway: lay the floor first (M7-rf review; M7b allowed it)")
 	check_eq(Building.refusal(d, on(Vector2i(10, 11)), &"lantern", Vector2i(11, 11), 9), WorldItems.WHY_NOT_OPEN,
 		"no lantern in a doorway (a face tile)")
 	put(d, Vector2i(11, 10), Walls.KIND_NONE)
@@ -298,7 +361,8 @@ func _check_rules() -> void:
 	check_eq(Building.refusal(d, on(Vector2i(13, 6)), &"stone_wall", Vector2i(14, 6), 9), "", "a wall on a built wall's face")
 	put(d, Vector2i(14, 6), Walls.KIND_STONE)
 	check(not Walls.is_face(d, Vector2i(14, 6)) and Walls.is_face(d, Vector2i(14, 7)), "the face moved down one tile")
-	check_eq(Building.refusal(d, on(Vector2i(13, 7)), &"stone_floor", Vector2i(14, 7), 9), "", "a floor on the new face tile")
+	check_eq(Building.refusal(d, on(Vector2i(13, 7)), &"stone_floor", Vector2i(14, 7), 9), Building.WHY_FLOOR_FIRST,
+		"a floor on the new face tile: lay the floor first (M7-rf review; M7b allowed it)")
 	# Spots where players appear: the seed's spawn slots and the entrance's arrival point.
 	var w: WorldData = _seed_world()
 	var slot: Vector2 = w.altar_center_px() + Vector2(Config.SPAWN_SLOTS[4])  # (36, 52): tile (65, 50)
@@ -629,8 +693,13 @@ func _check_collision() -> void:
 	var d: WorldData = _plain()
 	put(d, Vector2i(10, 10), Walls.KIND_STONE)
 	put(d, Vector2i(12, 10), Walls.KIND_DOOR)
-	put(d, Vector2i(14, 10), Walls.KIND_FLOOR)
+	lay(d, Vector2i(14, 10))
+	put(d, Vector2i(16, 10), Walls.KIND_STONE)  # M7-rf: a wall standing on a floor piece
+	lay(d, Vector2i(16, 10))
+	lay(d, Vector2i(16, 11))
 	var from_s: Vector2 = Vector2(10.5 * 16, 15 * 16)
+	check_eq(walk(d, Vector2(16.5 * 16, 15 * 16), Vector2i(0, -1), 180).y, 12 * 16 + Config.FEET_HEIGHT,
+		"a wall on a floor piece (and its face over another): stops at its face's bottom, like any wall (M7-rf)")
 	check_eq(walk(d, from_s, Vector2i(0, -1), 180).y, 12 * 16 + Config.FEET_HEIGHT, "north into a wall: stops at its face's bottom")
 	check_eq(walk(d, Vector2(10.5 * 16, 6 * 16), Vector2i(0, 1), 180).y, 10 * 16.0, "south into a wall: stops at its top")
 	check_eq(walk(d, Vector2(12.5 * 16, 15 * 16), Vector2i(0, -1), 180).y, 12 * 16 + Config.FEET_HEIGHT, "a closed door stops it")
@@ -665,7 +734,10 @@ func _check_prediction() -> void:
 	put(d, Vector2i(12, 16), Walls.KIND_DOOR_OPEN)
 	put(d, Vector2i(15, 16), Walls.KIND_DOOR)
 	put(d, Vector2i(10, 10), Walls.KIND_STONE)
-	put(d, Vector2i(14, 12), Walls.KIND_FLOOR)
+	# M7-rf: the whole room, its walls and doors included, stands on floor pieces (they never block: the same walk as M7b's).
+	for fy: int in range(6, 18):
+		for fx: int in range(6, 20):
+			lay(d, Vector2i(fx, fy))
 	var start: Vector2 = on(Vector2i(12, 12))
 	var host: PlayerSim = PlayerSim.new()
 	host.pos = start
@@ -762,9 +834,15 @@ func _check_spawn_tiles() -> void:
 	put(w, spawn, Walls.KIND_DOOR_OPEN)
 	check(not arena.spawn_ok(Arena.spawn_feet(spawn), []) and not arena.spawn_ok(Arena.spawn_feet(spawn + DOWN), []),
 		"an open door: none in its doorway (it could not close on one)")
-	put(w, spawn, Walls.KIND_FLOOR)
-	check(arena.spawn_ok(Arena.spawn_feet(spawn), []), "a floor piece: open ground")
+	put(w, spawn, Walls.KIND_STONE)
+	lay(w, spawn)
+	check(not arena.sync_world() and arena.spawn_cells == cells0 and not arena.spawn_ok(Arena.spawn_feet(spawn), []),
+		"a wall standing on a floor piece: the spawn tiles stay (terrain), none in the wall (M7-rf)")
 	put(w, spawn, Walls.KIND_NONE)
+	check(arena.spawn_ok(Arena.spawn_feet(spawn), []), "a floor piece: open ground")
+	check(not arena.sync_world() and arena.spawn_cells == cells0, "and the spawn tiles stay (terrain only, M7-rf's layer too)")
+	check_eq(Arena.surface_spawn_cells(w, SafeZone.for_world(w)), cells0, "worked out from scratch with the floor piece: the same")
+	lay(w, spawn, false)
 	check(arena.spawn_ok(Arena.spawn_feet(spawn), []) and arena.spawn_cells == cells0, "taken down: as before")
 	check_eq(Arena.surface_spawn_cells(w, SafeZone.for_world(w)), cells0, "worked out from scratch: the same tiles")
 	# The dungeon: walls and a door around the arrival room (Chebyshev 3), the door shut.
@@ -809,12 +887,72 @@ func _check_spawn_tiles() -> void:
 
 # --- taking down -------------------------------------------------------------------------------------
 
+## M7-rf (the human's decision): a wall, a door (closed or open) or a lantern standing on a floor piece comes down first, with
+## its own piece back, and the floor piece stays (its layer untouched); a later right-click takes the floor piece up (a
+## stone floor back); then nothing is built there. A full inventory: each piece at the feet as a drop.
+func _check_demolish_top_first() -> void:
+	var d: WorldData = _plain()
+	var feet: Vector2 = on(Vector2i(10, 10))
+	for c: Vector2i in [Vector2i(11, 9), Vector2i(9, 9), Vector2i(11, 11), Vector2i(9, 11)]:
+		lay(d, c)
+	put(d, Vector2i(11, 9), Walls.KIND_STONE)
+	put(d, Vector2i(9, 9), Walls.KIND_DOOR)
+	d.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 11), WorldData.PLACEABLE_LANTERN)
+	put(d, Vector2i(9, 11), Walls.KIND_DOOR)
+	var opened: WorldItems.Outcome = Building.toggle_door(d, feet, Vector2i(9, 11))
+	apply(d, opened.edits)
+	check(opened.ok() and Walls.is_open_door(d, Vector2i(9, 11)) and d.has_floor_piece(Vector2i(9, 11)),
+		"a door on a floor piece opens: the floor piece stays under it")
+	var inv: Inventory = Inventory.new()
+	var hash0: String = d.content_hash()
+	# [aimed tile, the top piece, its layer]
+	for row: Array in [[Vector2i(11, 9), &"stone_wall", WorldData.Layer.WALL], [Vector2i(9, 9), &"door", WorldData.Layer.WALL],
+			[Vector2i(11, 11), &"lantern", WorldData.Layer.PLACEABLE], [Vector2i(9, 11), &"door", WorldData.Layer.WALL]]:
+		var at: Vector2i = row[0]
+		var top: StringName = row[1]
+		var layer: int = row[2]
+		var o: WorldItems.Outcome = Building.demolish(d, feet, inv, at)
+		check(o.ok() and o.item == top and o.edits.size() == 1 and o.edits[0].layer == layer and o.edits[0].cell == at,
+			"on %s: the %s on the floor piece comes down first (%s %s)" % [at, top, o.item, o.why])
+		apply(d, o.edits)
+		check(d.has_floor_piece(at) and Walls.kind_at(d, at) == Walls.KIND_NONE and not Movement.is_blocked(d, at),
+			"on %s: the floor piece stays, open ground again" % at)
+		var now_built: StringName = Building.built_at(d, at)[0]
+		check_eq(now_built, Building.STONE_FLOOR, "on %s: the floor piece is what is built there now" % at)
+	check(d.content_hash() != hash0, "the world changed")
+	for at2: Vector2i in [Vector2i(11, 9), Vector2i(9, 9), Vector2i(11, 11), Vector2i(9, 11)]:
+		var o2: WorldItems.Outcome = Building.demolish(d, feet, inv, at2)
+		check(o2.ok() and o2.item == &"stone_floor" and o2.edits.size() == 1 and o2.edits[0].layer == WorldData.Layer.FLOOR_PIECE
+			and o2.edits[0].value == WorldData.FLOOR_PIECE_NONE, "on %s: a later right-click takes the floor piece up" % at2)
+		apply(d, o2.edits)
+		check_eq(Building.demolish(d, feet, inv, at2).why, Building.WHY_NOT_BUILT, "on %s: then nothing is built" % at2)
+	check_eq([inv.count_of(&"stone_wall"), inv.count_of(&"door"), inv.count_of(&"lantern"), inv.count_of(&"stone_floor")],
+		[1, 2, 1, 4], "each piece refunds its own item (Config.BUILD_REFUND each)")
+	check_eq(d.floor_piece_count(), 0, "no floor piece left")
+	# A full inventory: the wall's piece, then the floor's, at the feet.
+	lay(d, Vector2i(11, 9))
+	put(d, Vector2i(11, 9), Walls.KIND_STONE)
+	var full: Inventory = Inventory.new()
+	for i: int in full.size():
+		full.add(&"sword", 1)
+	var w1: WorldItems.Outcome = Building.demolish(d, feet, full, Vector2i(11, 9))
+	apply(d, w1.edits)
+	var f1: WorldItems.Outcome = Building.demolish(d, feet, full, Vector2i(11, 9))
+	apply(d, f1.edits)
+	var dropped: PackedStringArray = []
+	for dr: WorldData.Drop in d.drops_at(Aim.feet_cell(feet)):
+		dropped.append(String(dr.item))
+	check(w1.ok() and f1.ok() and dropped == PackedStringArray(["stone_wall", "stone_floor"]),
+		"a full inventory: the wall's piece, then the floor's, lie at the feet (%s)" % ", ".join(dropped))
+	check(not d.has_floor_piece(Vector2i(11, 9)) and Walls.kind_at(d, Vector2i(11, 9)) == Walls.KIND_NONE, "both gone")
+
+
 func _check_demolish() -> void:
 	var d: WorldData = _plain()
 	var feet: Vector2 = on(Vector2i(10, 10))
 	put(d, Vector2i(11, 9), Walls.KIND_STONE)
 	put(d, Vector2i(9, 9), Walls.KIND_DOOR_OPEN)
-	put(d, Vector2i(9, 11), Walls.KIND_FLOOR)
+	lay(d, Vector2i(9, 11))
 	d.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 11), WorldData.PLACEABLE_LANTERN)
 	put(d, Vector2i(10, 8), Walls.KIND_ROCK)
 	var inv: Inventory = Inventory.new()
@@ -834,7 +972,7 @@ func _check_demolish() -> void:
 		apply(d, o.edits)
 	check_eq([inv.count_of(&"stone_wall"), inv.count_of(&"door"), inv.count_of(&"stone_floor"), inv.count_of(&"lantern")],
 		[1, 1, 1, 1], "one piece of each back")
-	check(Walls.kind_at(d, Vector2i(11, 9)) == 0 and Walls.kind_at(d, Vector2i(9, 9)) == 0 and Walls.kind_at(d, Vector2i(9, 11)) == 0
+	check(Walls.kind_at(d, Vector2i(11, 9)) == 0 and Walls.kind_at(d, Vector2i(9, 9)) == 0 and not d.has_floor_piece(Vector2i(9, 11))
 		and d.get_value(WorldData.Layer.PLACEABLE, Vector2i(11, 11)) == 0, "all gone")
 	# M7-fix (README "M7-fix 철거"): a full inventory takes it down too; the piece lies at the feet (M7b refused: someone
 	# walled in with a full inventory could not get out).
@@ -857,13 +995,14 @@ func _check_demolish() -> void:
 	# floor piece.
 	var pr: WorldData = _plain()
 	put(pr, Vector2i(5, 5), Walls.KIND_STONE)
-	put(pr, Vector2i(5, 6), Walls.KIND_FLOOR)
+	lay(pr, Vector2i(5, 6))
 	var first: WorldItems.Outcome = Building.demolish(pr, on(Vector2i(6, 7)), Inventory.new(), Vector2i(5, 6))
 	check(first.ok() and first.item == &"stone_wall" and first.edits[0].cell == Vector2i(5, 5),
 		"a face tile with a floor piece: the wall above comes down first (%s)" % first.item)
 	apply(pr, first.edits)
 	var second: WorldItems.Outcome = Building.demolish(pr, on(Vector2i(6, 7)), Inventory.new(), Vector2i(5, 6))
 	check(second.ok() and second.item == &"stone_floor" and second.edits[0].cell == Vector2i(5, 6), "then the floor piece")
+	_check_demolish_top_first()
 	# M7-fix: an open door right below a wall leaves that wall's face on its tile, which blocks: it comes down only as a
 	# closing door would (nobody in it, no other player within the clearance).
 	var dw: WorldData = _plain()
@@ -977,16 +1116,20 @@ func _check_fields_and_altar() -> void:
 	var d: WorldData = _seed_world()
 	var c: Vector2i = Vector2i(66, 51)
 	check_eq(Farming.till_refusal(d, on(Vector2i(66, 52)), c), "", "grass in the light: tillable")
-	put(d, c, Walls.KIND_FLOOR)
+	lay(d, c)
 	check_eq(Farming.till_refusal(d, on(Vector2i(66, 52)), c), Farming.WHY_NO_GROUND, "a floor piece: no tilling")
+	put(d, c, Walls.KIND_STONE)
+	check_eq(Farming.till_refusal(d, on(Vector2i(66, 52)), c), Farming.WHY_NO_GROUND, "a wall on a floor piece: no tilling")
 	put(d, c, Walls.KIND_NONE)
+	lay(d, c, false)
 	# The altar may not go down on built walls or doors, nor leave a spawn slot walled in (above); on a floor piece it may.
 	apply(d, AltarMove.pickup_edits(d))
 	var rect: Rect2i = Rect2i(40, 40, 3, 3)
 	check_eq(AltarMove.place_refusal(d, rect), "", "the bare spot")
 	put(d, Vector2i(41, 41), Walls.KIND_DOOR_OPEN)
 	check_eq(AltarMove.place_refusal(d, rect), AltarMove.WHY_NOT_OPEN, "not over an (open) door")
-	put(d, Vector2i(41, 41), Walls.KIND_FLOOR)
+	put(d, Vector2i(41, 41), Walls.KIND_NONE)
+	lay(d, Vector2i(41, 41))
 	check_eq(AltarMove.place_refusal(d, rect), "", "over a floor piece")
 	put(d, Vector2i(41, 39), Walls.KIND_STONE)
 	check_eq(AltarMove.place_refusal(d, rect), AltarMove.WHY_NOT_OPEN, "not where a wall's face hangs (it blocks)")
@@ -1008,6 +1151,169 @@ func _check_fields_and_altar() -> void:
 	check(clear, "the set-down search finds a footprint clear of the walls (%s)" % down)
 
 
+## M7-rf (the human's decision: floor pieces on the floor side, WorldData.Layer.FLOOR_PIECE): what else stands on a floor
+## piece as before (stations, the chest, the altar above; the lantern in _check_rules), purification under one keeps it, the
+## dungeon takes them (a wall on one there too), the content hash (a world without floor pieces hashes as before: the
+## generators' golden hashes; a floor piece under a wall is part of the world) and the snapshot (walls on floors round trip).
+func _check_floor_layer() -> void:
+	var d: WorldData = _seed_world()
+	# A workbench (3x1) and the chest (3x1, in the light) over floor pieces.
+	for x: int in range(62, 65):
+		lay(d, Vector2i(x, 51))
+		lay(d, Vector2i(x, 44))
+	var wb: WorldItems.Outcome = WorldItems.place(d, on(Vector2i(63, 52)), inv_with([[&"workbench", 1]]), 0, Vector2i(63, 51))
+	check(wb.ok(), "a workbench over floor pieces (%s)" % wb.why)
+	apply(d, wb.edits)
+	var ch: WorldItems.Outcome = WorldItems.place(d, on(Vector2i(63, 43)), inv_with([[&"storage_chest", 1]]), 0, Vector2i(63, 44))
+	check(ch.ok(), "the chest over floor pieces (%s)" % ch.why)
+	apply(d, ch.edits)
+	var kept: int = 0
+	for x2: int in range(62, 65):
+		kept += 1 if d.has_floor_piece(Vector2i(x2, 51)) and d.has_floor_piece(Vector2i(x2, 44)) else 0
+	check_eq(kept, 3, "the floor pieces stay under the workbench and the chest")
+	# M7-rf review (top piece first, PROVISIONAL README "M7-rf 위에 선 것"; M7b took the floor piece out from under it): a
+	# station is never taken down, so a right-click on its tile takes nothing: the floor piece stays under it.
+	var rug: WorldItems.Outcome = Building.demolish(d, on(Vector2i(63, 52)), Inventory.new(), Vector2i(63, 51))
+	check(not rug.ok() and rug.why == Building.WHY_ON_TOP and d.has_floor_piece(Vector2i(63, 51))
+		and d.get_value(WorldData.Layer.PLACEABLE, Vector2i(63, 51)) == WorldData.PLACEABLE_WORKBENCH,
+		"a right-click on the workbench: something stands on it, the floor piece stays (%s %s)" % [rug.item, rug.why])
+	check_eq(Building.built_at(d, Vector2i(63, 51))[0], &"", "nothing to take down there (built_at)")
+	# Every placeable no right-click takes down, on a floor piece: the same (a torch, a death bag, the stations, the chest's
+	# tile, the altar's); the lantern alone is a build piece (_check_demolish_top_first).
+	var stands: WorldData = _plain()
+	var sf: Vector2 = on(Vector2i(10, 10))
+	for p: int in [WorldData.PLACEABLE_TORCH, WorldData.PLACEABLE_BAG, WorldData.PLACEABLE_WORKBENCH, WorldData.PLACEABLE_ANVIL,
+			WorldData.PLACEABLE_RELIC, WorldData.PLACEABLE_ALCHEMY, WorldData.PLACEABLE_CHEST, WorldData.PLACEABLE_ALTAR]:
+		lay(stands, Vector2i(11, 10))
+		stands.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 10), p)
+		var why_p: String = Building.demolish(stands, sf, Inventory.new(), Vector2i(11, 10)).why
+		check(why_p == Building.WHY_ON_TOP and stands.has_floor_piece(Vector2i(11, 10)),
+			"a %s on a floor piece: a right-click takes nothing (%s)" % [WorldData.PLACEABLE_NAMES[p], why_p])
+		stands.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 10), WorldData.PLACEABLE_NONE)
+	var bare: WorldItems.Outcome = Building.demolish(stands, sf, Inventory.new(), Vector2i(11, 10))
+	check(bare.ok() and bare.item == &"stone_floor", "once it is gone (a bag picked up): the floor piece comes up (%s)" % bare.why)
+	stands.set_value(WorldData.Layer.PLACEABLE, Vector2i(11, 11), WorldData.PLACEABLE_TORCH)
+	check_eq(Building.demolish(stands, sf, Inventory.new(), Vector2i(11, 11)).why, Building.WHY_NOT_BUILT,
+		"a torch with no floor piece under it: nothing built there (as before)")
+	# Purification under a floor piece keeps the piece (the FLOOR byte's ash becomes grass, the floor piece's byte stays).
+	var ash: Vector2i = Walls.NO_CELL
+	for i: int in d.size.x * d.size.y:
+		var t: Vector2i = Vector2i(i % d.size.x, i / d.size.x)
+		if d.terrain_at(t) == Terrain.ASH and Purify.is_corrupted(d, t) and d.get_value(WorldData.Layer.PLACEABLE, t) == 0 \
+				and d.get_value(WorldData.Layer.VEGETATION, t) == 0:
+			ash = t
+			break
+	if check(ash != Walls.NO_CELL, "an ash tile"):
+		check_eq(Building.refusal(d, on(ash + DOWN), &"stone_floor", ash, 9), "", "a floor piece on ash (M7-fix: allowed)")
+		apply(d, Building.build(d, on(ash + DOWN), inv_with([[&"stone_floor", 4]]), 0, ash).edits)
+		check(d.has_floor_piece(ash), "laid on the ash")
+		apply(d, Purify.edits_for(d, [ash] as Array[Vector2i]))
+		check(d.has_floor_piece(ash) and d.terrain_at(ash) == Terrain.GRASS and not Purify.is_corrupted(d, ash),
+			"purified under the floor piece: grass and clean, the floor piece kept")
+	# The dungeon: a floor piece on its floor, a wall on it.
+	var dun: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	var arrival: Vector2 = DungeonGen.arrival_point(dun)
+	var f: Vector2i = Aim.feet_cell(arrival)
+	var dinv: Inventory = inv_with([[&"stone_floor", 4], [&"stone_wall", 4]])
+	var df: WorldItems.Outcome = Building.build(dun, arrival, dinv, 0, f + Vector2i(1, 1))
+	apply(dun, df.edits)
+	var dw: WorldItems.Outcome = Building.build(dun, arrival, dinv, 1, f + Vector2i(1, 1))
+	apply(dun, dw.edits)
+	check(df.ok() and dw.ok() and dun.has_floor_piece(f + Vector2i(1, 1)) and Walls.is_built(dun, f + Vector2i(1, 1))
+		and df.count == 2 and dw.count == 2, "the dungeon: a floor piece (2), a wall on it (2) (%s / %s)" % [df.why, dw.why])
+	# The content hash: a world without floor pieces hashes as before (the golden hash); a floor piece is in the world.
+	var g: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	check_eq(g.content_hash(), SurfaceGen.GOLDEN_HASH, "a generated world hashes as before (no floor piece: M1-M7's six layers)")
+	var plain_hash: String = g.content_hash()
+	lay(g, Vector2i(66, 51))
+	var floor_hash: String = g.content_hash()
+	put(g, Vector2i(66, 51), Walls.KIND_STONE)
+	var wall_on_floor: String = g.content_hash()
+	lay(g, Vector2i(66, 51), false)
+	var wall_only: String = g.content_hash()
+	put(g, Vector2i(66, 51), Walls.KIND_NONE)
+	check(floor_hash != plain_hash and wall_on_floor != floor_hash and wall_only != wall_on_floor and wall_only != plain_hash,
+		"the hash tells a floor piece, a wall on it and the wall alone apart")
+	check_eq(g.content_hash(), plain_hash, "all taken up: as before")
+	g.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(5, 5), WorldData.FLOOR_PIECE_STONE)
+	var at_a: String = g.content_hash()
+	g.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(5, 5), 0)
+	g.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(6, 5), WorldData.FLOOR_PIECE_STONE)
+	check(at_a != g.content_hash(), "where the floor piece lies is in the hash")
+	g.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(6, 5), 0)
+	# The snapshot: walls and a door standing on floor pieces, an open door over one, a lone floor piece.
+	var s: WorldData = _seed_world()
+	for x3: int in range(64, 69):
+		lay(s, Vector2i(x3, 52))
+		put(s, Vector2i(x3, 52), Walls.KIND_STONE)
+	put(s, Vector2i(66, 52), Walls.KIND_DOOR)
+	lay(s, Vector2i(70, 52))
+	put(s, Vector2i(70, 52), Walls.KIND_DOOR_OPEN)
+	lay(s, Vector2i(70, 53))
+	lay(s, Vector2i(72, 55))
+	var raw: PackedByteArray = WorldSnapshot.raw_bytes(s)
+	check_eq(raw.decode_u8(20), 7, "the snapshot's header counts seven layers")
+	var back: WorldData = WorldSnapshot.decode_raw(raw)
+	check(back != null and back.content_hash() == s.content_hash() and back.floor_piece_count() == 8
+		and Walls.is_door(back, Vector2i(66, 52)) and back.has_floor_piece(Vector2i(66, 52))
+		and Walls.is_open_door(back, Vector2i(70, 52)) and back.has_floor_piece(Vector2i(70, 53)),
+		"a snapshot with walls and doors on floor pieces round trips (the same hash, 8 floor pieces)")
+	var bad: PackedByteArray = raw.duplicate()
+	bad[WorldSnapshot.HEADER_SIZE + WorldData.Layer.FLOOR_PIECE * s.size.x * s.size.y + 100] = WorldData.FLOOR_PIECE_NAMES.size()
+	check(WorldSnapshot.decode_raw(bad) == null, "a floor piece value that is no floor piece: refused")
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(s)
+	var un: WorldData = WorldSnapshot.unpack(packed.bytes, packed.raw_size)
+	check(un != null and un.content_hash() == s.content_hash(), "packed and unpacked: the same")
+
+
+## M7-rf review: the other side of PROVISIONAL Config.BUILD_FLOOR_UNDER_WALL (README "M7-rf 벽 아래 바닥"), through the
+## Building.floor_under_wall hook: turned on, a floor piece slides under a standing wall, a closed door, an open door and onto
+## a wall's face tile (one FLOOR_PIECE edit each, the wall's byte untouched); the view counts the tile once; right-click takes
+## the wall or door first, then the floor piece (each its own piece back); the snapshot carries both. Put back after.
+func _check_floor_under_wall_on() -> void:
+	Building.floor_under_wall = true
+	var d: WorldData = _plain()
+	put(d, Vector2i(9, 11), Walls.KIND_STONE)  # its face (9, 12)
+	put(d, Vector2i(10, 10), Walls.KIND_DOOR)  # its doorway (10, 11)
+	put(d, Vector2i(11, 11), Walls.KIND_DOOR_OPEN)  # its doorway (11, 12)
+	var view: BuildView = BuildView.new()
+	_nodes.append(view)
+	view.setup(d)
+	var inv: Inventory = inv_with([[&"stone_floor", 40]])
+	var laid: int = 0
+	for c: Vector2i in [Vector2i(9, 11), Vector2i(9, 12), Vector2i(10, 10), Vector2i(10, 11), Vector2i(11, 11)]:
+		var before: int = d.get_value(WorldData.Layer.WALL, c)
+		var o: WorldItems.Outcome = Building.build(d, on(c + Vector2i(1, 0)), inv, 0, c)  # a floor piece checks no body
+		check(o.ok() and o.edits.size() == 1 and o.edits[0].layer == WorldData.Layer.FLOOR_PIECE and o.edits[0].cell == c,
+			"switch on: a floor piece slides under / onto %s (%s)" % [c, o.why])
+		apply(d, o.edits)
+		view.update_cell(c)
+		laid += 1 if d.has_floor_piece(c) and d.get_value(WorldData.Layer.WALL, c) == before else 0
+	check_eq(laid, 5, "switch on: five floor pieces down, every wall byte as it was")
+	check_eq(view.verify(), {"built": 5, "mismatches": 0} as Dictionary[String, int],
+		"switch on: the view counts a wall and its floor piece as one tile (3 walls on floor pieces + 2 floors alone: 5)")
+	var raw: PackedByteArray = WorldSnapshot.raw_bytes(d)
+	var back: WorldData = WorldSnapshot.decode_raw(raw)
+	check(back != null and back.content_hash() == d.content_hash() and back.floor_piece_count() == 5,
+		"switch on: the snapshot carries the floor pieces under the walls")
+	# [aimed tile, what comes down]: the face tile and the doorway aim at the wall or door above first.
+	for row: Array in [[Vector2i(9, 12), &"stone_wall"], [Vector2i(9, 12), &"stone_floor"], [Vector2i(9, 11), &"stone_floor"],
+			[Vector2i(10, 11), &"door"], [Vector2i(10, 10), &"stone_floor"], [Vector2i(10, 11), &"stone_floor"],
+			[Vector2i(11, 11), &"door"], [Vector2i(11, 11), &"stone_floor"], [Vector2i(11, 12), &""]]:
+		var at: Vector2i = row[0]
+		var want: StringName = row[1]
+		var o2: WorldItems.Outcome = Building.demolish(d, on(at + Vector2i(1, 0)), Inventory.new(), at)
+		check(o2.item == want and (o2.ok() or (want.is_empty() and o2.why == Building.WHY_NOT_BUILT)),
+			"switch on: a right-click on %s takes %s (%s %s)" % [at, want if not want.is_empty() else &"nothing", o2.item, o2.why])
+		apply(d, o2.edits)
+		for e: EditLog.WorldEdit in o2.edits:
+			view.update_cell(e.cell)
+	check(d.floor_piece_count() == 0 and Walls.wall_cells(d).is_empty(), "switch on: everything taken down, a piece a click")
+	check_eq(view.verify(), {"built": 0, "mismatches": 0} as Dictionary[String, int], "switch on: the view has nothing left")
+	Building.floor_under_wall = Config.BUILD_FLOOR_UNDER_WALL
+	check(not Building.floor_under_wall, "the switch is back off")
+
+
 # --- the build view -------------------------------------------------------------------------------------------
 
 func _check_view() -> void:
@@ -1020,7 +1326,8 @@ func _check_view() -> void:
 		put(d, Vector2i(2, y), Walls.KIND_STONE)
 		put(d, Vector2i(6, y), Walls.KIND_STONE)
 	put(d, Vector2i(4, 5), Walls.KIND_DOOR)
-	put(d, Vector2i(3, 4), Walls.KIND_FLOOR)
+	lay(d, Vector2i(3, 4))
+	lay(d, Vector2i(4, 2))  # M7-rf: under the north wall's middle (the wall's parts are the same)
 	put(d, Vector2i(10, 10), Walls.KIND_STONE)
 	put(d, Vector2i(11, 10), Walls.KIND_STONE)
 	put(d, Vector2i(10, 11), Walls.KIND_STONE)
@@ -1058,11 +1365,25 @@ func _check_view() -> void:
 	check_eq(w.builds.light_mask, Config.LIGHT_LAYER_WORLD, "lit like the ground")
 	var rev: int = w.revision
 	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(66, 51), Walls.pack(Walls.KIND_STONE, 0)))
-	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(67, 51), Walls.pack(Walls.KIND_FLOOR, 0)))
+	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR_PIECE, Vector2i(67, 51), WorldData.FLOOR_PIECE_STONE))
 	check_eq(w.revision, rev + 2, "two edits counted")
 	check_eq(w.builds.verify(), {"built": 2, "mismatches": 0} as Dictionary[String, int], "the view has both")
 	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(66, 51), 0))
 	check_eq(w.builds.verify(), {"built": 1, "mismatches": 0} as Dictionary[String, int], "taken down: gone from the view")
+	# M7-rf: a wall on the floor piece (one tile, drawn once); taken down, the floor piece is still drawn; the floor piece
+	# taken up too (the map's last built thing), the view draws again with nothing (M7b kept the last piece drawn).
+	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(67, 51), Walls.pack(Walls.KIND_STONE, 0)))
+	check(w.builds.verify() == ({"built": 1, "mismatches": 0} as Dictionary[String, int]) and Walls.is_built(w.data, Vector2i(67, 51))
+		and w.data.has_floor_piece(Vector2i(67, 51)), "a wall on the floor piece: one built tile, both in the data")
+	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(67, 51), 0))
+	check(w.builds.verify() == ({"built": 1, "mismatches": 0} as Dictionary[String, int]) and w.builds.cells.has(Vector2i(67, 51)),
+		"the wall taken down: the floor piece still drawn")
+	await await_frames(1)
+	var draws0: int = w.builds.draws
+	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR_PIECE, Vector2i(67, 51), WorldData.FLOOR_PIECE_NONE))
+	await await_frames(1)
+	check(w.builds.verify() == ({"built": 0, "mismatches": 0} as Dictionary[String, int]) and w.builds.draws > draws0,
+		"the map's last floor piece taken up: drawn again with nothing (%d -> %d draws)" % [draws0, w.builds.draws])
 	w.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(66, 52), WorldData.PLACEABLE_LANTERN))
 	var fx: Dictionary[String, int] = w.fixtures.verify()
 	check(fx["mismatches"] == 0 and w.fixtures.light_nodes.has(Vector2i(66, 52)), "the lantern post drawn with its light")
@@ -1164,6 +1485,30 @@ func _check_main() -> void:
 	main.demolish()
 	check_eq(Walls.kind_at(data, Vector2i(66, 51)), Walls.KIND_NONE, "right-click took the wall down")
 	check_eq(p.inventory.count_of(&"stone_wall"), 6, "and gave the piece back")
+	# M7-rf: a floor piece, then a wall on it (two clicks); right-click takes the wall down, the floor piece stays; again: the
+	# floor piece up.
+	p.inventory.select(3)
+	p.teleport(on(Vector2i(65, 52)))
+	_click(main, p, Vector2i(66, 51))
+	check(data.has_floor_piece(Vector2i(66, 51)) and p.inventory.count_of(&"stone_floor") == 3, "a click laid the floor piece")
+	p.inventory.select(0)
+	_aim(main, p, Vector2i(66, 51))
+	check(main.build_ghost.visible and main.build_ghost.allowed, "the wall's ghost over the floor piece: gold")
+	_click(main, p, Vector2i(66, 51))
+	check(Walls.kind_at(data, Vector2i(66, 51)) == Walls.KIND_STONE and data.has_floor_piece(Vector2i(66, 51))
+		and p.inventory.count_of(&"stone_wall") == 5, "a click put the wall on it (one piece in the light)")
+	p.inventory.select(3)
+	_aim(main, p, Vector2i(66, 51))
+	check(main.build_ghost.visible and not main.build_ghost.allowed, "a floor piece's ghost on the wall: red (lay the floor first)")
+	p.teleport(on(Vector2i(65, 51)))
+	p.aim_sector = Aim.sector(Vector2(66 * 16 + 8, 51 * 16 + 8) - p.sim_position, p.aim_sector)
+	p.aim_cell = Aim.target_cell(p.sim_position, p.aim_sector)
+	main.demolish()
+	check(Walls.kind_at(data, Vector2i(66, 51)) == Walls.KIND_NONE and data.has_floor_piece(Vector2i(66, 51))
+		and p.inventory.count_of(&"stone_wall") == 6, "right-click: the wall first, the floor piece stays")
+	main.demolish()
+	check(not data.has_floor_piece(Vector2i(66, 51)) and p.inventory.count_of(&"stone_floor") == 4, "again: the floor piece up")
+	check_eq(main.world.builds.verify()["mismatches"], 0, "drawn = data throughout")
 	# A lantern post with its light; the ghost hides when no piece is selected.
 	p.inventory.select(2)
 	p.teleport(on(Vector2i(65, 52)))
@@ -1219,7 +1564,7 @@ func _check_session() -> void:
 			m.refill_ops()
 	check_eq(s.log_for(Config.MAP_SURFACE).size(), 4, "one edit each on the host's map")
 	check(Walls.kind_at(world.data, Vector2i(65, 51)) == Walls.KIND_STONE and Walls.is_door(world.data, Vector2i(67, 51))
-		and Walls.is_floor_piece(world.data, Vector2i(66, 51))
+		and world.data.has_floor_piece(Vector2i(66, 51))
 		and world.data.get_value(WorldData.Layer.PLACEABLE, Vector2i(67, 49)) == WorldData.PLACEABLE_LANTERN,
 		"the wall, the closed door, the floor and the lantern stand")
 	for op: Array in [[NetProtocol.Op.DOOR, Vector2i(67, 51)], [NetProtocol.Op.DOOR, Vector2i(67, 51)],
@@ -1229,6 +1574,7 @@ func _check_session() -> void:
 		g.op = op[0]
 		g.cell = op[1]
 		g.map = Config.MAP_SURFACE
+		g.piece = Building.top_code(world.data, g.cell)  # M7-rf review: a DEMOLISH names the piece seen on top (DOOR: unused)
 		m.player.begin_tick()
 		host.run_frame(m, g)
 		for t: int in Config.NET_OP_INTERVAL_TICKS:

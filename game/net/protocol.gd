@@ -34,6 +34,8 @@ extends RefCounted
 ##                         (the host counts the F-held frames itself)
 ##                 ALTAR_PLACE u8 map, s16 x, s16 y (the target tile)          M5c: the carrier's click
 ##                 DEMOLISH u8 map, s16 x, s16 y (the target tile)             M7c: right-click (take a built piece down)
+##                         M7-rf (v9): + u8 the piece the sender saw on top there (Building.PIECE_CODES, 0 = none); the
+##                         host takes it down only while it is still the top piece (else `the top piece changed`)
 ##                 DOOR    u8 map, s16 x, s16 y (a door or its face tile)      M7c: F on a door (open / close it)
 ##                 ARMOR   u8 hotbar slot (put on the armour there) or 255 (ARMOR_OFF: take it off)   M7c: the armour click
 ##                 CHEST   u8 map, s16 x, s16 y (a tile of the chest), u8 move (0 = store, 1 = take), u8 slot (store:
@@ -123,7 +125,12 @@ extends RefCounted
 ## requests, durability and the armour slot in the inventory message, the chest slot edit (net/edit_log.gd) and the chests'
 ## contents in the world snapshot (net/world_snapshot.gd). Built walls, doors, floor pieces, lanterns, trees, stumps and
 ## stations are cell edits and snapshot layers as before.
-const VERSION: int = 8
+## 9 (M7-rf): floor pieces are a layer of their own (WorldData.Layer.FLOOR_PIECE, under the wall layer: a wall or a door may
+## stand on one): the world snapshot carries seven layers (the header's layer count 7; a joiner refuses a floor piece value
+## that is none of WorldData.FLOOR_PIECE_*), a floor piece is a cell edit on layer 6 (net/edit_log.gd). A version 8 peer
+## would read a floor piece as the retired wall kind 6 and miss the seventh layer: refused with `version`. M7-rf review: a
+## DEMOLISH carries the piece its sender saw on top (one byte more): two clicks on one wall never take the floor piece too.
+const VERSION: int = 9
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -142,7 +149,8 @@ enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, 
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
 	"altar_lift", "altar_place", "demolish", "door", "armor", "chest"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5, 5, 5, 1, 7]
+## M7-rf review: DEMOLISH + the piece seen (6).
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5, 6, 5, 1, 7]
 ## M7c: an ARMOR request's slot that takes the worn armour off (any other is the hotbar slot whose armour goes on).
 const ARMOR_OFF: int = 255
 ## M7c: a CHEST request's move byte.
@@ -239,6 +247,9 @@ class InputFrame:
 	var altar_place: bool = false
 	## M7c: a CHEST request takes chest slot `slot` (else it stores inventory slot `slot`); its `cell` is a tile of the chest.
 	var chest_take: bool = false
+	## M7-rf review: a DEMOLISH's piece its sender saw on top of `cell` (Building.piece_code, 0 = none; set where the frame is
+	## aimed, SessionHost.attach_local_op).
+	var piece: int = 0
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq
@@ -249,7 +260,7 @@ class InputFrame:
 		return o != null and op == o.op and slot == o.slot and cell == o.cell and count == o.count \
 			and item_index == o.item_index and grade == o.grade and (map == o.map or not NetProtocol.op_has_map(op)) \
 			and (op != Op.THROW or throw_to == o.throw_to) and (op != Op.CRAFT or recipe == o.recipe) \
-			and (op != Op.CHEST or chest_take == o.chest_take)
+			and (op != Op.CHEST or chest_take == o.chest_take) and (op != Op.DEMOLISH or piece == o.piece)
 
 	func describe_op() -> String:
 		match op:
@@ -277,7 +288,8 @@ class InputFrame:
 			Op.ALTAR_PLACE:
 				return "altar_place map=%d at=%d,%d" % [map, cell.x, cell.y]
 			Op.DEMOLISH:
-				return "demolish map=%d at=%d,%d" % [map, cell.x, cell.y]
+				return "demolish map=%d at=%d,%d saw=%s" % [map, cell.x, cell.y, Building.PIECE_CODES[piece] if piece >= 0
+					and piece < Building.PIECE_CODES.size() else &"?"]
 			Op.DOOR:
 				return "door map=%d at=%d,%d" % [map, cell.x, cell.y]
 			Op.ARMOR:
@@ -543,9 +555,13 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_s16(at + 1, f.cell.x)
 			out.encode_s16(at + 3, f.cell.y)
 			out.encode_u8(at + 5, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
-		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE, Op.DEMOLISH, Op.DOOR:
+		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE, Op.DOOR:
 			out.encode_s16(at, f.cell.x)
 			out.encode_s16(at + 2, f.cell.y)
+		Op.DEMOLISH:
+			out.encode_s16(at, f.cell.x)
+			out.encode_s16(at + 2, f.cell.y)
+			out.encode_u8(at + 4, clampi(f.piece, 0, 255))
 		Op.SELECT:
 			out.encode_u8(at, f.slot)
 		Op.ARMOR:
@@ -589,9 +605,13 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
 			f.aim = bytes.decode_u8(at + 5)
 			return f.slot < Config.HOTBAR_SLOTS
-		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE, Op.DEMOLISH, Op.DOOR:
+		Op.PICKUP, Op.TRAVEL, Op.ALTAR_LIFT, Op.ALTAR_PLACE, Op.DOOR:
 			f.cell = Vector2i(bytes.decode_s16(at), bytes.decode_s16(at + 2))
 			return true
+		Op.DEMOLISH:
+			f.cell = Vector2i(bytes.decode_s16(at), bytes.decode_s16(at + 2))
+			f.piece = bytes.decode_u8(at + 4)
+			return f.piece < Building.PIECE_CODES.size()
 		Op.ARMOR:
 			f.slot = bytes.decode_u8(at)
 			return f.slot < Config.HOTBAR_SLOTS or f.slot == ARMOR_OFF

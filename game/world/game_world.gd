@@ -22,7 +22,8 @@ extends Node2D
 ## M5b: purification's effects with a PurifyView (Purify, above the decals); the altar follows its footprint in the
 ## world: an edit that picks it up or puts it down (WorldData.refresh_altar_rect) moves the safe zone, the altar's node and
 ## its light here (_altar_moved) and says so (altar_moved).
-## M7b: built pieces (walls, doors, floor pieces: the WALL layer's built kinds) with a BuildView (Builds, right above the
+## M7b: built pieces (walls, doors, floor pieces: the WALL layer's built kinds; M7-rf: floor pieces are the FLOOR_PIECE
+## layer, under the walls) with a BuildView (Builds, right above the
 ## decals, below the entities, on both maps; a dungeon's own walls stay the CaveView's). Trees, stumps and lantern posts
 ## are placeables the FixtureView draws. `revision` counts the edits applied (the build ghost works its answer out again
 ## only when it moves or the world changed).
@@ -232,6 +233,8 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 			elif edit.layer == WorldData.Layer.PLACEABLE:
 				fixtures.update_cell(edit.cell)
 				items.update_bag_cell(edit.cell)
+			elif edit.layer == WorldData.Layer.FLOOR_PIECE:
+				builds.update_cell(edit.cell)  # M7-rf: a floor piece laid or taken up (under a wall or not)
 	return true
 
 

@@ -291,69 +291,118 @@ func _check_death_wear() -> void:
 	check(not want.has(inv.hotbar_size + 1), "the spare armour stays (gear)")
 
 
-## Repair at the anvil: one material gives the most worn one of the item (the worn armour included) its full durability;
+## Repair at the anvil: its material gives the most worn one of the item (the worn armour included) its full durability;
 ## nothing worn = refused, nothing changes; missing material = refused; never seen = locked; the panel shows a repair row
-## only while something is worn. M7-fix: all of it only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL, off: ● §2.6 R12
-## repair is the engineer's work): off, no repair row ever shows and a repair is refused with nothing changed.
+## only while something is worn. M7-fix: all of it only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL): off, no repair row
+## ever shows and a repair is refused with nothing changed. M7-rf (the human's decision of 2026-10-26, ● §3.0 R11 "공용 수행 =
+## 누구나, 낮은 효율"): the switch is on and anyone repairs at the higher common cost, 2 of the material (PROVISIONAL
+## Config.GEAR_REPAIR_COST_ANYONE; M7a took 1): one is refused (missing inputs) with nothing changed.
+## Written out here: item -> its repair material.
+const REPAIRS: Dictionary[StringName, StringName] = {
+	&"sword_t1": &"ingot_iron", &"pickaxe_t1": &"ingot_iron", &"armor_t1": &"ingot_iron",
+	&"bow_t1": &"ingot_copper", &"holy_light_t1": &"ingot_copper", &"sickle_t1": &"ingot_copper",
+}
+
+
 func _check_repair() -> void:
 	var r: Crafting.Recipe = Crafting.recipe(&"repair_sword_t1")
 	check_eq(Gear.repair_on, Config.GEAR_REPAIR_AT_ANVIL, "the repair switch starts as Config has it")
-	check(not Config.GEAR_REPAIR_AT_ANVIL, "Config: nobody repairs in the slice (the engineer's work, ● §2.6 R12; README \"M7-fix 수리\")")
+	check(Config.GEAR_REPAIR_AT_ANVIL, "Config: anyone repairs at the anvil (the human's decision, README \"M7-fix 수리\" -> M7-rf)")
+	check_eq(Config.GEAR_REPAIR_COST_ANYONE, 2, "the provisional higher cost: two of the material")
 	var off: Inventory = Inventory.new()
 	off.add(&"sword_t1", 1)
 	off.add(&"ingot_iron", 3)
 	off.stack_at(0).durability = 30
-	Gear.repair_on = false
+	Gear.repair_on = false  # the switch kept for this check (put back below)
 	var off_before: String = off.describe()
 	check(not Crafting.shown_recipes(Crafting.ANVIL, off).has(r), "switch off: a worn sword shows no repair row")
-	check_eq(Crafting.craft(r, "cleric", off).why, Crafting.WHY_NO_REPAIR, "switch off: the repair is refused (the engineer's work)")
+	check_eq(Crafting.craft(r, "cleric", off).why, Crafting.WHY_NO_REPAIR, "switch off: the repair is refused")
 	check_eq(off.describe(), off_before, "nothing changed")
-	Gear.repair_on = true  # the rule itself, as M7a made it (put back below)
-	_check_repair_on(r)
 	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
+	_check_repair_on(r)
+	_check_repair_every_item()
 
 
 func _check_repair_on(r: Crafting.Recipe) -> void:
 	check(r != null and r.is_repair() and r.station == Crafting.ANVIL and r.repair == &"sword_t1", "the sword's repair at the anvil")
-	check_eq(r.inputs[0].item, &"ingot_iron", "one iron ingot")
-	check_eq(r.inputs[0].count, 1, "just one")
-	for item: StringName in Config.GEAR_REPAIR_MATERIAL:
-		var rr: Crafting.Recipe = Crafting.recipe(StringName("repair_%s" % item))
-		var mat: StringName = Config.GEAR_REPAIR_MATERIAL[item]
-		check(rr != null and rr.inputs[0].item == mat, "%s repairs with %s" % [item, mat])
+	check_eq(r.inputs.size(), 1, "one kind of material")
+	check_eq(r.inputs[0].item, &"ingot_iron", "iron ingots")
+	check_eq(r.inputs[0].count, 2, "two of them (M7-rf: anyone's higher cost; M7a took one)")
 	var inv: Inventory = Inventory.new()
 	inv.add(&"sword_t1", 1)
 	inv.add(&"sword_t1", 1)
-	inv.add(&"ingot_iron", 3)
+	inv.add(&"ingot_iron", 7)
 	inv.stack_at(0).durability = 60
 	inv.stack_at(1).durability = 30
 	check(Crafting.shown_recipes(Crafting.ANVIL, inv).has(r), "worn swords: the repair row shows")
 	var o: Crafting.Outcome = Crafting.craft(r, "cleric", inv)
 	check(o.ok(), "repaired (%s)" % o.why)
 	check_eq([inv.stack_at(0).durability, inv.stack_at(1).durability], [60, 120], "the most worn one is full again")
-	check_eq(inv.count_of(&"ingot_iron"), 2, "one ingot used")
+	check_eq(inv.count_of(&"ingot_iron"), 5, "two ingots used")
 	check(Crafting.craft(r, "cleric", inv).ok() and inv.stack_at(0).durability == 120, "the other one")
+	check_eq(inv.count_of(&"ingot_iron"), 3, "two more used")
 	check(not Crafting.shown_recipes(Crafting.ANVIL, inv).has(r), "nothing worn: no repair row")
 	var before: String = inv.describe()
 	check_eq(Crafting.craft(r, "cleric", inv).why, Crafting.WHY_NOTHING_TO_REPAIR, "nothing to repair")
 	check_eq(inv.describe(), before, "nothing changed")
 	inv.stack_at(0).durability = 5
+	inv.remove(2, 2)
+	check_eq(inv.count_of(&"ingot_iron"), 1, "one ingot left")
+	var one_before: String = inv.describe()
+	check_eq(Crafting.refusal(r, "cleric", inv), Crafting.WHY_MISSING, "one ingot: missing inputs (the cost is two)")
+	check_eq(Crafting.craft(r, "cleric", inv).why, Crafting.WHY_MISSING, "one ingot: the repair refused")
+	check(inv.describe() == one_before and inv.stack_at(0).durability == 5, "the sword still worn, the ingot kept")
+	check(inv.stack_at(2) != null and inv.stack_at(2).id == &"ingot_iron", "(the ingot in slot 3)")
 	inv.remove(2, 1)
-	check_eq(inv.count_of(&"ingot_iron"), 0, "out of ingots")
 	check_eq(Crafting.craft(r, "cleric", inv).why, Crafting.WHY_MISSING, "no ingot: missing inputs")
-	check_eq(inv.stack_at(0).durability, 5, "still worn")
 	var armor: Inventory = Inventory.new()
-	armor.add(&"ingot_iron", 1)
+	armor.add(&"ingot_iron", 2)
 	armor.wear(ItemStack.new(&"armor_t1", 1, 0, 0))
-	check(Crafting.craft(Crafting.recipe(&"repair_armor_t1"), "miner", armor).ok() and armor.armor.durability == 100,
-		"the worn (broken) armour repaired")
+	check(Crafting.craft(Crafting.recipe(&"repair_armor_t1"), "miner", armor).ok() and armor.armor.durability == 100
+		and armor.count_of(&"ingot_iron") == 0, "the worn (broken) armour repaired for two ingots")
 	var fresh: Inventory = Crafting.copy_of(armor)
 	fresh.seen.clear()
-	fresh.add(&"ingot_iron", 1)
+	fresh.add(&"ingot_iron", 2)
 	fresh.armor.durability = 3
 	if Config.RECIPES_UNLOCK_ON_FIRST_GET:
 		check_eq(Crafting.craft(Crafting.recipe(&"repair_armor_t1"), "miner", fresh).why, Crafting.WHY_LOCKED,
 			"never had the armour itself (only worn by a copy): locked")
+
+
+## M7-rf: every item with durability (all six, the table written out above): its repair is at the anvil only (no other
+## station's panel shows it, a craft away from the anvil is the host's no-station check, test_net_build.gd), anyone may do it
+## (every class), one of its material is refused, two restore the most worn one fully and leave the other as it was.
+func _check_repair_every_item() -> void:
+	check_eq(Config.GEAR_REPAIR_MATERIAL.size(), REPAIRS.size(), "six items repair")
+	for item: StringName in REPAIRS:
+		var mat: StringName = REPAIRS[item]
+		var rr: Crafting.Recipe = Crafting.recipe(StringName("repair_%s" % item))
+		if not check(rr != null and rr.is_repair() and rr.repair == item, "%s has a repair" % item):
+			continue
+		check(rr.station == Crafting.ANVIL and rr.classes.is_empty() and rr.inputs.size() == 1 and rr.inputs[0].item == mat
+			and rr.inputs[0].count == 2, "%s: at the anvil, anyone's, two %s" % [item, mat])
+		for kind: StringName in [Crafting.ALCHEMY, Crafting.WORKBENCH, Crafting.RELIC, Crafting.HAND]:
+			check(not Crafting.recipes_for(kind).has(rr), "%s's repair is not at the %s" % [item, kind])
+		for class_id: String in CLASS_GEAR:
+			var inv: Inventory = Inventory.new()
+			var full: int = Gear.max_durability(item)
+			if Gear.is_armor(item):
+				inv.add(item, 1)
+				inv.wear(ItemStack.new(item, 1, 0, full / 4))
+				inv.stack_at(0).durability = full / 2
+			else:
+				inv.add(item, 1)
+				inv.add(item, 1)
+				inv.stack_at(0).durability = full / 2
+				inv.stack_at(1).durability = full / 4
+			inv.add(mat, 1)
+			check_eq(Crafting.craft(rr, class_id, inv).why, Crafting.WHY_MISSING, "%s by a %s with one %s: refused" % [item, class_id, mat])
+			inv.add(mat, 1)
+			check(Crafting.shown_recipes(Crafting.ANVIL, inv).has(rr), "%s: the anvil's panel shows the repair" % item)
+			var o: Crafting.Outcome = Crafting.craft(rr, class_id, inv)
+			var worst: int = inv.armor.durability if Gear.is_armor(item) else inv.stack_at(1).durability
+			check(o.ok() and worst == full and inv.stack_at(0).durability == full / 2 and inv.count_of(mat) == 0,
+				"%s by a %s with two %s: the most worn one full (%d), the other as it was (%s)" % [item, class_id, mat, worst, o.why])
 
 
 ## Broken = base stats (Config.GEAR_BROKEN_UNUSABLE off): a broken tier-1 sword hits like the basic sword and still

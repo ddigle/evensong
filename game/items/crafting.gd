@@ -34,10 +34,12 @@ extends RefCounted
 ## Config.STATION_RECIPES (anyone may craft them: ● §3.0 R11 tier 1 is anyone's at the anvil, and nothing else in the chain
 ## is a class's), appended after the potions so a CRAFT request's index (M6b) keeps its meaning. Each station is made at the
 ## one before it (the workbench by hand). M7c: a session's host crafts every one of them (CRAFT, net/session_host.gd).
-## Repair recipes (one per item with durability, at the anvil, Config.GEAR_REPAIR_MATERIAL): one material gives the most
+## Repair recipes (one per item with durability, at the anvil, Config.GEAR_REPAIR_MATERIAL): its material gives the most
 ## worn one of that item the player carries its full durability back (Gear.most_worn; nothing worn = refused, "nothing to
-## repair"); they show only while there is something to repair. M7-fix: only with Gear.repair_on
-## (Config.GEAR_REPAIR_AT_ANVIL, off: ● §2.6 R12 repair is the engineer's work; WHY_NO_REPAIR, never shown).
+## repair"); they show only while there is something to repair. M7-fix: only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL;
+## off: WHY_NO_REPAIR, never shown). M7-rf (the human's decision, 2026-10-26: ● §3.0 R11 "공용 수행 = 누구나, 낮은 효율"):
+## on, anyone repairs at the higher common cost, Config.GEAR_REPAIR_COST_ANYONE of the material (M7a took 1); the engineer's
+## cheaper repair is the class-only tier and comes with the engineer (not in the slice).
 ## M7b: the build pieces at the basic workbench and the axe by hand (Config.BUILD_RECIPES, PROVISIONAL README "임시값" M7b),
 ## appended after the repairs (26..30), anyone's.
 
@@ -65,7 +67,8 @@ const WHY_NO_ROOM: String = "no room"
 const WHY_BAD_RECIPE: String = "no such recipe"
 ## M7a: a repair recipe with no worn item of its kind.
 const WHY_NOTHING_TO_REPAIR: String = "nothing to repair"
-## M7-fix: a repair while Gear.repair_on is off (Config.GEAR_REPAIR_AT_ANVIL: repair is the engineer's work, ● §2.6 R12).
+## M7-fix: a repair while Gear.repair_on is off (Config.GEAR_REPAIR_AT_ANVIL; M7-rf: on by the human's decision, so only a
+## test that turns the switch off reaches it).
 const WHY_NO_REPAIR: String = "repair is the engineer's work"
 
 
@@ -165,7 +168,8 @@ static func _build_potions() -> void:
 
 
 ## M7a: the workbench chain's recipes (Config.STATION_RECIPES, anyone's), then one repair recipe per item with durability
-## (at the anvil, Config.GEAR_REPAIR_MATERIAL), after the potions (a CRAFT index of M6b keeps its meaning).
+## (at the anvil, Config.GEAR_REPAIR_MATERIAL; M7-rf: Config.GEAR_REPAIR_COST_ANYONE of it, anyone's higher cost), after the
+## potions (a CRAFT index of M6b keeps its meaning).
 static func _build_chain() -> void:
 	_add_rows(Config.STATION_RECIPES)
 	for item: StringName in Config.GEAR_REPAIR_MATERIAL:
@@ -173,7 +177,7 @@ static func _build_chain() -> void:
 		rr.id = StringName("repair_%s" % item)
 		rr.station = ANVIL
 		rr.repair = item
-		rr.inputs.append(Ingredient.new(Config.GEAR_REPAIR_MATERIAL[item], 1))
+		rr.inputs.append(Ingredient.new(Config.GEAR_REPAIR_MATERIAL[item], Config.GEAR_REPAIR_COST_ANYONE))
 		rr.output = item
 		_recipes.append(rr)
 	_add_rows(Config.BUILD_RECIPES)  # M7b
@@ -384,7 +388,8 @@ static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
 
 
 ## Crafts `r` for a player of `class_id` from `inv`, all or nothing (see the class comment). M7a: a repair takes its
-## material and gives the most worn one of its item (Gear.most_worn) its full durability; nothing is added.
+## material (M7-rf: Config.GEAR_REPAIR_COST_ANYONE of it) and gives the most worn one of its item (Gear.most_worn) its
+## full durability; nothing is added.
 static func craft(r: Recipe, class_id: String, inv: Inventory) -> Outcome:
 	var o: Outcome = Outcome.new()
 	o.why = refusal(r, class_id, inv)

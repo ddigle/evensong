@@ -15,7 +15,8 @@ extends RefCounted
 ## Config.GEAR_WEAR_PER_ATTACK on each attack it lands (wear_weapon: offline Main on the hit frame), the worn armour
 ## Config.GEAR_WEAR_PER_HIT on each knife hit it takes (Player.take_hit), every such item the player carries
 ## Config.GEAR_DEATH_WEAR_PCT of its full durability on death (wear_on_death). At 0 it is broken: it works as its base item
-## (Config.GEAR_BROKEN_UNUSABLE off) or not at all (on). Repair: an anvil recipe per item (Crafting, Config.GEAR_REPAIR_MATERIAL).
+## (Config.GEAR_BROKEN_UNUSABLE off) or not at all (on). Repair: an anvil recipe per item (Crafting, Config.GEAR_REPAIR_MATERIAL;
+## M7-rf, the human's decision: anyone, Config.GEAR_REPAIR_COST_ANYONE of the material, the higher common cost).
 
 const WHY_NOT_ARMOR: String = "not armour"
 const WHY_EMPTY: String = "empty slot"
@@ -26,7 +27,8 @@ const WHY_BROKEN: String = "broken"
 ## M7-fix: Config.GEAR_BROKEN_UNUSABLE as unusable() reads it (tests turn it on to check the host refuses a broken item's
 ## use, and put it back).
 static var broken_unusable: bool = Config.GEAR_BROKEN_UNUSABLE
-## M7-fix: Config.GEAR_REPAIR_AT_ANVIL as Crafting reads it (tests turn it on to check repairing, and put it back).
+## M7-fix: Config.GEAR_REPAIR_AT_ANVIL as Crafting reads it (M7-rf: on by default, the human's decision; tests turn it off
+## to check the refusal, and put it back).
 static var repair_on: bool = Config.GEAR_REPAIR_AT_ANVIL
 
 

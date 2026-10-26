@@ -22,15 +22,16 @@ const KIND_NONE: int = 0
 const KIND_ROCK: int = 1
 const KIND_BEDROCK: int = 2
 ## M7b, built pieces (● gameplay-design §3.3 R37: a built wall is the same layer as the dungeon's walls, above the floor;
-## stone only; items/building.gd): a stone wall, a door (closed / open: one cell edit opens or closes it) and a laid stone
-## floor piece. A floor piece is no wall (it does not block and casts no face): it lives in this byte so the ground's
-## terrain under it stays (IMPL: the FLOOR layer is the ground's dual-grid terrain, grass / soil / ash), and one tile holds
-## either a wall or a floor piece. Built pieces carry no hits (mining does not break them: right-click takes them down).
+## stone only; items/building.gd): a stone wall and a door (closed / open: one cell edit opens or closes it). Built pieces
+## carry no hits (mining does not break them: right-click takes them down).
+## Kind 6 is retired: M7b's laid floor piece (KIND_FLOOR, a wall-byte kind that blocked nothing, so a tile held a wall or a
+## floor piece). M7-rf (the human's decision of 2026-10-26, ● §3.1 / §3.3 R37) moved floor pieces to the floor side
+## (WorldData.Layer.FLOOR_PIECE), under the wall layer: a wall or a door stands on one. No WALL byte holds 6 now; the other
+## kinds keep their numbers, and a stray 6 (or 7..15) is no wall and nothing built (is_wall_kind lists the kinds).
 const KIND_STONE: int = 3
 const KIND_DOOR: int = 4
 const KIND_DOOR_OPEN: int = 5
-const KIND_FLOOR: int = 6
-const KIND_NAMES: PackedStringArray = ["none", "rock", "bedrock", "stone", "door", "door_open", "floor"]
+const KIND_NAMES: PackedStringArray = ["none", "rock", "bedrock", "stone", "door", "door_open"]
 const KIND_MASK: int = 0x0f
 const HITS_SHIFT: int = 4
 const HITS_MAX: int = 15
@@ -73,13 +74,14 @@ static func ore_at(data: WorldData, c: Vector2i) -> int:
 
 
 ## A wall on tile `c`: a dungeon wall (rock, bedrock) or (M7b) a built one (stone wall, door open or closed). It has a top
-## and casts a face on the tile below when that one is no wall. A floor piece is no wall.
+## and casts a face on the tile below when that one is no wall. A floor piece is no wall (M7-rf: not in this byte at all).
 static func is_wall(data: WorldData, c: Vector2i) -> bool:
 	return is_wall_kind(kind_at(data, c))
 
 
+## M7-rf: the wall kinds by name (rock .. door_open); any other value (the retired 6, unused 7..15) is no wall.
 static func is_wall_kind(kind: int) -> bool:
-	return kind != KIND_NONE and kind != KIND_FLOOR
+	return kind >= KIND_ROCK and kind <= KIND_DOOR_OPEN
 
 
 ## M7b: a dungeon wall (the generator's rock and bedrock: the cave view draws it, mining breaks it).
@@ -104,11 +106,6 @@ static func is_door(data: WorldData, c: Vector2i) -> bool:
 
 static func is_open_door(data: WorldData, c: Vector2i) -> bool:
 	return kind_at(data, c) == KIND_DOOR_OPEN
-
-
-## M7b: a laid floor piece on tile `c` (it does not block).
-static func is_floor_piece(data: WorldData, c: Vector2i) -> bool:
-	return kind_at(data, c) == KIND_FLOOR
 
 
 ## A floor tile with a wall right above it: the wall's front face is drawn here (blocked).

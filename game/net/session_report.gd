@@ -76,13 +76,13 @@ static func map_result(s: NetSession, map: int) -> Dictionary:
 		"builds": builds_of(w.data), "builds_view": w.builds.verify() if w.builds != null else {}}
 
 
-## M7c: what is built and standing on `data`: built walls, closed and open doors, floor pieces, lantern posts, trees, stumps,
+## M7c: what is built and standing on `data`: built walls, closed and open doors, floor pieces (M7-rf: a tile under a wall
+## counts too), lantern posts, trees, stumps,
 ## the stations by kind and every chest's contents by its tile ("x,y" -> WorldData.Chest.describe(), held ones only).
 static func builds_of(data: WorldData) -> Dictionary:
 	var walls: int = 0
 	var doors: int = 0
 	var open_doors: int = 0
-	var floors: int = 0
 	for y: int in data.size.y:
 		for x: int in data.size.x:
 			var k: int = Walls.kind_at(data, Vector2i(x, y))
@@ -92,8 +92,7 @@ static func builds_of(data: WorldData) -> Dictionary:
 				doors += 1
 			elif k == Walls.KIND_DOOR_OPEN:
 				open_doors += 1
-			elif k == Walls.KIND_FLOOR:
-				floors += 1
+	var floors: int = data.floor_piece_count()  # M7-rf: the FLOOR_PIECE layer (under the walls too)
 	var chests: Dictionary = {}
 	for key: Vector2i in data.held_chests():
 		chests["%d,%d" % [key.x, key.y]] = data.chests[key].describe()

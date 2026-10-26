@@ -643,13 +643,18 @@ const GEAR_DEATH_WEAR_PCT: int = 20
 ## PROVISIONAL (not in docs): what a broken item (durability 0) does. False = it still works as its base item (a broken
 ## sword_t1 hits like the basic sword, broken armour takes nothing off); true = it cannot be used at all.
 const GEAR_BROKEN_UNUSABLE: bool = false
-## PROVISIONAL (? ● gameplay-design §2.6 R12 "(기술자 수리 = 기술자 일감)": repair is the engineer's work, and the engineer is
-## not in the slice; README "M7-fix 수리" asks the human): whether anyone may repair at the anvil. False (M7-fix: following the
-## ● line, nobody repairs in the slice; worn gear works on as its base item at 0, GEAR_BROKEN_UNUSABLE off): the repair rows
-## are never shown and a repair craft is refused (Crafting.WHY_NO_REPAIR). True = M7a's rule: anyone, below.
-const GEAR_REPAIR_AT_ANVIL: bool = false
-## PROVISIONAL (with GEAR_REPAIR_AT_ANVIL on; not in the docs): repairing one item at the anvil costs one of this material and
-## gives it full durability (the most worn one of that item the player carries, the worn armour included).
+## DECIDED by the human (2026-10-26; README "M7-fix 수리" is now "사람이 정함 2026-10-26"; ● gameplay-design §3.0 R11's three
+## tiers, "공용 수행 = 누구나, 낮은 효율"): anyone may repair at the anvil, at the higher common cost GEAR_REPAIR_COST_ANYONE.
+## The engineer's cheaper repair (● §2.6 R12 "기술자 수리 = 기술자 일감") is the class-only tier and comes with the engineer,
+## who is not in the slice. M7-fix had it false (nobody repaired: the repair rows never shown, a repair craft refused with
+## Crafting.WHY_NO_REPAIR); the switch stays so tests can turn it off (Gear.repair_on).
+const GEAR_REPAIR_AT_ANVIL: bool = true
+## PROVISIONAL (the human decided "anyone, at a higher cost"; the number is not in the docs; README "임시값" M7-rf 수리 비용):
+## how many of its material (GEAR_REPAIR_MATERIAL) one repair at the anvil takes. M7a's rule took 1; 2 is the higher common
+## cost, so that the engineer's future repair (not built: no engineer in the slice) can be the cheaper one.
+const GEAR_REPAIR_COST_ANYONE: int = 2
+## PROVISIONAL (not in the docs): each item's repair material at the anvil (GEAR_REPAIR_COST_ANYONE of it gives the most worn
+## one of that item the player carries, the worn armour included, its full durability).
 const GEAR_REPAIR_MATERIAL: Dictionary[StringName, StringName] = {
 	&"sword_t1": &"ingot_iron", &"pickaxe_t1": &"ingot_iron", &"armor_t1": &"ingot_iron",
 	&"bow_t1": &"ingot_copper", &"holy_light_t1": &"ingot_copper", &"sickle_t1": &"ingot_copper",
@@ -751,6 +756,18 @@ const AXE_IMPACT_FRAME: int = 3
 ## The closer's or the builder's own feet keep the M7b rules (not in the doorway, not under the piece); heretics too (nobody
 ## predicts them). Offline the same rule holds against the other players there (--test-ally).
 const BLOCK_CLEARANCE_PX: float = 24.0
+
+# --- PROVISIONAL, M7-rf (the human's decisions of 2026-10-26: repair, the floor piece's layer) ----------------------------
+# The human moved floor pieces to the floor side (● gameplay-design §3.1 layers, ● §3.3 R37 "건설 벽은 바닥 위 별도 층"): a
+# floor piece is WorldData.Layer.FLOOR_PIECE, a wall or a door may stand on one. README "임시값" M7-rf.
+
+## PROVISIONAL (not in the docs, nor in the decision; README "임시값" M7-rf 벽 아래 바닥): whether a floor piece may go down on a
+## tile that already holds a built wall or door (slid under it). False (the recommendation): refused, "lay the floor first"
+## (Building.WHY_FLOOR_FIRST): the floor goes down first, then the wall or door on it; a wall taken down shows the floor again.
+## M7-rf review: the same for the tile below a standing built wall or door (its face tile, a door's doorway, open or closed:
+## what is drawn there is the wall's face or the door, and it belongs to that wall, Walls.owner_of). Tests turn it on through
+## Building.floor_under_wall.
+const BUILD_FLOOR_UNDER_WALL: bool = false
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 

@@ -1030,8 +1030,9 @@ func _check_interpolation() -> void:
 
 # --- world snapshot ------------------------------------------------------------------------------
 
-## Every cell of every layer random (floor: random terrains): the incompressible upper bound. The
-## bytes come from Crypto (native, not seeded): random data packs to the same size every run.
+## Every cell of every layer random (floor: random terrains; M7-rf: floor pieces random among the known ones, none or stone,
+## as the snapshot refuses any other): the incompressible upper bound. The bytes come from Crypto (native, not seeded):
+## random data packs to the same size every run.
 static func _random_world(size: Vector2i) -> WorldData:
 	var data: WorldData = WorldData.new(size)
 	var cells: int = size.x * size.y
@@ -1041,6 +1042,9 @@ static func _random_world(size: Vector2i) -> WorldData:
 		if layer == WorldData.Layer.FLOOR:
 			for i: int in cells:
 				grid[i] = grid[i] % Terrain.COUNT
+		elif layer == WorldData.Layer.FLOOR_PIECE:
+			for i2: int in cells:
+				grid[i2] = grid[i2] % WorldData.FLOOR_PIECE_NAMES.size()
 		data.layers[layer] = grid
 	data.altar_rect = Rect2i((size - Config.ALTAR_FOOTPRINT) / 2, Config.ALTAR_FOOTPRINT)
 	return data
@@ -1086,25 +1090,29 @@ static func _receive_all(packed: WorldSnapshot.Packed) -> WorldData:
 	return rx.finish(packed.chunk_count(), packed.bytes.size(), packed.packed_md5, packed.raw_size, packed.world_md5)
 
 
-## The world snapshot: all six layers round trip exactly, the chunks are bounded and in order, and
-## the joiner refuses anything that does not add up (Receiver.finish, decode_raw).
+## The world snapshot: all seven layers (M7-rf: the floor pieces too) round trip exactly, the chunks are bounded and in
+## order, and the joiner refuses anything that does not add up (Receiver.finish, decode_raw).
 func _check_snapshot() -> void:
 	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 6
 	for layer: int in [WorldData.Layer.WALL, WorldData.Layer.ORE, WorldData.Layer.VEGETATION]:
-		for i: int in 300:  # M1 leaves these empty: fill some so the round trip covers all six
+		for i: int in 300:  # M1 leaves these empty: fill some so the round trip covers all seven
 			data.set_value(layer, Vector2i(rng.randi_range(0, data.size.x - 1), rng.randi_range(0, data.size.y - 1)),
 				rng.randi_range(1, 255))
+	for i2: int in 300:  # M7-rf: floor pieces (stone; the snapshot refuses unknown pieces)
+		data.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(rng.randi_range(0, data.size.x - 1),
+			rng.randi_range(0, data.size.y - 1)), WorldData.FLOOR_PIECE_STONE)
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
 	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2,
-		"raw snapshot = header + six layers + drop count (0) + chest count (0, M7c)")
+		"raw snapshot = header + seven layers (M7-rf) + drop count (0) + chest count (0, M7c)")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	if check(back != null, "raw snapshot decodes"):
 		var same: bool = back.size == data.size and back.world_seed == data.world_seed and back.altar_rect == data.altar_rect
 		for layer: int in WorldData.LAYER_COUNT:
 			same = same and back.layers[layer] == data.layers[layer]
-		check(same, "size, seed, altar and all six layers round trip")
+		check(same and back.floor_piece_count() == data.floor_piece_count() and data.floor_piece_count() > 250,
+			"size, seed, altar and all seven layers round trip (%d floor pieces)" % data.floor_piece_count())
 		check_eq(back.content_hash(), data.content_hash(), "same content hash")
 	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(data)
 	check(packed.bytes.size() < raw.size() / 10, "zstd packs it (%d of %d bytes)" % [packed.bytes.size(), raw.size()])
@@ -1183,6 +1191,12 @@ func _check_snapshot() -> void:
 	bad = raw.duplicate()
 	bad[WorldSnapshot.HEADER_SIZE + 7] = Terrain.COUNT
 	check(WorldSnapshot.decode_raw(bad) == null, "a floor value that is no terrain")
+	bad = raw.duplicate()
+	bad[WorldSnapshot.HEADER_SIZE + WorldData.Layer.FLOOR_PIECE * data.size.x * data.size.y + 9] = 2
+	check(WorldSnapshot.decode_raw(bad) == null, "a floor piece value that is no floor piece (M7-rf)")
+	bad = raw.duplicate()
+	bad.encode_u8(20, 6)
+	check(WorldSnapshot.decode_raw(bad) == null, "a version 8 snapshot's six layers (M7-rf: seven)")
 	bad = raw.duplicate()
 	bad.encode_u16(0, 0)
 	check(WorldSnapshot.decode_raw(bad) == null, "an empty map")
@@ -1334,7 +1348,7 @@ func _check_snapshot_join() -> void:
 	var view: GameWorld = _new_world()
 	var cases: Array[Array] = [
 		["128x96 M1 map (seed 1)", SurfaceGen.generate(Config.DEFAULT_SEED), true],
-		["512x512 synthetic (all six layers in use)", _synthetic_world(Vector2i(512, 512), 5), true],
+		["512x512 synthetic (all six layers in use, no floor pieces)", _synthetic_world(Vector2i(512, 512), 5), true],
 		["512x512 random (upper bound)", _random_world(Vector2i(512, 512)), false],
 	]
 	for c: Array in cases:
