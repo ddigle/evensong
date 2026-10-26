@@ -566,6 +566,8 @@ static func _check_chain(r: Report) -> void:
 ## each in the light, two outside), the wall and its face block and the closed door blocks until opened, right-click
 ## gives a piece back, an axe fells a tree in Config.TREE_CHOP_HITS swings into logs and a stump that grows back. Field
 ## `build=<pieces put down>/<cost in the light>/<cost outside> trees=<count>/<logs from one>`.
+## M7-rf: the wall stands on a floor piece laid first (three pieces put down); right-click takes the wall down and leaves the
+## floor piece, a second takes the floor piece up.
 static func _check_build(r: Report) -> void:
 	for path: String in ["res://art/env/build_stone_candA_v02.png", "res://art/env/tree_v02.png", "res://art/env/stump_v01.png",
 			"res://art/env/prop_lantern_post_c_v03_lit.png", "res://art/env/prop_lantern_post_c_v03_emissive.png",
@@ -578,10 +580,17 @@ static func _check_build(r: Report) -> void:
 	var inv: Inventory = Inventory.new()
 	inv.add(&"stone_wall", 4)
 	inv.add(&"door", 1)
+	inv.add(&"stone_floor", 2)
 	var feet: Vector2 = Arena.spawn_feet(Vector2i(62, 51))
 	var placed: int = 0
+	var floor_o: WorldItems.Outcome = Building.build(data, feet, inv, 2, Vector2i(61, 52))  # M7-rf: the floor first
+	r.expect(floor_o.ok() and floor_o.edits.size() == 1 and floor_o.edits[0].layer == WorldData.Layer.FLOOR_PIECE,
+		"a floor piece south-west of the altar refused: %s" % floor_o.why)
+	for e0: EditLog.WorldEdit in floor_o.edits:
+		EditLog.apply_to_data(data, e0)
+	placed += 1 if floor_o.ok() else 0
 	var wall: WorldItems.Outcome = Building.build(data, feet, inv, 0, Vector2i(61, 52))
-	r.expect(wall.ok(), "a wall south-west of the altar refused: %s" % wall.why)
+	r.expect(wall.ok(), "a wall on the floor piece south-west of the altar refused (M7-rf): %s" % wall.why)
 	for e: EditLog.WorldEdit in wall.edits:
 		EditLog.apply_to_data(data, e)
 	placed += 1 if wall.ok() else 0
@@ -602,6 +611,15 @@ static func _check_build(r: Report) -> void:
 	r.expect(cost_in < cost_out, "cheaper in the light (%d) than outside (%d)" % [cost_in, cost_out])
 	var down: WorldItems.Outcome = Building.demolish(data, feet, inv, Vector2i(61, 52))
 	r.expect(down.ok() and down.item == &"stone_wall", "right-click takes the wall down: %s" % down.why)
+	for e6: EditLog.WorldEdit in down.edits:
+		EditLog.apply_to_data(data, e6)
+	r.expect(data.has_floor_piece(Vector2i(61, 52)) and not Movement.is_blocked(data, Vector2i(61, 52)),
+		"the floor piece stays under the wall taken down (M7-rf)")
+	var up: WorldItems.Outcome = Building.demolish(data, feet, inv, Vector2i(61, 52))
+	for e7: EditLog.WorldEdit in up.edits:
+		EditLog.apply_to_data(data, e7)
+	r.expect(up.ok() and up.item == &"stone_floor" and not data.has_floor_piece(Vector2i(61, 52)),
+		"a second right-click takes the floor piece up (M7-rf): %s" % up.why)
 	var logs: int = 0
 	if not trees.is_empty():
 		var t: Vector2i = trees[0]
@@ -915,6 +933,8 @@ static func _check_net_fields(r: Report) -> void:
 ## M7c: stations, gear, the chest, building and trees on the wire: the four new requests round trip, an inventory with a
 ## worn tier-1 sword and the armour, and a host world with a built wall, an open door, a stump, an anvil and a chest holding
 ## something reaches a client as the snapshot (the same hash) and the edits after it (a chest slot, the door closing).
+## M7-rf (protocol v9): the wall stands on a floor piece in the snapshot, and a floor piece laid under the open door is an
+## edit (the floor piece layer) before the door closes on it.
 static func _check_net_builds(r: Report) -> void:
 	var frames: Array[NetProtocol.InputFrame] = []
 	for op: int in [NetProtocol.Op.DEMOLISH, NetProtocol.Op.DOOR, NetProtocol.Op.ARMOR, NetProtocol.Op.CHEST]:
@@ -939,7 +959,8 @@ static func _check_net_builds(r: Report) -> void:
 		"an inventory with durability and the armour round trips (M7c)")
 	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	var tree: Vector2i = Forest.tree_cells(host)[0]
-	for e: EditLog.WorldEdit in [Building.edit_for(Building.STONE_WALL, Vector2i(66, 56)),
+	for e: EditLog.WorldEdit in [Building.edit_for(Building.STONE_FLOOR, Vector2i(66, 56)),
+			Building.edit_for(Building.STONE_WALL, Vector2i(66, 56)),
 			EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_DOOR_OPEN, 0)),
 			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, tree, WorldData.PLACEABLE_STUMP),
 			EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(62, 51), WorldData.PLACEABLE_ANVIL),
@@ -954,6 +975,7 @@ static func _check_net_builds(r: Report) -> void:
 	if client == null:
 		return
 	var later: Array[EditLog.WorldEdit] = [EditLog.WorldEdit.chest_slot(Vector2i(62, 44), 2, null),
+		Building.edit_for(Building.STONE_FLOOR, Vector2i(64, 56)),
 		EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(64, 56), Walls.pack(Walls.KIND_DOOR, 0))]
 	var edit_bytes: int = 0
 	for i: int in later.size():
@@ -966,6 +988,9 @@ static func _check_net_builds(r: Report) -> void:
 	r.expect(client.content_hash() == host.content_hash() and Walls.is_door(client, Vector2i(64, 56))
 		and not Walls.is_open_door(client, Vector2i(64, 56)) and client.chest_at(Vector2i(62, 44)).is_empty(),
 		"a chest slot edit and the door closing follow (M7c)")
+	r.expect(client.has_floor_piece(Vector2i(66, 56)) and Walls.is_built(client, Vector2i(66, 56))
+		and client.has_floor_piece(Vector2i(64, 56)) and Walls.is_door(client, Vector2i(64, 56)),
+		"a wall and a door each on a floor piece: one in the snapshot, one through an edit (M7-rf, v9)")
 	r.fields.append("builds_wire=%dB/%dB/%dB" % [inv_bytes.size(), packed.bytes.size(), edit_bytes])
 
 

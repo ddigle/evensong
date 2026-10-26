@@ -123,7 +123,11 @@ extends RefCounted
 ## requests, durability and the armour slot in the inventory message, the chest slot edit (net/edit_log.gd) and the chests'
 ## contents in the world snapshot (net/world_snapshot.gd). Built walls, doors, floor pieces, lanterns, trees, stumps and
 ## stations are cell edits and snapshot layers as before.
-const VERSION: int = 8
+## 9 (M7-rf): floor pieces are a layer of their own (WorldData.Layer.FLOOR_PIECE, under the wall layer: a wall or a door may
+## stand on one): the world snapshot carries seven layers (the header's layer count 7; a joiner refuses a floor piece value
+## that is none of WorldData.FLOOR_PIECE_*), a floor piece is a cell edit on layer 6 (net/edit_log.gd). A version 8 peer
+## would read a floor piece as the retired wall kind 6 and miss the seventh layer: refused with `version`.
+const VERSION: int = 9
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1

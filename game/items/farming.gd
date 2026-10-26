@@ -243,8 +243,8 @@ static func till_refusal(data: WorldData, feet: Vector2, c: Vector2i) -> String:
 	if not WorldItems.in_reach(feet, c):
 		return WorldItems.WHY_REACH
 	if data.map_id != Config.MAP_SURFACE or Walls.blocks(data, c) or Walls.kind_at(data, c) != Walls.KIND_NONE \
-			or Walls.is_face(data, c):
-		return WHY_NO_GROUND  # M7b: nor a laid floor piece, a door (open too) or its doorway
+			or Walls.is_face(data, c) or data.has_floor_piece(c):
+		return WHY_NO_GROUND  # M7b: nor a laid floor piece (M7-rf: the FLOOR_PIECE layer), a door (open too) or its doorway
 	var t: int = data.terrain_at(c)
 	if t == Terrain.SOIL:
 		return WHY_TILLED

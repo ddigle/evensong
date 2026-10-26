@@ -9,16 +9,22 @@ extends RefCounted
 ## door are WALL layer kinds (world/walls.gd: Walls.KIND_STONE, KIND_DOOR / KIND_DOOR_OPEN) that block players, heretics
 ## and shots exactly like a dungeon wall (Movement.is_blocked -> Walls.blocks: the wall tile and the face tile below it),
 ## and draw with the wall layer under the entities (world/build_view.gd: the top on the tile, the 16x24 face from the top
-## of the tile below, the build sheet's own assembly rule). A laid floor piece is the WALL byte's KIND_FLOOR (no wall: it
-## blocks nothing; IMPL, see Walls); the lantern post is a placeable (WorldData.PLACEABLE_LANTERN) with a light
-## (world/fixture_view.gd).
+## of the tile below, the build sheet's own assembly rule). A laid floor piece blocks nothing; the lantern post is a
+## placeable (WorldData.PLACEABLE_LANTERN) with a light (world/fixture_view.gd).
+## M7-rf (the human's decision of 2026-10-26, ● §3.1 layers, ● §3.3 R37 "건설 벽은 바닥 위 별도 층"): a floor piece is the
+## floor side's built byte (WorldData.Layer.FLOOR_PIECE, M7b had it in the WALL byte), so a stone wall or a door stands on a
+## floor piece and the floor piece stays under it (drawn first: the wall's and the door's art, an open door's too, covers it
+## while they stand; taking them down shows it again). Right-click takes the top piece first (built_at: the lantern, the
+## wall or door, then the floor piece on a later click).
 ## ○ / not in the docs (PROVISIONAL, core/config.gd "M7b", README "임시값" M7b):
 ##   - the pieces are items made at the basic workbench (Config.BUILD_RECIPES); one is chosen in the hotbar and a click puts
 ##     one down on the target tile (grid-snapped: the M2 target tile, Config.REACH_TILES), at once;
 ##   - the cost (○ §3.3 "제단 반경 안은 건설 비용 감소"): Config.BUILD_COST_IN_LIGHT pieces on a tile inside the altar's
 ##     light (every corner, Farming.in_light), Config.BUILD_COST_OUTSIDE_LIGHT elsewhere (the dungeon included);
-##   - where (refusal): on the map, in reach, never on another piece, a placeable (the altar, the entrance, the stairs,
-##     stations, trees, torches), a dungeon wall or its face, a field, a plant; a blocking piece also never on a drop, a body
+##   - where (refusal): on the map, in reach, never on another piece (M7-rf: but a wall, a door or a lantern on a floor piece;
+##     a floor piece never under a built wall or door, Config.BUILD_FLOOR_UNDER_WALL: lay the floor first), a placeable (the
+##     altar, the entrance, the stairs, stations, trees, torches), a dungeon wall or its face, a field, a plant; a blocking
+##     piece also never on a drop, a body
 ##     (players and heretics: `bodies`, the placer's own feet), a spot where players appear (WorldItems.reserved_feet) nor
 ##     so that one of those spots is walled in (seals: Config.BUILD_SEAL_REACH_TILES); a wall's face may not cover anything
 ##     but bare ground or a floor piece; a door needs open ground below it (its face is the door) and no wall may go right
@@ -34,13 +40,15 @@ const STONE_WALL: StringName = &"stone_wall"
 const DOOR: StringName = &"door"
 const STONE_FLOOR: StringName = &"stone_floor"
 const LANTERN: StringName = &"lantern"
-## Piece item -> [the WALL layer kind it lays (Walls.KIND_NONE: none), the placeable it stands (PLACEABLE_NONE: none)].
+## Piece item -> [the WALL layer kind it lays (Walls.KIND_NONE: none), the placeable it stands (PLACEABLE_NONE: none), the
+## floor piece it lays (M7-rf: WorldData.FLOOR_PIECE_*, FLOOR_PIECE_NONE: none)].
 const PIECES: Dictionary[StringName, Array] = {
-	STONE_WALL: [Walls.KIND_STONE, WorldData.PLACEABLE_NONE],
-	DOOR: [Walls.KIND_DOOR, WorldData.PLACEABLE_NONE],
-	STONE_FLOOR: [Walls.KIND_FLOOR, WorldData.PLACEABLE_NONE],
-	LANTERN: [Walls.KIND_NONE, WorldData.PLACEABLE_LANTERN],
+	STONE_WALL: [Walls.KIND_STONE, WorldData.PLACEABLE_NONE, WorldData.FLOOR_PIECE_NONE],
+	DOOR: [Walls.KIND_DOOR, WorldData.PLACEABLE_NONE, WorldData.FLOOR_PIECE_NONE],
+	STONE_FLOOR: [Walls.KIND_NONE, WorldData.PLACEABLE_NONE, WorldData.FLOOR_PIECE_STONE],
+	LANTERN: [Walls.KIND_NONE, WorldData.PLACEABLE_LANTERN, WorldData.FLOOR_PIECE_NONE],
 }
+const NO_PIECE: Array = [Walls.KIND_NONE, WorldData.PLACEABLE_NONE, WorldData.FLOOR_PIECE_NONE]
 const UP: Vector2i = Vector2i(0, -1)
 const DOWN: Vector2i = Vector2i(0, 1)
 
@@ -48,6 +56,8 @@ const WHY_NOT_PIECE: String = "not a build piece"
 const WHY_DUNGEON: String = "no building in the dungeon"
 const WHY_COST: String = "not enough pieces"
 const WHY_PIECE_THERE: String = "a piece is there"
+## M7-rf (PROVISIONAL Config.BUILD_FLOOR_UNDER_WALL off): a floor piece aimed at a built wall or door.
+const WHY_FLOOR_FIRST: String = "lay the floor first"
 const WHY_GROWING: String = "a field or a plant is there"
 const WHY_DOOR_BELOW: String = "a door needs open ground below"
 const WHY_HIDES: String = "its face would cover something"
@@ -78,26 +88,31 @@ static func piece_in(inv: Inventory, slot: int) -> StringName:
 
 
 static func wall_kind_of(id: StringName) -> int:
-	var row: Array = PIECES.get(id, [Walls.KIND_NONE, WorldData.PLACEABLE_NONE])
+	var row: Array = PIECES.get(id, NO_PIECE)
 	var k: int = row[0]
 	return k
 
 
 static func placeable_of(id: StringName) -> int:
-	var row: Array = PIECES.get(id, [Walls.KIND_NONE, WorldData.PLACEABLE_NONE])
+	var row: Array = PIECES.get(id, NO_PIECE)
 	var p: int = row[1]
 	return p
 
 
-## The piece a built thing on a tile stands for: a WALL kind, else a placeable (&"" for none).
+## M7-rf: the floor piece (WorldData.FLOOR_PIECE_*) piece `id` lays (FLOOR_PIECE_NONE for the others).
+static func floor_piece_of(id: StringName) -> int:
+	var row: Array = PIECES.get(id, NO_PIECE)
+	var f: int = row[2]
+	return f
+
+
+## The piece a built wall kind stands for (&"" for none).
 static func piece_of_kind(kind: int) -> StringName:
 	match kind:
 		Walls.KIND_STONE:
 			return STONE_WALL
 		Walls.KIND_DOOR, Walls.KIND_DOOR_OPEN:
 			return DOOR
-		Walls.KIND_FLOOR:
-			return STONE_FLOOR
 	return &""
 
 
@@ -145,18 +160,24 @@ static func refusal(data: WorldData, feet: Vector2, id: StringName, c: Vector2i,
 	if have < cost_at(data, c):
 		return WHY_COST
 	var kind: int = wall_kind_of(id)
-	var here: int = Walls.kind_at(data, c)
+	var lays_floor: bool = floor_piece_of(id) != WorldData.FLOOR_PIECE_NONE
 	if Walls.is_natural(data, c):
 		return WorldItems.WHY_NOT_OPEN
-	if Walls.is_wall(data, c) or (here == Walls.KIND_FLOOR and kind != Walls.KIND_NONE):
-		return WHY_PIECE_THERE  # a lantern may stand on a floor piece
+	if lays_floor:
+		# M7-rf: the floor side's own byte: one floor piece a tile, laid before the wall or door that stands on it.
+		if data.has_floor_piece(c):
+			return WHY_PIECE_THERE
+		if Walls.is_wall(data, c) and not Config.BUILD_FLOOR_UNDER_WALL:
+			return WHY_FLOOR_FIRST  # PROVISIONAL README "M7-rf 벽 아래 바닥"
+	elif Walls.is_wall(data, c):
+		return WHY_PIECE_THERE  # M7-rf: a wall, a door or a lantern may stand on a floor piece (the floor stays under it)
 	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE:
 		return WorldItems.WHY_NOT_OPEN
-	if Walls.is_face(data, c) and (Walls.is_natural(data, c + UP) or kind == Walls.KIND_NONE):
+	if Walls.is_face(data, c) and (Walls.is_natural(data, c + UP) or placeable_of(id) != WorldData.PLACEABLE_NONE):
 		return WorldItems.WHY_NOT_OPEN  # a dungeon wall's face (cliff); the lantern stands on no face at all
 	if _growing(data, c):
 		return WHY_GROWING
-	if kind != Walls.KIND_FLOOR and not data.drops_at(c).is_empty():
+	if not lays_floor and not data.drops_at(c).is_empty():
 		return WorldItems.WHY_NOT_OPEN
 	if Walls.is_wall_kind(kind):
 		if Walls.is_door(data, c + UP):
@@ -210,8 +231,8 @@ static func clear_of_others(cells: Array[Vector2i], others: Array[Vector2]) -> b
 
 
 ## A click with the piece in hotbar slot `slot` on tile `c`: its cost (cost_at) leaves the inventory (that slot first) and
-## the piece goes down (one WALL or PLACEABLE cell edit). `count` = the pieces used. M7c: `others` = the other players' feet
-## (refusal).
+## the piece goes down (one WALL, PLACEABLE or, M7-rf, FLOOR_PIECE cell edit). `count` = the pieces used. M7c: `others` = the
+## other players' feet (refusal).
 static func build(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: Vector2i,
 		bodies: Array[Vector2] = [], reserved_extra: Array[Vector2] = [], others: Array[Vector2] = []) -> WorldItems.Outcome:
 	if slot < 0 or slot >= inv.hotbar_size:
@@ -233,8 +254,11 @@ static func build(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 	return o
 
 
-## The world edit that puts piece `id` on tile `c`.
+## The world edit that puts piece `id` on tile `c` (M7-rf: a floor piece on the FLOOR_PIECE layer, under a wall's).
 static func edit_for(id: StringName, c: Vector2i) -> EditLog.WorldEdit:
+	var fp: int = floor_piece_of(id)
+	if fp != WorldData.FLOOR_PIECE_NONE:
+		return EditLog.WorldEdit.new(WorldData.Layer.FLOOR_PIECE, c, fp)
 	var kind: int = wall_kind_of(id)
 	if kind != Walls.KIND_NONE:
 		return EditLog.WorldEdit.new(WorldData.Layer.WALL, c, Walls.pack(kind, 0))
@@ -255,7 +279,8 @@ static func _take(inv: Inventory, slot: int, id: StringName, n: int) -> void:
 
 
 ## The built thing a right-click on tile `c` takes down: [its piece, the tile it stands on] ([&"", NO_CELL] for none). The
-## lantern on the tile, else a built wall on it or the one whose face it is, else a floor piece on it.
+## lantern on the tile, else a built wall on it or the one whose face it is, else a floor piece on it. M7-rf: the top piece
+## first: a wall or a door standing on a floor piece comes down before it (the floor piece on a later click).
 static func built_at(data: WorldData, c: Vector2i) -> Array:
 	if data.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_LANTERN:
 		return [LANTERN, c]
@@ -263,7 +288,7 @@ static func built_at(data: WorldData, c: Vector2i) -> Array:
 		return [piece_of_kind(Walls.kind_at(data, c)), c]
 	if Walls.is_face(data, c) and Walls.is_built(data, c + UP):
 		return [piece_of_kind(Walls.kind_at(data, c + UP)), c + UP]
-	if Walls.is_floor_piece(data, c):
+	if data.has_floor_piece(c):
 		return [STONE_FLOOR, c]
 	return [&"", Walls.NO_CELL]
 
@@ -297,8 +322,10 @@ static func demolish(data: WorldData, feet: Vector2, inv: Inventory, c: Vector2i
 	o.count = Config.BUILD_REFUND
 	if piece == LANTERN:
 		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, at, WorldData.PLACEABLE_NONE))
+	elif piece == STONE_FLOOR:
+		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.FLOOR_PIECE, at, WorldData.FLOOR_PIECE_NONE))  # M7-rf
 	else:
-		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, at, 0))
+		o.edits.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, at, 0))  # a floor piece under it stays
 	var left: int = inv.add(piece, Config.BUILD_REFUND)
 	if left > 0 and data.drops.size() < Config.MAX_DROPS:
 		var tile: Vector2i = Aim.feet_cell(feet)

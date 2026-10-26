@@ -103,14 +103,20 @@ extends SceneTree
 ##            slot with the worn piece and its bar, on their exact pixels (colours and rules written out here).
 ##   m7_panels (M7a) the chest panel over the open inventory (its place, frames, header, slots, icons, counts, a worn bow's
 ##            bar) and the anvil's crafting panel with one-, two- and three-input rows and the repair row of a worn sword
-##            (the widened panel's place, the slots and arrows at the layout written out here), every opaque pixel.
+##            (the widened panel's place, the slots and arrows at the layout written out here), every opaque pixel. M7-rf:
+##            the repair row shows by default (the human's decision) and its material's count digit "2" (anyone's higher
+##            cost) on its exact pixels.
 ##   builds   (M7b) evening off, the entities hidden: built pieces put down through the world's edits (a room of stone walls
 ##            with a closed door and floor pieces inside, an open door, an L, a vertical run, a lone wall, a pair): the
 ##            screen equals the background plus a CPU composite from the build sheet PNG by the sheet's assembly rule written
 ##            out here (floor pieces first by the variant rule; then row by row from the north: each wall's top by its
 ##            neighbour mask, its inner corner dots, its face from the tile below's top when that is no wall, its kind by the
-##            west / east neighbours' faces, a door's face the door), pixel for pixel. Then a lantern post (its PNG at its
-##            tile's bottom, centred) with the entities shown.
+##            west / east neighbours' faces, a door's face the door), pixel for pixel. M7-rf: the floor pieces are their own
+##            layer and the room's walls and closed door stand on them (under the whole room), an open door and its doorway
+##            over them; then the north wall's middle taken down (the floor piece under it shows, the composite again), and
+##            at the end everything taken down, the open door's floor piece last in a frame of its own (it shows once the
+##            door is down; taken up, the screen is the background again: the map's last piece too). Then a
+##            lantern post (its PNG at its tile's bottom, centred) with the entities shown.
 ##   trees    (M7b) evening off, the seed's trees on screen (the other entities hidden): the screen equals the background
 ##            plus each tree's PNG at (x*16 + 8 - 32, (y+1)*16 - 1 - 72), pasted in the order of their feet (the y-sort); then
 ##            one felled (a stump edit): its stump PNG at the same place.
@@ -122,7 +128,9 @@ extends SceneTree
 ##            floor piece, a lantern post, the three stations and the chest, the client's from a surface snapshot plus the
 ##            rest as edits through the wire codec (a wall, the door closing, a chest slot, a tree felled to a stump), and
 ##            a miner's axe swing from a state batch: around the room, the stations, the stump and the swing both screens are
-##            the same pixels, differ from the bare world, and the client's build and fixture views equal its data.
+##            the same pixels, differ from the bare world, and the client's build and fixture views equal its data. M7-rf:
+##            the room's bottom row and the open door's doorway stand on floor pieces in the snapshot, and the wall through
+##            the wire goes onto a floor piece laid through the wire just before it.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -2113,7 +2121,8 @@ const BUILD_PNG: String = "env/build_stone_candA_v02.png"
 
 
 ## The sheet's assembly rule, written out here (04-env/prompts.md "건설 벽·문·바닥 후보" 조립), from the data: what tile `c`
-## of `d` draws (built walls and doors; the floor piece is drawn apart): [sheet rect, world px] pairs in order.
+## of `d` draws (built walls and doors; the floor piece is drawn apart, first: M7-rf, its own layer, under a wall too):
+## [sheet rect, world px] pairs in order.
 static func build_parts(d: WorldData, c: Vector2i) -> Array[Array]:
 	var out: Array[Array] = []
 	var k: int = Walls.kind_at(d, c)
@@ -2124,7 +2133,7 @@ static func build_parts(d: WorldData, c: Vector2i) -> Array[Array]:
 		return kk == Walls.KIND_STONE or kk == Walls.KIND_DOOR or kk == Walls.KIND_DOOR_OPEN
 	var walled: Callable = func(t: Vector2i) -> bool:
 		var kk: int = Walls.kind_at(d, t)
-		return kk != Walls.KIND_NONE and kk != Walls.KIND_FLOOR
+		return kk >= Walls.KIND_ROCK and kk <= Walls.KIND_DOOR_OPEN
 	var m: int = (1 if built.call(c + Vector2i(0, -1)) else 0) + (2 if built.call(c + Vector2i(1, 0)) else 0) \
 		+ (4 if built.call(c + Vector2i(0, 1)) else 0) + (8 if built.call(c + Vector2i(-1, 0)) else 0)
 	out.append([Rect2i((m % 8) * 16, (m / 8) * 16, 16, 16), c * 16])
@@ -2151,6 +2160,23 @@ static func build_parts(d: WorldData, c: Vector2i) -> Array[Array]:
 	return out
 
 
+## The expected picture of the built tiles `cells` of `d` over `bg`: every floor piece first (M7-rf: the FLOOR_PIECE layer,
+## under a wall or door too; the variant rule written out), then the walls and doors by build_parts, rows from the north.
+func _builds_expected(bg: Image, d: WorldData, cells: Array[Vector2i], origin: Vector2i) -> Image:
+	var sheet: Image = _png(BUILD_PNG)
+	var expected: Image = bg.duplicate() as Image
+	for c3: Vector2i in cells:
+		if d.get_value(WorldData.Layer.FLOOR_PIECE, c3) == WorldData.FLOOR_PIECE_STONE:
+			var v: int = posmod(c3.x * 7 + c3.y * 13 + (c3.x / 3) * 5, 3)
+			_paste_at(expected, sheet.get_region(Rect2i(64 + v * 16, 32, 16, 16)), c3 * 16 - origin)
+	for c4: Vector2i in cells:
+		for part: Array in build_parts(d, c4):
+			var src: Rect2i = part[0]
+			var at: Vector2i = part[1]
+			_paste_at(expected, sheet.get_region(src), at - origin)
+	return expected
+
+
 func _check_builds() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(560, 1200))
@@ -2167,22 +2193,23 @@ func _check_builds() -> void:
 	for t: Vector2i in [Vector2i(9, 2), Vector2i(10, 2), Vector2i(9, 3), Vector2i(9, 4), Vector2i(13, 1), Vector2i(13, 2),
 			Vector2i(13, 3), Vector2i(16, 4), Vector2i(19, 6), Vector2i(20, 6), Vector2i(22, 3), Vector2i(23, 3), Vector2i(24, 3)]:
 		walls.append(o + t)
+	# [tile, layer, value]. M7-rf: the floor pieces first: the room's whole 6x6 (its walls and its closed door stand on them),
+	# under the open door and its doorway (o + (23, 3), (23, 4)), and the two loose ones.
 	var edits: Array[Array] = []
+	for y2: int in range(0, 6):
+		for x2: int in range(0, 6):
+			edits.append([o + Vector2i(x2, y2), WorldData.Layer.FLOOR_PIECE, WorldData.FLOOR_PIECE_STONE])
+	for t2: Vector2i in [Vector2i(23, 3), Vector2i(23, 4), Vector2i(11, 7), Vector2i(12, 7)]:
+		edits.append([o + t2, WorldData.Layer.FLOOR_PIECE, WorldData.FLOOR_PIECE_STONE])
 	for c: Vector2i in walls:
-		edits.append([c, Walls.KIND_STONE])
-	edits.append([o + Vector2i(2, 5), Walls.KIND_DOOR])
-	edits.append([o + Vector2i(23, 3), Walls.KIND_DOOR_OPEN])
-	for y2: int in range(1, 5):
-		for x2: int in range(1, 5):
-			edits.append([o + Vector2i(x2, y2), Walls.KIND_FLOOR])
-	edits.append([o + Vector2i(11, 7), Walls.KIND_FLOOR])
-	edits.append([o + Vector2i(12, 7), Walls.KIND_FLOOR])
+		edits.append([c, WorldData.Layer.WALL, Walls.pack(Walls.KIND_STONE, 0)])
+	edits.append([o + Vector2i(2, 5), WorldData.Layer.WALL, Walls.pack(Walls.KIND_DOOR, 0)])
+	edits.append([o + Vector2i(23, 3), WorldData.Layer.WALL, Walls.pack(Walls.KIND_DOOR_OPEN, 0)])
 	for e: Array in edits:
 		var ec: Vector2i = e[0]
-		var ek: int = e[1]
-		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, ec, Walls.pack(ek, 0)))
-	var sheet: Image = _png(BUILD_PNG)
-	var expected: Image = bg.duplicate() as Image
+		var el: int = e[1]
+		var ev: int = e[2]
+		world.apply_edit(EditLog.WorldEdit.new(el, ec, ev))
 	var d: WorldData = world.data
 	var cells: Array[Vector2i] = []
 	for e2: Array in edits:
@@ -2190,15 +2217,11 @@ func _check_builds() -> void:
 		if not cells.has(c2):
 			cells.append(c2)
 	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
-	for c3: Vector2i in cells:
-		if Walls.kind_at(d, c3) == Walls.KIND_FLOOR:
-			var v: int = posmod(c3.x * 7 + c3.y * 13 + (c3.x / 3) * 5, 3)
-			_paste_at(expected, sheet.get_region(Rect2i(64 + v * 16, 32, 16, 16)), c3 * 16 - origin)
-	for c4: Vector2i in cells:
-		for part: Array in build_parts(d, c4):
-			var src: Rect2i = part[0]
-			var at: Vector2i = part[1]
-			_paste_at(expected, sheet.get_region(src), at - origin)
+	var on_floor: int = 0
+	for c6: Vector2i in cells:
+		if Walls.is_built(d, c6) and d.has_floor_piece(c6):
+			on_floor += 1
+	var expected: Image = _builds_expected(bg, d, cells, origin)
 	await _frames(1)
 	var got: Image = await _capture()
 	var n: int = count_diff(got, expected)
@@ -2206,6 +2229,19 @@ func _check_builds() -> void:
 	if n > 0 or save_all:
 		_save(got, "builds_got.png")
 		_save(expected, "builds_expected.png")
+	# M7-rf: the north wall's middle taken down (a WALL edit): the floor piece under it shows again, the neighbours follow.
+	var taken: Vector2i = o + Vector2i(3, 0)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, taken, 0))
+	var expected3: Image = _builds_expected(bg, d, cells, origin)
+	await _frames(1)
+	var got3: Image = await _capture()
+	var n3: int = count_diff(got3, expected3)
+	var changed3: int = count_diff(got3, got)
+	if n3 > 0 or save_all:
+		_save(got3, "builds_down_got.png")
+		_save(expected3, "builds_down_expected.png")
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, taken, Walls.pack(Walls.KIND_STONE, 0)))
+	await _frames(1)
 	# The lantern post among the entities (shown again), its picture at its tile's bottom, centred.
 	var post_at: Vector2i = o + Vector2i(16, 8)
 	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, post_at, WorldData.PLACEABLE_LANTERN))
@@ -2218,13 +2254,31 @@ func _check_builds() -> void:
 		_save(got2, "builds_post_got.png")
 		_save(with_post, "builds_post_expected.png")
 	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, post_at, WorldData.PLACEABLE_NONE))
+	# M7-rf: everything taken down but the open door and its floor piece, a frame; the door taken down (its floor piece
+	# shows: the map's last built thing), a frame; that floor piece taken up in a frame of its own: the screen is the
+	# background again (M7b kept the map's last piece drawn: earlier take-downs in the same frame hid that).
+	var last: Vector2i = o + Vector2i(23, 3)
 	for e3: Array in edits:
 		var c5: Vector2i = e3[0]
-		world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, c5, 0))
+		var l5: int = e3[1]
+		if c5 != last:
+			world.apply_edit(EditLog.WorldEdit.new(l5, c5, 0))
+	await _frames(1)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, last, 0))
+	await _frames(1)
+	var floor_left: int = count_diff(await _capture(), bg)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.FLOOR_PIECE, last, 0))
+	await _frames(1)
+	var bare: Image = await _capture()
+	var cleared: int = count_diff(bare, bg)
+	if cleared > 0 or save_all:
+		_save(bare, "builds_cleared_got.png")
 	for ci: CanvasItem in hidden:
 		ci.visible = true
-	var line: String = "pieces=%d drawn=%d mismatches=%d post_mismatches=%d" % [cells.size(), drawn, n, n2]
-	if n == 0 and n2 == 0 and drawn > 5000:
+	var line: String = ("pieces=%d on_floor=%d drawn=%d mismatches=%d wall_down_mismatches=%d wall_down_changed=%d " +
+		"post_mismatches=%d last_floor_px=%d cleared_left=%d") % [cells.size(), on_floor, drawn, n, n3, changed3, n2, floor_left,
+		cleared]
+	if n == 0 and n2 == 0 and n3 == 0 and changed3 > 0 and on_floor == 21 and floor_left > 100 and cleared == 0 and drawn > 5000:
 		print("EVENSONG_RENDER builds ok %s" % line)
 	else:
 		_fail("builds", line)
@@ -2699,9 +2753,14 @@ func _check_gear_hud() -> void:
 ## M7a: the chest panel (above the open inventory grid) and the anvil's crafting panel with rows of one, two and three
 ## inputs and a repair row: every opaque pixel they draw on its place (frames, header icons and underlines, slot frames,
 ## icons, counts left out, the durability bars), the slots and arrows placed by the layout written out here. M7-fix: the
-## repair row shows only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL, off by default): on for this part, put back.
+## repair row shows only with Gear.repair_on (Config.GEAR_REPAIR_AT_ANVIL). M7-rf: on by default (the human's decision), and
+## the repair row's material shows its count 2 (Config.GEAR_REPAIR_COST_ANYONE, anyone's higher cost): the digit's lit
+## pixels written out here (the HUD's 3x5 "2", bottom-right 3 px in from the slot's corner).
+const DIGIT_TWO: Array = ["111", "001", "111", "100", "111"]
+
+
 func _check_m7_panels() -> void:
-	Gear.repair_on = true
+	var repair_default: bool = Gear.repair_on
 	world.lighting.set_evening(false)
 	_look_at(Vector2i(400, 400))
 	var hud: Hud = Hud.new()
@@ -2763,6 +2822,8 @@ func _check_m7_panels() -> void:
 	for ux2: int in range(pr.position.x + 3, pr.end.x - 3):
 		want2[Vector2i(ux2, pr.position.y + 3 + 18 - 1)] = Hud.SELECT_INNER
 	var repair_rows: int = 0
+	var repair_cost: int = 0
+	var digit_want: Dictionary[Vector2i, Color] = {}
 	var three_rows: int = 0
 	for i2: int in cp.recipes.size():
 		if not cp.in_view(i2):
@@ -2774,6 +2835,12 @@ func _check_m7_panels() -> void:
 			repair_rows += 1
 			ins.append(ItemStack.new(r.repair, 1, 0, Gear.most_worn(inv, r.repair).durability))
 			ins.append(ItemStack.new(r.inputs[0].item, r.inputs[0].count, 0))
+			repair_cost = r.inputs[0].count
+			var digit_br: Vector2i = row + Vector2i(19, 0) + Vector2i(18 - 3, 18 - 3)
+			for dy: int in 5:
+				for dx: int in 3:
+					if str(DIGIT_TWO[dy])[dx] == "1":
+						digit_want[digit_br + Vector2i(dx - 2, dy - 4)] = Hud.DIGIT
 		else:
 			for ing: Crafting.Ingredient in r.inputs:
 				ins.append(ItemStack.new(ing.item, ing.count, 0))
@@ -2796,15 +2863,17 @@ func _check_m7_panels() -> void:
 		if not dimmed:
 			free_want[q] = want2[q]
 	var bad_panel: int = _count_wrong(got2, free_want)
-	if bad_panel > 0 or save_all:
+	var bad_digit: int = _count_wrong(got2, digit_want)
+	if bad_panel > 0 or bad_digit > 0 or save_all:
 		_save(got2, "crafting_anvil_got.png")
 	var rows: int = cp.recipes.size()
 	root.remove_child(hud)
 	hud.free()
-	Gear.repair_on = Config.GEAR_REPAIR_AT_ANVIL
-	var line: String = "chest_pixels=%d chest_mismatches=%d chest_place=%s anvil_rows=%d three_input_rows=%d repair_rows=%d anvil_pixels=%d anvil_mismatches=%d width=%d" % [
-		want.size(), bad_chest, str(chest_ok), rows, three_rows, repair_rows, free_want.size(), bad_panel, pr.size.x]
-	if bad_chest == 0 and chest_ok and bad_panel == 0 and layout_ok and repair_rows == 1 and three_rows >= 1 and rows == 10:
+	var line: String = "chest_pixels=%d chest_mismatches=%d chest_place=%s anvil_rows=%d three_input_rows=%d repair_rows=%d repair_default=%s repair_cost=%d cost_digit_mismatches=%d anvil_pixels=%d anvil_mismatches=%d width=%d" % [
+		want.size(), bad_chest, str(chest_ok), rows, three_rows, repair_rows, str(repair_default), repair_cost, bad_digit,
+		free_want.size(), bad_panel, pr.size.x]
+	if bad_chest == 0 and chest_ok and bad_panel == 0 and layout_ok and repair_rows == 1 and three_rows >= 1 and rows == 10 \
+			and repair_default and repair_cost == 2 and digit_want.size() == 11 and bad_digit == 0:
 		print("EVENSONG_RENDER m7_panels ok %s" % line)
 	else:
 		_fail("m7_panels", line)
@@ -2849,6 +2918,8 @@ static func _slot_pixels(want: Dictionary[Vector2i, Color], o: Vector2i, stack: 
 ## codec (EditLog.encode_one / decode_one: another wall, the door closing, a chest slot, a tree felled). A miner swinging the
 ## axe on the host and its copy from a state batch on the client (the axe action's frame from the wire). Around the room,
 ## the stations and the stump both screens must be the same pixels and differ from the bare world.
+## M7-rf (protocol v9): the room's bottom row and the open door's doorway stand on floor pieces in the snapshot, and the
+## wall that comes through the wire goes onto a floor piece laid through the wire just before it (the FLOOR_PIECE layer).
 func _check_builds_net() -> void:
 	world.visible = false
 	var host_w: GameWorld = _surface_world()
@@ -2863,6 +2934,9 @@ func _check_builds_net() -> void:
 		room.append_array([Vector2i(60, y), Vector2i(65, y)])
 	for x2: int in [60, 62, 63, 64]:
 		room.append(Vector2i(x2, 61))
+	for fx0: int in range(60, 65):
+		edits.append(Building.edit_for(Building.STONE_FLOOR, Vector2i(fx0, 61)))  # M7-rf: under the bottom row and the door
+	edits.append(Building.edit_for(Building.STONE_FLOOR, Vector2i(61, 62)))  # M7-rf: the open door's doorway
 	for c: Vector2i in room:
 		edits.append(Building.edit_for(Building.STONE_WALL, c))
 	edits.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(61, 61), Walls.pack(Walls.KIND_DOOR_OPEN, 0)))
@@ -2884,7 +2958,8 @@ func _check_builds_net() -> void:
 		_fail("builds_net", "no client world")
 		return
 	var snap: int = edits.size()
-	var later: Array[EditLog.WorldEdit] = [Building.edit_for(Building.STONE_WALL, Vector2i(65, 61)),
+	var later: Array[EditLog.WorldEdit] = [Building.edit_for(Building.STONE_FLOOR, Vector2i(65, 61)),
+		Building.edit_for(Building.STONE_WALL, Vector2i(65, 61)),
 		EditLog.WorldEdit.new(WorldData.Layer.WALL, Vector2i(61, 61), Walls.pack(Walls.KIND_DOOR, 0)),
 		EditLog.WorldEdit.chest_slot(Vector2i(62, 44), 0, ItemStack.new(&"stone_a", 30, ItemDB.Grade.NONE)),
 		EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, tree, WorldData.PLACEABLE_STUMP)]
@@ -2941,15 +3016,20 @@ func _check_builds_net() -> void:
 	var b: Dictionary = SessionReport.builds_of(client_w.data)
 	var view: Dictionary[String, int] = client_w.builds.verify()
 	var fx: Dictionary[String, int] = client_w.fixtures.verify()
-	var line: String = "%d edits (%d after the client's snapshot, %d through the wire), same data %s, walls %d doors %d open %d stumps %d chests %s, build view %s, fixtures %s, axe frame %d, host vs client %d, drawn %d" % [
-		edits.size(), edits.size() - snap, wired, same_data, b["walls"], b["doors"], b["open_doors"], b["stumps"], b["chests"],
-		view, fx, cp.action_tick / Config.ACTION_FRAME_TICKS, host_vs_client, drawn]
+	var on_floor: int = 0
+	for fc: Vector2i in [Vector2i(60, 61), Vector2i(61, 61), Vector2i(62, 61), Vector2i(63, 61), Vector2i(64, 61), Vector2i(65, 61)]:
+		if Walls.is_built(client_w.data, fc) and client_w.data.has_floor_piece(fc):
+			on_floor += 1
+	var line: String = "%d edits (%d after the client's snapshot, %d through the wire), same data %s, walls %d doors %d open %d floors %d (a wall or door on %d) stumps %d chests %s, build view %s, fixtures %s, axe frame %d, host vs client %d, drawn %d" % [
+		edits.size(), edits.size() - snap, wired, same_data, b["walls"], b["doors"], b["open_doors"], b["floors"], on_floor,
+		b["stumps"], b["chests"], view, fx, cp.action_tick / Config.ACTION_FRAME_TICKS, host_vs_client, drawn]
 	if host_vs_client > 0 or save_all:
 		for i2: int in shots.size():
 			_save(shots[i2], "builds_net_%d.png" % i2)
 	var mism: int = view.get("mismatches", -1) + fx.get("mismatches", -1)
 	if same_data and wired == later.size() and host_vs_client == 0 and drawn > 4000 and mism == 0 and b["walls"] == room.size() + 1 \
-			and b["doors"] == 1 and b["stumps"] == 1 and cp.action_anim == RigData.Anim.AXE and cp.action_tick == hp.action_tick:
+			and b["doors"] == 1 and b["floors"] == 8 and on_floor == 6 and b["stumps"] == 1 and cp.action_anim == RigData.Anim.AXE \
+			and cp.action_tick == hp.action_tick:
 		print("EVENSONG_RENDER builds_net ok %s" % line)
 	else:
 		_fail("builds_net", line)

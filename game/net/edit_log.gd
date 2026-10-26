@@ -16,8 +16,10 @@ extends RefCounted
 ## M7c: building (WALL / PLACEABLE cells), doors (WALL cells), trees felled and grown back (PLACEABLE cells), stations (PLACEABLE
 ## cells) and the storage chest's slots: a chest slot edit sets one slot of the chest whose footprint starts at its tile
 ## ("chest 62,51 slot 3 = stone_a x40", absolute like the rest; WorldData.chests).
+## M7-rf (protocol v9): a floor piece laid or taken up is a cell edit on the FLOOR_PIECE layer (code 6), under the WALL layer's
+## wall or door: building on a floor piece, demolishing the wall (the floor stays) and the floor are separate edits.
 ## Edit message: u32 index, u8 map (M3b), then u8 code:
-##   0..5   cell edit on that layer: u16 x, u16 y, u8 value                         (11 B in all)
+##   0..6   cell edit on that layer (WorldData.Layer; 6 = FLOOR_PIECE, M7-rf): u16 x, u16 y, u8 value   (11 B in all)
 ##   0x40   drop put: u32 id, u8 item index, u8 count, u8 grade, u16 x, u16 y (px)   (17 B)
 ##   0x41   drop removed: u32 id                                                     (10 B)
 ##   0x42   chest slot (M7c): u16 x, u16 y (the chest's top-left tile), u8 slot, u8 item index + 1 (0 = empty), u8 count,

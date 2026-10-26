@@ -57,8 +57,11 @@ extends RefCounted
 ##   wreck                        right-click this tick: take the built piece on the target tile down
 ## M7c (sessions: store / take / unequip go to Main through NetSession.bot_gear and become CHEST / ARMOR requests, wreck a
 ## DEMOLISH; the world as this machine has it, `world`):
-##   waitwall:<x>,<y>,<none|wall|door|open|floor>[,<ticks>]   stand until tile x,y's wall layer holds that (a built stone
-##                                wall, a closed door, an open door, a floor piece, nothing; default 1800 ticks)
+##   waitwall:<x>,<y>,<none|wall|door|open>[,<ticks>]   stand until tile x,y's wall layer holds that (a built stone wall, a
+##                                closed door, an open door, nothing; default 1800 ticks). M7-rf: a floor piece is no wall
+##                                kind now: waitfloor
+##   waitfloor:<x>,<y>,<none|stone>[,<ticks>]   M7-rf: stand until tile x,y's floor piece layer (WorldData.Layer.FLOOR_PIECE)
+##                                holds that (a stone floor piece, nothing; under a wall too; default 1800 ticks)
 ##   heretic:<x>,<y>              test only, offline and the host: a heretic on tile x,y of the local player's map now
 ##   waitat:<x>,<y>[,<ticks>]     stand until another player on this map (as this machine has it, `others`) has its feet
 ##                                on tile x,y (default 1800 ticks)
@@ -70,10 +73,10 @@ extends RefCounted
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest"]
-## M7c: waitwall's kinds by name (Walls.KIND_*).
+	"waitplaced", "waitchest", "waitfloor"]
+## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
-	"open": Walls.KIND_DOOR_OPEN, "floor": Walls.KIND_FLOOR}
+	"open": Walls.KIND_DOOR_OPEN}
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
@@ -326,6 +329,12 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.count = WALL_NAMES[args[2]]
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
+		"waitfloor":
+			if args.size() < 3 or args.size() > 4 or not _whole(args[0], 0) or not _whole(args[1], 0) 					or not WorldData.FLOOR_PIECE_NAMES.has(args[2]) or (args.size() == 4 and not _whole(args[3], 1)):
+				return "expected waitfloor:<x>,<y>,<%s>[,<ticks>]" % "|".join(WorldData.FLOOR_PIECE_NAMES)
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.count = WorldData.FLOOR_PIECE_NAMES.find(args[2])
+			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
 		"heretic":
 			if args.size() != 2 or not _whole(args[0], 0) or not _whole(args[1], 0):
 				return "expected heretic:<x>,<y>"
@@ -514,6 +523,14 @@ func _advance(a: Action, feet: Vector2) -> void:
 					_left = c.ticks
 				_left -= 1
 				if (world != null and world.in_bounds(c.cell) and Walls.kind_at(world, c.cell) == c.count) or _left <= 0:
+					_next()
+				return
+			"waitfloor":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if (world != null and world.in_bounds(c.cell)
+						and world.get_value(WorldData.Layer.FLOOR_PIECE, c.cell) == c.count) or _left <= 0:
 					_next()
 				return
 			"heretic":
