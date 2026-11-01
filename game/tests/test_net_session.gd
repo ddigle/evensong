@@ -975,6 +975,8 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 				"%s/%s: map %s gatherables and drops drawn = data %s" % [label, inst.name, key, items])
 			var fx: Dictionary = mr.get("fixtures", {})
 			check_eq(_num(fx, "mismatches"), 0.0, "%s/%s: map %s placeables drawn = data %s" % [label, inst.name, key, fx])
+			check_eq(_num(fx, "merchants", -1.0), 0.0, "%s/%s: map %s has no merchant (M8a: offline only until M8b)" % [label,
+				inst.name, key])
 		check_eq(r.get("bad_messages", -1), 0, "%s/%s: no malformed messages" % [label, inst.name])
 		check_eq(r.get("unknown_senders", -1), 0, "%s/%s: no input from strangers" % [label, inst.name])
 	for c: Instance in clients:

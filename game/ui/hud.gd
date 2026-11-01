@@ -19,6 +19,7 @@ extends CanvasLayer
 ## the hotbar (shown while the inventory is open or armour is worn: the worn piece and its bar, else a dim armour
 ## outline; a click on it while the inventory is open takes the armour off: armor_clicked), and the chest panel
 ## (`chest`, ui/chest_panel.gd) that Main opens with F at a storage chest.
+## M8a: the merchant's shop panel (`shop`, ui/shop_panel.gd) that Main opens with F at the merchant.
 
 signal armor_clicked
 
@@ -79,6 +80,8 @@ var player: Player
 var crafting: CraftingPanel
 ## M7a: the storage chest panel (ui/chest_panel.gd).
 var chest: ChestPanel
+## M8a: the shop panel (ui/shop_panel.gd).
+var shop: ShopPanel
 var _shown: String = ""
 
 
@@ -93,6 +96,8 @@ func _init() -> void:
 	add_child(crafting)
 	chest = ChestPanel.new()
 	add_child(chest)
+	shop = ShopPanel.new()
+	add_child(shop)
 
 
 func _ready() -> void:
@@ -118,6 +123,8 @@ func _refresh_crafting() -> void:
 		crafting.refresh()
 	if chest.is_open():
 		chest.queue_redraw()
+	if shop.is_open():
+		shop.queue_redraw()  # M8a: the money held, the sell marks
 
 
 ## M4a: shows `p`'s HP, stamina, down and respawn state.

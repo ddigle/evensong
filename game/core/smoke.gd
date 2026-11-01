@@ -27,6 +27,9 @@ extends RefCounted
 ## M5c: wire v7: the CHANNEL, ALTAR_LIFT and ALTAR_PLACE requests on frames, a state with the channel and the carried altar,
 ## and a farm's growth on a host world reaching a client world as encoded edits (the same world). Printed as
 ## fields_wire=<a channelling carrier's state>B/<a crop's stage edit>B.
+## M8a: money (the item, its kind and stack) and the merchant: on the seed-1 world he comes down beside the altar (the preferred
+## tile, blocking, the panel's eleven offers), a healing potion bought and a stone sold back, no recipe that makes a thing worth
+## more to him than its inputs. Printed as shop=<x>,<y>/<offers>/<money left>.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -85,6 +88,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_purify(r)
 	_check_chain(r)
 	_check_build(r)
+	_check_shop(r)
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -642,6 +646,37 @@ static func _check_build(r: Report) -> void:
 				EditLog.apply_to_data(data, e5)
 		r.expect_eq(data.get_value(WorldData.Layer.PLACEABLE, t), WorldData.PLACEABLE_TREE, "the stump grows back")
 	r.fields.append("build=%d/%d/%d trees=%d/%d" % [placed, cost_in, cost_out, trees.size(), logs])
+
+
+## M8a: money, the merchant beside the seed-1 altar, a buy and a sale, no recipe that adds worth (see the header).
+static func _check_shop(r: Report) -> void:
+	var def: ItemDB.ItemDef = ItemDB.get_def(ItemDB.MONEY)
+	r.expect(def != null and def.is_money() and def.stack_max == Config.STACK_MONEY and Config.STACK_MONEY <= 255
+		and ItemIcons.texture_for(ItemDB.MONEY) != null, "the money item (kind, stack, icon)")
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	for e: EditLog.WorldEdit in Merchant.settle_edits(data):
+		EditLog.apply_to_data(data, e)
+	var at: Vector2i = Merchant.tile_of(data)
+	r.expect_eq(at, Merchant.preferred_tile(data), "the merchant on his preferred tile beside the seed's altar")
+	r.expect(Movement.is_blocked(data, at) and Farming.in_light(data, at), "he blocks and stands in the light")
+	var shop: Shop = Shop.new()
+	var inv: Inventory = Inventory.new()
+	inv.add(ItemDB.MONEY, 20)
+	inv.add(&"stone_a", 5)
+	var bought: Shop.Deal = shop.buy(inv, 0)
+	r.expect(bought.ok() and inv.count_of(&"potion_healing") == 1, "a healing potion bought: %s" % bought.why)
+	var sold: Shop.Deal = shop.sell(inv, 1, false)
+	r.expect(sold.ok() and sold.money == Shop.pays_for(&"stone_a"), "a stone sold: %s" % sold.why)
+	var adds: int = 0
+	for rec: Crafting.Recipe in Crafting.recipes():
+		var inputs: int = 0
+		for ing: Crafting.Ingredient in rec.inputs:
+			inputs += ing.count * Shop.pays_for(ing.item)
+		var made: int = Shop.pays_for(rec.repair) if rec.is_repair() else rec.out_count * Shop.pays_for(rec.output)
+		if made > inputs:
+			adds += 1
+	r.expect_eq(adds, 0, "recipes that make a thing worth more than its inputs")
+	r.fields.append("shop=%d,%d/%d/%d" % [at.x, at.y, Shop.offers().size(), Shop.money_in(inv)])
 
 
 static func _check_light(r: Report) -> void:

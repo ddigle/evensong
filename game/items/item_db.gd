@@ -32,12 +32,15 @@ extends RefCounted
 ## M7b: BUILD = a build piece (items/building.gd: a click puts one down on the target tile, at the light's cost; right-click
 ## takes a built one down): the stone wall, the door, the stone floor and the lantern post. The axe (TOOL, its own body
 ## action RigData.Anim.AXE) chops trees (world/forest.gd). Both appended at the end.
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD }
+## M8a: MONEY = the currency (● gameplay-design §3.0 R41: money; its name is not decided, PROVISIONAL Config.MONEY_NAME): an item
+## like any other (it stacks, drops, goes into the chest and half of it into the death bag), paid to and by the merchant
+## (items/shop.gd). "Use" does nothing with it. Appended at the end of the table.
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD, MONEY }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
 const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable", "armor",
-	"build"]
+	"build", "money"]
 ## M7a: the icons of the wood and the ingots (04-env 묶음 2 #62 log, #46 planks, #42 / #44 ingots: the 3/4 icons v02, like the
 ## stone block and the ores; whether material icons are 3/4 v02 or front v03 is ○ brief §5.7).
 const WOOD_ICONS: Dictionary[StringName, String] = {
@@ -80,6 +83,8 @@ const STRIP_SEEDS: Dictionary[StringName, int] = {&"seed_healing": 0, &"seed_buf
 ## so the offline player's start weapon (Config.START_WEAPON_SLOT) still leaves the M3-fix two.
 const DEBUG_KIT_FREE_SLOTS: int = 3
 const GRADE_NAMES: PackedStringArray = ["none", "common", "fine"]
+## M8a: the money item's id (items/shop.gd).
+const MONEY: StringName = &"money"
 const ART_DIR: String = "res://art/items/"
 
 
@@ -134,6 +139,10 @@ class ItemDef:
 	## M7b: a build piece (items/building.gd).
 	func is_build() -> bool:
 		return kind == Kind.BUILD
+
+	## M8a: the currency (items/shop.gd).
+	func is_money() -> bool:
+		return kind == Kind.MONEY
 
 
 static var _table: Dictionary[StringName, ItemDef] = {}
@@ -247,8 +256,8 @@ static func _build() -> void:
 	# ones the 04-env dungeon mockup uses), materials like the stone block.
 	_art(&"ore_copper", Kind.MATERIAL, Config.STACK_MATERIAL, false, "item_ore_copper_a_v02.png")
 	_art(&"ore_iron", Kind.MATERIAL, Config.STACK_MATERIAL, false, "item_ore_iron_a_v02.png")
-	# The torch (gameplay-design §3.0 ● R11: "기본 키트 (횃불, 발판)"; the merchant who sells it is M8): the
-	# debug kit and --give hand it out. No torch item art exists: the icon is drawn in code
+	# The torch (gameplay-design §3.0 ● R11: "기본 키트 (횃불, 발판)"; M8a: the merchant sells it, items/shop.gd): the
+	# debug kit and --give hand it out too (debug). No torch item art exists: the icon is drawn in code
 	# (items/item_icons.gd) and the placed torch is the 04-env ground lantern (lit), the only floor
 	# light a player puts down in the 04-env art (world/fixture_view.gd). PROVISIONAL stack size (99, the
 	# materials' Config.STACK_MATERIAL) and kind PLACEABLE (README "임시값" M3a 횃불).
@@ -287,8 +296,9 @@ static func _build() -> void:
 		s.icon_region = Rect2i(STRIP_SEEDS[seed_id] * 16, 0, 16, 16)
 		_add(s)
 	# M5b (appended): holy water (● gameplay-design §3.0 R11 paladin row: anyone purifies a few tiles with it; the shop
-	# that sells it is M8). Kind CONSUMABLE, no grade, stack Config.STACK_HOLY_WATER. No action of its own: a click pours it
-	# (Config.HOLY_WATER_ANIM, items/purify.gd). How it is had is PROVISIONAL (README "M5b 성수 얻기": --give only).
+	# that sells it: M8a, items/shop.gd). Kind CONSUMABLE, no grade, stack Config.STACK_HOLY_WATER. No action of its own: a click
+	# pours it (Config.HOLY_WATER_ANIM, items/purify.gd). How it is had is PROVISIONAL (README "M5b 성수 얻기": --give only; M8a:
+	# the merchant, --give staying a debug path).
 	_art(&"holy_water", Kind.CONSUMABLE, Config.STACK_HOLY_WATER, false, HOLY_WATER_ICON)
 	# M7a (appended): wood (logs: the tree is M7b, until then --give; planks are sawn at the workbench) and the ingots
 	# smelted at the anvil (README "임시값" M7a 작업대 체인), materials like the ores.
@@ -331,6 +341,11 @@ static func _build() -> void:
 		b.icon_path = spec[0]
 		b.icon_parts = spec[1]
 		_add(b)
+	# M8a (appended): money (● R41; PROVISIONAL Config.STACK_MONEY, the placeholder name Config.MONEY_NAME). No item art: a silver
+	# coin drawn in code (ItemIcons, PLACEHOLDER).
+	var money: ItemDef = ItemDef.new(MONEY, Kind.MONEY, Config.STACK_MONEY)
+	money.icon_code = MONEY
+	_add(money)
 
 
 static func _tool(id: StringName, action: int) -> void:

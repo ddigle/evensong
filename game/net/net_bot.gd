@@ -68,12 +68,16 @@ extends RefCounted
 ##   waitplaced:<x>,<y>,<placeable>[,<ticks>]   stand until tile x,y holds that placeable (WorldData.PLACEABLE_NAMES:
 ##                                chest, anvil, stump, tree ...; default 1800 ticks)
 ##   waitchest:<x>,<y>,<item>[,<ticks>]   stand until the chest with a tile at x,y holds that item (default 1800 ticks)
+## M8a (offline: Main handles them; the shop panel is open, F at the merchant = pick):
+##   buy:<n>                      click entry <n> (1 = the top left) of the open shop panel: buy one
+##   sell:<n>[,all]               click inventory slot <n> (1 = the hotbar's first) of the open shop panel: sell one (all: shift,
+##                                the whole stack)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -135,6 +139,11 @@ class Action:
 	var demolish: bool = false
 	## M7c (test only): put a heretic on this tile of the local player's map this tick (Vector2i, or null).
 	var heretic: Variant = null
+	## M8a: a shop panel click this tick: an entry to buy (0-based, -1 = none), an inventory slot to sell (-1 = none) and whether
+	## the whole stack (shift).
+	var buy_entry: int = -1
+	var sell_slot: int = -1
+	var sell_all: bool = false
 
 
 var commands: Array[Command] = []
@@ -283,6 +292,15 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			if args.size() != 1 or not _whole(args[0], 1):
 				return "expected craft:<row>"
 			c.count = args[0].to_int() - 1
+		"buy":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected buy:<entry>"
+			c.count = args[0].to_int() - 1
+		"sell":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() == 2 and args[1] != "all"):
+				return "expected sell:<slot>[,all]"
+			c.count = args[0].to_int() - 1
+			c.slot = 1 if args.size() == 2 else 0
 		"fight":
 			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() >= 2 and not _whole(args[1], 0)) \
 					or (args.size() == 3 and not args[2].is_valid_float()):
@@ -492,6 +510,15 @@ func _advance(a: Action, feet: Vector2) -> void:
 				return
 			"take":
 				a.take_slot = c.count
+				_next()
+				return
+			"buy":
+				a.buy_entry = c.count
+				_next()
+				return
+			"sell":
+				a.sell_slot = c.count
+				a.sell_all = c.slot == 1
 				_next()
 				return
 			"unequip":

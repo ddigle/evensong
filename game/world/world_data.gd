@@ -76,8 +76,11 @@ const PLACEABLE_CHEST: int = 13
 const PLACEABLE_TREE: int = 14
 const PLACEABLE_STUMP: int = 15
 const PLACEABLE_LANTERN: int = 16
+## M8a: the merchant beside the altar (one tile on the surface, items/merchant.gd: where he stands follows the altar; he blocks
+## while PROVISIONAL Config.MERCHANT_BLOCKS). Not a generator's: the offline game puts him down.
+const PLACEABLE_MERCHANT: int = 17
 const PLACEABLE_NAMES: PackedStringArray = ["none", "altar", "entrance", "torch", "exit", "shrine", "wall_torch", "bag",
-	"shrine_broken", "alchemy", "workbench", "anvil", "relic_bench", "chest", "tree", "stump", "lantern"]
+	"shrine_broken", "alchemy", "workbench", "anvil", "relic_bench", "chest", "tree", "stump", "lantern", "merchant"]
 
 var size: Vector2i = Vector2i.ZERO
 var world_seed: int = 0
@@ -257,10 +260,13 @@ func soil_ash_contacts() -> int:
 ## wall, which blocks anyway). PROVISIONAL for the torch (Config "torch ... does not block"). M4a: a
 ## death bag does not block; the broken shrine does (PROVISIONAL, README "임시값" M4a). M6a: the alchemy table
 ## blocks, like the other fixtures; M7a: so do the three stations and the storage chest. M7b: the tree's trunk and the
-## lantern post block; the stump while Config.TREE_STUMP_BLOCKS (PROVISIONAL).
+## lantern post block; the stump while Config.TREE_STUMP_BLOCKS (PROVISIONAL). M8a: the merchant while Config.MERCHANT_BLOCKS
+## (PROVISIONAL).
 static func placeable_blocks(p: int) -> bool:
 	if p == PLACEABLE_STUMP:
 		return Config.TREE_STUMP_BLOCKS
+	if p == PLACEABLE_MERCHANT:
+		return Config.MERCHANT_BLOCKS
 	return p != PLACEABLE_NONE and p != PLACEABLE_TORCH and p != PLACEABLE_WALL_TORCH and p != PLACEABLE_BAG
 
 
