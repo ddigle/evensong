@@ -76,6 +76,9 @@ extends RefCounted
 ##                                sees a crop ripen in seconds
 ## M7b (offline) / M7c (a host puts them into its surface at the start; late joiners get them):
 ##   --test-build=<x>,<y>:<wall|door|door_open|floor|lantern>[/...]   built pieces on those tiles, past the building rules
+## M8b (offline and a host: the world's shop):
+##   --test-shop-restock=<n>      the shop's stock comes back every n ticks in place of Config.SHOP_RESTOCK_TICKS (1..that):
+##                                a session test sees a restock in seconds (Shop.restock_ticks)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -136,6 +139,8 @@ var test_start_hp: Dictionary[String, int] = {}
 var test_fields: Array[Array] = []
 ## M5c test flag: ticks per crop stage (0 = Config.CROP_STAGE_TICKS).
 var test_crop_ticks: int = 0
+## M8b test flag: the shop's restock period in ticks (0 = Config.SHOP_RESTOCK_TICKS).
+var test_shop_restock: int = 0
 ## M7a test flags: durability left per inventory slot ([slot 0-based, points]) after --give; the armour in that hotbar slot
 ## (1-based, 0 = none) is put on at the start.
 var test_durability: Array[Vector2i] = []
@@ -330,6 +335,11 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: expected --test-crop-ticks=<1..%d>" % [raw, Config.CROP_STAGE_TICKS])
 				else:
 					o.test_crop_ticks = value.to_int()
+			"test-shop-restock":
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.SHOP_RESTOCK_TICKS:
+					o.errors.append("%s: expected --test-shop-restock=<1..%d>" % [raw, Config.SHOP_RESTOCK_TICKS])
+				else:
+					o.test_shop_restock = value.to_int()
 			"test-durability":
 				for part: String in value.split("/", false):
 					var kv: PackedStringArray = part.split(":")

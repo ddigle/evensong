@@ -98,6 +98,12 @@ var drop_serial: int = 1
 ## something (none on a generated map, so the golden hashes stay). M7c: the late-join snapshot carries them and a chest
 ## slot edit changes one slot (net/edit_log.gd), so a session's clients hold the host's chests.
 var chests: Dictionary[Vector2i, Chest] = {}
+## M8b: the merchant's shop (items/shop.gd: his stock and its game clock), one per world, on the surface of a world that has
+## a merchant (offline Main and a session host put it there; null on a generated map). The world's, like the chests: the
+## content hash covers its stock (not its clock) when there is one (a generated world hashes as before), the snapshot carries
+## the stock (net/world_snapshot.gd) and a shop stock edit sets one offer's (net/edit_log.gd), so a session's clients hold the
+## host's stock.
+var shop: Shop = null
 
 
 ## M7a: one storage chest's slots (Config.CHEST_SLOTS; null = empty). Stacks keep their durability.
@@ -329,7 +335,8 @@ func refresh_altar_rect() -> bool:
 	return altar_rect != was
 
 
-## md5 of the size, seed, altar, every layer and the drops. Equal hashes = equal worlds.
+## md5 of the size, seed, altar, every layer and the drops (M7a: the chests that hold something; M8b: the shop's stock when
+## the world has a shop). Equal hashes = equal worlds.
 ## M7-rf: the header counts HASH_LAYERS (M1-M7's six layers, hashed as before); the floor pieces (FLOOR_PIECE) come last, after
 ## a tag of their own (the layer's index and how many tiles hold one), and only when a tile holds one, like M7a's chests: a
 ## world without floor pieces (every generated one) hashes as before, so SurfaceGen.GOLDEN_HASH, DungeonGen.GOLDEN_HASH /
@@ -350,7 +357,16 @@ func content_hash() -> String:
 	if floors > 0:
 		ctx.update(PackedInt64Array([Layer.FLOOR_PIECE, floors]).to_byte_array())
 		ctx.update(layers[Layer.FLOOR_PIECE])
+	if shop != null:
+		# M8b: the shop's stock, after a tag of its own (SHOP_HASH_TAG and the offer count), only when the world has a shop.
+		var stock: PackedByteArray = shop.stock_bytes()
+		ctx.update(PackedInt64Array([SHOP_HASH_TAG, stock.size()]).to_byte_array())
+		ctx.update(stock)
 	return ctx.finish().hex_encode()
+
+
+## M8b: the shop stock's tag in content_hash (no layer index: the layers are 0..LAYER_COUNT - 1).
+const SHOP_HASH_TAG: int = 100
 
 
 # --- storage chests (M7a) ----------------------------------------------------------------------

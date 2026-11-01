@@ -848,6 +848,15 @@ const SHOP_SELL_WORN_SCALED: bool = true
 ## One merchant, one stock for the whole world. 0 = never: what is sold is gone for good.
 const SHOP_RESTOCK_TICKS: int = 10 * 60 * 60
 
+# --- PROVISIONAL, M8b (the merchant and his shop in sessions) ------------------------------------------------------------
+# M8b brings M8a to sessions; the host decides every trade (● game-concept §13). README "임시값" M8b. The other M8b rules reuse
+# M8a's values (the merchant's spot and moves, the open panel's reach Config.STATION_REACH_TILES, the restock period).
+
+## PROVISIONAL (not in the docs): the player carrying the altar may still open the shop and trade (true: M8a's offline
+## behaviour, kept in sessions; README "M8b 든 사람의 거래"). False: the panel does not open while carrying (Main.open_shop)
+## and the host refuses a carrier's BUY / SELL (AltarMove.WHY_CARRYING, SessionHost._blocked_while_carrying).
+const SHOP_WHILE_CARRYING: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

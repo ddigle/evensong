@@ -975,8 +975,12 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 				"%s/%s: map %s gatherables and drops drawn = data %s" % [label, inst.name, key, items])
 			var fx: Dictionary = mr.get("fixtures", {})
 			check_eq(_num(fx, "mismatches"), 0.0, "%s/%s: map %s placeables drawn = data %s" % [label, inst.name, key, fx])
-			check_eq(_num(fx, "merchants", -1.0), 0.0, "%s/%s: map %s has no merchant (M8a: offline only until M8b)" % [label,
-				inst.name, key])
+			# M8b: the host's merchant stands on the surface of every session (M8a: none), drawn once; the dungeon has none.
+			check_eq(_num(fx, "merchants", -1.0), 0.0 if dungeon else 1.0, "%s/%s: map %s has %s (M8b)" % [label, inst.name, key,
+				"no merchant" if dungeon else "the merchant drawn once"])
+			check((str(mr.get("shop", "")) == "none") == dungeon and (str(mr.get("merchant", "")) == "none") == dungeon,
+				"%s/%s: map %s: the shop and the merchant's tile are the surface's only (%s at %s)" % [label, inst.name, key,
+				mr.get("shop", ""), mr.get("merchant", "")])
 		check_eq(r.get("bad_messages", -1), 0, "%s/%s: no malformed messages" % [label, inst.name])
 		check_eq(r.get("unknown_senders", -1), 0, "%s/%s: no input from strangers" % [label, inst.name])
 	for c: Instance in clients:

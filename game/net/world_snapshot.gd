@@ -11,7 +11,8 @@ extends RefCounted
 ##          drops (M2b: WorldData.drops_bytes(), u16 count + 11 B each, by id; gatherables are the
 ##          VEGETATION layer) + (M7c) the storage chests that hold something: u16 count, then per chest
 ##          WorldData.chests_bytes()'s form (u16 x, u16 y of its footprint's top-left tile, Config.CHEST_SLOTS
-##          slots of EditLog.STACK_BYTES), row by row
+##          slots of EditLog.STACK_BYTES), row by row + (M8b, protocol v10) the shop: u8 offer count (0 = the world has
+##          no shop, WorldData.shop null; else Shop.offers().size()), then one u8 per offer, its count left (Shop.stock_bytes)
 ##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (WorldData.LAYER_COUNT: 7),
 ##          u8 map id (M3b: which map this is; not in the content hash)
 ## M3b: the same path sends a map to a player who enters it (net/session_host.gd: a stream per entry,
@@ -41,7 +42,7 @@ const MAX_SIDE: int = 512
 const MAX_CHESTS: int = 1024
 const CHEST_BYTES: int = 4 + EditLog.STACK_BYTES * Config.CHEST_SLOTS
 const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE + 2 + WorldData.DROP_BYTES * Config.MAX_DROPS \
-	+ 2 + CHEST_BYTES * MAX_CHESTS
+	+ 2 + CHEST_BYTES * MAX_CHESTS + 1 + 255
 ## zstd never grows data by more than a small fraction; a receiver refuses more than this.
 const MAX_PACKED: int = MAX_RAW + MAX_RAW / 64 + 1024
 
@@ -177,13 +178,18 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 	out.resize(at + 2)
 	out.encode_u16(at, data.held_chests().size())  # M7c: the chests' contents
 	out.append_array(data.chests_bytes())
+	# M8b: the shop's stock (0 offers = no shop).
+	var stock: PackedByteArray = data.shop.stock_bytes() if data.shop != null else PackedByteArray()
+	out.append(stock.size())
+	out.append_array(stock)
 	return out
 
 
 ## The world from raw_bytes(), or null when the bytes do not describe a valid one (size, layer
 ## count, a known map id, altar inside the map, floor values that are terrains, M7-rf: floor piece values that are floor
 ## pieces, drops: at most
-## Config.MAX_DROPS, each a valid item stack inside the map, ids unique, nothing after them).
+## Config.MAX_DROPS, each a valid item stack inside the map, ids unique; M7c: the chests; M8b: the shop, none or every offer
+## with a count within its cap, nothing after it).
 static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < HEADER_SIZE:
 		return null
@@ -201,7 +207,12 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if drop_count > Config.MAX_DROPS or raw.size() < chests_at + 2:
 		return null
 	var chest_count: int = raw.decode_u16(chests_at)
-	if chest_count > MAX_CHESTS or raw.size() != chests_at + 2 + CHEST_BYTES * chest_count:
+	var shop_at: int = chests_at + 2 + CHEST_BYTES * chest_count
+	if chest_count > MAX_CHESTS or raw.size() < shop_at + 1:
+		return null
+	# M8b: the shop: none (0) or every offer's count left, nothing after it.
+	var offers: int = raw.decode_u8(shop_at)
+	if (offers != 0 and offers != Shop.offers().size()) or raw.size() != shop_at + 1 + offers:
 		return null
 	var altar: Rect2i = Rect2i(raw.decode_u16(12), raw.decode_u16(14), raw.decode_u16(16), raw.decode_u16(18))
 	if altar.has_area() and not Rect2i(Vector2i.ZERO, size).encloses(altar):
@@ -247,6 +258,10 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 		if chest.is_empty():
 			return null
 		data.chests[key] = chest
+	if offers > 0:
+		data.shop = Shop.from_bytes(raw.slice(shop_at + 1, shop_at + 1 + offers))
+		if data.shop == null:
+			return null  # a count above its offer's cap
 	return data
 
 

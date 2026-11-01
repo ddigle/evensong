@@ -141,6 +141,13 @@ extends SceneTree
 ##            selected entry's gold frame; a sold-out entry's icon veiled), the sell marks over the inventory (the price a stack
 ##            fetches in gold top right, a stack not bought veiled), every opaque pixel on the layout written out here; then a
 ##            refusal (money short): the entry's frame red and its coin struck.
+##   shop_net (M8b) a session's merchant and shop on a client: the host's seed-1 world with the merchant beside the altar and
+##            its shop (a holy water sold), the client's from a surface snapshot; then through the wire codec the second holy
+##            water sold (a shop stock edit) and the altar carried 13 tiles west and put down with the merchant following (cell
+##            edits). Around his new and his old tile both screens are the same pixels, he is drawn on the client at the new
+##            one (it differs from the bare world there) and gone from the old one, the client's fixtures equal its data; then
+##            the shop panel each machine opens (the host's from its shop and its inventory, the client's from its world's
+##            shop and the inventory an inventory message brought): the same pixels, the sold-out holy water veiled.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -220,6 +227,7 @@ func _run() -> void:
 		await _check_builds_net()  # M7c
 		await _check_merchant()  # M8a
 		await _check_shop_panel()
+		await _check_shop_net()  # M8b
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -3310,3 +3318,127 @@ static func _digits(want: Dictionary[Vector2i, Color], n: int, bottom_right: Vec
 						var s: int = 1 if pass_i == 0 else 0
 						want[Vector2i(x + dx + s, y + dy + s)] = Hud.FRAME_DARK if pass_i == 0 else c
 		x += 4
+
+
+# --- M8b ----------------------------------------------------------------------------------------------------------------
+
+## M8b: one edit made on the host's world and carried to the client's through the wire codec (EditLog.encode_one / decode_one,
+## index `index`). Returns whether the client took it.
+static func _wire_edit(host_w: GameWorld, client_w: GameWorld, e: EditLog.WorldEdit, index: int) -> bool:
+	host_w.apply_edit(e)
+	var got: Array = EditLog.decode_one(EditLog.encode_one(e, index, Config.MAP_SURFACE))
+	var ge: EditLog.WorldEdit = got[1]
+	return ge != null and client_w.apply_edit(ge)
+
+
+## M8b: see the header ("shop_net").
+func _check_shop_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _surface_world()
+	var client_w: GameWorld = _surface_world(false)
+	var bare_w: GameWorld = _surface_world()
+	var d: WorldData = host_w.data
+	d.shop = Shop.new()
+	for e: EditLog.WorldEdit in Merchant.settle_edits(d):
+		host_w.apply_edit(e)
+	var inv: Inventory = Inventory.new()
+	inv.add(ItemDB.MONEY, 120)
+	inv.add(&"stone_a", 12)
+	inv.add(&"wild_buff", 3)
+	var first: Shop.Deal = d.shop.buy(inv, 2)
+	var old_tile: Vector2i = Merchant.tile_of(d)
+	_load_surface_snapshot(host_w, client_w)
+	if client_w.data == null:
+		_fail("shop_net", "no client world")
+		return
+	var snap_ok: bool = first.ok() and client_w.data.shop != null and client_w.data.shop.left_at(2) == 1 \
+		and Merchant.tile_of(client_w.data) == old_tile
+	var second: Shop.Deal = d.shop.buy(inv, 2)
+	var sent: int = 0
+	var wired: int = 0
+	var edits: Array[EditLog.WorldEdit] = [EditLog.WorldEdit.shop_stock(2, second.left)]
+	edits.append_array(AltarMove.pickup_edits(d))
+	for e1: EditLog.WorldEdit in edits:
+		if _wire_edit(host_w, client_w, e1, sent):
+			wired += 1
+		sent += 1
+	var placed: Array[EditLog.WorldEdit] = AltarMove.place_edits(Rect2i(Vector2i(49, 45), Config.ALTAR_FOOTPRINT))
+	for e2: EditLog.WorldEdit in placed:
+		if _wire_edit(host_w, client_w, e2, sent):
+			wired += 1
+		sent += 1
+	for e3: EditLog.WorldEdit in Merchant.settle_edits(d):
+		if _wire_edit(host_w, client_w, e3, sent):
+			wired += 1
+		sent += 1
+	var new_tile: Vector2i = Merchant.tile_of(d)
+	var same_data: bool = client_w.data.content_hash() == d.content_hash()
+	var fx: Dictionary[String, int] = client_w.fixtures.verify()
+	var moved_ok: bool = new_tile != old_tile and Merchant.tile_of(client_w.data) == new_tile \
+		and client_w.fixtures.merchant_at(new_tile) != null and client_w.fixtures.merchant_at(old_tile) == null \
+		and fx.get("mismatches", -1) == 0 and fx.get("merchants", -1) == 1
+	# Breathing animates by time and the worlds are captured one after the other: every merchant held on frame 0.
+	for w0: GameWorld in [host_w, client_w]:
+		var mv: MerchantView = w0.fixtures.merchant_at(new_tile)
+		if mv != null:
+			mv.animate = false
+			mv.frame = 0
+	var host_vs_client: int = 0
+	var drawn: int = 0
+	var shots: Array[Image] = []
+	for spot: Vector2i in [new_tile * Config.TILE, old_tile * Config.TILE]:
+		var imgs: Array[Image] = []
+		for w: GameWorld in [host_w, client_w, bare_w]:
+			for o: GameWorld in [host_w, client_w, bare_w]:
+				o.visible = o == w
+			w.camera.make_current()
+			_cave_look_at(w, spot)
+			imgs.append(await _capture())
+		host_vs_client += count_diff(imgs[0], imgs[1])
+		if spot == new_tile * Config.TILE:
+			drawn = count_diff(imgs[1], imgs[2])
+		shots.append_array(imgs)
+	# The panels: the host's and the client's (its world's shop, the inventory an inventory message brought), over one world.
+	for o2: GameWorld in [host_w, client_w, bare_w]:
+		o2.visible = o2 == host_w
+	host_w.camera.make_current()
+	_cave_look_at(host_w, new_tile * Config.TILE)
+	var msg: NetProtocol.InventoryState = NetProtocol.decode_inventory(NetProtocol.encode_inventory(inv, 0))
+	var cinv: Inventory = Inventory.new()
+	if msg.ok:
+		SessionClient.take_inventory(cinv, msg, msg.selected)
+	var no_panel: Image = await _capture()
+	var panels: Array[Image] = []
+	for side: Array in [[d.shop, inv], [client_w.data.shop, cinv]]:
+		var hud: Hud = Hud.new()
+		root.add_child(hud)
+		var sh: Shop = side[0]
+		var pinv: Inventory = side[1]
+		hud.bind(pinv)
+		hud.set_open(true)
+		hud.shop.open_for(sh, pinv, new_tile, Config.MAP_SURFACE)
+		hud.shop.queue_redraw()
+		panels.append(await _capture())
+		root.remove_child(hud)
+		hud.free()
+	var panel_diff: int = count_diff(panels[0], panels[1])
+	var panel_drawn: int = count_diff(panels[1], no_panel)
+	var holy_veiled: bool = client_w.data.shop.left_at(2) == 0
+	if host_vs_client > 0 or panel_diff > 0 or save_all:
+		for i: int in shots.size():
+			_save(shots[i], "shop_net_%d.png" % i)
+		_save(panels[0], "shop_net_panel_host.png")
+		_save(panels[1], "shop_net_panel_client.png")
+	var line: String = "snapshot %s, %d edits through the wire (%d taken), same data %s, merchant %s -> %s moved %s, fixtures %s, host vs client %d, drawn %d, panels differ %d (panel drawn %d px), holy water sold out %s" % [
+		str(snap_ok), sent, wired, str(same_data), old_tile, new_tile, str(moved_ok), fx, host_vs_client, drawn, panel_diff,
+		panel_drawn, str(holy_veiled)]
+	if snap_ok and wired == sent and same_data and moved_ok and host_vs_client == 0 and drawn > 300 and panel_diff == 0 \
+			and panel_drawn > 3000 and holy_veiled and msg.ok:
+		print("EVENSONG_RENDER shop_net ok %s" % line)
+	else:
+		_fail("shop_net", line)
+	for w2: GameWorld in [host_w, client_w, bare_w]:
+		root.remove_child(w2)
+		w2.free()
+	world.visible = true
+	world.camera.make_current()

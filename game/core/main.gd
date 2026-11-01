@@ -97,12 +97,16 @@ extends Node2D
 ## ARMOR, a click in the chest panel CHEST; F at a chest opens its panel here (NetSession.chest_wanted) on this machine's
 ## world, whose chest slots the host's edits keep; C opens the hand recipes (a CRAFT request; M7-fix: their own key).
 ## The build ghost is drawn from this machine's world (gold or red is this machine's answer; the host decides again).
-## M8a (offline first; a session has no merchant until M8b): the merchant stands beside the altar on the surface (items/merchant.gd:
+## M8a (offline first; M8b below brings it to sessions): the merchant stands beside the altar on the surface (items/merchant.gd:
 ## Merchant.settle_edits when the world starts and each time the altar is put down; a prompt over him while the local player is
 ## next to him) and the shop is his (items/shop.gd: one stock for the world, its game clock stepped every physics tick). F aimed at
 ## him in reach opens the shop panel (ui/shop_panel.gd) with the inventory and the player stands: a click on an entry buys one, a
 ## click on an inventory slot sells one (shift: the whole stack), the move keys and Enter buy by keyboard, Tab / Esc / F close it;
 ## going down, another map or the merchant out of reach close it too. Money is an item (ItemDB.MONEY).
+## M8b (sessions): the shop is the world's (WorldData.shop of the surface: offline Main puts one there, a session's comes from
+## the host with the world). The host places and moves the merchant and keeps the stock; F at him opens the same panel on this
+## machine (NetSession.shop_wanted), a click is a BUY / SELL request (not predicted: the host's inventory and stock edits come
+## back; the panel marks at once the refusal this machine's own world foresees, as a hint, and sends the request anyway).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -140,7 +144,8 @@ var _debug_action: int = 0
 var forests: Dictionary[int, Forest] = {}
 var trees_on: bool = false
 var build_ghost: BuildGhost
-## M8a (offline): the world's shop (its stock and clock), on; how often the merchant moved.
+## M8a (offline): the world's shop (its stock and clock), on; how often the merchant moved. M8b: `shop` is the surface world's
+## (WorldData.shop, world_shop()); a session's is the host's and its stock comes with the snapshot and the edits.
 var shop: Shop
 var shop_on: bool = false
 var merchant_moves: int = 0
@@ -179,6 +184,9 @@ func _ready() -> void:
 		net.bot_ui.connect(_on_bot_ui)  # M6b: a bot's tab / craft in a session
 		net.chest_wanted.connect(open_chest)  # M7c: F at a chest opens its panel here
 		net.bot_gear.connect(_on_bot_gear)  # M7c: a bot's chest panel / armour slot clicks
+		net.shop_wanted.connect(open_shop)  # M8b: F at the merchant opens his shop panel here
+		net.bot_shop.connect(_on_bot_shop)  # M8b: a bot's shop panel clicks
+		_connect_shop_panel()
 		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
 			net.worlds[id] = worlds[id]
@@ -280,6 +288,8 @@ func _physics_process(delta: float) -> void:
 		_show_purify()  # M5c: the channels under way, from the players' states
 		_show_build_ghost()  # M7c: from this machine's world (the host decides)
 		_redraw_chest()  # M7c: the host's chest slot edits change an open panel
+		_redraw_shop()  # M8b: the host's shop stock edits change an open panel
+		_show_merchant_prompt()  # M8b
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -1077,22 +1087,35 @@ func _show_build_ghost() -> void:
 	build_ghost.show_at(piece, cell, why.is_empty())
 
 
-# --- M8a: money, the merchant and his shop (offline) ----------------------------------------------------------------
+# --- M8a: money, the merchant and his shop (offline; M8b: the panel in sessions too) -----------------------------------
 
-## The world's shop (one stock, its clock) and the merchant beside the altar (offline; a session has neither until M8b).
-## Always there (PROVISIONAL README "M8a 늘 있음": no visiting schedule).
+## The world's shop (one stock, its clock) and the merchant beside the altar (offline; M8b: a session's are the host's, and a
+## client that loses its host and plays on alone keeps the stock its world had). Always there (PROVISIONAL README "M8a 늘 있음":
+## no visiting schedule). M8b: the shop lives in the surface's WorldData (world_shop()).
 func setup_shop() -> void:
 	shop_on = true
-	if shop == null:
-		shop = Shop.new()
-	if hud != null and not hud.shop.buy_requested.is_connected(shop_buy):
-		hud.shop.buy_requested.connect(shop_buy)
-		hud.shop.sell_requested.connect(shop_sell)
+	if world != null and world.data != null and world.data.shop == null:
+		world.data.shop = shop if shop != null else Shop.new()
+	shop = world_shop()
+	_connect_shop_panel()
 	settle_merchant(world)
 
 
+## M8b: the world's shop (the surface's WorldData.shop: offline Main's, a session's from the host), or null.
+func world_shop() -> Shop:
+	return world.data.shop if world != null and world.data != null else null
+
+
+## The shop panel's clicks go to shop_buy / shop_sell (offline and, M8b, in a session).
+func _connect_shop_panel() -> void:
+	if hud != null and not hud.shop.buy_requested.is_connected(shop_buy):
+		hud.shop.buy_requested.connect(shop_buy)
+		hud.shop.sell_requested.connect(shop_sell)
+
+
 ## Puts the merchant where Merchant.spot_for says on world `w` (the surface) now, with the players and heretics there as bodies
-## (Merchant.settle_edits; he stays where he is when no tile allows him). Returns his tile (Walls.NO_CELL: none).
+## (Merchant.settle_edits; he stays where he is when no tile allows him). Returns his tile (Walls.NO_CELL: none). Offline only
+## (M8b: a session's host moves him, SessionHost.settle_merchant).
 func settle_merchant(w: GameWorld) -> Vector2i:
 	if w == null or w.data == null or w.map_id != Merchant.MAP:
 		return Walls.NO_CELL
@@ -1114,19 +1137,22 @@ func settle_merchant(w: GameWorld) -> Vector2i:
 	return now
 
 
-## One game tick of the shop's clock (every map's, like the farms): the stock comes back every Config.SHOP_RESTOCK_TICKS.
+## One game tick of the shop's clock (every map's, like the farms): the stock comes back every Config.SHOP_RESTOCK_TICKS. Offline
+## only (M8b: a session's clock is the host's, SessionHost._step_shop).
 func step_shop() -> void:
-	if not shop_on or shop == null:
+	var sh: Shop = world_shop()
+	if not shop_on or sh == null:
 		return
-	if shop.step():
-		print("EVENSONG_SHOP restock %d: %s" % [shop.restocks, shop.describe()])
+	if sh.step():
+		print("EVENSONG_SHOP restock %d: %s" % [sh.restocks, sh.describe()])
 		if shop_open():
 			hud.shop.queue_redraw()
 
 
-## The prompt over the merchant while the local player stands next to him (WorldItems.in_reach), up, its hands free.
+## The prompt over the merchant while the local player stands next to him (WorldItems.in_reach), up, its hands free. M8b: in a
+## session too (the merchant the host put in this machine's world).
 func _show_merchant_prompt() -> void:
-	if not shop_on or world == null or world.data == null or player == null:
+	if world_shop() == null or world == null or world.data == null or player == null:
 		return
 	var t: Vector2i = Merchant.tile_of(world.data)
 	var v: MerchantView = world.fixtures.merchant_at(t) if t != Walls.NO_CELL else null
@@ -1140,15 +1166,19 @@ func shop_open() -> bool:
 	return hud != null and hud.shop.is_open()
 
 
-## F at the merchant on tile `tile`: his shop panel with the inventory; the player stands while it is open.
+## F at the merchant on tile `tile`: his shop panel with the inventory; the player stands while it is open. M8b: in a session on
+## this machine's world (NetSession.shop_wanted), whose stock follows the host's edits. PROVISIONAL Config.SHOP_WHILE_CARRYING
+## (on): the altar's carrier opens it too.
 func open_shop(tile: Vector2i) -> void:
-	if not shop_on or _in_session() or crafting_open() or chest_open() or shop_open() or player == null \
-			or not player.vitals.alive():
+	var sh: Shop = world_shop()
+	if sh == null or not (shop_on or _in_session()) or current_map != Merchant.MAP or crafting_open() or chest_open() \
+			or shop_open() or player == null or not player.vitals.alive() \
+			or (player.carrying_altar and not Config.SHOP_WHILE_CARRYING):
 		return
-	hud.shop.open_for(shop, player.inventory, tile, current_map)
+	hud.shop.open_for(sh, player.inventory, tile, current_map)
 	hud.set_open(true)
 	player.ui_locked = true
-	print("EVENSONG_SHOP open at=%d,%d money=%d stock=%s" % [tile.x, tile.y, Shop.money_in(player.inventory), shop.describe()])
+	print("EVENSONG_SHOP open at=%d,%d money=%d stock=%s" % [tile.x, tile.y, Shop.money_in(player.inventory), sh.describe()])
 
 
 func close_shop() -> void:
@@ -1158,11 +1188,19 @@ func close_shop() -> void:
 		player.ui_locked = false
 
 
-## A click on entry `index` (or Enter on the selected one): buy one (Shop.buy: all or nothing).
+## A click on entry `index` (or Enter on the selected one): buy one (Shop.buy: all or nothing). M8b: in a session a BUY request
+## (the host decides; its inventory and stock edits come back); the refusal this machine's world foresees flashes at once as a
+## hint and the request goes anyway.
 func shop_buy(index: int) -> void:
 	if not shop_open():
 		return
 	hud.shop.selected = clampi(index, 0, ShopPanel.entries() - 1)
+	if _in_session():
+		var hint: String = hud.shop.shop.buy_refusal(player.inventory, index) if hud.shop.shop != null else ""
+		if not hint.is_empty():
+			hud.shop.flash(hint, index, -1)
+		_shop_request(NetProtocol.Op.BUY, index, false, hint)
+		return
 	var d: Shop.Deal = shop.buy(player.inventory, index)
 	if d.ok():
 		print("EVENSONG_SHOP buy item=%s grade=%s price=%d left=%d money=%d" % [d.item, ItemDB.GRADE_NAMES[d.grade], d.money,
@@ -1173,9 +1211,16 @@ func shop_buy(index: int) -> void:
 	hud.shop.queue_redraw()
 
 
-## A click on inventory slot `slot` while the shop is open: sell one of it, or (`whole`, shift) as many as the money fits.
+## A click on inventory slot `slot` while the shop is open: sell one of it, or (`whole`, shift) as many as the money fits. M8b:
+## in a session a SELL request, with the hint like shop_buy.
 func shop_sell(slot: int, whole: bool) -> void:
 	if not shop_open():
+		return
+	if _in_session():
+		var hint: String = Shop.sell_refusal(player.inventory, slot, whole)
+		if not hint.is_empty():
+			hud.shop.flash(hint, -1, slot)
+		_shop_request(NetProtocol.Op.SELL, slot, whole, hint)
 		return
 	var d: Shop.Deal = shop.sell(player.inventory, slot, whole)
 	if d.ok():
@@ -1185,6 +1230,49 @@ func shop_sell(slot: int, whole: bool) -> void:
 		hud.shop.flash(d.why, -1, slot)
 		print("EVENSONG_SHOP sell refused slot=%d item=%s: %s" % [slot, d.item, d.why])
 	hud.shop.queue_redraw()
+
+
+## M8b: a BUY (offer `slot`) or SELL (inventory slot `slot`, `whole`) request at the open panel's merchant tile; `hint` = the
+## refusal this machine's world foresees ("" = none), for the log only.
+func _shop_request(op: int, slot: int, whole: bool, hint: String) -> void:
+	var f: NetProtocol.InputFrame = request(op, slot)
+	f.cell = hud.shop.tile
+	f.sell_all = whole
+	net.queue_op(f)
+	print("EVENSONG_SHOP %s request slot=%d%s at=%d,%d%s" % [NetProtocol.OP_NAMES[op], slot, " all" if whole else "", f.cell.x,
+		f.cell.y, "" if hint.is_empty() else " (looks refused here: %s)" % hint])
+
+
+## M8b: an open shop panel draws again when the host's shop stock edits changed this machine's world (and reads the world's
+## shop: a new world received means a new shop).
+var _shop_edits_seen: int = -1
+
+
+func _redraw_shop() -> void:
+	if not shop_open():
+		return
+	var sh: Shop = world_shop()
+	if sh == null:
+		close_shop()
+		print("EVENSONG_SHOP closed: no shop in this world")
+		return
+	if hud.shop.shop != sh:
+		hud.shop.shop = sh
+		hud.shop.queue_redraw()
+	var w: GameWorld = current_world()
+	if w != null and w.shop_edits != _shop_edits_seen:
+		_shop_edits_seen = w.shop_edits
+		hud.shop.queue_redraw()
+
+
+## M8b: a bot's shop panel click in a session (NetSession.bot_shop): an entry to buy, an inventory slot to sell (-1 = none).
+func _on_bot_shop(buy_entry: int, sell_slot: int, sell_all: bool) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	if buy_entry >= 0:
+		shop_buy(buy_entry)
+	if sell_slot >= 0:
+		shop_sell(sell_slot, sell_all)
 
 
 func _shop_input(event: InputEvent) -> void:

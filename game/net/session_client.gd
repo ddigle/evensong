@@ -61,6 +61,11 @@ extends RefCounted
 ## chest slot edits (an open panel reads them), the gear's durability and the armour with the host's inventory. The
 ## prediction walks this machine's world, built walls and closed doors included (Walls.blocks), as the host does; a door
 ## never closes and a piece never goes down within Config.BLOCK_CLEARANCE_PX of another player (README "M7c 예측").
+##
+## M8b (the merchant and his shop): the merchant is a placeable of the world the host sent (his moves are cell edits), the shop's
+## stock is part of it (WorldData.shop: the snapshot, shop stock edits). F at him opens the shop panel here (Main), a click is a
+## BUY / SELL request; the trade is the host's: the inventory and the stock edits that come back show it (nothing predicted).
+## The prediction walks around him like any blocking placeable (Movement on this machine's world).
 
 var s: NetSession
 var prediction: Prediction
@@ -216,14 +221,15 @@ func on_welcome(payload: PackedByteArray) -> void:
 	var built: Dictionary = SessionReport.builds_of(data)  # M7c: and of the built pieces, doors, stumps, stations, chests (M7-rf: floors)
 	s.log_event("welcome", ("slot=%d class=%s players=%d max=%d seed=%d edits=%d world=%s world_bytes=%d raw=%d " +
 		"chunks=%d build_ms=%.1f join_ms=%.1f gatherables=%d drops=%d elsewhere=%d altar=%s tilled=%d crops=%d withered=%d " +
-		"corrupted=%d walls=%d doors=%d open_doors=%d floors=%d stumps=%d stations=%d chests=%d chest_items=%d generator=%s") % [w.slot,
+		"corrupted=%d walls=%d doors=%d open_doors=%d floors=%d stumps=%d stations=%d chests=%d chest_items=%d merchant=%s " +
+		"shop=%s generator=%s") % [w.slot,
 		s.local.class_id,
 		s.members.size(), w.max_players, data.world_seed, s.edit_log.size(), data.content_hash().left(12), w.packed_size,
 		w.raw_size, w.chunk_count, world_build_ms, join_ms, WorldItems.gatherable_cells(data).size(), data.drops.size(),
 		others_on_welcome, "%d,%d" % [data.altar_rect.position.x, data.altar_rect.position.y] if data.altar_rect.has_area() else "none",
 		fields["tilled"], crops.size(), fields["withered"], Purify.corrupted_count(data), built["walls"], built["doors"],
 		built["open_doors"], built["floors"], built["stumps"], built["workbenches"] + built["anvils"] + built["relic_benches"], built["chest_count"],
-		_chest_items(data), "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12), host_generator_hash.left(12)]])
+		_chest_items(data), SessionReport.merchant_of(data), _stock_line(data), "match" if generator_match else "differs (local %s, host %s)" % [s.generator_hash.left(12), host_generator_hash.left(12)]])
 	for info2: NetProtocol.PlayerInfo in w.players:
 		if info2.state.vitals != null and info2.state.vitals.has_effects():
 			effects_on_welcome[str(info2.state.slot)] = info2.state.vitals.describe()
@@ -282,10 +288,22 @@ func on_map_entry(payload: PackedByteArray) -> void:
 	var ms: float = (Time.get_ticks_usec() - t0) / 1000.0
 	last_entry = {"map": e.map, "bytes": e.packed_size, "raw": e.raw_size, "chunks": e.chunk_count,
 		"edit_position": e.edit_position, "build_ms": ms}
-	s.log_event("map", "entered map=%s world=%s bytes=%d raw=%d chunks=%d edits=%d drops=%d torches=%d cracked=%d build_ms=%.1f" % [
-		Config.MAP_NAMES[e.map], data.content_hash().left(12), e.packed_size, e.raw_size, e.chunk_count, e.edit_position,
-		data.drops.size(), data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH), _cracked(data), ms])
+	s.log_event("map", ("entered map=%s world=%s bytes=%d raw=%d chunks=%d edits=%d drops=%d torches=%d cracked=%d merchant=%s " +
+		"shop=%s build_ms=%.1f") % [Config.MAP_NAMES[e.map], data.content_hash().left(12), e.packed_size, e.raw_size, e.chunk_count,
+		e.edit_position, data.drops.size(), data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH), _cracked(data),
+		SessionReport.merchant_of(data), _stock_line(data), ms])
 	s.local_map_changed.emit(e.map)
+
+
+## M8b: the shop's stock of `data` as one word (the counts left in Shop.offers() order, "/" between: "3/3/2/10/5/1/1/1/1/1/1"),
+## "none" without a shop.
+static func _stock_line(data: WorldData) -> String:
+	if data.shop == null:
+		return "none"
+	var parts: PackedStringArray = []
+	for b: int in data.shop.stock_bytes():
+		parts.append(str(b))
+	return "/".join(parts)
 
 
 ## M7c: the items lying in every chest of `data` (the stacks' counts summed).

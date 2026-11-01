@@ -24,18 +24,24 @@ extends RefCounted
 ##   0x41   drop removed: u32 id                                                     (10 B)
 ##   0x42   chest slot (M7c): u16 x, u16 y (the chest's top-left tile), u8 slot, u8 item index + 1 (0 = empty), u8 count,
 ##          u8 grade, u16 durability left                                            (16 B)
+##   0x43   shop stock (M8b, protocol v10): u8 offer (its index in Config.SHOP_SELLS), u8 count left   (8 B)
+## M8b: the merchant's shop is world state of the surface (WorldData.shop): a buy or a restock on the host sets one offer's
+## count left ("shop potion_healing=2", absolute like the rest); the merchant's own tile is a PLACEABLE cell edit (value 17).
 
 const HEADER_SIZE: int = 5
 const EDIT_SIZE: int = 6
 const CODE_DROP_PUT: int = 0x40
 const CODE_DROP_REMOVE: int = 0x41
 const CODE_CHEST: int = 0x42
+const CODE_SHOP: int = 0x43
 ## M7c: a chest slot edit's bytes after its code.
 const CHEST_EDIT_SIZE: int = 10
+## M8b: a shop stock edit's bytes after its code.
+const SHOP_EDIT_SIZE: int = 2
 ## Floor terrains the debug edit may write (no ash: corruption zones are fixed in M1, §12).
 const EDITABLE_TERRAINS: PackedInt32Array = [Terrain.GRASS, Terrain.SOIL]
 
-enum Kind { CELL, DROP_PUT, DROP_REMOVE, CHEST }
+enum Kind { CELL, DROP_PUT, DROP_REMOVE, CHEST, SHOP }
 
 
 class WorldEdit:
@@ -49,6 +55,8 @@ class WorldEdit:
 	var drop_id: int = 0
 	## M7c, CHEST: the chest's top-left tile is `cell`, the slot `value`, what it holds now `stack` (null = empty).
 	var stack: ItemStack
+	## M8b, SHOP: the offer (its index in Shop.offers()); its count left is `value`.
+	var offer: int = 0
 
 	func _init(p_layer: int = WorldData.Layer.FLOOR, p_cell: Vector2i = Vector2i.ZERO, p_value: int = 0) -> void:
 		layer = p_layer
@@ -62,6 +70,14 @@ class WorldEdit:
 		e.cell = key
 		e.value = slot
 		e.stack = st.copy() if st != null else null
+		return e
+
+	## M8b: the shop's offer `index` has `left` left.
+	static func shop_stock(index: int, left: int) -> WorldEdit:
+		var e: WorldEdit = WorldEdit.new()
+		e.kind = Kind.SHOP
+		e.offer = index
+		e.value = left
 		return e
 
 	static func drop_put(d: WorldData.Drop) -> WorldEdit:
@@ -85,6 +101,9 @@ class WorldEdit:
 				return "drop- %d" % drop_id
 			Kind.CHEST:
 				return "chest %d,%d[%d]=%s" % [cell.x, cell.y, value, str(stack).replace(" ", "_") if stack != null else "empty"]
+			Kind.SHOP:
+				var o: Shop.Offer = Shop.offer_at(offer)
+				return "shop %s=%d" % [o.item if o != null else &"?", value]
 		return "%s %d,%d=%d" % [WorldData.LAYER_NAMES[layer] if layer >= 0 and layer < WorldData.LAYER_COUNT else "?",
 			cell.x, cell.y, value]
 
@@ -153,6 +172,9 @@ static func apply_to_data(data: WorldData, edit: WorldEdit) -> bool:
 				return false
 			data.chest_at(edit.cell).slots[edit.value] = edit.stack.copy() if edit.stack != null else null
 			return true
+		Kind.SHOP:
+			# M8b: an offer of the world's shop (there is one) and a count it may have left.
+			return data.shop != null and data.shop.set_left(edit.offer, edit.value)
 	if edit.layer < 0 or edit.layer >= WorldData.LAYER_COUNT or not data.in_bounds(edit.cell):
 		return false
 	var was: int = data.get_value(edit.layer, edit.cell)
@@ -181,6 +203,11 @@ static func encode_one(edit: WorldEdit, index: int, map: int = Config.MAP_SURFAC
 			out.encode_u16(HEADER_SIZE + 3, edit.cell.y)
 			out.encode_u8(HEADER_SIZE + 5, edit.value)
 			write_stack(out, HEADER_SIZE + 6, edit.stack)
+		Kind.SHOP:
+			out.resize(HEADER_SIZE + 1 + SHOP_EDIT_SIZE)
+			out.encode_u8(HEADER_SIZE, CODE_SHOP)
+			out.encode_u8(HEADER_SIZE + 1, clampi(edit.offer, 0, 255))
+			out.encode_u8(HEADER_SIZE + 2, clampi(edit.value, 0, 255))
 		_:
 			out.resize(HEADER_SIZE + EDIT_SIZE)
 			_write_edit(out, HEADER_SIZE, edit)
@@ -221,6 +248,15 @@ static func decode_one(bytes: PackedByteArray) -> Array:
 		var st: ItemStack = got[0]
 		return [bytes.decode_u32(0), WorldEdit.chest_slot(Vector2i(bytes.decode_u16(HEADER_SIZE + 1),
 			bytes.decode_u16(HEADER_SIZE + 3)), slot, st), map]
+	if code == CODE_SHOP:
+		# M8b: an offer that exists and a count within its cap (whether the world has a shop is checked when it is applied).
+		if bytes.size() != HEADER_SIZE + 1 + SHOP_EDIT_SIZE:
+			return [-1, null, -1]
+		var offer: int = bytes.decode_u8(HEADER_SIZE + 1)
+		var left: int = bytes.decode_u8(HEADER_SIZE + 2)
+		if not Shop.valid_left(offer, left):
+			return [-1, null, -1]
+		return [bytes.decode_u32(0), WorldEdit.shop_stock(offer, left), map]
 	if bytes.size() != HEADER_SIZE + EDIT_SIZE:
 		return [-1, null, -1]
 	return [bytes.decode_u32(0), _read_edit(bytes, HEADER_SIZE), map]

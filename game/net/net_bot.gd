@@ -72,12 +72,16 @@ extends RefCounted
 ##   buy:<n>                      click entry <n> (1 = the top left) of the open shop panel: buy one
 ##   sell:<n>[,all]               click inventory slot <n> (1 = the hotbar's first) of the open shop panel: sell one (all: shift,
 ##                                the whole stack)
+## M8b (sessions: buy / sell go to Main through NetSession.bot_shop and become BUY / SELL requests; the shop as this machine's
+## world has it, `world`):
+##   waitstock:<n>,<left>[,<ticks>]   stand until entry <n> (1 = the top left) of the world's shop has exactly <left> left
+##                                (default 1800 ticks)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor", "buy", "sell"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -378,6 +382,13 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.item = StringName(args[2])
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
+		"waitstock":
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or args[0].to_int() > Shop.offers().size() \
+					or not _whole(args[1], 0) or (args.size() == 3 and not _whole(args[2], 1)):
+				return "expected waitstock:<entry 1..%d>,<left>[,<ticks>]" % Shop.offers().size()
+			c.slot = args[0].to_int() - 1
+			c.count = args[1].to_int()
+			c.ticks = args[2].to_int() if args.size() == 3 else WAITMAP_LIMIT_TICKS
 		"waitmap":
 			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitmap:<players>,<map>[,<ticks>]"
@@ -565,7 +576,7 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.heretic = c.cell
 				_next()
 				return
-			"waitat", "waitplaced", "waitchest":
+			"waitat", "waitplaced", "waitchest", "waitstock":
 				if _left < 0:
 					_left = c.ticks
 				_left -= 1
@@ -712,6 +723,8 @@ func _waited(c: Command) -> bool:
 			for st: ItemStack in world.chests[key].slots:
 				if st != null and st.id == c.item:
 					return true
+		"waitstock":
+			return world != null and world.shop != null and world.shop.left_at(c.slot) == c.count  # M8b
 	return false
 
 

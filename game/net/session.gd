@@ -63,6 +63,12 @@ extends Node
 ## cell edits, a chest's contents chest slot edits (snapshots carry them all); durability and the armour slot ride in the
 ## owner's inventory message. A client predicts its body actions (the axe swing too), never what they change.
 ##
+## M8b (the merchant and his shop): the host puts the merchant beside the altar on the surface and keeps the world's one shop
+## (WorldData.shop: his stock, its clock); F at him opens the shop panel on this machine, a click is a BUY or SELL request the
+## host checks and applies (net/session_host.gd). His tile is a placeable cell edit, the stock a shop stock edit to the surface's
+## players, both in the snapshot; the owner gets its inventory. A client never decides a trade: its panel shows its world and
+## waits.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -84,6 +90,11 @@ signal bot_ui(tab: bool, craft_row: int)
 ## tick (Main sends the CHEST / ARMOR request).
 signal chest_wanted(rect: Rect2i)
 signal bot_gear(store_slot: int, take_slot: int, unequip: bool)
+## M8b: F at the merchant in reach (the local player's keys or bot, SessionHost.attach_local_op): Main opens his shop panel on
+## this machine's world (his tile `tile`); a bot clicked a shop panel entry (buy, -1 = none) or an inventory slot (sell, -1 =
+## none; `sell_all` shift) this tick (Main sends the BUY / SELL request).
+signal shop_wanted(tile: Vector2i)
+signal bot_shop(buy_entry: int, sell_slot: int, sell_all: bool)
 
 enum Role { OFFLINE, HOST, CLIENT }
 const ROLE_NAMES: PackedStringArray = ["offline", "host", "client"]

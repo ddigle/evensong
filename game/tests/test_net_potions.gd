@@ -672,9 +672,14 @@ func _check_heal_and_buff() -> void:
 	hp.teleport(here)
 	give(r.s.local, &"potion_healing", 3, ItemDB.Grade.FINE)
 	give(r.s.local, &"potion_buff", 2, ItemDB.Grade.FINE)
-	var c: Client = _join(r, 101, "paladin", here + Vector2(56, 0), false)
-	var c2: Client = _join(r, 102, "archer", here + Vector2(-40, 30), false)
+	# M8b: the paladin west of the host (M6b had it 56 px east: the merchant's tile, (67, 50) on seed 1, since sessions have
+	# him), so its second of buffed walking east (about 101 px) ends short of him.
+	var c: Client = _join(r, 101, "paladin", here + Vector2(-56, 0), false)
+	var c2: Client = _join(r, 102, "archer", here + Vector2(40, 30), false)
 	var m: NetMember = hm(r, c)
+	check(Merchant.tile_of(r.surface.data) == Vector2i(67, 50) and not Movement.feet_box(m.player.sim_position
+		+ Vector2(102, 0)).intersects(Rect2(Vector2(Merchant.tile_of(r.surface.data) * Config.TILE), Vector2(Config.TILE, Config.TILE))),
+		"M8b: the merchant stands at (67, 50), clear of the paladin's walk")
 	check_eq(m.player.vitals.hp, 40, "the paladin starts hurt (--test-start-hp)")
 	hp.inventory.select(slot_of(hp.inventory, &"potion_healing"))
 	var events_before: int = c.s.client.prediction.event_corrections

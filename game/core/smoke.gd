@@ -30,6 +30,9 @@ extends RefCounted
 ## M8a: money (the item, its kind and stack) and the merchant: on the seed-1 world he comes down beside the altar (the preferred
 ## tile, blocking, the panel's eleven offers), a healing potion bought and a stone sold back, no recipe that makes a thing worth
 ## more to him than its inputs. Printed as shop=<x>,<y>/<offers>/<money left>.
+## M8b: wire v10: BUY and SELL on frames, a host world with the merchant and a holy water sold reaching a client as its snapshot
+## (the same hash: the stock is part of it) and the next buy's shop stock edit after it. Printed as shop_wire=<a BUY on a
+## frame>B/<a SELL on a frame>B/<a shop stock edit>B/<that world's packed snapshot>B.
 ## Any mismatch -> exit code 1.
 ##
 ## Output: "EVENSONG_SMOKE ok key=value ..." or "EVENSONG_SMOKE FAIL <n> failure(s): a; b; ...".
@@ -780,6 +783,7 @@ static func _check_net(r: Report) -> void:
 	_check_net_potions(r, s)
 	_check_net_fields(r)
 	_check_net_builds(r)
+	_check_net_shop(r)
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -1029,6 +1033,47 @@ static func _check_net_builds(r: Report) -> void:
 		and client.has_floor_piece(Vector2i(64, 56)) and Walls.is_door(client, Vector2i(64, 56)),
 		"a wall and a door each on a floor piece: one in the snapshot, one through an edit (M7-rf, v9)")
 	r.fields.append("builds_wire=%dB/%dB/%dB" % [inv_bytes.size(), packed.bytes.size(), edit_bytes])
+
+
+## M8b: the merchant and his shop on the wire (protocol v10): BUY and SELL round trip, and a host world with the merchant beside
+## the altar and a holy water sold reaches a client as its snapshot (the same hash: the stock is in it) and the next buy's shop
+## stock edit after it.
+static func _check_net_shop(r: Report) -> void:
+	var buy: NetProtocol.InputFrame = NetProtocol.InputFrame.new(50, Vector2i.ZERO)
+	buy.op = NetProtocol.Op.BUY
+	buy.cell = Vector2i(67, 50)
+	buy.slot = 2
+	var sell: NetProtocol.InputFrame = NetProtocol.InputFrame.new(51, Vector2i.ZERO)
+	sell.op = NetProtocol.Op.SELL
+	sell.cell = Vector2i(67, 50)
+	sell.slot = 5
+	sell.sell_all = true
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([buy, sell] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 2 and up.frames[0].same_request(buy) and up.frames[1].same_request(sell)
+		and up.frames[1].sell_all, "BUY and SELL round trip (M8b)")
+	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	host.shop = Shop.new()
+	for e: EditLog.WorldEdit in Merchant.settle_edits(host):
+		EditLog.apply_to_data(host, e)
+	var inv: Inventory = Inventory.new()
+	inv.add(ItemDB.MONEY, 100)
+	var d: Shop.Deal = host.shop.buy(inv, 2)
+	var packed: WorldSnapshot.Packed = WorldSnapshot.encode(host)
+	var client: WorldData = WorldSnapshot.unpack(packed.bytes, packed.raw_size)
+	r.expect(d.ok() and client != null and client.content_hash() == host.content_hash() and client.shop != null
+		and client.shop.stock_bytes() == host.shop.stock_bytes() and Merchant.tile_of(client) == Merchant.tile_of(host),
+		"a host world with the merchant and a holy water sold reaches a client as its snapshot (M8b)")
+	if client == null:
+		return
+	var later: Shop.Deal = host.shop.buy(inv, 2)
+	var wire: PackedByteArray = EditLog.encode_one(EditLog.WorldEdit.shop_stock(2, later.left), 0, Config.MAP_SURFACE)
+	var got: Array = EditLog.decode_one(wire)
+	var ge: EditLog.WorldEdit = got[1]
+	r.expect(later.ok() and ge != null and EditLog.apply_to_data(client, ge) and client.content_hash() == host.content_hash()
+		and client.shop.left_at(2) == 0, "the next buy's shop stock edit follows: sold out on both (M8b)")
+	var buy_bytes: int = NetProtocol.OP_SIZES[NetProtocol.Op.BUY] + 2
+	var sell_bytes: int = NetProtocol.OP_SIZES[NetProtocol.Op.SELL] + 2
+	r.fields.append("shop_wire=%dB/%dB/%dB/%dB" % [buy_bytes, sell_bytes, wire.size(), packed.bytes.size()])
 
 
 ## Applies `edits` to `data` and returns them.

@@ -14,6 +14,12 @@ extends RefCounted
 ## joins his stock). The stock comes back to every offer's cap every Config.SHOP_RESTOCK_TICKS of game time (step(): the shop's
 ## own tick count, never the wall clock).
 ## Refusals are Korean lines (the task's words): the log prints them, the panel marks them (ui/shop_panel.gd).
+##
+## M8b (sessions): the shop is world state, one per world: WorldData.shop of the surface (offline Main and a session host put
+## one there; a client's comes with the world snapshot). Its stock travels as bytes (stock_bytes: one per offer, the left
+## count, Config.SHOP_SELLS order) in the snapshot and the content hash, and a shop stock edit (net/edit_log.gd) sets one
+## offer's (set_left); the clock is the host's only (it is never sent, like a farm's timers). The host decides every buy and
+## sale (net/session_host.gd BUY / SELL) with the same rules as offline.
 
 const WHY_MONEY: String = "돈이 모자라다"
 const WHY_SOLD_OUT: String = "다 팔렸다"
@@ -23,8 +29,12 @@ const WHY_NOT_BOUGHT: String = "상인이 사지 않는 것"
 const WHY_WORN_OUT: String = "다 닳아 값이 없다"
 const WHY_EMPTY: String = "빈 칸"
 const WHY_NOT_SOLD: String = "상인이 팔지 않는 것"
-## M8a: a session has no merchant yet (M8b).
-const WHY_OFFLINE: String = "shop offline only"
+## M8b (the host's BUY / SELL): the request's tile is not where the merchant stands on that map (or he stands nowhere).
+const WHY_NO_MERCHANT: String = "no merchant there"
+
+## M8b, IMPL test hook: the restock period step() uses (Config.SHOP_RESTOCK_TICKS; a test sets it shorter, --test-shop-restock,
+## so a session test sees a restock within its time; the PROVISIONAL value itself is the config's).
+static var restock_ticks: int = Config.SHOP_RESTOCK_TICKS
 
 
 ## One thing the merchant sells: the item, its price in money, its stock cap, the grade it comes in.
@@ -155,12 +165,13 @@ func left_of(item: StringName) -> int:
 	return n
 
 
-## One game tick: the clock runs on; every Config.SHOP_RESTOCK_TICKS (0 = never) the stock comes back. Returns whether it did.
+## One game tick: the clock runs on; every Config.SHOP_RESTOCK_TICKS (0 = never; M8b: restock_ticks, the test hook) the stock
+## comes back. Returns whether it did.
 func step() -> bool:
-	if Config.SHOP_RESTOCK_TICKS <= 0:
+	if restock_ticks <= 0:
 		return false
 	clock += 1
-	if clock < Config.SHOP_RESTOCK_TICKS:
+	if clock < restock_ticks:
 		return false
 	clock = 0
 	restocks += 1
@@ -219,21 +230,33 @@ static func sellable(inv: Inventory, slot: int, want: int, each: int) -> int:
 	return 0
 
 
+## Why the stack in `slot` of `inv` may not be sold now (one, or `whole`: "" = it may): an empty slot, an item he does not buy,
+## one worth nothing (worn out), not even one sale's money fitting. M8b: a session client marks it at once as a hint (the host
+## decides with sell()).
+static func sell_refusal(inv: Inventory, slot: int, whole: bool) -> String:
+	var s: ItemStack = inv.stack_at(slot)
+	if s == null:
+		return WHY_EMPTY
+	if pays_for(s.id) <= 0:
+		return WHY_NOT_BOUGHT
+	var each: int = pays_for_stack(s)
+	if each <= 0:
+		return WHY_WORN_OUT
+	if sellable(inv, slot, s.count if whole else 1, each) < 1:
+		return WHY_FULL
+	return ""
+
+
 ## Sells the stack in `slot` of `inv` to the merchant: one (`whole` false) or as many of it as the money fits (`whole` true).
 ## Refused, nothing changing, for an empty slot, an item he does not buy, one worth nothing (worn out) and when not even one
 ## sale's money fits.
 func sell(inv: Inventory, slot: int, whole: bool) -> Deal:
 	var s: ItemStack = inv.stack_at(slot)
-	if s == null:
-		return Deal.refused(WHY_EMPTY)
-	if pays_for(s.id) <= 0:
-		return Deal.refused(WHY_NOT_BOUGHT, s.id)
+	var why: String = sell_refusal(inv, slot, whole)
+	if not why.is_empty():
+		return Deal.refused(why, s.id if s != null else &"")
 	var each: int = pays_for_stack(s)
-	if each <= 0:
-		return Deal.refused(WHY_WORN_OUT, s.id)
 	var n: int = sellable(inv, slot, s.count if whole else 1, each)
-	if n < 1:
-		return Deal.refused(WHY_FULL, s.id)
 	var d: Deal = Deal.new()
 	d.item = s.id
 	d.grade = s.grade
@@ -253,3 +276,58 @@ func describe() -> String:
 	for o: Offer in offers():
 		parts.append("%s=%d/%d" % [o.item, left_of(o.item), o.cap])
 	return " ".join(parts)
+
+
+# --- M8b: the stock as world state (snapshot, content hash, shop stock edits) -----------------------------------------
+
+## The stock as bytes: one per offer, its count left (Config.SHOP_SELLS order; every cap is at most 255, WorldSnapshot checks
+## each against its cap). The snapshot and the content hash carry these.
+func stock_bytes() -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	for o: Offer in offers():
+		out.append(clampi(left_of(o.item), 0, 255))
+	return out
+
+
+## Offer `index`'s count left (-1: no such offer).
+func left_at(index: int) -> int:
+	var o: Offer = offer_at(index)
+	return left_of(o.item) if o != null else -1
+
+
+## Sets offer `index`'s count left to `n` (a shop stock edit). False, nothing changed, for no such offer or a count outside
+## 0..its cap.
+func set_left(index: int, n: int) -> bool:
+	if not valid_left(index, n):
+		return false
+	stock[offer_at(index).item] = n
+	return true
+
+
+## Whether offer `index` exists and `n` is a count it may have left (0..its cap).
+static func valid_left(index: int, n: int) -> bool:
+	var o: Offer = offer_at(index)
+	return o != null and n >= 0 and n <= o.cap
+
+
+## A shop holding the stock `bytes` (stock_bytes()'s form; its clock at 0), or null when they are not one: the wrong count,
+## or a count above its offer's cap.
+static func from_bytes(bytes: PackedByteArray) -> Shop:
+	if bytes.size() != offers().size():
+		return null
+	var s: Shop = Shop.new()
+	for i: int in bytes.size():
+		if not s.set_left(i, bytes[i]):
+			return null
+	return s
+
+
+## The offers whose count left differs between stock bytes `before` and this shop's now (offer indices, ascending): what a
+## host sends as shop stock edits after a buy or a restock.
+func changed_since(before: PackedByteArray) -> Array[int]:
+	var out: Array[int] = []
+	var now: PackedByteArray = stock_bytes()
+	for i: int in now.size():
+		if i >= before.size() or before[i] != now[i]:
+			out.append(i)
+	return out
