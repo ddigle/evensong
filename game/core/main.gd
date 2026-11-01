@@ -99,7 +99,7 @@ extends Node2D
 ## The build ghost is drawn from this machine's world (gold or red is this machine's answer; the host decides again).
 ## M8a (offline first; M8b below brings it to sessions): the merchant stands beside the altar on the surface (items/merchant.gd:
 ## Merchant.settle_edits when the world starts and each time the altar is put down; a prompt over him while the local player is
-## next to him) and the shop is his (items/shop.gd: one stock for the world, its game clock stepped every physics tick). F aimed at
+## next to him; M8: he looks at the local player within the open shop's reach, _show_merchant) and the shop is his (items/shop.gd: one stock for the world, its game clock stepped every physics tick). F aimed at
 ## him in reach opens the shop panel (ui/shop_panel.gd) with the inventory and the player stands: a click on an entry buys one, a
 ## click on an inventory slot sells one (shift: the whole stack), the move keys and Enter buy by keyboard, Tab / Esc / F close it;
 ## going down, another map or the merchant out of reach close it too. Money is an item (ItemDB.MONEY).
@@ -289,7 +289,7 @@ func _physics_process(delta: float) -> void:
 		_show_build_ghost()  # M7c: from this machine's world (the host decides)
 		_redraw_chest()  # M7c: the host's chest slot edits change an open panel
 		_redraw_shop()  # M8b: the host's shop stock edits change an open panel
-		_show_merchant_prompt()  # M8b
+		_show_merchant()  # M8b (M8: and which way he looks)
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -301,7 +301,7 @@ func _physics_process(delta: float) -> void:
 	step_shop()  # M8a
 	_show_purify()
 	_show_build_ghost()  # M7b
-	_show_merchant_prompt()  # M8a
+	_show_merchant()  # M8a (M8: and which way he looks)
 
 
 func _bot_tick(delta: float) -> void:
@@ -1154,16 +1154,20 @@ func step_shop() -> void:
 			hud.shop.queue_redraw()
 
 
-## The prompt over the merchant while the local player stands next to him (WorldItems.in_reach), up, its hands free. M8b: in a
-## session too (the merchant the host put in this machine's world).
-func _show_merchant_prompt() -> void:
+## The merchant as this machine shows him: the prompt over him while the local player stands next to him (WorldItems.in_reach),
+## up, its hands free; M8: he looks at the local player while it is within the open shop's reach, else south (PROVISIONAL README
+## "M8 상인이 보는 쪽", MerchantView.facing_for: this machine's own player only, a picture that is not sent). M8b: in a session
+## too (the merchant the host put in this machine's world, the player this machine plays).
+func _show_merchant() -> void:
 	if world_shop() == null or world == null or world.data == null or player == null:
 		return
 	var t: Vector2i = Merchant.tile_of(world.data)
 	var v: MerchantView = world.fixtures.merchant_at(t) if t != Walls.NO_CELL else null
 	if v == null:
 		return
-	v.show_prompt(current_map == Merchant.MAP and player.vitals.alive() and not player.ui_locked and not player.carrying_altar
+	var here: bool = current_map == Merchant.MAP
+	v.facing = MerchantView.facing_for(t, player.sim_position) if here else RigData.Dir.SOUTH
+	v.show_prompt(here and player.vitals.alive() and not player.ui_locked and not player.carrying_altar
 		and WorldItems.in_reach(player.sim_position, t))
 
 

@@ -120,10 +120,13 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/items/item_planks_a_v02.png": "assets/concept/04-env/item_planks_a_v02.png",
 	"res://art/items/item_ingot_copper_a_v02.png": "assets/concept/04-env/item_ingot_copper_a_v02.png",
 	"res://art/items/item_ingot_iron_a_v02.png": "assets/concept/04-env/item_ingot_iron_a_v02.png",
+	# M8: the pilgrim merchant's breathing idle (PixelLab 15차, the base body's idle layout).
+	"res://art/npcs/merchant_v02_idle.png": "assets/concept/03-pixel/merchant_v02_idle.png",
 }
 const SIZES: Dictionary[String, Vector2i] = {
 	"res://art/chars/base_body_v02_walk.png": Vector2i(192, 96),
 	"res://art/chars/base_body_v02_idle.png": Vector2i(128, 96),
+	"res://art/npcs/merchant_v02_idle.png": Vector2i(128, 96),
 	"res://art/chars/sig_paladin_shield_v01.png": Vector2i(192, 96),
 	"res://art/chars/sig_miner_pickaxe_v01.png": Vector2i(96, 32),
 	"res://art/chars/sig_archer_bow_v01.png": Vector2i(96, 32),
