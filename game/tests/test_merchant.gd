@@ -29,6 +29,8 @@ func run() -> Array[String]:
 	_check_altar_beside_him()
 	_check_tile_kept()
 	_check_heretics()
+	_check_picture()
+	_check_facing_rule()
 	await _check_test_flags()
 	await _check_main()
 	for n: Node in _nodes:
@@ -505,6 +507,169 @@ func _check_heretics() -> void:
 	check(not tile_px.intersects(Movement.feet_box(h2.pos)), "and is not on his tile")
 
 
+## M8: the merchant's sheet as a PNG (res://art/npcs/merchant_v02_idle.png; test_actors.gd checks it is a byte copy of
+## assets/concept/03-pixel/merchant_v02_idle.png).
+static func _sheet_png() -> Image:
+	var img: Image = Image.load_from_file(ProjectSettings.globalize_path("res://art/npcs/merchant_v02_idle.png"))
+	img.convert(Image.FORMAT_RGBA8)
+	return img
+
+
+## Written out here: the cell he shows facing `dir` on breathing frame `f`: rows south / east / north of 32 px cells, west = the
+## east cell mirrored (● R19).
+static func _cell(sheet: Image, dir: int, f: int) -> Image:
+	var row: int = [0, 1, 2, 1][dir]
+	var cell: Image = sheet.get_region(Rect2i(f * 32, row * 32, 32, 32))
+	if dir == RigData.Dir.WEST:
+		cell.flip_x()
+	return cell
+
+
+## What the view's body draws, read from `sheet` by Sprite2D's rules: the frame's cell of hframes x vframes (or region_rect),
+## mirrored when flip_h or a negative x scale between the body and the view says so.
+static func _shown(v: MerchantView, sheet: Image) -> Image:
+	var b: Sprite2D = v.body
+	var size: Vector2i = Vector2i(b.texture.get_size()) / Vector2i(b.hframes, b.vframes)
+	var rect: Rect2i = Rect2i(Vector2i(b.frame % b.hframes, b.frame / b.hframes) * size, size)
+	if b.region_enabled:
+		rect = Rect2i(b.region_rect)
+	var img: Image = sheet.get_region(rect)
+	if b.flip_h != (_to_view(v, b).x.x < 0.0):
+		img.flip_x()
+	return img
+
+
+## The transform from `n` (a descendant of `v`) to `v`'s space.
+static func _to_view(v: Node2D, n: Node2D) -> Transform2D:
+	var xf: Transform2D = Transform2D.IDENTITY
+	var at: Node = n
+	while at != v and at is Node2D:
+		xf = (at as Node2D).transform * xf
+		at = at.get_parent()
+	return xf
+
+
+## The body's drawn rect in the view's space (the node is his feet).
+static func _drawn_rect(v: MerchantView) -> Rect2:
+	var r: Rect2 = v.body.get_rect()
+	var xf: Transform2D = _to_view(v, v.body)
+	var a: Vector2 = xf * r.position
+	var b: Vector2 = xf * r.end
+	return Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
+
+
+static func _first_opaque_row(img: Image) -> int:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				return y
+	return -1
+
+
+static func _last_opaque_row(img: Image) -> int:
+	for y: int in range(img.get_height() - 1, -1, -1):
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				return y
+	return -1
+
+
+## M8: the merchant's picture is the 03-pixel sheet (PixelLab 15차). Written out here: 128 x 96, every cell's feet on row 31; for
+## every frame and facing (turned after the frame is set, so turning alone must move the prompt) the body draws that facing's
+## cell (_cell: west = east mirrored) over his feet (the rect (-16, -32) + 32 x 32 from the node, mirrored or not) on the actors'
+## light layer; the prompt (13 x 11) centred with its bottom row 2 px above that cell's first opaque row (measured here from the
+## PNG); MerchantView.head_top gives the same rows (measured once when the first view was made). The breathing steps at
+## Config.IDLE_FRAME_TIME and keeps the facing.
+func _check_picture() -> void:
+	var sheet: Image = _sheet_png()
+	check_eq(sheet.get_size(), Vector2i(128, 96), "the merchant sheet: 4 frames x 3 rows of 32 px cells")
+	var feet_on_31: int = 0
+	for row: int in 3:
+		for f: int in 4:
+			if _last_opaque_row(sheet.get_region(Rect2i(f * 32, row * 32, 32, 32))) == 31:
+				feet_on_31 += 1
+	check_eq(feet_on_31, 12, "every cell's feet on row 31 (the base body's idle layout)")
+	var v: MerchantView = MerchantView.new()
+	_nodes.append(v)
+	v.animate = false
+	check(v.body.texture == load("res://art/npcs/merchant_v02_idle.png") and v.body.light_mask == Config.LIGHT_LAYER_ACTORS
+		and v.light_mask == Config.LIGHT_LAYER_ACTORS, "the body draws the sheet on the actors' light layer")
+	check(v.facing == RigData.Dir.SOUTH and v.frame == 0 and _shown(v, sheet).get_data() == _cell(sheet, 0, 0).get_data(),
+		"a new merchant faces south on frame 0")
+	var wrong_cells: Array[String] = []
+	var wrong_places: int = 0
+	var wrong_prompts: Array[String] = []
+	var wrong_tops: int = 0
+	var tops: Dictionary[int, bool] = {}
+	for f: int in 4:
+		v.frame = f
+		for dir: int in [0, 1, 2, 3, 1, 0, 3, 2, 0]:
+			v.facing = dir
+			var want: Image = _cell(sheet, dir, f)
+			if _shown(v, sheet).get_data() != want.get_data():
+				wrong_cells.append("%s %d" % [RigData.DIR_NAMES[dir], f])
+			if _drawn_rect(v) != Rect2(-16, -32, 32, 32):
+				wrong_places += 1
+			var top: int = _first_opaque_row(want)
+			tops[top] = true
+			if Vector2(v.prompt.position) != Vector2(Vector2i((32 - 13) / 2, top - 2 - 11) - Vector2i(16, 32)) \
+					or v.prompt.texture.get_size() != Vector2(13, 11):
+				wrong_prompts.append("%s %d at %s" % [RigData.DIR_NAMES[dir], f, v.prompt.position])
+			if MerchantView.head_top(dir, f) != top:
+				wrong_tops += 1
+	check(wrong_cells.is_empty(), "every facing and frame draws its cell, west mirrored (wrong: %s)" % ", ".join(wrong_cells))
+	check_eq(wrong_places, 0, "the cell's rect is (-16, -32) + 32 x 32 from his feet, mirrored or not")
+	check(wrong_prompts.is_empty() and tops.size() > 1,
+		"the prompt 2 px above the shown cell's head for every facing and frame (%d head rows; wrong: %s)" % [tops.size(),
+		", ".join(wrong_prompts)])
+	check_eq(wrong_tops, 0, "MerchantView.head_top = the first opaque row measured here")
+	# The breathing: one step every IDLE_FRAME_TIME, the facing kept.
+	v.facing = RigData.Dir.WEST
+	v.frame = 0
+	v.animate = true
+	v._process(Config.IDLE_FRAME_TIME * 0.5)
+	var held: int = v.frame
+	v._process(Config.IDLE_FRAME_TIME * 0.5 + 0.0001)
+	v._process(Config.IDLE_FRAME_TIME)
+	check(held == 0 and v.frame == 2 and v.facing == RigData.Dir.WEST
+		and _shown(v, sheet).get_data() == _cell(sheet, RigData.Dir.WEST, 2).get_data(),
+		"breathing: a frame every %.1f s, still facing west" % Config.IDLE_FRAME_TIME)
+
+
+## M8 (PROVISIONAL README "M8 상인이 보는 쪽"), written out here: with this machine's player's feet at a tile's arrival point
+## around him, he looks toward them by the larger axis (ties north / south) while their feet tile is within 2 tiles (Chebyshev,
+## the open shop's reach), else south; half a pixel past the reach turns him back; feet on his own spot or no tile: south.
+func _check_facing_rule() -> void:
+	var s: int = RigData.Dir.SOUTH
+	var e: int = RigData.Dir.EAST
+	var n: int = RigData.Dir.NORTH
+	var w: int = RigData.Dir.WEST
+	var cases: Dictionary[Vector2i, int] = {
+		Vector2i(0, 1): s, Vector2i(0, -1): n, Vector2i(1, 0): e, Vector2i(-1, 0): w,
+		Vector2i(1, 1): s, Vector2i(-1, 1): s, Vector2i(1, -1): n, Vector2i(-1, -1): n,
+		Vector2i(2, 0): e, Vector2i(-2, 0): w, Vector2i(0, 2): s, Vector2i(0, -2): n,
+		Vector2i(2, 1): e, Vector2i(2, -1): e, Vector2i(-2, 1): w, Vector2i(-2, -1): w,
+		Vector2i(1, 2): s, Vector2i(-1, 2): s, Vector2i(1, -2): n, Vector2i(-1, -2): n,
+		Vector2i(2, 2): s, Vector2i(-2, -2): n,
+		Vector2i(3, 0): s, Vector2i(-3, 0): s, Vector2i(0, -3): s, Vector2i(0, 3): s, Vector2i(3, -1): s, Vector2i(-3, 2): s,
+		Vector2i(2, -3): s, Vector2i(-1, -3): s, Vector2i(3, 3): s, Vector2i(9, -4): s,
+	}
+	var wrong: Array[String] = []
+	for off: Vector2i in cases:
+		var got: int = MerchantView.facing_for(SPOT, Arena.spawn_feet(SPOT + off))
+		if got != cases[off]:
+			wrong.append("%s: %s" % [off, RigData.DIR_NAMES[got]])
+	check(wrong.is_empty(), "facing at %d spots around him (wrong: %s)" % [cases.size(), ", ".join(wrong)])
+	# Just inside and just outside the reach, east and west (the feet tile changes half a pixel apart).
+	var east_in: Vector2 = Arena.spawn_feet(SPOT + Vector2i(2, 0)) + Vector2(7.5, 0.0)
+	var west_in: Vector2 = Arena.spawn_feet(SPOT + Vector2i(-2, 0)) - Vector2(8.0, 0.0)
+	check(MerchantView.facing_for(SPOT, east_in) == e and MerchantView.facing_for(SPOT, east_in + Vector2(1.0, 0.0)) == s
+		and MerchantView.facing_for(SPOT, west_in) == w and MerchantView.facing_for(SPOT, west_in - Vector2(0.5, 0.0)) == s,
+		"the edge of the reach: east %.1f / %.1f, west %.1f / %.1f" % [east_in.x, east_in.x + 1.0, west_in.x, west_in.x - 0.5])
+	check(MerchantView.facing_for(SPOT, Merchant.feet_of(SPOT)) == s and MerchantView.facing_for(Walls.NO_CELL, Vector2.ZERO) == s,
+		"feet on his own spot, or no merchant: south")
+
+
 ## main.tscn offline: he stands there from the start; F in reach opens the shop (the panel, the inventory, the player stands);
 ## clicks buy and sell; Tab, F, Esc close it; out of reach, down and another map close it; the prompt; the shop's clock.
 func _check_main() -> void:
@@ -532,6 +697,31 @@ func _check_main() -> void:
 	p.teleport(Arena.spawn_feet(SPOT + Vector2i(0, 2)))
 	main._physics_process(TICK)
 	check(not view.prompt.visible, "two tiles off: no prompt")
+	# M8: he looks at this machine's player while its feet tile is within the open shop's reach (2 tiles), by the larger axis,
+	# else south; the dummies never turn him (one stands within his reach). The body shows that facing's cell (west mirrored).
+	var sheet: Image = _sheet_png()
+	var near_dummies: int = 0
+	for dummy: Character in main.dummies:
+		if Merchant.in_shop_reach(dummy.position, SPOT):
+			near_dummies += 1
+	var turns: Dictionary[Vector2i, int] = {
+		Vector2i(9, 0): RigData.Dir.SOUTH, Vector2i(1, 0): RigData.Dir.EAST, Vector2i(-2, 0): RigData.Dir.WEST,
+		Vector2i(0, -2): RigData.Dir.NORTH, Vector2i(2, -1): RigData.Dir.EAST, Vector2i(-1, 2): RigData.Dir.SOUTH,
+		Vector2i(3, 0): RigData.Dir.SOUTH, Vector2i(-1, 0): RigData.Dir.WEST, Vector2i(0, -3): RigData.Dir.SOUTH,
+		Vector2i(0, -1): RigData.Dir.NORTH, Vector2i(-3, -1): RigData.Dir.SOUTH,
+	}
+	var wrong_turns: Array[String] = []
+	for off: Vector2i in turns:
+		p.teleport(Arena.spawn_feet(SPOT + off))
+		main._physics_process(TICK)
+		var want: int = turns[off]
+		if view.facing != want or _shown(view, sheet).get_data() != _cell(sheet, want, view.frame).get_data():
+			wrong_turns.append("%s: %s" % [off, RigData.DIR_NAMES[view.facing]])
+	check(near_dummies > 0 and wrong_turns.is_empty(),
+		"he looks at the player within 2 tiles, else south; %d dummies in his reach do not turn him (wrong: %s)" % [
+		near_dummies, ", ".join(wrong_turns)])
+	p.teleport(Arena.spawn_feet(SPOT + Vector2i(0, 2)))
+	main._physics_process(TICK)
 	# F from two tiles off, aimed at him: nothing (not in reach).
 	p.aim_sector = Aim.Sector.NORTH
 	main.pick_up()
@@ -640,6 +830,20 @@ func _check_main() -> void:
 	check(not main.shop_open() and kept.size() == 1 and kept[0].op == NetProtocol.Op.PICKUP,
 		"session: closing dropped the waiting BUY and SELL requests, kept the pick-up (%d left)" % kept.size())
 	p.inventory.remove(herb, 2)
+	# M8, the session side (the role switched again): the physics tick's session branch turns him toward this machine's own
+	# player too (nothing is sent: a picture).
+	main.net.role = NetSession.Role.CLIENT
+	p.teleport(Arena.spawn_feet(SPOT + Vector2i(-1, 0)))
+	main._physics_process(TICK)
+	var session_west: int = view.facing
+	p.teleport(Arena.spawn_feet(SPOT + Vector2i(0, 3)))
+	main._physics_process(TICK)
+	var session_far: int = view.facing
+	main.net.role = NetSession.Role.OFFLINE
+	check(session_west == RigData.Dir.WEST and session_far == RigData.Dir.SOUTH and main.net.local_ops.is_empty(),
+		"session: he looks west at this machine's player beside him, south from 3 tiles, nothing queued")
+	p.teleport(Arena.spawn_feet(SPOT + Vector2i(0, 1)))
+	p.aim_sector = Aim.Sector.NORTH
 	# Out of reach: closed.
 	main.pick_up()
 	p.teleport(Arena.spawn_feet(SPOT + Vector2i(0, 4)))

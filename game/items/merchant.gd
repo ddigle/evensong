@@ -208,6 +208,12 @@ static func at(data: WorldData, feet: Vector2, c: Vector2i) -> bool:
 static func still_at(data: WorldData, feet: Vector2, tile: Vector2i) -> bool:
 	if data == null or tile == Walls.NO_CELL or data.get_value(WorldData.Layer.PLACEABLE, tile) != WorldData.PLACEABLE_MERCHANT:
 		return false
+	return in_shop_reach(feet, tile)
+
+
+## Whether feet `feet` are within the open shop's reach of tile `tile`: their feet tile within Config.STATION_REACH_TILES of it
+## (Chebyshev, the chest's rule). still_at closes the panel past it; M8: MerchantView.facing_for looks at the player inside it.
+static func in_shop_reach(feet: Vector2, tile: Vector2i) -> bool:
 	return Crafting.tiles_to(Aim.feet_cell(feet), Rect2i(tile, Vector2i.ONE)) <= Config.STATION_REACH_TILES
 
 

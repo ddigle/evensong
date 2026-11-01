@@ -39,8 +39,8 @@ extends Node
 ##   lantern  04-env prop_lantern_post_c_v03_lit (the lantern post with a stone base, lit) with its glowing pixels
 ##            (prop_lantern_post_c_v03_emissive) unshaded and a light like the placed torch's (Config.LANTERN_LIGHT_*)
 ## M8a (one tile):
-##   merchant  PLACEHOLDER drawn in code (world/merchant_view.gd: the shared base body standing, an olive cloak, a pilgrim's hat,
-##            a pack; no merchant art exists), a MerchantView node at his feet (Merchant.feet_of)
+##   merchant  03-pixel merchant_v02_idle (M8: the pilgrim merchant's breathing idle, rows south / east / north, west mirrored;
+##            world/merchant_view.gd), a MerchantView node at his feet (Merchant.feet_of)
 
 const ARCH: Texture2D = preload("res://art/env/dungeon_entrance_v02.png")
 const STAIRS: Texture2D = preload("res://art/env/dungeon_entrance_stairs_v01.png")
