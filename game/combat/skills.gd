@@ -48,6 +48,10 @@ const ROCKFALL: StringName = &"rockfall"
 const HEALING_MIST: StringName = &"healing_mist"
 ## M9b: the skills aimed at a point (prepare() puts the cursor, pulled in by reach_point, into Prepared.throw_to).
 const POINT_SKILLS: Array[StringName] = [&"holy_burst", &"arrow_rain", &"rockfall", &"healing_mist"]
+## M9c: every skill of the slice in a fixed order (its index names it on the wire: a skill's shot event, NetProtocol).
+const ALL: Array[StringName] = [&"taunt", &"piercing_arrow", &"heal", &"ground_slam", &"potion_throw", &"crushing_blow",
+	&"fan_shot", &"holy_burst", &"heavy_strike", &"sweep", &"guardian_oath", &"arrow_rain", &"blessing", &"rockfall",
+	&"healing_mist"]
 
 ## Why a skill key was refused (logs, tests; the HUD shows a mark, it has no font).
 const WHY_LOCKED: String = "the choice slot is not in the slice"
@@ -125,6 +129,36 @@ static func impact_tick(id: StringName) -> int:
 ## Skill `id`'s cooldown (game ticks, from the tick it lands).
 static func cooldown_ticks(id: StringName) -> int:
 	return num_i(id, "cooldown")
+
+
+## M9c: skill `id` lets shots go (its table has a speed and a reach: the piercing arrow, the fan shot).
+static func shoots(id: StringName) -> bool:
+	return built(id) and num_f(id, "speed") > 0.0 and num_f(id, "reach_px") > 0.0
+
+
+## M9c: the ticks a shot of skill `id` flies at most (its reach at its speed; Arena.skill_shot / fan_shot and a client's track).
+static func shot_life(id: StringName) -> int:
+	var speed: float = num_f(id, "speed")
+	return ceili(num_f(id, "reach_px") / speed * Config.NET_TICK_RATE) if speed > 0.0 else 0
+
+
+## M9c: the longest cooldown of any skill (a skills message's limit), the largest class meter, the longest ward (a ward event's).
+static func max_cooldown() -> int:
+	var m: int = 0
+	for id: StringName in Config.SKILLS:
+		m = maxi(m, cooldown_ticks(id))
+	return m
+
+
+static func max_resource() -> int:
+	var m: int = 0
+	for class_id: String in Config.SKILL_RESOURCE_CAP:
+		m = maxi(m, resource_cap(class_id))
+	return m
+
+
+static func max_ward_ticks() -> int:
+	return num_i(GUARDIAN_OATH, "ward_ticks")
 
 
 # --- class resources (Config "M9a 자원") ------------------------------------------------------------------
@@ -418,7 +452,8 @@ class Landed:
 ## M9b: the weapon skills land along the action's aim (the melee arcs, the fan) or on its point (the holy burst) at the damage
 ## weapon_damage gives and wear the weapon once; a signature first spends its resource (spend_signature; too little now = it
 ## fizzles) and then wards, strikes or heals (_land_signature). `r.edits` = world edits for the caller (the shrine breaking).
-static func land(p: Player, id: StringName, arena: Arena, party: Array[Player]) -> Landed:
+## M9c: `owner_slot` = the caster's session slot (its shots' events name it; 255 offline).
+static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], owner_slot: int = 255) -> Landed:
 	var r: Landed = Landed.new()
 	r.id = id
 	if arena == null:
@@ -429,7 +464,7 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player]) 
 			r.taunted = arena.taunt(p, num_f(TAUNT, "radius_px"), num_i(TAUNT, "taunt_ticks"))
 		PIERCING_ARROW:
 			r.shot = arena.skill_shot(p, PIERCING_ARROW, p.action_aim, num_i(PIERCING_ARROW, "damage"),
-				num_f(PIERCING_ARROW, "reach_px"), num_f(PIERCING_ARROW, "speed"), true)
+				num_f(PIERCING_ARROW, "reach_px"), num_f(PIERCING_ARROW, "speed"), true, owner_slot)
 		HEAL:
 			var t: Player = null
 			for q: Player in party:
@@ -442,7 +477,8 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player]) 
 			r.healed = t.heal_hp(num_i(HEAL, "heal_hp"))
 			p.skills.on_heal_done(p.class_id(), r.healed)
 			arena.heal_threat(p.get_instance_id(), t, r.healed, party)
-			arena.add_burst(Arena.BurstKind.HEAL, t.sim_position, Config.SKILL_HEAL_SHOW_RADIUS_PX, t.get_instance_id())
+			arena.add_burst(Arena.BurstKind.HEAL, t.sim_position, Config.SKILL_HEAL_SHOW_RADIUS_PX, t.get_instance_id(),
+				p.get_instance_id())
 		GROUND_SLAM:
 			r.hits = arena.slam(p, num_f(GROUND_SLAM, "radius_px"), num_i(GROUND_SLAM, "damage"),
 				num_f(GROUND_SLAM, "push_px"))
@@ -457,7 +493,7 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player]) 
 		FAN_SHOT:
 			r.damage = weapon_damage(p, num_i(FAN_SHOT, "damage"))
 			r.shots = arena.fan_shot(p, FAN_SHOT, p.action_aim, r.damage, num_i(FAN_SHOT, "arrows"),
-				num_i(FAN_SHOT, "spread_aim"), num_f(FAN_SHOT, "reach_px"), num_f(FAN_SHOT, "speed"))
+				num_i(FAN_SHOT, "spread_aim"), num_f(FAN_SHOT, "reach_px"), num_f(FAN_SHOT, "speed"), owner_slot)
 			r.wore = wear_weapon(p)
 		HOLY_BURST:
 			r.damage = weapon_damage(p, num_i(HOLY_BURST, "damage"))
@@ -487,13 +523,16 @@ static func _land_signature(p: Player, id: StringName, arena: Arena, party: Arra
 	match id:
 		GUARDIAN_OATH:
 			var radius: float = num_f(GUARDIAN_OATH, "radius_px")
+			var warded: Array[Player] = []
 			for q: Player in party:
 				if q == null or not is_instance_valid(q) or not q.vitals.alive() or q.data != p.data:
 					continue
 				if q.sim_position.distance_to(p.sim_position) <= radius \
 						and q.skills.add_ward(num_i(GUARDIAN_OATH, "ward_pct"), num_i(GUARDIAN_OATH, "ward_ticks")):
 					r.warded += 1
-			arena.add_burst(Arena.BurstKind.OATH, p.sim_position, radius, pid)
+					warded.append(q)
+			arena.add_burst(Arena.BurstKind.OATH, p.sim_position, radius, pid, pid)
+			arena.note_ward(warded)  # M9c: a session's clients draw the shield over each of them
 		ARROW_RAIN:
 			r.damage = num_i(ARROW_RAIN, "damage") + r.spent * num_i(ARROW_RAIN, "damage_per_focus_pct") / 100
 			r.strike = arena.add_strike(Arena.StrikeKind.ARROWS, p.action_target, num_f(ARROW_RAIN, "radius_px"),

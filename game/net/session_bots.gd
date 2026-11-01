@@ -74,7 +74,11 @@ func local_action() -> NetBot.Action:
 			a.dash = Input.is_action_just_pressed(&"dash")  # M4b: Space and F held in sessions too
 			a.interact = Input.is_action_pressed(&"interact")
 			a.skill = Input.is_action_just_pressed(&"skill_1")  # M6b: the potion throw in sessions too
+			a.skill_slot = Player.pressed_skill_slot()  # M9c: the keys 2 3 R
 	if p != null and p.ui_locked:
+		if a.skill or a.skill_slot >= 0:
+			p.refuse_skill_key(a.skill_slot if a.skill_slot >= 0 else Skills.Slot.IDENTITY)  # M9c: the HUD's mark, as offline
+		a.skill_slot = -1
 		a.dir = Vector2i.ZERO
 		a.aiming = false
 		a.use_pressed = false

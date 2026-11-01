@@ -42,6 +42,12 @@ extends RefCounted
 ## herbalist's healing mist on a point) heal every player up inside them on a rhythm; their heals are threat for their caster
 ## (heal_threat). A stun (stun_heretic, Config.SKILL_STUN_CANCELS_ATTACK) holds a heretic still and cancels its attack; a slow
 ## (slow_heretic) cuts its walking speed. Damage from any of them is threat for the caster (hit_heretic). No skill hurts a player.
+##
+## M9c (sessions: the host's arenas turn `threat_on` on, `logging` records what clients draw): a skill's shot goes out like a
+## weapon's (its let-go event names the skill, NetProtocol kind 4, with the caster's slot); the bursts, strikes and zones go out at
+## the end of the host's tick as events (skill_events: each once, with the tick it showed age 0, so a client draws the same frame
+## the host does on the same tick); a zone that ends early (the blessing's cleric down, dead or gone) and a ward (note_ward) are
+## events when they happen. `slots` (player node id -> session slot, the host fills it each tick) names players on the wire.
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -148,6 +154,9 @@ class Burst:
 	## M9b: an arc's middle (aim code) and width (degrees; 360 = a whole ring).
 	var aim: int = 0
 	var arc_deg: float = 360.0
+	## M9c: who made it (node instance id, 0 = unknown: a client draws its own at once) and whether its event went out.
+	var owner_id: int = 0
+	var announced: bool = false
 
 
 ## M9b: a delayed strike on a circle (the archer's arrow rain, the miner's rockfall): it waits `delay` ticks (a warning ring shows,
@@ -170,6 +179,8 @@ class Strike:
 	## Set when it landed (it leaves `strikes` then): how many heretics it hit.
 	var landed: bool = false
 	var hits: int = 0
+	## M9c: its event went out.
+	var announced: bool = false
 
 	## Ticks before it lands.
 	func left() -> int:
@@ -198,6 +209,8 @@ class Zone:
 	## HP it healed so far and how many pulses it gave (logs, tests).
 	var healed: int = 0
 	var pulses: int = 0
+	## M9c: its event went out.
+	var announced: bool = false
 
 var data: WorldData
 ## The light rule's zone (SafeZone.for_world). M5b: worked out again when the altar moves (sync_world).
@@ -244,6 +257,8 @@ var bursts: Array[Burst] = []
 ## M9b: the strikes waiting to land and the healing zones.
 var strikes: Array[Strike] = []
 var zones: Array[Zone] = []
+## M9c (the host fills it each tick): each player's session slot by node instance id (events name players by slot).
+var slots: Dictionary[int, int] = {}
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -1097,16 +1112,22 @@ func _let_go(p: Player, kind: int, item: StringName, aim: int, dmg: int, speed: 
 	shots.append(s)
 	count("shots")
 	if logging:
-		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
-		e.kind = NetProtocol.ShotEvent.Kind.SPAWN
-		e.id = s.id
-		e.item = item
-		e.owner = owner_slot
-		e.aim = s.aim
-		e.tick = now
-		e.pos = s.pos
-		shot_events.append(e)
+		shot_events.append(shot_event(s))
 	return s
+
+
+## M4b: the let-go event of shot `s` (also what a late client gets for one in the air). M9c: a skill's shot names its skill
+## (NetProtocol kind 4), a weapon's its item.
+static func shot_event(s: Shot) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.SKILL_SHOT if Skills.ALL.has(s.item) else NetProtocol.ShotEvent.Kind.SPAWN
+	e.id = s.id
+	e.item = s.item
+	e.owner = s.owner_slot
+	e.aim = s.aim
+	e.tick = s.born
+	e.pos = s.origin
+	return e
 
 
 # --- M9a: the skills that work on heretics -------------------------------------------------------------------
@@ -1114,9 +1135,11 @@ func _let_go(p: Player, kind: int, item: StringName, aim: int, dmg: int, speed: 
 ## The archer's piercing arrow (skill `item`, M9a): an arrow of player `p` along aim code `aim`, `damage` per heretic, flying
 ## `reach` px at `speed` px/s; `pierce`: it passes through heretics (each hit once) and only a wall, the shrine or its reach
 ## stops it. Returns the shot.
-func skill_shot(p: Player, item: StringName, aim: int, damage: int, reach: float, speed: float, pierce: bool) -> Shot:
+## M9c: `owner_slot` = the shooter's session slot (its event names it).
+func skill_shot(p: Player, item: StringName, aim: int, damage: int, reach: float, speed: float, pierce: bool,
+		owner_slot: int = 255) -> Shot:
 	var life: int = ceili(reach / speed * Config.NET_TICK_RATE) if speed > 0.0 else 0
-	var s: Shot = _let_go(p, Combat.Kind.ARROW, item, aim, damage, speed, life, 255)
+	var s: Shot = _let_go(p, Combat.Kind.ARROW, item, aim, damage, speed, life, owner_slot)
 	s.pierce = pierce
 	count("skill_shots")
 	return s
@@ -1138,7 +1161,7 @@ func taunt(p: Player, radius: float, ticks: int) -> int:
 		if threat_on:
 			h.threat[pid] = h.top_threat() + Config.TAUNT_THREAT_MARGIN
 		n += 1
-	add_burst(BurstKind.TAUNT, p.sim_position, radius, pid)
+	add_burst(BurstKind.TAUNT, p.sim_position, radius, pid, pid)
 	count("taunts")
 	count("taunted", n)
 	return n
@@ -1160,7 +1183,7 @@ func slam(p: Player, radius: float, damage: int, push: float) -> int:
 		if h.alive() and push > 0.0:
 			var away: Vector2 = d.normalized() if d.length_squared() > 0.0001 else Vector2(PlayerSim.facing_vector(p.facing))
 			_push(h, away, push)
-	add_burst(BurstKind.SLAM, p.sim_position, radius, 0)
+	add_burst(BurstKind.SLAM, p.sim_position, radius, 0, p.get_instance_id())
 	count("slams")
 	count("slam_hits", n)
 	return n
@@ -1187,8 +1210,8 @@ func _push(h: HereticSim, dir: Vector2, dist: float) -> float:
 
 
 ## M9a: shows a skill's burst of `kind` at feet `pos` reaching `radius` px (CombatView), following the player with node instance
-## id `follow` (0 = it stays). Returns it.
-func add_burst(kind: int, pos: Vector2, radius: float, follow: int = 0) -> Burst:
+## id `follow` (0 = it stays). Returns it. M9c: `owner` = who made it (node instance id; its event names that player's slot).
+func add_burst(kind: int, pos: Vector2, radius: float, follow: int = 0, owner: int = 0) -> Burst:
 	var b: Burst = Burst.new()
 	b.id = next_id
 	next_id += 1
@@ -1196,6 +1219,7 @@ func add_burst(kind: int, pos: Vector2, radius: float, follow: int = 0) -> Burst
 	b.pos = pos
 	b.radius = radius
 	b.follow_id = follow
+	b.owner_id = owner
 	bursts.append(b)
 	return b
 
@@ -1277,7 +1301,7 @@ func melee_skill(p: Player, aim: int, damage: int, reach: float, arc_deg: float,
 	var rect: Rect2i = shrine_rect()
 	if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, reach, arc_deg):
 		edits.append_array(damage_shrine(damage))
-	var b: Burst = add_burst(kind, p.sim_position, reach, 0)
+	var b: Burst = add_burst(kind, p.sim_position, reach, 0, p.get_instance_id())
 	b.aim = posmod(aim, Combat.AIM_STEPS)
 	b.arc_deg = arc_deg
 	count("skill_melee")
@@ -1288,13 +1312,14 @@ func melee_skill(p: Player, aim: int, damage: int, reach: float, arc_deg: float,
 ## M9b: the archer's fan shot: `arrows` ordinary arrows of player `p` (Combat.Kind.ARROW: each stops at the first heretic, a wall or
 ## the shrine) along aim code `aim` and `spread` aim codes apart around it, `damage` each, flying `reach` px at `speed`. Returns
 ## them (the middle one along `aim`).
+## M9c: `owner_slot` = the shooter's session slot (the arrows' events name it).
 func fan_shot(p: Player, item: StringName, aim: int, damage: int, arrows: int, spread: int, reach: float,
-		speed: float) -> Array[Shot]:
+		speed: float, owner_slot: int = 255) -> Array[Shot]:
 	var out: Array[Shot] = []
 	var life: int = ceili(reach / speed * Config.NET_TICK_RATE) if speed > 0.0 else 0
 	for i: int in arrows:
 		var offset: int = (2 * i - (arrows - 1)) * spread / 2
-		out.append(_let_go(p, Combat.Kind.ARROW, item, aim + offset, damage, speed, life, 255))
+		out.append(_let_go(p, Combat.Kind.ARROW, item, aim + offset, damage, speed, life, owner_slot))
 	count("fan_shots")
 	return out
 
@@ -1313,7 +1338,7 @@ func area_hit(p: Player, at: Vector2, radius: float, damage: int, kind: int) -> 
 		if in_circle(at, radius, h):
 			hit_heretic(h, damage, p.get_instance_id())
 			n += 1
-	add_burst(kind, at, radius, 0)
+	add_burst(kind, at, radius, 0, p.get_instance_id())
 	count("area_hits", n)
 	return n
 
@@ -1363,7 +1388,7 @@ func _land_strike(s: Strike) -> void:
 			s.hits += 1
 			if h.alive():
 				stun_heretic(h, s.stun_ticks)
-	add_burst(BurstKind.RAIN if s.kind == StrikeKind.ARROWS else BurstKind.ROCKS, s.pos, s.radius, 0)
+	add_burst(BurstKind.RAIN if s.kind == StrikeKind.ARROWS else BurstKind.ROCKS, s.pos, s.radius, 0, s.owner_id)
 	count("strikes_landed")
 	count("strike_hits", s.hits)
 
@@ -1403,6 +1428,8 @@ func _step_zones(players: Array[Player]) -> void:
 			if by == null or not by.vitals.alive():
 				z.done = true
 				count("zones_broken")
+				if logging and z.announced:
+					shot_events.append(zone_end_event(z))  # M9c: a client ends it there too
 				continue
 			z.pos = by.sim_position
 		if z.age % z.interval == 0:
@@ -1427,7 +1454,132 @@ func _pulse(z: Zone, players: Array[Player]) -> void:
 		z.healed += gained
 		count("zone_healed", gained)
 		heal_threat(z.owner_id, p, gained, players)
-		add_burst(BurstKind.HEAL, p.sim_position, Config.SKILL_HEAL_SHOW_RADIUS_PX, p.get_instance_id())
+		add_burst(BurstKind.HEAL, p.sim_position, Config.SKILL_HEAL_SHOW_RADIUS_PX, p.get_instance_id(), z.owner_id)
+
+
+# --- M9c: the skill events a session's clients draw ------------------------------------------------------------
+
+## M9c: the session slot of the player with node instance id `id` (NetProtocol.NO_SLOT when the host gave none: offline).
+func slot_of(id: int) -> int:
+	return slots.get(id, NetProtocol.NO_SLOT)
+
+
+## M9c: the event of burst `b` at host tick `now`: it showed age 0 at `now - b.age` (a burst made by a frame was aged by this tick's
+## step already, one made in the step was not: either way a client's age at a host tick is the host's at that tick).
+func burst_event(b: Burst) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.BURST
+	e.id = b.id
+	e.sub = b.kind
+	e.owner = slot_of(b.owner_id)
+	e.follow = slot_of(b.follow_id) if b.follow_id != 0 else NetProtocol.NO_SLOT
+	e.tick = now - b.age
+	e.pos = b.pos
+	e.radius = b.radius
+	e.aim = b.aim
+	e.arc_deg = b.arc_deg
+	return e
+
+
+## M9c: the event of strike `s` (it lands when a client's age of it reaches its delay, like the host's).
+func strike_event(s: Strike) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.STRIKE
+	e.id = s.id
+	e.sub = s.kind
+	e.owner = slot_of(s.owner_id)
+	e.tick = now - s.age
+	e.pos = s.pos
+	e.radius = s.radius
+	e.ticks = s.delay
+	return e
+
+
+## M9c: the event of zone `z` (its first point: a zone that follows its caster is drawn around that player on the client).
+func zone_event(z: Zone) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.ZONE
+	e.id = z.id
+	e.sub = z.kind
+	e.owner = slot_of(z.owner_id)
+	e.follow = slot_of(z.follow_id) if z.follow_id != 0 else NetProtocol.NO_SLOT
+	e.tick = now - z.age
+	e.pos = z.pos
+	e.radius = z.radius
+	e.ticks = z.duration
+	return e
+
+
+## M9c: the early end of zone `z` (now).
+func zone_end_event(z: Zone) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.ZONE_END
+	e.id = z.id
+	e.tick = now
+	return e
+
+
+## M9c: the bursts, strikes and zones not announced yet go into `shot_events` (the host calls it at the end of its tick, after
+## the step, logging on); each goes out once. A burst that is already gone (made and over within the tick) is not sent.
+func announce_skill_events() -> void:
+	if not logging:
+		return
+	for b: Burst in bursts:
+		if not b.announced:
+			b.announced = true
+			shot_events.append(burst_event(b))
+	for s: Strike in strikes:
+		if not s.announced:
+			s.announced = true
+			shot_events.append(strike_event(s))
+	for z: Zone in zones:
+		if not z.announced:
+			z.announced = true
+			shot_events.append(zone_event(z))
+
+
+## M9c: what a player arriving on this map needs to draw what still shows (a late joiner, a map entry): every burst, strike and
+## zone there now, as events with the ticks they showed age 0.
+func skill_snapshot_events() -> Array[NetProtocol.ShotEvent]:
+	var out: Array[NetProtocol.ShotEvent] = []
+	for b: Burst in bursts:
+		out.append(burst_event(b))
+	for s: Strike in strikes:
+		out.append(strike_event(s))
+	for z: Zone in zones:
+		out.append(zone_event(z))
+	return out
+
+
+## M9c: the guardian oath warded `players` (each with its ward now: grouped by percent and time, one event per group), with
+## logging on: their clients draw the shield over them.
+func note_ward(players: Array[Player]) -> void:
+	if not logging:
+		return
+	for e: NetProtocol.ShotEvent in ward_events(players, now):
+		shot_events.append(e)
+
+
+## M9c: the ward events of `players` at host tick `tick` (their wards as they are then; those without one are left out). Players
+## with the same percent and ticks left share one event (their slots as bits). The host's late-join snapshot uses it too.
+func ward_events(players: Array[Player], tick: int) -> Array[NetProtocol.ShotEvent]:
+	var by: Dictionary[Vector2i, int] = {}
+	for q: Player in players:
+		var slot: int = slot_of(q.get_instance_id())
+		if q.skills.warded() and slot != NetProtocol.NO_SLOT:
+			var key: Vector2i = Vector2i(q.skills.ward_pct, q.skills.ward_ticks)
+			var mask: int = by.get(key, 0)
+			by[key] = mask | (1 << slot)
+	var out: Array[NetProtocol.ShotEvent] = []
+	for key: Vector2i in by:
+		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+		e.kind = NetProtocol.ShotEvent.Kind.WARD
+		e.slots = by[key]
+		e.tick = tick
+		e.pct = key.x
+		e.ticks = key.y
+		out.append(e)
+	return out
 
 
 func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:

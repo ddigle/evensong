@@ -855,6 +855,7 @@ static func _check_net(r: Report) -> void:
 	_check_net_fields(r)
 	_check_net_builds(r)
 	_check_net_shop(r)
+	_check_net_skills(r)  # M9c
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -1147,6 +1148,96 @@ static func _check_net_shop(r: Report) -> void:
 	var buy_bytes: int = NetProtocol.OP_SIZES[NetProtocol.Op.BUY] + 2
 	var sell_bytes: int = NetProtocol.OP_SIZES[NetProtocol.Op.SELL] + 2
 	r.fields.append("shop_wire=%dB/%dB/%dB/%dB" % [buy_bytes, sell_bytes, wire.size(), packed.bytes.size()])
+
+
+## M9c: the class skills on the wire (protocol v11): a SKILL request and a THROW carry the cursor in whole px; a host arena's skills
+## (a paladin's taunt and crushing blow on a heretic, an arrow rain on its way, a healing mist, the oath's ward) reach a client as
+## shot events and batch marks, and its mirror holds them as the host has them on the same tick; the owner's skills message round
+## trips. Field `skills_wire=<a SKILL request>B/<the skills message>B/<a heretic in a batch>B/<this tick's skill events>B
+## landed=<skills landed> events=<events drawn>`.
+static func _check_net_skills(r: Report) -> void:
+	var skill: NetProtocol.InputFrame = NetProtocol.InputFrame.new(60, Vector2i.ZERO)
+	skill.op = NetProtocol.Op.SKILL
+	skill.skill_slot = Skills.Slot.SIGNATURE
+	skill.cell = Vector2i(40, 31)
+	skill.aim = 99
+	skill.cursor = Vector2(700.4, 513.6)
+	var throw: NetProtocol.InputFrame = NetProtocol.InputFrame.new(61, Vector2i.ZERO)
+	throw.op = NetProtocol.Op.THROW
+	throw.slot = 2
+	throw.cursor = Vector2(-3.4, 1200.5)
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([skill, throw] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 2 and up.frames[0].same_request(skill) and up.frames[0].skill_slot == Skills.Slot.SIGNATURE
+		and up.frames[0].cursor == Vector2(700, 514) and up.frames[0].aim == 99 and up.frames[1].cursor == Vector2(-3, 1201),
+		"a SKILL and a THROW carry the cursor in whole px (M9c)")
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var arena: Arena = Arena.new()
+	arena.setup(surface, Config.DEFAULT_SEED)
+	arena.spawning = false
+	arena.logging = true
+	arena.threat_on = true
+	var at: Vector2 = Arena.spawn_feet(Vector2i(40, 30))
+	var h: HereticSim = arena.spawn_heretic(at)
+	var pal: Player = Player.new()
+	pal.skills_on = true
+	pal.setup(surface, "paladin", at + Vector2(-20, 0), RigData.Dir.EAST)
+	pal.skills.resource = 100
+	var arc: Player = Player.new()
+	arc.skills_on = true
+	arc.setup(surface, "archer", at + Vector2(-40, 30), RigData.Dir.EAST)
+	arc.skills.resource = 60
+	var herb: Player = Player.new()
+	herb.skills_on = true
+	herb.setup(surface, "herbalist", at + Vector2(-40, -30), RigData.Dir.EAST)
+	herb.inventory.add(Config.HERBALIST_MATERIAL_ITEM, 3)
+	var party: Array[Player] = [pal, arc, herb]
+	arena.slots = {pal.get_instance_id(): 0, arc.get_instance_id(): 1, herb.get_instance_id(): 2}
+	arena.now = 2000
+	var landed: int = 0
+	for q: Array in [[pal, Skills.TAUNT], [pal, Skills.CRUSHING_BLOW], [pal, Skills.GUARDIAN_OATH], [arc, Skills.ARROW_RAIN],
+			[herb, Skills.HEALING_MIST]]:
+		var who: Player = q[0]
+		var id: StringName = q[1]
+		who.action_aim = Combat.aim_code(at - who.sim_position)
+		who.action_target = at
+		who.action_slot = Config.START_WEAPON_SLOT
+		var got: Skills.Landed = Skills.land(who, id, arena, party, arena.slot_of(who.get_instance_id()))
+		if got.ok():
+			landed += 1
+	arena.step(party)
+	arena.announce_skill_events()
+	var events: PackedByteArray = NetProtocol.encode_shots(Config.MAP_SURFACE, arena.shot_events)
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, surface)
+	nc.local_slot = 1
+	var se: NetProtocol.ShotEvents = NetProtocol.decode_shots(events)
+	nc.on_shots(se)
+	var batch: PackedByteArray = NetProtocol.encode_enemies(arena.now, Config.MAP_SURFACE, 0, arena.enemy_states(arena.now))
+	nc.on_batch(NetProtocol.decode_enemies(batch), batch, true)
+	var positions: Dictionary[int, Vector2] = {0: pal.sim_position, 1: arc.sim_position, 2: herb.sim_position}
+	nc.sample(float(arena.now), 0.0, positions)
+	var same: bool = nc.arena.bursts.size() == arena.bursts.size() and nc.arena.strikes.size() == arena.strikes.size() \
+		and nc.arena.zones.size() == arena.zones.size()
+	for i: int in mini(nc.arena.bursts.size(), arena.bursts.size()):
+		same = same and nc.arena.bursts[i].age == arena.bursts[i].age and nc.arena.bursts[i].kind == arena.bursts[i].kind
+	for i: int in mini(nc.arena.strikes.size(), arena.strikes.size()):
+		same = same and nc.arena.strikes[i].age == arena.strikes[i].age and nc.arena.strikes[i].delay == arena.strikes[i].delay
+	for i: int in mini(nc.arena.zones.size(), arena.zones.size()):
+		same = same and nc.arena.zones[i].age == arena.zones[i].age and nc.arena.zones[i].pos == arena.zones[i].pos
+	var shown: HereticSim = nc.arena.heretics[0] if nc.arena.heretics.size() == 1 else null
+	r.expect(landed == 5 and se.ok and same and shown != null and shown.stunned() and shown.taunted() and h.stunned() and h.taunted()
+		and nc.ward_at(0, float(arena.now)).y > 0,
+		"a host arena's skills reach a client as events and marks, drawn as the host has them (M9c: %d landed)" % landed)
+	var st: SkillState = SkillState.new()
+	st.resource = 42
+	st.start_cooldown(Skills.Slot.SIGNATURE, 1200)
+	var msg: PackedByteArray = NetProtocol.encode_skills(2000, st, true, true)
+	var k: NetProtocol.SkillsState = NetProtocol.decode_skills(msg)
+	r.expect(k.ok and k.state.same_clock(st) and k.moving and k.alive, "the owner's skills message round trips (M9c)")
+	for p: Player in party:
+		p.free()
+	r.fields.append("skills_wire=%dB/%dB/%dB/%dB landed=%d events=%d" % [NetProtocol.OP_SIZES[NetProtocol.Op.SKILL] + 2, msg.size(),
+		NetProtocol.ENEMY_SIZE, events.size() - 2, landed, se.events.size()])
 
 
 ## Applies `edits` to `data` and returns them.

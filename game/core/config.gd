@@ -1210,6 +1210,9 @@ const SKILL_HEAL_SHOW_RADIUS_PX: float = 10.0
 const SKILL_REFUSED_SHOW_TICKS: int = 24
 ## IMPL (M9b, placeholder effects drawn in code, combat/combat_view.gd): a strike's rocks or arrows are seen falling for its last
 ## SKILL_FALL_TICKS ticks from SKILL_FALL_HEIGHT_PX above the ground; a stunned heretic holds hurt frame SKILL_STUN_FRAME.
+## IMPL (M9c): the most steps a session client's own skill copy runs in one tick to catch up with the host's time as heard
+## (SessionClient._run_skills_copy).
+const NET_SKILLS_COPY_STEPS: int = 8
 const SKILL_FALL_TICKS: int = 15
 const SKILL_FALL_HEIGHT_PX: int = 45
 const SKILL_STUN_FRAME: int = 1

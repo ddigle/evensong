@@ -82,6 +82,9 @@ extends RefCounted
 ## M9b (offline screenshot / test flag):
 ##   --test-resource=<n>          the local player's class meter starts at n (0..100, cut to its class's cap; the herbalist has
 ##                                no meter: give him healing herbs with --give)
+## M9c (a host: its members):
+##   --test-start-resource=<class>:<n>[,...]   that class's meter starts at n when it joins (0..100, cut to the cap): a session
+##                                test can use a signature at once
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -146,6 +149,8 @@ var test_crop_ticks: int = 0
 var test_shop_restock: int = 0
 ## M9b test flag: the local player's class meter at the start (-1 = as it is: empty).
 var test_resource: int = -1
+## M9c, test only (the host): each named class's meter starts at that value when it joins (--test-start-resource).
+var test_start_resource: Dictionary[String, int] = {}
 ## M7a test flags: durability left per inventory slot ([slot 0-based, points]) after --give; the armour in that hotbar slot
 ## (1-based, 0 = none) is put on at the start.
 var test_durability: Array[Vector2i] = []
@@ -350,6 +355,13 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: expected --test-resource=<0..100>" % raw)
 				else:
 					o.test_resource = value.to_int()
+			"test-start-resource":
+				for part: String in value.split(",", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not Config.CLASSES.has(kv[0]) or not kv[1].is_valid_int() or kv[1].to_int() < 0 							or kv[1].to_int() > 100:
+						o.errors.append("%s: expected --test-start-resource=<class>:<0..100>[,...]" % raw)
+						break
+					o.test_start_resource[kv[0]] = kv[1].to_int()
 			"test-durability":
 				for part: String in value.split("/", false):
 					var kv: PackedStringArray = part.split(":")

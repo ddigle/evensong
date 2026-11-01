@@ -58,9 +58,11 @@ static func slot_of(inv: Inventory, id: StringName, grade: int = -1) -> int:
 	return -1
 
 
+## M9c (v11): the frame's point is its cursor (the host works the landing out from it).
 static func _throw(map: int, cell: Vector2i, slot: int, to: Vector2) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = _op(NetProtocol.Op.THROW, map, cell, slot)
 	f.throw_to = to
+	f.cursor = to
 	f.aim = 64
 	return f
 
@@ -184,7 +186,7 @@ func _check_codec() -> void:
 	frames[0].slot = 2
 	frames[0].cell = Vector2i(40, -1)
 	frames[0].aim = 201
-	frames[0].throw_to = Vector2(700.4, -3.6)
+	frames[0].cursor = Vector2(700.4, -3.6)  # M9c (v11): the cursor rides in the THROW (the host works the landing out)
 	frames[2].op = NetProtocol.Op.CRAFT
 	frames[2].recipe = Crafting.recipe_count() - 1
 	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
@@ -192,8 +194,8 @@ func _check_codec() -> void:
 	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
 	check(p.ok and p.frames.size() == 3 and p.frames[0].op == NetProtocol.Op.THROW and p.frames[0].slot == 2
 		and p.frames[0].cell == Vector2i(40, -1) and p.frames[0].aim == 201 and p.frames[0].map == Config.MAP_DUNGEON
-		and p.frames[0].throw_to == Vector2(700, -4), "a THROW round trips (the point in whole px: %s)" % (
-		p.frames[0].throw_to if p.ok else Vector2.INF))
+		and p.frames[0].cursor == Vector2(700, -4) and p.frames[0].throw_to == Vector2(700, -4),
+		"a THROW round trips (M9c: its cursor in whole px: %s)" % (p.frames[0].cursor if p.ok else Vector2.INF))
 	check(p.ok and p.frames[2].op == NetProtocol.Op.CRAFT and p.frames[2].recipe == Crafting.recipe_count() - 1
 		and p.frames[2].map == Config.MAP_SURFACE and p.frames[1].op == NetProtocol.Op.NONE, "a CRAFT round trips")
 	check(NetProtocol.op_has_map(NetProtocol.Op.THROW) and NetProtocol.op_has_map(NetProtocol.Op.CRAFT),
@@ -874,7 +876,9 @@ func _check_four_potions() -> void:
 	give(r.s.local, &"potion_buff", 2, ItemDB.Grade.FINE)
 	var ch: Client = _join(r, 101, HERB, Arena.spawn_feet(south_of_altar(r, 7)) + Vector2(48, 0), false)
 	var arc: Client = _join(r, 102, "archer", f + Vector2(24, -60))
-	var pal: Client = _join(r, 103, "paladin", f + Vector2(-20, 0))
+	# M9c (● R42): a buff goes to the ally nearest the cursor within the throw's range of the thrower: the paladin stands 12 px
+	# nearer the host than M6b had him (86 px, not 98).
+	var pal: Client = _join(r, 103, "paladin", f + Vector2(-20, -12))
 	var cs: Array[Client] = [ch, arc, pal]
 	give(hm(r, ch), &"potion_poison", 4, ItemDB.Grade.FINE)
 	give(hm(r, ch), &"potion_buff", 2, ItemDB.Grade.FINE)
@@ -882,7 +886,9 @@ func _check_four_potions() -> void:
 	press(r, null, ch, _select(slot_of(ch.s.local.player.inventory, &"potion_buff")))
 	hp.inventory.select(slot_of(hp.inventory, &"potion_buff"))
 	_tick(r, 8)
-	# The buffs first (the host's at the paladin, the client's at the archer), then poison and fighting.
+	# The buffs first (the host's at the paladin, the client's at the archer), then poison and fighting. M9c: the client picks the
+	# ally near its cursor among the players as it draws them (the rig draws them at its own time).
+	draw_at_rig_time(r, ch)
 	press(r, throw_at(Combat.body_point(hm(r, pal).player.sim_position)), ch, throw_at(Combat.body_point(hm(r, arc).player.sim_position)))
 	_tick(r, 60)
 	var buffed_seen: int = 0
@@ -957,6 +963,7 @@ func _check_shared_sim_frames() -> void:
 	var off: Player = Player.new()
 	off.local_input = false
 	off.potions_on = true
+	off.skills_on = true  # M9c: the host's members have the skill kit (the throw's near-cursor pick, ● R42)
 	off.setup(r.surface.data, HERB, start, RigData.Dir.SOUTH)
 	add_node(off)
 	var off_arena: Arena = Arena.new()
@@ -965,7 +972,7 @@ func _check_shared_sim_frames() -> void:
 	var host_arena: Arena = r.host.arenas[Config.MAP_SURFACE]
 	var pred: Prediction = Prediction.new()
 	pred.setup(r.surface.data, start, RigData.Dir.SOUTH, 0)
-	var items: Array[Array] = [[&"potion_healing", 1, 4], [&"potion_buff", 2, 4], [&"potion_poison", 2, 4]]
+	var items: Array[Array] = [[&"potion_healing", 1, 4], [&"potion_buff", 2, 4], [&"potion_poison", 2, 8]]  # M9c: 8 poison
 	for it: Array in items:
 		var id: StringName = it[0]
 		var g: int = it[1]
@@ -997,10 +1004,16 @@ func _check_shared_sim_frames() -> void:
 		var skill: bool = t % 131 == 70
 		if click or skill:
 			var pick: int = rng.randi_range(0, 2)
+			if skill and spread != 60:
+				pick = 2  # M9c: the far stretches throw poison (the far throws: the healing and buff ones go to an ally)
 			var id2: StringName = items[pick][0]
 			var s2: int = slot_of(off.inventory, id2)
 			if s2 >= 0 and s2 < off.inventory.hotbar_size:
 				off.inventory.select(s2)
+			# M9c (● R42): a healing or buff throw goes to the ally nearest the cursor: the herbalist is his own only ally here, so
+			# the mouse goes on him (within Config.SKILL_GRAB_RADIUS_PX, off the pixel grid on the far stretches too).
+			if skill and id2 != &"potion_poison":
+				mouse = off.sim_position + Vector2(rng.randi_range(-20, 20), rng.randi_range(-20, 20)) 					+ (Vector2.ZERO if spread == 60 else Vector2(0.37, -0.21))
 		if t % 211 == 100 and off.vitals.hp > 40:
 			off.take_hit(25)
 			m.player.take_hit(25)
@@ -1011,7 +1024,8 @@ func _check_shared_sim_frames() -> void:
 		off.step_frame(f, Config.NET_TICK)
 		if off.action_anim >= 0 and off.action_tick == Player.impact_tick_of(off.action_item, off.action_anim) \
 				and Potions.is_potion(off.action_item):
-			var rel: Potions.Released = Potions.release(off, off.action_item, off.action_anim, off_arena)
+			var follow: Player = off if off.action_skill_target == off.get_instance_id() else null  # M9c: Main.potion_impact's rule
+			var rel: Potions.Released = Potions.release(off, off.action_item, off.action_anim, off_arena, 255, follow)
 			if rel.ok():
 				if rel.thrown:
 					throws += 1

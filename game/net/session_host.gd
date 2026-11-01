@@ -120,6 +120,20 @@ extends RefCounted
 ## new count left is a shop stock edit (EditLog.Kind.SHOP) to the surface's players, a restock one per offer that changed; the
 ## owner gets its inventory. Members run in slot order and the edits apply at once: two players buying the last one in one
 ## tick, the lower slot gets it and the other is refused (Shop.WHY_SOLD_OUT), its money untouched.
+##
+## M9c (the class skills: M9a / M9b offline first, here the host decides): every member has the skill kit (Player.skills_on) and
+## its skill clock runs on host time (skills_clock_external: once a host tick before the frames, _tick_skills), every arena keeps
+## threat (Arena.threat_on). SKILL (the skill keys 1 2 3 R) pays the request budget ("rate"), then its target tile must be in reach
+## (it only turns the player) and the offline rule runs on the host's own state (_skill: Skills.prepare with the members on that
+## map in slot order: the class's kit decides the skill of the slot, so no client can play another class's skill; the held class
+## weapon is the host's selection; down, dead, carrying, busy, the cooldown, the resource; the near-cursor ally from the host's
+## positions; a point skill's point pulled in from where the host has the caster). THROW (the herbalist's key 1) runs the same
+## refusals and, for a healing or buff potion, throws at the ally nearest the frame's cursor (● §2.1 R42). The skill's action plays
+## like a USE's; its impact frame lands it on the map's arena (_skill_impact: Skills.land, the offline rule), a melee skill's shrine
+## edits go out like a swing's, a worn weapon or spent herbs send the owner its inventory. Mining feeds the miner's endurance. What
+## clients draw: the skill shots' and the arena's bursts, strikes, zones, zone ends and wards as shot events (Arena.skill_events,
+## at the end of the tick), the heretics' stun, slow and taunt as marks in the enemy batches; a late joiner and a map entry get
+## what still shows (send_combat_snapshot). Each client gets its own cooldowns and meter in the skills message (_send_skills).
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -206,6 +220,11 @@ var sales: int = 0
 var restocks: int = 0
 var merchant_moves: int = 0
 var shop_refusals: Dictionary[String, int] = {}
+## M9c: skills landed (by skill id), fizzled (by reason), skills messages sent and their bytes.
+var skills_landed: Dictionary[String, int] = {}
+var skills_fizzled: Dictionary[String, int] = {}
+var skills_msgs_sent: int = 0
+var skills_bytes_sent: int = 0
 
 
 func _init(p_session: NetSession) -> void:
@@ -217,6 +236,7 @@ func on_opened() -> void:
 	var slot: int = roster.admit(1, s.local_class())
 	s.local = s.add_member(slot, 1, s.local_class(), spawn_feet(slot), Config.SPAWN_FACING)
 	s.local.player.potions_on = true  # M6b: the host's own player drinks and throws (its frames go through run_frame)
+	s.local.player.party_provider = _local_party  # M9c: the near-cursor pick of its own frames (Main may set the same)
 	s.local.player.farming_on = true  # M5c: and farms, purifies, carries the altar
 	s.local.player.purify_on = true
 	_equip(s.local)
@@ -490,6 +510,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_buy(m, frame)  # M8b
 	elif frame.op == NetProtocol.Op.SELL:
 		_sell(m, frame)
+	elif frame.op == NetProtocol.Op.SKILL:
+		_skill(m, frame)  # M9c
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and not Building.piece_in(p.inventory, frame.slot).is_empty():
@@ -532,7 +554,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		s.log_event("action", "slot=%d item=%s action=%s target=%d,%d aim=%d" % [m.slot, p.action_item,
 			RigData.ANIM_NAMES[p.action_anim], p.action_cell.x, p.action_cell.y, p.action_aim])
 	if p.action_anim >= 0 and p.action_tick == Player.impact_tick_of(p.action_item, p.action_anim):
-		if Potions.is_potion(p.action_item):
+		if Skills.is_skill(p.action_item):
+			_skill_impact(m)  # M9c: a skill's impact frame
+		elif Potions.is_potion(p.action_item):
 			_potion(m)  # M6b: the drink's effect frame, the throw's release frame
 		else:
 			_impact(m)
@@ -662,6 +686,8 @@ func _mine(m: NetMember) -> void:
 		apply_world_edit(e, m.map_id)
 	if not r.gained.is_empty():
 		m.inventory_dirty = true
+	if p.skills_on and not r.broken.is_empty():
+		p.skills.on_mined(m.class_id, r.broken.size())  # M9c: the miner's endurance (offline Main's rule)
 	_changed = true
 	m.count_done("mine")
 	s.log_event("mine", "slot=%d map=%d tick=%d at=%d,%d %s" % [m.slot, m.map_id, s.tick, p.action_cell.x, p.action_cell.y,
@@ -775,6 +801,11 @@ func _drink(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 ## M6b: THROW (the skill key 1): the selected potion, the thrower's class (Potions.throw_refusal), in reach (the
 ## target tile sets the facing), not busy. The point thrown at rides on the frame (Player.action_target); the
 ## arena clamps it to Config.THROW_RANGE_PX from where the host has the thrower when it leaves the hand.
+## M9c (the herbalist's identity skill, members with `skills_on`: every member of a session): the skill's common refusals too
+## (Skills.refusal: carrying, the cooldown ...), and the frame's point is its cursor: a healing or buff potion goes to the ally
+## nearest it (● gameplay-design §2.1 R42, Skills.pick_ally on the host's positions: nobody = refused, nothing used) and lands on
+## that ally's body point (following it, Arena), poison toward the cursor (Potions.throw_target from where the host has the
+## thrower, whole px: offline make_frame's rule).
 func _throw(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	var st: ItemStack = p.inventory.stack_at(frame.slot) if frame.slot < p.inventory.hotbar_size else null
@@ -783,11 +814,28 @@ func _throw(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		why = WorldItems.WHY_REACH
 	if why.is_empty() and busy(p):
 		why = WHY_BUSY
+	var target: Player = null
+	if why.is_empty() and p.skills_on:
+		why = Skills.refusal(p, Skills.Slot.IDENTITY)
+		if why.is_empty():
+			var origin: Vector2 = Combat.body_point(p.sim_position)
+			if Skills.throw_picks_ally(st.id):
+				target = Skills.pick_ally(players_on(m.map_id), p, frame.cursor, Config.THROW_RANGE_PX)
+				if target == null:
+					why = Skills.WHY_NO_ALLY
+				else:
+					frame.throw_to = Potions.throw_target(origin, Combat.body_point(target.sim_position)).round()
+			else:
+				frame.throw_to = Potions.throw_target(origin, frame.cursor).round()
 	if not why.is_empty():
 		_refuse_op(m, frame, why)
 		return
 	frame.anim = RigData.Anim.THROW
 	frame.item = st.id
+	if p.skills_on:
+		frame.skill = Skills.POTION_THROW
+		frame.skill_slot = Skills.Slot.IDENTITY
+		frame.skill_target = target.get_instance_id() if target != null else 0
 
 
 ## M6-fix: the request name an accepted action frame counts under once its action started (run_frame).
@@ -804,12 +852,23 @@ func _potion(m: NetMember) -> void:
 	var p: Player = m.player
 	var item: StringName = p.action_item
 	var a: Arena = arenas.get(m.map_id, null)
-	var r: Potions.Released = Potions.release(p, item, p.action_anim, a, m.slot)
+	# M9c: a healing or buff throw (the herbalist's skill) goes to the ally picked when it started (offline Main.potion_impact).
+	var follow: Player = null
+	if p.skills_on and p.action_skill == Skills.POTION_THROW and p.action_skill_target != 0:
+		var fm: NetMember = member_of(p.action_skill_target)
+		if fm != null and fm.map_id == m.map_id:
+			follow = fm.player
+	var hp_before: int = p.vitals.hp
+	var r: Potions.Released = Potions.release(p, item, p.action_anim, a, m.slot, follow)
 	if not r.ok():
 		var n: int = m.count_refused(r.why)
 		s.log_event("potion_refused", "slot=%d %s item=%s: %s n=%d" % [m.slot, "throw" if r.thrown else "drink", item,
 			r.why, n])
 		return
+	if p.skills_on and p.action_skill == Skills.POTION_THROW:
+		p.skills.start_cooldown(Skills.Slot.IDENTITY, Skills.cooldown_ticks(Skills.POTION_THROW))  # M9c: committed (0: M6's rate)
+	if not r.thrown and r.events & PlayerSim.HEALED and a != null:
+		a.heal_threat(p.get_instance_id(), p, p.vitals.hp - hp_before, players_on(m.map_id))  # M9c: a drunk heal (M9a rule)
 	m.inventory_dirty = true
 	_changed = true
 	if r.thrown:
@@ -926,7 +985,7 @@ func _refuse_op(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> voi
 func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 	var p: Player = s.local.player
 	var f: NetProtocol.InputFrame = p.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
-		action.use_held, action.dash, action.interact, action.skill)
+		action.use_held, action.dash, action.interact, action.skill, action.skill_slot)  # M9c: the keys 2 3 R too
 	attach_local_op(s, p, f, action)
 	return f
 
@@ -1063,10 +1122,15 @@ func on_input(peer_id: int, payload: PackedByteArray) -> void:
 
 func tick(action: NetBot.Action, now: int) -> void:
 	_changed = false
+	var ids: Dictionary[int, int] = {}  # M9c: the players' slots by node id (the arenas' events name players by slot)
+	for slot: int in s.slots():
+		ids[s.members[slot].player.get_instance_id()] = slot
 	for map: int in arenas:
 		arenas[map].now = s.tick
+		arenas[map].slots = ids
 	for slot: int in s.slots():
 		s.members[slot].refill_ops()
+	_tick_skills()  # M9c: the skill clocks, before this tick's frames
 	# Every player runs the same frame rule (run_frame): the facing follows the look or the direction
 	# (Movement.facing_for), requests are checked at the frame's position.
 	run_frame(s.local, _local_frame(action))
@@ -1120,6 +1184,8 @@ func tick(action: NetBot.Action, now: int) -> void:
 	_send_enemies(batch_tick)
 	_send_shot_events()
 	_send_inventories()
+	if batch_tick:
+		_send_skills()  # M9c
 	s.bots.host_after_tick(now)
 
 
@@ -1241,9 +1307,14 @@ func settled() -> bool:
 func _equip(m: NetMember) -> void:
 	Main.give_start_weapon(m.player)
 	m.player.gear_on = true  # M7c: armour, its defence and its wear on knife hits, tier-1 damage and wear (the host's rules)
+	m.player.skills_on = true  # M9c: the skill kit, its clock on host time (_tick_skills)
+	m.player.skills_clock_external = true
 	m.inventory_dirty = true
 	if s.options.test_start_hp.has(m.class_id):
 		m.player.vitals.hp = clampi(s.options.test_start_hp[m.class_id], 1, Config.PLAYER_HP_MAX)
+	if s.options.test_start_resource.has(m.class_id):
+		# M9c, test only: the class meter starts there (cut to its cap; the herbalist's material is items: --give).
+		m.player.skills.resource = clampi(s.options.test_start_resource[m.class_id], 0, Skills.resource_cap(m.class_id))
 	m.player.hurt.connect(_on_member_hurt.bind(m))
 	m.player.revived.connect(_on_member_revived.bind(m))
 	m.player.channel_broken.connect(_on_member_channel_broken.bind(m))  # M5-fix: every break, a hit's too
@@ -1275,6 +1346,7 @@ func _setup_combat() -> void:
 		var a: Arena = Arena.new()
 		a.setup(w.data, w.data.world_seed)
 		a.logging = true
+		a.threat_on = true  # M9c: threat in sessions (M9a's offline rule)
 		a.spawning = not s.options.test_no_spawns
 		arenas[map] = a
 		enemy_casts[map] = StateBroadcast.new()
@@ -1402,32 +1474,29 @@ func send_combat_snapshot(peer: int, map: int) -> void:
 	enemy_keyframes_sent += 1
 	var flying: Array[NetProtocol.ShotEvent] = []
 	for shot: Arena.Shot in a.shots:
-		if shot.done:
-			continue
-		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
-		e.kind = NetProtocol.ShotEvent.Kind.SPAWN
-		e.id = shot.id
-		e.item = shot.item
-		e.owner = shot.owner_slot
-		e.aim = shot.aim
-		e.tick = shot.born
-		e.pos = shot.origin
-		flying.append(e)
+		if not shot.done:
+			flying.append(Arena.shot_event(shot))  # M9c: a skill's shot names its skill
 	# M6b: the thrown potions in the air and the splashes still shown.
 	for f: Arena.Flask in a.flasks:
 		if not f.done:
 			flying.append(Arena.flask_event(f))
 	for sp: Arena.Splash in a.splashes:
 		flying.append(Arena.splash_event(sp))
+	# M9c: the bursts still shown, the strikes on their way, the zones (clouds, a blessing) and the players warded there now (the
+	# taunts, stuns and slows are marks in the keyframe above).
+	flying.append_array(a.skill_snapshot_events())
+	flying.append_array(a.ward_events(players_on(map), s.tick))
 	if not flying.is_empty():
 		s.send_shots(peer, NetProtocol.encode_shots(map, flying))
 		shot_messages_sent += 1
 
 
-## Each map's shot events of this tick to the members on it.
+## Each map's shot events of this tick to the members on it. M9c: with this tick's new bursts, strikes and zones first put in
+## (Arena.announce_skill_events: after the step, so their ages are this tick's).
 func _send_shot_events() -> void:
 	for map: int in arenas:
 		var a: Arena = arenas[map]
+		a.announce_skill_events()
 		if a.shot_events.is_empty():
 			continue
 		var payload: PackedByteArray = NetProtocol.encode_shots(map, a.shot_events)
@@ -1689,7 +1758,7 @@ func _purified(m: NetMember, r: Purify.Result, what: String, cell: Vector2i) -> 
 ## (offline Main.demolish refuses it too). M8b: BUY and SELL only when PROVISIONAL Config.SHOP_WHILE_CARRYING is off (by default
 ## a carrier trades, as offline).
 static func _blocked_while_carrying(op: int) -> bool:
-	return op == NetProtocol.Op.USE or op == NetProtocol.Op.THROW or op == NetProtocol.Op.CHANNEL \
+	return op == NetProtocol.Op.USE or op == NetProtocol.Op.THROW or op == NetProtocol.Op.CHANNEL or op == NetProtocol.Op.SKILL \
 		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT or op == NetProtocol.Op.DEMOLISH \
 		or (not Config.SHOP_WHILE_CARRYING and (op == NetProtocol.Op.BUY or op == NetProtocol.Op.SELL))
 
@@ -2251,6 +2320,128 @@ func _refuse_early(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> 
 		_refuse_shop(m, frame, why)
 	else:
 		_refuse_op(m, frame, why)
+
+
+# --- the class skills (M9c) ----------------------------------------------------------------------------------------
+
+## The host's own player's near-cursor pick: the players on its map in slot order.
+func _local_party() -> Array[Player]:
+	return players_on(s.local.map_id) if s.local != null else ([] as Array[Player])
+
+
+## M9c: one tick of every member's skill clock (cooldowns, the meter's rules, the ward; SkillState.tick), on host time: a member
+## whose client sends no frames (it stands) still cools down, an archer standing still gains focus. Before this tick's frames, so
+## a cooldown a frame starts this tick first counts on the next (IMPL "M9c 스킬 시계").
+func _tick_skills() -> void:
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		var p: Player = m.player
+		if p.skills_on and p.skills_clock_external:
+			p.skills.tick(m.class_id, p.walking or p.vitals.dashing(), p.vitals.alive())
+			m.skills_copy.tick(m.class_id, m.skills_copy_moving, m.skills_copy_alive)  # its client's copy runs alike
+
+
+## M9c: SKILL (the skill keys 1 2 3 R): the request budget first ("rate", like a pick up: a client spamming the key every frame is
+## cut off), the target tile in reach (it only turns the player, like a USE's: WorldItems.WHY_REACH), then the offline rule on the
+## host's own state (Skills.prepare: the class's kit decides the skill of the slot (the choice slot is locked); the held class
+## weapon = the host's selection; down, dead, carrying, a panel, busy, the cooldown, the resource; the near-cursor ally among the
+## members on that map from the host's positions, nobody = refused; a point skill's point pulled in to its range and the last point
+## before a wall from where the host has the caster). The frame then plays the skill's body action (like a USE's) and its impact
+## frame lands it (_skill_impact). The herbalist's key 1 through SKILL is his throw (the same rule as THROW's, the selected potion).
+func _skill(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	frame.skill = &""
+	frame.skill_target = 0
+	if not m.take_op():
+		_refuse_op(m, frame, "rate")
+		return
+	if not p.skills_on:
+		_refuse_op(m, frame, Skills.WHY_NO_SKILL)
+		return
+	if not WorldItems.in_reach(p.sim_position, frame.cell):
+		_refuse_op(m, frame, WorldItems.WHY_REACH)
+		return
+	var prep: Skills.Prepared = Skills.prepare(p, frame.skill_slot, frame.cursor, players_on(m.map_id))
+	if not prep.ok():
+		_refuse_op(m, frame, prep.why)
+		return
+	frame.anim = RigData.Anim.THROW if prep.id == Skills.POTION_THROW else Skills.anim(prep.id)
+	frame.item = prep.item if prep.id == Skills.POTION_THROW else prep.id
+	frame.slot = p.inventory.selected  # the weapon skill's stack (its tier-1 damage and wear), the thrown potion's
+	frame.throw_to = prep.throw_to  # a point skill's point, a throw's landing point
+	frame.skill = prep.id
+	frame.skill_target = prep.target.get_instance_id() if prep.target != null else 0
+	m.count_done("skill")
+
+
+## M9c: member `m`'s skill reaches its impact frame: Skills.land on its map's arena (the offline rule, with its slot for its shots'
+## events). A fizzle (the healed ally gone or down, too little resource now) spends nothing. A melee skill's shrine edits go out
+## like a swing's; a worn weapon (a weapon skill) or herbs spent (the healing mist) send the owner its inventory.
+func _skill_impact(m: NetMember) -> void:
+	var p: Player = m.player
+	var id: StringName = p.action_item
+	var a: Arena = arenas.get(m.map_id, null)
+	var r: Skills.Landed = Skills.land(p, id, a, players_on(m.map_id), m.slot)
+	if not r.ok():
+		var n: int = skills_fizzled.get(r.why, 0)
+		skills_fizzled[r.why] = n + 1
+		m.count_combat("skills_fizzled")
+		s.log_event("skill_fizzled", "slot=%d map=%d skill=%s: %s" % [m.slot, m.map_id, id, r.why])
+		return
+	for e: EditLog.WorldEdit in r.edits:
+		apply_world_edit(e, m.map_id)
+		_changed = true
+	if r.wore or (m.class_id == "herbalist" and r.spent > 0):
+		m.inventory_dirty = true
+	var landed: int = skills_landed.get(String(id), 0)
+	skills_landed[String(id)] = landed + 1
+	m.count_combat("skills")
+	var to: NetMember = member_of(r.target.get_instance_id()) if r.target != null else null
+	s.log_event("skill", "slot=%d map=%d skill=%s taunted=%d hits=%d healed=%d to=%d damage=%d spent=%d warded=%d shots=%d%s%s cooldown=%d res=%d" % [
+		m.slot, m.map_id, id, r.taunted, r.hits, r.healed, to.slot if to != null else -1, r.damage, r.spent, r.warded,
+		r.shots.size() + (1 if r.shot != null else 0),
+		" strike=%d,%d" % [roundi(r.strike.pos.x), roundi(r.strike.pos.y)] if r.strike != null else "",
+		" zone=%d,%d" % [roundi(r.zone.pos.x), roundi(r.zone.pos.y)] if r.zone != null else "", Skills.cooldown_ticks(id),
+		Skills.resource_of(p)])
+
+
+## M9c: each client whose own skill state left the copy its client runs (NetMember.skills_copy: the last message run on with its
+## flags, the same SkillState rule) gets it again (the skills message, its own only; on state batch ticks): a cooldown started, a
+## hit, a heal, a mined block, a signature spent, it started or stopped moving, went down or died. An archer standing still, a
+## cooldown counting down, a paladin's conviction fading send nothing: the client works them out alike.
+func _send_skills() -> void:
+	var peers: Array[int] = remote_peers()
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		var p: Player = m.player
+		if m.gate == null or not peers.has(m.peer_id) or not p.skills_on:
+			continue
+		var moving: bool = p.walking or p.vitals.dashing()
+		var alive: bool = p.vitals.alive()
+		# The first one goes out once the client is in (its copy starts from it, not from the hello: the world took time to send).
+		# An archer who starts or stops moving leaves the copy on his first tick of it (SkillState.was_moving), so the flags need
+		# no check of their own; going down or dying does (every meter stops then).
+		if m.skills_msgs > 0 and p.skills.same_clock(m.skills_copy) and alive == m.skills_copy_alive:
+			continue
+		var payload: PackedByteArray = NetProtocol.encode_skills(s.tick, p.skills, moving, alive)
+		s.send_skills(m.peer_id, payload)
+		m.skills_copy.take_clock(p.skills)
+		m.skills_copy_moving = moving
+		m.skills_copy_alive = alive
+		m.skills_msgs += 1
+		skills_msgs_sent += 1
+		skills_bytes_sent += payload.size()
+
+
+## M9c results: skills landed by id, fizzled by reason, skills messages sent, each member's skill state.
+func skills_result() -> Dictionary:
+	var members: Dictionary = {}
+	for slot: int in s.slots():
+		var p: Player = s.members[slot].player
+		members[str(slot)] = {"class": s.members[slot].class_id, "res": Skills.resource_of(p), "meter": p.skills.resource,
+			"cd": Array(p.skills.cooldowns), "ward": p.skills.ward_ticks, "msgs": s.members[slot].skills_msgs}
+	return {"landed": skills_landed, "fizzled": skills_fizzled, "msgs": skills_msgs_sent, "bytes": skills_bytes_sent,
+		"members": members}
 
 
 ## M8b results: buys, sales, restocks, the merchant's moves and tile, the stock, refused shop requests by reason.

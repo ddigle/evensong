@@ -312,7 +312,7 @@ func _physics_process(delta: float) -> void:
 		_redraw_chest()  # M7c: the host's chest slot edits change an open panel
 		_redraw_shop()  # M8b: the host's shop stock edits change an open panel
 		_show_merchant_prompt()  # M8b
-		ally_mark.show_for(null)  # M9a: no skills in a session until M9c
+		ally_mark.show_for(_aim_ring_target())  # M9c: as this machine sees the players
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -325,7 +325,7 @@ func _physics_process(delta: float) -> void:
 	_show_purify()
 	_show_build_ghost()  # M7b
 	_show_merchant_prompt()  # M8a
-	ally_mark.show_for(player.skill_aim_target if player.skills_on else null)  # M9a
+	ally_mark.show_for(_aim_ring_target())  # M9a
 
 
 func _bot_tick(delta: float) -> void:
@@ -473,6 +473,7 @@ func _on_local_player_ready(p: Player) -> void:
 	_follow(p)
 	_bind(p)
 	_connect_gear(p)  # M7c
+	_connect_skills(p)  # M9c: the skill keys, the near-cursor pick over the players on its map as this machine has them
 
 
 ## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
@@ -921,7 +922,8 @@ func _go_offline_combat() -> void:
 	setup_forests()
 	# M8a: and the merchant with his shop (the world the host sent has none in M8a: he comes down by the same rule).
 	setup_shop()
-	# M9a: and the skill kit (the meter starts empty: the host's skills were off).
+	# M9a: and the skill kit. M9c: the meter and the cooldowns go on from the host's last skills message (offline from now on).
+	player.skills_clock_external = false
 	_connect_skills(player)
 
 
@@ -1690,12 +1692,21 @@ func _on_potion_refused(what: String, why: String) -> void:
 ## Player `p` (the local one) gets the skill kit: `skills_on`, the near-cursor pick over the players on its map, the logs.
 func _connect_skills(p: Player) -> void:
 	p.skills_on = true
-	p.party_provider = _local_party
+	if not p.party_provider.is_valid():
+		p.party_provider = _local_party  # M9c: a session set its own (the players on its map as this machine has them)
 	for pair: Array in [[p.skill_refused, _on_skill_refused], [p.skill_started, _on_skill_started]]:
 		var sig: Signal = pair[0]
 		var handler: Callable = pair[1]
 		if not sig.is_connected(handler):
 			sig.connect(handler)
+
+
+## M9a: the ally the ring goes under (Player.skill_aim_target), or null. M9c: null too when that player is gone (left the session:
+## its node freed).
+func _aim_ring_target() -> Player:
+	if not player.skills_on or player.skill_aim_target == null or not is_instance_valid(player.skill_aim_target):
+		return null
+	return player.skill_aim_target
 
 
 ## The players on the local player's map (the near-cursor pick's party: the local player first, then the allies).

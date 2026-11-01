@@ -276,9 +276,165 @@ func _run() -> void:
 			await _check_skills_fx()
 		if _want("skills_fx2"):
 			await _check_skills_fx2()  # M9b
+		if _want("skills_net"):
+			await _check_skills_net()  # M9c
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
+
+
+## M9c: a host's skills drawn by a client from the wire (the shot events message's skill events, the enemy batch's marks, the
+## players' wards) are the host's picture to the pixel: a paladin's taunt and crushing blow (a stun and a taunt over a heretic,
+## the arc), a sweep (a slow), the oath (its ring, the shield over the warded), a fan shot in the air, an arrow rain on its
+## way, a healing mist and a blessing following its cleric; then a client's HUD skill row from the owner's skills message = the
+## same row drawn from the host's skill state.
+func _check_skills_net() -> void:
+	world.lighting.set_evening(true)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var tick: int = 3000
+	var host_a: Arena = Arena.new()
+	host_a.setup(world.data, 1)
+	host_a.spawning = false
+	host_a.logging = true
+	host_a.threat_on = true
+	host_a.now = tick
+	var h1: HereticSim = host_a.spawn_heretic(Vector2(origin + Vector2i(150, 140)) + Vector2(0.25, 0.25))
+	var h2: HereticSim = host_a.spawn_heretic(Vector2(origin + Vector2i(330, 140)) + Vector2(0.25, 0.25))
+	for h: HereticSim in [h1, h2]:
+		h.clock = tick
+		h.facing = RigData.Dir.WEST
+	var specs: Array[Array] = [["paladin", Vector2i(176, 140)], ["herbalist", Vector2i(356, 140)], ["archer", Vector2i(240, 200)],
+		["cleric", Vector2i(110, 210)]]
+	var hosts: Array[Player] = []
+	var slots: Dictionary[int, int] = {}
+	for i: int in specs.size():
+		var spec: Array = specs[i]
+		var cls: String = spec[0]
+		var at: Vector2i = spec[1]
+		var hp: Player = Player.new()
+		hp.local_input = false
+		hp.skills_on = true
+		hp.setup(world.data, cls, Vector2(origin + at), RigData.Dir.WEST)
+		hp.inventory.add(Config.HERBALIST_MATERIAL_ITEM, 3)
+		hp.skills.resource = 100
+		hp.action_slot = Config.START_WEAPON_SLOT
+		hosts.append(hp)
+		slots[hp.get_instance_id()] = i
+	host_a.slots = slots
+	var pal: Player = hosts[0]
+	var herb: Player = hosts[1]
+	var arc: Player = hosts[2]
+	var cle: Player = hosts[3]
+	var land: Array[Array] = [[pal, Skills.TAUNT, h1.pos], [pal, Skills.CRUSHING_BLOW, h1.pos], [herb, Skills.SWEEP, h2.pos],
+		[pal, Skills.GUARDIAN_OATH, h1.pos], [arc, Skills.FAN_SHOT, h2.pos], [arc, Skills.ARROW_RAIN, h2.pos + Vector2(0, 30)],
+		[herb, Skills.HEALING_MIST, Vector2(origin + Vector2i(300, 210))], [cle, Skills.BLESSING, cle.sim_position]]
+	var landed: int = 0
+	for row: Array in land:
+		var who: Player = row[0]
+		var id: StringName = row[1]
+		var at2: Vector2 = row[2]
+		who.action_aim = Combat.aim_code(at2 - Combat.aim_origin(who.sim_position))
+		who.action_target = at2
+		if Skills.land(who, id, host_a, hosts, slots[who.get_instance_id()]).ok():
+			landed += 1
+	host_a.step(hosts)
+	host_a.announce_skill_events()
+	for p: Player in hosts:
+		world.entities.add_child(p)
+		p.teleport(p.sim_position)
+	var host_v: CombatView = CombatView.new()
+	host_v.name = &"HostSkills"
+	world.add_child(host_v)
+	host_v.setup(host_a, world.entities)
+	host_v.sync(hosts)
+	var host_img: Image = await _capture()
+	host_v.clear()
+	world.remove_child(host_v)
+	host_v.free()
+	for p: Player in hosts:
+		world.entities.remove_child(p)
+	# The client: the wire, decoded.
+	var events: NetProtocol.ShotEvents = NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_SURFACE, host_a.shot_events))
+	var batch: PackedByteArray = NetProtocol.encode_enemies(tick, Config.MAP_SURFACE, 0, host_a.enemy_states(tick))
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, world.data)
+	nc.local_slot = 7
+	nc.on_batch(NetProtocol.decode_enemies(batch), batch, true)
+	nc.on_shots(events)
+	var positions: Dictionary[int, Vector2] = {}
+	for i: int in hosts.size():
+		positions[i] = hosts[i].sim_position
+	nc.sample(float(tick), 0.0, positions)
+	for h3: HereticSim in nc.arena.heretics:
+		h3.clock = tick
+	var clients: Array[Player] = []
+	for i: int in hosts.size():
+		var cp: Player = Player.new()
+		cp.local_input = false
+		cp.skills_on = true
+		cp.setup(world.data, hosts[i].class_id(), hosts[i].sim_position, RigData.Dir.WEST)
+		var w: Vector2i = nc.ward_at(i, float(tick))
+		cp.show_ward(w.x, w.y)
+		world.entities.add_child(cp)
+		clients.append(cp)
+	var client_v: CombatView = CombatView.new()
+	client_v.name = &"ClientSkills"
+	world.add_child(client_v)
+	client_v.setup(nc.arena, world.entities)
+	client_v.sync(clients)
+	var client_img: Image = await _capture()
+	client_v.clear()
+	world.remove_child(client_v)
+	client_v.free()
+	for cp2: Player in clients:
+		world.entities.remove_child(cp2)
+		cp2.free()
+	var n: int = count_diff(client_img, host_img)
+	var drawn: int = count_diff(host_img, bg)
+	var warded: int = 0
+	for p2: Player in hosts:
+		if p2.skills.warded():
+			warded += 1
+	# The HUD: an archer client's skill row from the owner's skills message = the host's.
+	world.lighting.set_evening(false)
+	var hud_imgs: Array[Image] = []
+	var st: SkillState = SkillState.new()
+	st.start_cooldown(Skills.Slot.IDENTITY, Skills.cooldown_ticks(Skills.PIERCING_ARROW) / 3)
+	st.start_cooldown(Skills.Slot.SIGNATURE, Skills.cooldown_ticks(Skills.ARROW_RAIN) - 100)
+	st.resource = 37
+	for from_wire: bool in [false, true]:
+		var hud: Hud = Hud.new()
+		root.add_child(hud)
+		var hp2: Player = Player.new()
+		hp2.setup(world.data, "archer", Vector2(400, 400))
+		hp2.skills_on = true
+		hud.bind(hp2.inventory)
+		hud.bind_player(hp2)
+		if from_wire:
+			hp2.skills.take_clock(NetProtocol.decode_skills(NetProtocol.encode_skills(tick, st, false, true)).state)
+		else:
+			hp2.skills.take_clock(st)
+		hud.canvas.queue_redraw()
+		hud_imgs.append(await _capture())
+		root.remove_child(hud)
+		hud.free()
+		hp2.free()
+	var hud_diff: int = count_diff(hud_imgs[0], hud_imgs[1])
+	var line: String = "landed=%d heretics=%d bursts=%d strikes=%d zones=%d shots=%d warded=%d client_vs_host=%d pixels_drawn=%d hud_diff=%d" % [
+		landed, nc.arena.heretics.size(), nc.arena.bursts.size(), nc.arena.strikes.size(), nc.arena.zones.size(),
+		nc.arena.shots.size(), warded, n, drawn, hud_diff]
+	if n > 0 or save_all:
+		_save(host_img, "skills_net_host.png")
+		_save(client_img, "skills_net_client.png")
+	for p3: Player in hosts:
+		p3.free()
+	if n == 0 and hud_diff == 0 and drawn > 2000 and landed == land.size() and nc.arena.heretics.size() == 2 \
+			and nc.arena.bursts.size() == host_a.bursts.size() and nc.arena.strikes.size() == 1 and nc.arena.zones.size() == 2 \
+			and nc.arena.shots.size() == host_a.shots.size() and warded >= 1 and h1.stunned() and h1.taunted() and h2.slowed():
+		print("EVENSONG_RENDER skills_net ok %s" % line)
+	else:
+		_fail("skills_net", line)
 
 
 func _want(part: String) -> bool:

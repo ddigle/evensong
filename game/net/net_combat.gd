@@ -23,6 +23,52 @@ extends RefCounted
 ## host's own steps (Arena.flask_points from where it left the hand toward where it lands): drawn until the tick
 ## it broke, then its splash at the broke event's point for Config.SPLASH_SHOW_TICKS; this client's own bottles
 ## at t_fresh, the others' at t_draw (like the shots). A heretic's poison is a flag in the enemy batch (its mark).
+##
+## M9c: the skills. A skill's shot (the piercing arrow, the fan's arrows) comes like a weapon's and flies at its skill's speed and
+## reach (the piercing arrow drawn with its tail). Bursts, strikes and zones come as events with the host tick they showed age 0:
+## drawn with the host's age at the drawing time (this client's own, and those following this client's player, at t_fresh; the
+## others at t_draw), a burst or a zone that follows a player around that player as drawn here; a strike until its delay is up
+## (its landing is a burst event, its hits come with the batches), a zone until its duration is up or its early end. A ward over a
+## player until its time is up (the shield, Player._sync_view). A heretic's stun, slow and taunt are marks in the batch.
+
+## M9c: a skill's burst as the host's event tells it (Arena.Burst at its age, drawn by CombatView).
+class BurstTrack:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = 0
+	var owner: int = NetProtocol.NO_SLOT
+	var follow: int = NetProtocol.NO_SLOT
+	var tick: int = 0
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var aim: int = 0
+	var arc_deg: float = 360.0
+
+
+## M9c: a strike on its way (Arena.Strike: it lands at tick + delay).
+class StrikeTrack:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = 0
+	var owner: int = NetProtocol.NO_SLOT
+	var tick: int = 0
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var delay: int = 0
+
+
+## M9c: a healing zone (Arena.Zone: until tick + duration, or its early end).
+class ZoneTrack:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = 0
+	var owner: int = NetProtocol.NO_SLOT
+	var follow: int = NetProtocol.NO_SLOT
+	var tick: int = 0
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var duration: int = 0
+	var end_tick: int = -1
 
 ## M6b: one thrown potion as the host's events tell it. `path` = where it is after each host tick from the tick it
 ## left the hand (Arena.flask_points, the host's own steps), up to the tick it lands on its target.
@@ -114,6 +160,8 @@ class ShotTrack:
 	var id: int = 0
 	var item: StringName = &""
 	var kind: int = Combat.Kind.ARROW
+	## M9c: the piercing arrow (drawn with its tail).
+	var pierce: bool = false
 	var owner: int = 255
 	var tick: int = 0
 	var origin: Vector2 = Vector2.ZERO
@@ -156,6 +204,16 @@ var shots: Dictionary[int, ShotTrack] = {}
 var flasks: Dictionary[int, FlaskTrack] = {}
 var flask_events: int = 0
 var poisoned_seen: Dictionary[int, bool] = {}
+## M9c: the bursts, strikes and zones by id, the wards by player slot ([tick, ticks, pct]); counters for the results: skill events
+## by kind name, bursts by Arena.BurstKind name, the heretics seen stunned / slowed / taunted (ids), the slots seen warded.
+var bursts: Dictionary[int, BurstTrack] = {}
+var strikes: Dictionary[int, StrikeTrack] = {}
+var zones: Dictionary[int, ZoneTrack] = {}
+var wards: Dictionary[int, PackedInt32Array] = {}
+var skill_events: Dictionary[String, int] = {}
+var bursts_seen: Dictionary[String, int] = {}
+var marks_seen: Dictionary[String, Dictionary] = {"stunned": {}, "slowed": {}, "taunted": {}}
+var warded_seen: Dictionary[int, bool] = {}
 ## The shrine's HP by host tick ([tick, hp] pairs, oldest first) and the tick of its last drop.
 var shrine: Array[Vector2i] = []
 var shrine_hit_tick: int = -1000000
@@ -183,6 +241,10 @@ func reset(p_map: int, p_data: WorldData) -> void:
 	foes.clear()
 	shots.clear()
 	flasks.clear()
+	bursts.clear()  # M9c
+	strikes.clear()
+	zones.clear()
+	wards.clear()
 	shrine.clear()
 	shrine_hit_tick = -1000000
 	last_tick = -1
@@ -224,6 +286,12 @@ func on_batch(b: NetProtocol.EnemyBatch, payload: PackedByteArray, keyframe: boo
 		_note_hp(e.id, e.hp)
 		if e.poisoned:
 			poisoned_seen[e.id] = true
+		if e.stunned:
+			marks_seen["stunned"][e.id] = true  # M9c
+		if e.slowed:
+			marks_seen["slowed"][e.id] = true
+		if e.taunted:
+			marks_seen["taunted"][e.id] = true
 	for id: int in foes:
 		if not seen.has(id) and foes[id].gone_at < 0:
 			foes[id].gone_at = b.tick
@@ -262,19 +330,30 @@ func on_shots(s: NetProtocol.ShotEvents) -> bool:
 		if e.kind == NetProtocol.ShotEvent.Kind.THROW or e.kind == NetProtocol.ShotEvent.Kind.SPLASH:
 			_on_flask(e)
 			continue
+		if e.kind >= NetProtocol.ShotEvent.Kind.BURST:
+			_on_skill_event(e)  # M9c
+			continue
 		shot_events += 1
-		if e.kind == NetProtocol.ShotEvent.Kind.SPAWN:
-			var a: Combat.Attack = Combat.attack_for(e.item)
+		if e.kind == NetProtocol.ShotEvent.Kind.SPAWN or e.kind == NetProtocol.ShotEvent.Kind.SKILL_SHOT:
 			var t: ShotTrack = ShotTrack.new()
 			t.id = e.id
 			t.item = e.item
-			t.kind = a.kind
 			t.owner = e.owner
 			t.tick = e.tick
 			t.origin = e.pos
 			t.dir = Combat.aim_vector(e.aim)
-			t.speed = a.speed
-			t.life = a.life_ticks()
+			if e.kind == NetProtocol.ShotEvent.Kind.SKILL_SHOT:
+				# M9c: a skill's arrow, at its skill's speed and reach (Arena.skill_shot / fan_shot).
+				t.kind = Combat.Kind.ARROW
+				t.speed = Skills.num_f(e.item, "speed")
+				t.life = Skills.shot_life(e.item)
+				t.pierce = e.item == Skills.PIERCING_ARROW
+				_count_skill_event("shot")
+			else:
+				var a: Combat.Attack = Combat.attack_for(e.item)
+				t.kind = a.kind
+				t.speed = a.speed
+				t.life = a.life_ticks()
 			shots[e.id] = t
 		elif shots.has(e.id):
 			shots[e.id].end_tick = e.tick
@@ -306,9 +385,86 @@ func _on_flask(e: NetProtocol.ShotEvent) -> void:
 			tr.tick = e.tick
 
 
+## M9c: a skill event (a burst, a strike, a zone, a zone's end, a ward): its track (an event already known, say a late join's
+## snapshot and the same tick's live event, just sets the same track again).
+func _on_skill_event(e: NetProtocol.ShotEvent) -> void:
+	match e.kind:
+		NetProtocol.ShotEvent.Kind.BURST:
+			_count_skill_event("burst")
+			var b: BurstTrack = BurstTrack.new()
+			b.id = e.id
+			b.kind = e.sub
+			b.owner = e.owner
+			b.follow = e.follow
+			b.tick = e.tick
+			b.pos = e.pos
+			b.radius = e.radius
+			b.aim = e.aim
+			b.arc_deg = e.arc_deg
+			bursts[e.id] = b
+			var name: String = Arena.BurstKind.keys()[e.sub]
+			var n: int = bursts_seen.get(name, 0)
+			bursts_seen[name] = n + 1
+		NetProtocol.ShotEvent.Kind.STRIKE:
+			_count_skill_event("strike")
+			var st: StrikeTrack = StrikeTrack.new()
+			st.id = e.id
+			st.kind = e.sub
+			st.owner = e.owner
+			st.tick = e.tick
+			st.pos = e.pos
+			st.radius = e.radius
+			st.delay = e.ticks
+			strikes[e.id] = st
+		NetProtocol.ShotEvent.Kind.ZONE:
+			_count_skill_event("zone")
+			var z: ZoneTrack = zones.get(e.id, ZoneTrack.new())
+			z.id = e.id
+			z.kind = e.sub
+			z.owner = e.owner
+			z.follow = e.follow
+			z.tick = e.tick
+			z.pos = e.pos
+			z.radius = e.radius
+			z.duration = e.ticks
+			zones[e.id] = z
+		NetProtocol.ShotEvent.Kind.ZONE_END:
+			_count_skill_event("zone_end")
+			if zones.has(e.id):
+				zones[e.id].end_tick = e.tick
+		NetProtocol.ShotEvent.Kind.WARD:
+			_count_skill_event("ward")
+			for slot: int in Config.MAX_PLAYERS:
+				if e.slots & (1 << slot):
+					wards[slot] = PackedInt32Array([e.tick, e.ticks, e.pct])
+					warded_seen[slot] = true
+
+
+func _count_skill_event(name: String) -> void:
+	var n: int = skill_events.get(name, 0)
+	skill_events[name] = n + 1
+
+
+## M9c: player slot `slot`'s ward at host time `t`: [percent, ticks left] ([0, 0] = none).
+func ward_at(slot: int, t: float) -> Vector2i:
+	var w: PackedInt32Array = wards.get(slot, PackedInt32Array())
+	if w.is_empty():
+		return Vector2i.ZERO
+	var left: int = w[0] + w[1] - floori(t)
+	if left <= 0 or floori(t) < w[0]:
+		return Vector2i.ZERO
+	return Vector2i(w[2], mini(left, w[1]))
+
+
+## M9c: forgets player slot `slot`'s ward (it died: the host's ward ends then too, SkillState.on_death).
+func end_ward(slot: int) -> void:
+	wards.erase(slot)
+
+
 ## Fills the mirror arena for drawing at host time `t_fresh` (the newest this client knows) with positions
-## `delay` ticks behind it (see the class comment).
-func sample(t_fresh: float, delay: float) -> void:
+## `delay` ticks behind it (see the class comment). M9c: `positions` = the players on this map as drawn here, by slot (a burst
+## or a zone that follows one is drawn around it).
+func sample(t_fresh: float, delay: float, positions: Dictionary[int, Vector2] = {}) -> void:
 	if arena == null:
 		return
 	var t_draw: float = t_fresh - delay
@@ -336,6 +492,7 @@ func sample(t_fresh: float, delay: float) -> void:
 		s.dir = tr.dir
 		s.pos = p
 		s.item = tr.item
+		s.pierce = tr.pierce  # M9c
 		arena.shots.append(s)
 	# M6b: the thrown potions and their splashes (this client's own at t_fresh, the others' at t_draw).
 	arena.flasks.clear()
@@ -364,8 +521,69 @@ func sample(t_fresh: float, delay: float) -> void:
 			sp.pos = ft.end_pos
 			sp.age = age
 			arena.splashes.append(sp)
+	_sample_skills(t_fresh, t_draw, positions)  # M9c
 	arena.shrine_hp = shrine_hp_at(t_draw)
 	arena.shrine_flash = maxi(Config.HIT_FLASH_TICKS - floori(t_draw - shrine_hit_tick), 0) if t_draw >= shrine_hit_tick else 0
+
+
+## M9c: the bursts, strikes and zones as the mirror arena's (CombatView draws them): each at the host's age at the drawing time
+## (this client's own and those following its player at `t_fresh`, the others at `t_draw`); gone ones forgotten.
+func _sample_skills(t_fresh: float, t_draw: float, positions: Dictionary[int, Vector2]) -> void:
+	arena.bursts.clear()
+	for id: int in bursts.keys():
+		var b: BurstTrack = bursts[id]
+		var t: float = t_fresh if b.owner == local_slot or (b.follow == local_slot and local_slot >= 0) else t_draw
+		var age: int = floori(t) - b.tick
+		if age >= Config.SKILL_BURST_TICKS:
+			bursts.erase(id)
+			continue
+		if age < 0:
+			continue
+		var ab: Arena.Burst = Arena.Burst.new()
+		ab.id = b.id
+		ab.kind = b.kind
+		ab.pos = positions.get(b.follow, b.pos) if b.follow != NetProtocol.NO_SLOT else b.pos
+		ab.radius = b.radius
+		ab.age = age
+		ab.aim = b.aim
+		ab.arc_deg = b.arc_deg
+		arena.bursts.append(ab)
+	arena.strikes.clear()
+	for id: int in strikes.keys():
+		var st: StrikeTrack = strikes[id]
+		var t2: float = t_fresh if st.owner == local_slot else t_draw
+		var age2: int = floori(t2) - st.tick
+		if age2 >= st.delay:
+			strikes.erase(id)
+			continue
+		if age2 < 0:
+			continue
+		var s: Arena.Strike = Arena.Strike.new()
+		s.id = st.id
+		s.kind = st.kind
+		s.pos = st.pos
+		s.radius = st.radius
+		s.delay = st.delay
+		s.age = age2
+		arena.strikes.append(s)
+	arena.zones.clear()
+	for id: int in zones.keys():
+		var zt: ZoneTrack = zones[id]
+		var t3: float = t_fresh if zt.owner == local_slot or (zt.follow == local_slot and local_slot >= 0) else t_draw
+		var age3: int = floori(t3) - zt.tick
+		if age3 >= zt.duration or (zt.end_tick >= 0 and floori(t3) >= zt.end_tick):
+			zones.erase(id)
+			continue
+		if age3 < 0:
+			continue
+		var z: Arena.Zone = Arena.Zone.new()
+		z.id = zt.id
+		z.kind = zt.kind
+		z.pos = positions.get(zt.follow, zt.pos) if zt.follow != NetProtocol.NO_SLOT else zt.pos
+		z.radius = zt.radius
+		z.duration = zt.duration
+		z.age = age3
+		arena.zones.append(z)
 
 
 func shrine_hp_at(t: float) -> int:
@@ -400,6 +618,12 @@ static func sample_foe(tr: FoeTrack, t_draw: float, t_fresh: float) -> HereticSi
 	h.state_ticks = maxi(floori(t_draw - a.since), 0) if NetProtocol.timed_state(a.e.state) else 0
 	h.clock = maxi(floori(t_draw), 0)
 	h.poison_ticks = 1 if a.e.poisoned else 0  # M6b: the mark (the poison's time and damage are the host's)
+	# M9c: the skill marks (their times are the host's): a stunned one holds its hurt pose (HereticSim.anim).
+	h.stun_ticks = 1 if a.e.stunned else 0
+	h.slow_pct = 1 if a.e.slowed else 0
+	h.slow_ticks = 1 if a.e.slowed else 0
+	h.taunt_by = -1 if a.e.taunted else 0
+	h.taunt_ticks = 1 if a.e.taunted else 0
 	if Config.NET_ENEMY_WINDUP_FRESH:
 		var n: FoeSnap = tr.snaps.back()
 		var src: FoeSnap = null
@@ -414,6 +638,7 @@ static func sample_foe(tr: FoeTrack, t_draw: float, t_fresh: float) -> HereticSi
 				h.state_ticks = st
 				h.facing = src.e.facing
 				h.walking = false
+				h.stun_ticks = 0 if src == n else h.stun_ticks  # M9c: an attack under way at t_fresh is no stun
 			elif st >= 0 and a.e.state == HereticSim.State.ATTACK:
 				h.state = HereticSim.State.CHASE
 				h.state_ticks = 0
@@ -421,9 +646,9 @@ static func sample_foe(tr: FoeTrack, t_draw: float, t_fresh: float) -> HereticSi
 	return h
 
 
-## Anything fighting in the newest batch (a heretic not idle at home) or a shot in the air.
+## Anything fighting in the newest batch (a heretic not idle at home) or a shot in the air. M9c: or a strike or a zone.
 func fighting() -> bool:
-	if not shots.is_empty() or not flasks.is_empty():
+	if not shots.is_empty() or not flasks.is_empty() or not strikes.is_empty() or not zones.is_empty():
 		return true
 	if last_batch == null:
 		return false
@@ -460,8 +685,16 @@ func to_dict() -> Dictionary:
 		hp[str(id)] = foe_hp[id]
 	var poisoned: Array = poisoned_seen.keys()
 	poisoned.sort()
+	var marks: Dictionary = {}
+	for mark: String in marks_seen:
+		var ids: Array = marks_seen[mark].keys()
+		ids.sort()
+		marks[mark] = ids
+	var warded: Array = warded_seen.keys()
+	warded.sort()
 	return {"map": map, "batches": batches, "keyframes": keyframes, "stale": stale, "other_map": other_map,
 		"shot_events": shot_events, "hash": latest_hash(), "foe_hp": hp, "flask_events": flask_events,
-		"poisoned_seen": poisoned,
+		"poisoned_seen": poisoned, "skill_events": skill_events, "bursts_seen": bursts_seen, "marks_seen": marks,
+		"warded_seen": warded,
 		"heretics": last_batch.enemies.size() if last_batch != null else 0,
 		"shrine_hp": last_batch.shrine_hp if last_batch != null else -1}

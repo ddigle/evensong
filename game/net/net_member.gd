@@ -51,6 +51,13 @@ var respawn_pending: bool = false
 var altar_hold: int = 0
 var respawn_wait_logged: bool = false
 var combat: Dictionary[String, int] = {}
+## Host (M9c): this member's client's copy of its skill state as the host works it out (the last skills message's state run on with
+## its moving / up flags, SessionHost._tick_skills: what the client shows now) and how many skills messages it got
+## (SessionHost._send_skills sends again when the real state left the copy).
+var skills_copy: SkillState = SkillState.new()
+var skills_copy_moving: bool = false
+var skills_copy_alive: bool = true
+var skills_msgs: int = 0
 var _last_action: int = -1
 var _last_action_start: float = -1.0
 

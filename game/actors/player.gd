@@ -76,6 +76,10 @@ extends Node2D
 ## `party_provider`, the players on this map: Main's AllyMark draws a ring under it). Without `skills_on` key 1 is M6's throw.
 ## M9b: a skill's frame carries the selected hotbar slot (a weapon skill's stack: action_slot) and a point skill's point
 ## (throw_to -> action_target); take_hit takes the paladin's oath ward off a hit (after the armour), shown over the head (WARD).
+## M9c (sessions): every frame carries the mouse (`cursor`); a skill key's frame is a SKILL request (the herbalist's key 1 a THROW,
+## as since M6b), which a session sends and its host resolves again from its own state (SessionHost._skill). The host's members
+## keep `skills_on` with `skills_clock_external`: the host counts their skill clock once a host tick (SessionHost.tick), not once
+## a frame. A client's own player has `skills_on` for its keys and HUD; its `skills` shows the host's (the skills message).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -174,6 +178,9 @@ var effect_marks: EffectMarks
 ## `skills`: the cooldowns, the class meter, the HUD's refusal mark (actors/skill_state.gd).
 var skills_on: bool = false
 var skills: SkillState = SkillState.new()
+## M9c: the skill clock (SkillState.tick: the cooldowns, the meter's rules, the ward) is counted by someone else once a game
+## tick, not by step_frame (a session host's members: SessionHost ticks them on host time, frames or no frames).
+var skills_clock_external: bool = false
 ## M9a: returns the players the near-cursor pick may choose from (Array[Player]: the players on this player's map, in a fixed
 ## order; Main sets it offline). Unset: this player alone.
 var party_provider: Callable = Callable()
@@ -345,6 +352,7 @@ func _skill_frame(f: NetProtocol.InputFrame, slot: int, mouse: Vector2) -> void:
 		f.item = prep.item
 		f.throw_to = prep.throw_to
 	else:
+		f.op = NetProtocol.Op.SKILL  # M9c: a session sends it (the host resolves it again); offline Main plays it as resolved here
 		f.anim = Skills.anim(prep.id)
 		f.item = prep.id
 		f.slot = inventory.selected  # M9b: the weapon skill's stack (its tier-1 damage and wear: Skills.weapon_stack)
@@ -357,6 +365,22 @@ func _refuse_skill(slot: int, id: StringName, why: String) -> void:
 		return
 	skills.refuse(slot, why)
 	skill_refused.emit(slot, id, why)
+
+
+## M9c: a skill key of slot `slot` pressed while a panel holds the keys (a session's input, SessionBots.local_action; offline
+## tick_controls does the same): refused with the HUD's mark (Skills.WHY_PANEL).
+func refuse_skill_key(slot: int) -> void:
+	if skills_on and slot >= 0:
+		_refuse_skill(slot, Skills.kit_skill(class_id(), slot), Skills.WHY_PANEL)
+
+
+## M9c: a session client shows a ward of `pct` percent with `ticks` left over this player (the host's ward events; 0 = none).
+func show_ward(pct: int, ticks: int) -> void:
+	if skills.ward_pct == pct and skills.ward_ticks == ticks:
+		return
+	skills.ward_pct = pct
+	skills.ward_ticks = ticks
+	_sync_view()
 
 
 ## M9a: restores up to `amount` HP (PlayerSim.heal: not past the maximum, only while up). Returns the HP gained.
@@ -398,6 +422,9 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	f.dash = dash
 	f.interact = interact
 	f.aim = Combat.aim_code(mouse - Combat.aim_origin(sim_position))  # M4-fix: the drawn shot flies through the mouse
+	# M9c: a SKILL's and a THROW's point on the wire, in whole px (the host's near-cursor pick, a point skill's point, a throw's
+	# landing): the skill kit below works from it too, so offline and the host resolve a press alike.
+	f.cursor = Vector2(NetProtocol.wire_point(mouse))
 	if data != null:
 		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
@@ -408,7 +435,7 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	var selected: ItemStack = inventory.selected_stack()
 	var slot: int = skill_slot if skill_slot >= 0 else (Skills.Slot.IDENTITY if skill else -1)
 	if skills_on:
-		skill_aim_target = Skills.aim_target(self, party(), mouse) if not carrying_altar else null
+		skill_aim_target = Skills.aim_target(self, party(), f.cursor) if not carrying_altar else null
 	if _channel_pending:
 		_channel_pending = false
 		if purify_on and free and not carrying_altar and data != null \
@@ -424,7 +451,7 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 		if skills_on and slot >= 0:
 			_refuse_skill(slot, Skills.kit_skill(class_id(), slot), Skills.refusal(self, slot))  # M9a: carrying the altar
 	elif skills_on and slot >= 0:
-		_skill_frame(f, slot, mouse)  # M9a: the skill kit (the herbalist's key 1 = M6's throw through it)
+		_skill_frame(f, slot, f.cursor)  # M9a: the skill kit (the herbalist's key 1 = M6's throw through it; M9c: whole px)
 	elif free and potions_on and skill:
 		var why_throw: String = Potions.throw_refusal(class_id(), selected)
 		if why_throw.is_empty():
@@ -527,8 +554,9 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 		action_skill_target = 0
 	if skills_on:
 		# M9a: the game clock (cooldowns, the refusal mark) and the class meter; a poison tick is damage taken (the paladin's
-		# conviction), a death loses the meter.
-		skills.tick(class_id(), walking or vitals.dashing(), vitals.alive())
+		# conviction), a death loses the meter. M9c: a session host's members count their clock on host time instead.
+		if not skills_clock_external:
+			skills.tick(class_id(), walking or vitals.dashing(), vitals.alive())
 		if events & PlayerSim.POISON_TICK:
 			skills.on_hurt(class_id(), maxi(hp_before - vitals.hp, 0))
 		if events & PlayerSim.DIED:

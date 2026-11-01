@@ -73,6 +73,23 @@ func start_cooldown(slot: int, ticks: int) -> void:
 		cooldowns[slot] = maxi(ticks, 0)
 
 
+## M9c: the same skill clock and meter (what a skills message carries: the cooldowns, the meter and its rhythms; not the ward, an
+## event, nor the refusal mark, the client's own).
+func same_clock(o: SkillState) -> bool:
+	return o != null and cooldowns == o.cooldowns and resource == o.resource and since_hurt == o.since_hurt \
+		and decay_tick == o.decay_tick and focus_tick == o.focus_tick and was_moving == o.was_moving
+
+
+## M9c: takes the clock and meter of `o` (a skills message's), keeping this copy's ward and refusal mark.
+func take_clock(o: SkillState) -> void:
+	cooldowns = o.cooldowns.duplicate()
+	resource = o.resource
+	since_hurt = o.since_hurt
+	decay_tick = o.decay_tick
+	focus_tick = o.focus_tick
+	was_moving = o.was_moving
+
+
 ## Marks slot `slot` refused (`why`) for Config.SKILL_REFUSED_SHOW_TICKS.
 func refuse(slot: int, why: String) -> void:
 	refused_slot = slot
