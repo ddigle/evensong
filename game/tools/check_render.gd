@@ -131,11 +131,12 @@ extends SceneTree
 ##            the same pixels, differ from the bare world, and the client's build and fixture views equal its data. M7-rf:
 ##            the room's bottom row and the open door's doorway stand on floor pieces in the snapshot, and the wall through
 ##            the wire goes onto a floor piece laid through the wire just before it.
-##   merchant (M8a) evening off, the merchant put down through the world's edits: for each of his four breathing frames the screen
-##            equals the background plus his look written out here (the shared idle body's south frame, its tunic colours turned
-##            to the cloak's by a table written out here, the pack map behind at (3, 14), the hat map over it from 2 rows above
-##            the hair's top), his feet on his tile's middle 4 px above its bottom; then the evening on: the prompt over him on
-##            its exact pixels (unshaded) while his body darkens like a character's; taken away, nothing drawn.
+##   merchant (M8a; M8: the 03-pixel sheet) evening off, the merchant put down through the world's edits: for each way he
+##            faces (south / east / north / west) and each of his four breathing frames the screen equals the background plus
+##            the sheet PNG's cell (rows south / east / north, west = the east cell mirrored, read from the file here), his feet
+##            on his tile's middle 4 px above its bottom; then the evening on: for every facing and frame the prompt over him
+##            (centred, its bottom 2 px above that cell's first opaque row, measured here) on its exact pixels (unshaded)
+##            while his body darkens like a character's; taken away, nothing drawn.
 ##   shop_panel (M8a) the shop panel over the open inventory (the chest panel's place and width; the money held in the header;
 ##            eleven entries four a row: slot, icon, the stock always, a small coin and the price, ivory or rust when short; the
 ##            selected entry's gold frame; a sold-out entry's icon veiled), the sell marks over the inventory (the price a stack
@@ -3270,48 +3271,33 @@ func _check_builds_net() -> void:
 
 # --- M8a ----------------------------------------------------------------------------------------------------------------
 
-## M8a: the merchant's look written out here (not read from MerchantView's code): the idle sheet's south row, frame f, with these
-## tunic colours (rows 19 down) turned to these cloak colours; behind it the pack map at (3, 14) of the frame; over it the hat map
-## with its left at column 5 and its top 2 rows above the frame's first opaque row. (The maps are MerchantView's data.)
-const M8_TUNIC: Dictionary[String, String] = {
-	"f0d39c": "a9a35a", "eec58d": "a9a35a", "e2b880": "8d8a47", "d0a571": "8d8a47", "c89a68": "737236",
-	"ba895b": "737236", "bc7d4e": "5a5a2b", "b28156": "5a5a2b", "a0724c": "42431f",
-}
+## M8: the merchant's look written out here (not read from MerchantView's code): the 03-pixel sheet PNG's 32 px cell for facing
+## `dir` (rows south / east / north; west = the east cell mirrored) and breathing frame `f`.
+const M8_ROW_OF: Array[int] = [0, 1, 2, 1]
 
 
-static func merchant_frame(f: int) -> Image:
-	var sheet: Image = _png("chars/base_body_v02_idle.png")
-	var src: Image = sheet.get_region(Rect2i(f * 32, 0, 32, 32))
-	var out: Image = Image.create_empty(32, 32, false, Image.FORMAT_RGBA8)
-	_map_onto(out, MerchantView.PACK, Vector2i(3, 14), MerchantView.PALETTE)
-	var top: int = -1
-	for y: int in 32:
-		for x: int in 32:
-			var c: Color = src.get_pixel(x, y)
-			if c.a8 < 128:
-				continue
-			if top < 0:
-				top = y
-			var key: String = c.to_html(false)
-			out.set_pixel(x, y, Color.html(M8_TUNIC[key]) if y >= 19 and M8_TUNIC.has(key) else Color(c.r, c.g, c.b, 1.0))
-	_map_onto(out, MerchantView.HAT, Vector2i(5, top - 2), MerchantView.PALETTE)
-	return out
+static func merchant_frame(dir: int, f: int) -> Image:
+	var sheet: Image = _png("npcs/merchant_v02_idle.png")
+	var cell: Image = sheet.get_region(Rect2i(f * 32, M8_ROW_OF[dir] * 32, 32, 32))
+	if dir == 3:
+		cell.flip_x()
+	return cell
 
 
-static func _map_onto(img: Image, rows: Array, at: Vector2i, colors: Dictionary[String, Color]) -> void:
-	for y: int in rows.size():
-		var row: String = rows[y]
-		for x: int in row.length():
-			var q: Vector2i = at + Vector2i(x, y)
-			if colors.has(row[x]) and q.x >= 0 and q.y >= 0 and q.x < img.get_width() and q.y < img.get_height():
-				img.set_pixelv(q, colors[row[x]])
+## The first row of `img` with an opaque pixel (the top of his hat or pack).
+static func _first_opaque_row(img: Image) -> int:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				return y
+	return -1
 
 
-## M8a: the merchant put down through the world's edits (evening off, his breathing held): for each of his four frames the screen
-## equals the background plus the frame written out above with his feet on the tile's middle, 4 px above its bottom (row 31 of
-## the frame just above the feet); then with the evening on, the prompt over him (MerchantView.prompt_image, centred, its bottom
-## 2 px above the hat) on its exact pixels (unshaded) while his body is darker than its art (the actors' light, no altar light
-## here).
+## M8a: the merchant put down through the world's edits (evening off, his breathing held): for each way he faces and each of his
+## four frames the screen equals the background plus the sheet's cell written out above with his feet on the tile's middle, 4 px
+## above its bottom (row 31 of the cell just above the feet); then with the evening on, for every facing and frame the prompt
+## over him (MerchantView.prompt_image, centred, its bottom 2 px above the cell's first opaque row measured here) on its exact
+## pixels (unshaded) while his body is darker than its art (the actors' light, no altar light here).
 func _check_merchant() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
@@ -3324,36 +3310,47 @@ func _check_merchant() -> void:
 		return
 	v.animate = false
 	var feet: Vector2i = Vector2i(c.x * 16 + 8, (c.y + 1) * 16 - 4)
+	var corner: Vector2i = feet - Vector2i(16, 32) - origin
 	var bad_frames: int = 0
 	var drawn: int = 0
-	for f: int in 4:
-		v.frame = f
-		var expected: Image = bg.duplicate() as Image
-		_paste_at(expected, merchant_frame(f), feet - Vector2i(16, 32) - origin)
-		var got: Image = await _capture()
-		var n: int = count_diff(got, expected)
-		drawn = maxi(drawn, count_diff(got, bg))
-		if n > 0:
-			bad_frames += 1
-		if n > 0 or save_all:
-			_save(got, "merchant_%d_got.png" % f)
-			_save(expected, "merchant_%d_expected.png" % f)
-	# The prompt, the evening on.
-	v.frame = 0
+	var screens: int = 0
+	for dir: int in 4:
+		v.facing = dir
+		for f: int in 4:
+			v.frame = f
+			var expected: Image = bg.duplicate() as Image
+			_paste_at(expected, merchant_frame(dir, f), corner)
+			var got: Image = await _capture()
+			screens += 1
+			var n: int = count_diff(got, expected)
+			drawn = maxi(drawn, count_diff(got, bg))
+			if n > 0:
+				bad_frames += 1
+			if n > 0 or save_all:
+				_save(got, "merchant_%s_%d_got.png" % [RigData.DIR_NAMES[dir], f])
+				_save(expected, "merchant_%s_%d_expected.png" % [RigData.DIR_NAMES[dir], f])
+	# The prompt, the evening on: over every facing and frame.
 	world.lighting.set_evening(true)
 	v.show_prompt(true)
-	var lit: Image = await _capture()
-	var hat_top: int = 32
-	var sheet: Image = _png("chars/base_body_v02_idle.png")
-	for y: int in 32:
-		for x: int in 32:
-			if sheet.get_pixel(x, y).a8 >= 128 and hat_top == 32:
-				hat_top = y - 2
-	var want: Dictionary[Vector2i, Color] = {}
-	var prompt_at: Vector2i = feet - Vector2i(16, 32) + Vector2i((32 - 13) / 2, hat_top - 2 - 11) - origin
-	_image_pixels(want, MerchantView.prompt_image(), prompt_at)
-	var bad_prompt: int = _count_wrong(lit, want)
-	var frame0: Image = merchant_frame(0)
+	var prompt_pixels: int = 0
+	var bad_prompt: int = 0
+	var lit_south: Image = null
+	for dir2: int in 4:
+		v.facing = dir2
+		for f2: int in 4:
+			v.frame = f2
+			var lit: Image = await _capture()
+			if dir2 == 0 and f2 == 0:
+				lit_south = lit
+			var top: int = _first_opaque_row(merchant_frame(dir2, f2))
+			var want: Dictionary[Vector2i, Color] = {}
+			_image_pixels(want, MerchantView.prompt_image(), corner + Vector2i((32 - 13) / 2, top - 2 - 11))
+			prompt_pixels += want.size()
+			var wrong: int = _count_wrong(lit, want)
+			bad_prompt += wrong
+			if wrong > 0 or save_all:
+				_save(lit, "merchant_prompt_%s_%d_got.png" % [RigData.DIR_NAMES[dir2], f2])
+	var frame0: Image = merchant_frame(0, 0)
 	var darker: int = 0
 	var body_px: int = 0
 	for y2: int in range(20, 30):
@@ -3362,18 +3359,17 @@ func _check_merchant() -> void:
 			if art.a8 < 255 or _brightness(art) < 0.2:
 				continue  # the outline: black stays black
 			body_px += 1
-			var q: Vector2i = feet - Vector2i(16, 32) + Vector2i(x2, y2) - origin
-			if _brightness(lit.get_pixelv(q)) < _brightness(art) - 0.05:
+			if _brightness(lit_south.get_pixelv(corner + Vector2i(x2, y2))) < _brightness(art) - 0.05:
 				darker += 1
-	if bad_prompt > 0 or save_all:
-		_save(lit, "merchant_prompt_got.png")
 	v.show_prompt(false)
+	v.facing = 0
 	world.lighting.set_evening(false)
 	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_NONE))
 	var gone: bool = world.fixtures.merchant_at(c) == null
-	var line: String = "frames=4 bad_frames=%d drawn=%d prompt_pixels=%d prompt_mismatches=%d body_darker=%d/%d removed=%s" % [
-		bad_frames, drawn, want.size(), bad_prompt, darker, body_px, str(gone)]
-	if bad_frames == 0 and drawn > 300 and bad_prompt == 0 and want.size() > 100 and darker == body_px and body_px > 50 and gone:
+	var line: String = "screens=%d bad_frames=%d drawn=%d prompt_pixels=%d prompt_mismatches=%d body_darker=%d/%d removed=%s" % [
+		screens, bad_frames, drawn, prompt_pixels, bad_prompt, darker, body_px, str(gone)]
+	if screens == 16 and bad_frames == 0 and drawn > 300 and bad_prompt == 0 and prompt_pixels == 16 * 117 and darker == body_px \
+			and body_px > 50 and gone:
 		print("EVENSONG_RENDER merchant ok %s" % line)
 	else:
 		_fail("merchant", line)
