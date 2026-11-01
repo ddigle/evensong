@@ -46,6 +46,18 @@ extends RefCounted
 ##                         stack as far as the money fits), u8 item index (255 = nothing), u8 grade (M8 review: what the
 ##                         sender shows in that slot; the host sells only that, else `the slot changed`)
 ##                                                                                  M8b: a click on an inventory slot (shift: whole)
+##                 SKILL   u8 map, u8 skill slot (Skills.Slot: 0 identity, 1 weapon, 2 choice, 3 signature), u8 hotbar slot
+##                         (the one selected on the sender's machine: key 2's class weapon, M9 review), s16 x, s16 y (target
+##                         tile: the facing, like a USE's), u8 aim (Combat.aim_code toward the mouse), s16 x, s16 y (the
+##                         cursor, world px: the one thing the host cannot know; it picks the ally near it for a heal, the point
+##                         a point skill lands on, M9c), u8 picked ally (the slot of the ally the sender's machine picked for a
+##                         heal, NO_SLOT = none; M9 review: the host takes it within its lag allowance, Skills.pick_with_hint)
+##                                                                                  M9c: the skill keys 1 2 3 R (the herbalist's
+##                         key 1 stays THROW, below)
+##               M9c (v11): THROW's s16 x, s16 y is the cursor too (v6-v10: the point the bottle lands on). The host works the
+##               landing point out from where it has the thrower (poison: toward the cursor, Potions.throw_target) or, for a
+##               healing or buff potion, throws at the ally nearest the cursor (● gameplay-design §2.1 R42, Skills.pick_ally).
+##               M9 review (v11, unreleased): + u8 picked ally after the cursor (as SKILL's).
 ##               M3b: a request aimed at a tile names the map it was aimed on (the map the sender
 ##               was on when it made the frame); the host refuses it on any other map ("wrong map").
 ##               M6b: a USE of a potion is a drink (the host resolves it from the slot, like a tool).
@@ -114,6 +126,27 @@ extends RefCounted
 ##               3 = broke (u32 id, u8 potion item index, u32 host tick, f32 x, f32 y (the splash), u8 why
 ##               (FLASK_STOPS): 19 B). The client flies the bottle itself (Arena.flask_points, the host's
 ##               own steps) and shows the splash from the tick it broke.
+##               M9c, the skills (what a client draws; the effects themselves are the host's, its batches carry the HP):
+##               4 = a skill's shot let go (SPAWN's 20 B with the skill's index in Skills.ALL for the weapon: the archer's
+##               piercing arrow and fan shot; the client flies it at the skill's speed and reach), 5 = a burst (u32 id, u8
+##               Arena.BurstKind, u8 owner slot, u8 follow slot (255 = none: it stays), u32 host tick it showed age 0, f32 x,
+##               f32 y, u8 radius px, u8 aim code (an arc's middle), u8 half its arc in degrees (180 = a whole ring): 23 B),
+##               6 = a strike on its way (u32 id, u8 Arena.StrikeKind, u8 owner slot, u32 tick of age 0, f32 x, f32 y, u8
+##               radius px, u8 delay ticks: 21 B; it lands at tick + delay, the hits come with the batches), 7 = a healing
+##               zone (u32 id, u8 Arena.ZoneKind, u8 owner slot, u8 follow slot, u32 tick of age 0, f32 x, f32 y, u8 radius
+##               px, u16 duration ticks: 23 B), 8 = a zone ended early (u32 id, u32 tick: 9 B; the blessing whose cleric went
+##               down, died or left), 9 = a ward (u16 the players' slots as bits, u32 tick, u16 ticks, u8 percent: 10 B).
+## Enemy batch, M9c (v11): an 18th byte per heretic, its skill marks: bit 0 stunned, bit 1 slowed, bit 2 taunted (drawn over its
+##               head; a stunned one holds its hurt pose). The stun, slow and taunt times are the host's.
+## Skills        host -> its owner only (M9c, reliable): u32 host tick, u8 the class meter (the herbalist's herbs come with the
+##               inventory, 0 here), u16 cooldown ticks left at that tick for the slots 0, 1 and 3 (the choice slot 2 is
+##               locked, never cooling), u16 the paladin's ticks since he was hurt, u8 his fade rhythm, u8 the archer's focus
+##               rhythm, u8 flags (bit 0 the archer moved on his last tick, bit 1 the player moves now, bit 2 it is up): 16 B.
+##               The client runs its copy on SkillState's own rule from there (SkillState.tick with "moves now" and "up"
+##               held), so the cooldowns count down and an archer standing still gains focus with no message; the host runs
+##               the same copy and sends again only when the real state left it (a cooldown started, a hit, a heal, a mined
+##               block, a signature spent, the player started or stopped moving, went down, died), at most once a state
+##               batch tick (SessionHost._send_skills).
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
 ## 3 (M2b): frames carry the look and requests, states the body action and held item, inventories,
@@ -141,7 +174,13 @@ extends RefCounted
 ## tile is a PLACEABLE cell edit and a snapshot layer as before (value 17, M8a). A version 9 peer would read neither the
 ## snapshot's last byte nor the new edit code: refused with `version`. M8 review (v10 was not released yet, so the number
 ## stays): a SELL carries the item and grade its sender showed in the slot (two bytes more).
-const VERSION: int = 10
+## 11 (M9c): the class skills in sessions: the SKILL request (11 B; M9 review, still v11: 13 B with the hotbar slot and the picked
+## ally, THROW 12 B with the picked ally, the thrown event 28 B with the ally a bottle follows), THROW's point is the cursor (the
+## host throws a healing or buff potion at the ally nearest it, ● gameplay-design §2.1 R42), the heretic's skill marks byte in the enemy batch (18 B a
+## heretic: stunned, slowed, taunted), the skill events in the shot events message (kinds 4 to 9: a skill's shot, a burst, a
+## strike, a zone, a zone ended, a ward) and the owner's skills message (cooldowns and the class meter, a new RPC). A version 10
+## peer would read a skill frame as an unknown op and every enemy batch one byte short: refused with `version`.
+const VERSION: int = 11
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -155,14 +194,15 @@ const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "c
 ## Requests riding on input frames (M2b). M6b: THROW (the skill key 1), CRAFT (the crafting panel). M5c: CHANNEL (the
 ## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click). M7c: DEMOLISH
 ## (right-click), DOOR (F on a door), ARMOR (put the armour on / take it off), CHEST (store / take in the chest panel).
-## M8b: BUY and SELL (the open shop panel's clicks).
+## M8b: BUY and SELL (the open shop panel's clicks). M9c: SKILL (the skill keys 1 2 3 R; the herbalist's key 1 is THROW).
 enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE, DEMOLISH, DOOR, ARMOR,
-	CHEST, BUY, SELL }
+	CHEST, BUY, SELL, SKILL }
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
-	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell"]
+	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
-## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9).
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9]
+## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9). M9c: SKILL 11.
+## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12).
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13]
 ## M8b: a SELL request's whole byte.
 const SELL_ONE: int = 0
 const SELL_WHOLE: int = 1
@@ -190,16 +230,37 @@ const EFFECTS_SIZE: int = 7
 const EFFECTS_FLAG: int = 0x80
 ## M6b: the enemy flag of a poisoned heretic.
 const ENEMY_POISONED: int = 0x40
-## M4b: enemy batches and shot events.
+## M9c: the enemy's skill marks byte (its 18th): stunned, slowed, taunted.
+const MARK_STUNNED: int = 0x01
+const MARK_SLOWED: int = 0x02
+const MARK_TAUNTED: int = 0x04
+const MARKS_ALL: int = MARK_STUNNED | MARK_SLOWED | MARK_TAUNTED
+## M4b: enemy batches and shot events. M9c: 18 B a heretic (the marks byte).
 const ENEMY_HEADER: int = 4 + 1 + 2 + 1
-const ENEMY_SIZE: int = 17
+const ENEMY_SIZE: int = 18
 ## Most enemies one batch carries (lowest ids first; the slice's caps are 4 and 6 alive, plus corpses).
 const ENEMY_BATCH_MAX: int = 64
 const SHOT_SPAWN_SIZE: int = 20
 const SHOT_END_SIZE: int = 18
-## M6b: a thrown potion's events.
-const FLASK_THROW_SIZE: int = 27
+## M6b: a thrown potion's events. M9 review: the thrown event + the slot of the ally the bottle follows (NO_SLOT = none).
+const FLASK_THROW_SIZE: int = 28
 const FLASK_SPLASH_SIZE: int = 19
+## M9c: the skill events (kinds 4 to 9, each with its kind byte) and the owner's skills message.
+const SKILL_SHOT_SIZE: int = 20
+const BURST_SIZE: int = 23
+const STRIKE_SIZE: int = 21
+const ZONE_SIZE: int = 23
+const ZONE_END_SIZE: int = 9
+const WARD_SIZE: int = 10
+const SKILLS_SIZE: int = 16
+## M9c: a skills message's flags.
+const SKILLS_WAS_MOVING: int = 0x01
+const SKILLS_MOVING: int = 0x02
+const SKILLS_ALIVE: int = 0x04
+## M9c: the slots a skills message carries the cooldowns of (the choice slot 2 is locked, never cooling).
+const SKILLS_COOLDOWN_SLOTS: PackedInt32Array = [0, 1, 3]
+## M9c: a slot byte that names no player (a burst that follows nobody, an offline owner).
+const NO_SLOT: int = 255
 ## IMPL (named in M6-fix): a thrown event whose landing point is farther than Config.THROW_RANGE_PX + this (px) from
 ## where it left the hand is refused (the host clamps it to the range; the slack takes float rounding).
 const FLASK_RANGE_SLACK_PX: float = 1.0
@@ -271,16 +332,33 @@ class InputFrame:
 	## stack (as far as the money fits) when `sell_all`. Both aim at the merchant's tile `cell`. M8 review: a SELL's
 	## `item_index` and `grade` are what its sender showed in that slot (NetProtocol.seen_in).
 	var sell_all: bool = false
+	## M9a, resolved: the skill the frame starts (Skills; &"" = none), its slot (Skills.Slot) and the ally it goes to (node
+	## instance id, 0 = none). M9c: a SKILL request carries `skill_slot` on the wire (the host resolves the skill, its target and
+	## its point again from its own state: SessionHost._skill); `skill` and `skill_target` stay resolved, not sent.
+	var skill: StringName = &""
+	var skill_slot: int = -1
+	var skill_target: int = 0
+	## M9c: the mouse in world px when the frame was made (Player.make_frame), sent with a SKILL and a THROW in whole px: the
+	## one thing about a skill the host cannot know (the near-cursor ally, ● R42; a point skill's point).
+	var cursor: Vector2 = Vector2.ZERO
+	## M9 review: sent with a SKILL and a THROW: the session slot of the ally the sender's machine picked for a heal or buff
+	## (`skill_target` as a slot, SessionHost.pick_slot_of; NO_SLOT = none). The host takes it within its lag allowance.
+	var pick: int = 255
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq
 		dir = p_dir
 
-	## The request part equals `o`'s (op and its fields).
+	## The request part equals `o`'s (op and its fields). M9c: a THROW's and a SKILL's cursor (the wire's whole px of it), a
+	## SKILL's slot byte. M9 review: a SKILL's hotbar `slot` and both ops' picked ally.
 	func same_request(o: InputFrame) -> bool:
+		if o != null and op == Op.SKILL:
+			return o.op == op and cell == o.cell and map == o.map and skill_slot == o.skill_slot and slot == o.slot \
+				and pick == o.pick and NetProtocol.wire_point(cursor) == NetProtocol.wire_point(o.cursor)
 		return o != null and op == o.op and slot == o.slot and cell == o.cell and count == o.count \
 			and item_index == o.item_index and grade == o.grade and (map == o.map or not NetProtocol.op_has_map(op)) \
-			and (op != Op.THROW or throw_to == o.throw_to) and (op != Op.CRAFT or recipe == o.recipe) \
+			and (op != Op.THROW or (NetProtocol.wire_point(cursor) == NetProtocol.wire_point(o.cursor) and pick == o.pick)) \
+			and (op != Op.CRAFT or recipe == o.recipe) \
 			and (op != Op.CHEST or chest_take == o.chest_take) and (op != Op.DEMOLISH or piece == o.piece) \
 			and (op != Op.SELL or sell_all == o.sell_all)
 
@@ -299,8 +377,12 @@ class InputFrame:
 			Op.TRAVEL:
 				return "travel map=%d at=%d,%d" % [map, cell.x, cell.y]
 			Op.THROW:
-				return "throw map=%d slot=%d at=%d,%d to=%d,%d" % [map, slot, cell.x, cell.y, roundi(throw_to.x),
-					roundi(throw_to.y)]
+				return "throw map=%d slot=%d at=%d,%d cursor=%d,%d pick=%d" % [map, slot, cell.x, cell.y, roundi(cursor.x),
+					roundi(cursor.y), pick]
+			Op.SKILL:
+				return "skill map=%d key=%s slot=%d at=%d,%d cursor=%d,%d pick=%d" % [map, Skills.SLOT_KEYS[skill_slot]
+					if skill_slot >= 0 and skill_slot < Skills.SLOT_KEYS.size() else "?", slot, cell.x, cell.y, roundi(cursor.x),
+					roundi(cursor.y), pick]
 			Op.CRAFT:
 				return "craft map=%d recipe=%d" % [map, recipe]
 			Op.CHANNEL:
@@ -451,10 +533,20 @@ class EnemyState:
 	var flash: int = 0
 	## M6b: poisoned (flags bit 6).
 	var poisoned: bool = false
+	## M9c: the skill marks (the marks byte): stunned, slowed, taunted.
+	var stunned: bool = false
+	var slowed: bool = false
+	var taunted: bool = false
 
 	func same_as(o: EnemyState) -> bool:
 		return o != null and id == o.id and pos == o.pos and facing == o.facing and walking == o.walking \
-			and state == o.state and since == o.since and hp == o.hp and flash == o.flash and poisoned == o.poisoned
+			and state == o.state and since == o.since and hp == o.hp and flash == o.flash and poisoned == o.poisoned \
+			and stunned == o.stunned and slowed == o.slowed and taunted == o.taunted
+
+	## M9c: the marks byte.
+	func marks() -> int:
+		return (NetProtocol.MARK_STUNNED if stunned else 0) | (NetProtocol.MARK_SLOWED if slowed else 0) \
+			| (NetProtocol.MARK_TAUNTED if taunted else 0)
 
 
 ## M4b: one map's enemies and its shrine at a host tick.
@@ -467,10 +559,11 @@ class EnemyBatch:
 	var enemies: Array[EnemyState] = []
 
 
-## M4b: a shot let go (SPAWN) or stopped (END). M6b: a potion thrown (THROW) or broken (SPLASH).
+## M4b: a shot let go (SPAWN) or stopped (END). M6b: a potion thrown (THROW) or broken (SPLASH). M9c: the skills' events (a skill's
+## shot, a burst, a strike, a zone and its early end, a ward; see the file comment).
 class ShotEvent:
 	extends RefCounted
-	enum Kind { SPAWN, END, THROW, SPLASH }
+	enum Kind { SPAWN, END, THROW, SPLASH, SKILL_SHOT, BURST, STRIKE, ZONE, ZONE_END, WARD }
 	var kind: int = Kind.SPAWN
 	var id: int = 0
 	## SPAWN: the weapon item, the shooter's slot (255 = none), the aim code. THROW / SPLASH: the potion item;
@@ -484,10 +577,22 @@ class ShotEvent:
 	var pos: Vector2 = Vector2.ZERO
 	var why: int = 0
 	var target: Vector2 = Vector2.ZERO
+	## M9c (the skill events): SKILL_SHOT's skill is `item`; BURST / STRIKE / ZONE: `sub` (Arena.BurstKind / StrikeKind /
+	## ZoneKind), `follow` (the slot it follows, NO_SLOT = it stays), `radius` (whole px), a burst's arc (`aim`, `arc_deg`), a
+	## strike's delay / a zone's duration / a ward's ticks (`ticks`); WARD: `slots` (bit per player slot), `pct`.
+	var sub: int = 0
+	var follow: int = 255
+	var radius: float = 0.0
+	var arc_deg: float = 360.0
+	var ticks: int = 0
+	var slots: int = 0
+	var pct: int = 0
 
 	func same_as(o: ShotEvent) -> bool:
 		return o != null and kind == o.kind and id == o.id and item == o.item and owner == o.owner and aim == o.aim \
-			and tick == o.tick and pos == o.pos and why == o.why and target == o.target
+			and tick == o.tick and pos == o.pos and why == o.why and target == o.target and sub == o.sub \
+			and follow == o.follow and radius == o.radius and arc_deg == o.arc_deg and ticks == o.ticks and slots == o.slots \
+			and pct == o.pct
 
 
 class ShotEvents:
@@ -495,6 +600,18 @@ class ShotEvents:
 	var ok: bool = false
 	var map: int = Config.MAP_SURFACE
 	var events: Array[ShotEvent] = []
+
+
+## M9c: a player's own skill state as the host sends it to that player (the skills message): the host tick, its SkillState then
+## (the meter, the cooldowns, the meter's rhythms; no ward: wards are events, no refusal mark: the client's own) and how the
+## host has it moving and up then (the client's copy runs on with those, SkillState.tick).
+class SkillsState:
+	extends RefCounted
+	var ok: bool = false
+	var tick: int = 0
+	var state: SkillState = SkillState.new()
+	var moving: bool = false
+	var alive: bool = true
 
 
 # --- frame codes -----------------------------------------------------------------------------
@@ -529,11 +646,16 @@ static func dir_from_code(code: int) -> Vector2i:
 static func op_has_map(op: int) -> bool:
 	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT \
 		or op == Op.CHANNEL or op == Op.ALTAR_LIFT or op == Op.ALTAR_PLACE or op == Op.DEMOLISH or op == Op.DOOR \
-		or op == Op.CHEST or op == Op.BUY or op == Op.SELL
+		or op == Op.CHEST or op == Op.BUY or op == Op.SELL or op == Op.SKILL
 
 
 static func valid_map(map: int) -> bool:
 	return map >= 0 and map < Config.MAP_COUNT
+
+
+## M9c: a world point as the wire carries it (a THROW's and a SKILL's cursor): whole px, within s16.
+static func wire_point(p: Vector2) -> Vector2i:
+	return Vector2i(clampi(roundi(p.x), -32768, 32767), clampi(roundi(p.y), -32768, 32767))
 
 
 ## M8 review: a SELL frame `f` names stack `seen` (what its sender shows in the slot: its item index and grade; an empty slot
@@ -636,12 +758,25 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_u8(at + 1, f.count)
 			out.encode_u8(at + 2, f.grade)
 		Op.THROW:
+			# M9c (v11): the point is the cursor (the host works the landing out; v6-v10 sent the landing point).
+			var tp: Vector2i = wire_point(f.cursor)
 			out.encode_u8(at, f.slot)
 			out.encode_s16(at + 1, f.cell.x)
 			out.encode_s16(at + 3, f.cell.y)
 			out.encode_u8(at + 5, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
-			out.encode_s16(at + 6, clampi(roundi(f.throw_to.x), -32768, 32767))
-			out.encode_s16(at + 8, clampi(roundi(f.throw_to.y), -32768, 32767))
+			out.encode_s16(at + 6, tp.x)
+			out.encode_s16(at + 8, tp.y)
+			out.encode_u8(at + 10, clampi(f.pick, 0, 255))  # M9 review
+		Op.SKILL:
+			var sp: Vector2i = wire_point(f.cursor)
+			out.encode_u8(at, clampi(f.skill_slot, 0, 255))
+			out.encode_u8(at + 1, clampi(f.slot, 0, 255))  # M9 review: the hotbar slot (key 2's class weapon)
+			out.encode_s16(at + 2, f.cell.x)
+			out.encode_s16(at + 4, f.cell.y)
+			out.encode_u8(at + 6, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
+			out.encode_s16(at + 7, sp.x)
+			out.encode_s16(at + 9, sp.y)
+			out.encode_u8(at + 11, clampi(f.pick, 0, 255))  # M9 review: the ally the sender picked
 		Op.CRAFT:
 			out.encode_u8(at, clampi(f.recipe, 0, 255))
 
@@ -712,8 +847,18 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.slot = bytes.decode_u8(at)
 			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
 			f.aim = bytes.decode_u8(at + 5)
-			f.throw_to = Vector2(bytes.decode_s16(at + 6), bytes.decode_s16(at + 8))
-			return f.slot < Config.HOTBAR_SLOTS
+			f.cursor = Vector2(bytes.decode_s16(at + 6), bytes.decode_s16(at + 8))
+			f.throw_to = f.cursor  # M9c: until the host works the landing out (SessionHost._throw)
+			f.pick = bytes.decode_u8(at + 10)
+			return f.slot < Config.HOTBAR_SLOTS and slot_or_none(f.pick)
+		Op.SKILL:
+			f.skill_slot = bytes.decode_u8(at)
+			f.slot = bytes.decode_u8(at + 1)
+			f.cell = Vector2i(bytes.decode_s16(at + 2), bytes.decode_s16(at + 4))
+			f.aim = bytes.decode_u8(at + 6)
+			f.cursor = Vector2(bytes.decode_s16(at + 7), bytes.decode_s16(at + 9))
+			f.pick = bytes.decode_u8(at + 11)
+			return f.skill_slot < SkillState.SLOT_COUNT and f.slot < Config.HOTBAR_SLOTS and slot_or_none(f.pick)
 		Op.CRAFT:
 			f.recipe = bytes.decode_u8(at)
 			return f.recipe < Crafting.recipe_count()
@@ -1255,6 +1400,9 @@ static func enemy_of(h: HereticSim, tick: int) -> EnemyState:
 	e.hp = h.hp
 	e.flash = h.flash_ticks
 	e.poisoned = h.alive() and h.poisoned()
+	e.stunned = h.stunned()  # M9c: the skill marks (alive only)
+	e.slowed = h.slowed()
+	e.taunted = h.taunted()
 	return e
 
 
@@ -1276,6 +1424,7 @@ static func encode_enemies(tick: int, map: int, shrine_hp: int, enemies: Array[E
 		out.encode_u16(at + 13, e.since & 0xFFFF)
 		out.encode_u8(at + 15, clampi(e.hp, 0, 255))
 		out.encode_u8(at + 16, clampi(e.flash, 0, 255))
+		out.encode_u8(at + 17, e.marks())  # M9c
 	return out
 
 
@@ -1306,9 +1455,14 @@ static func decode_enemies(bytes: PackedByteArray) -> EnemyBatch:
 		e.since = bytes.decode_u16(at + 13)
 		e.hp = bytes.decode_u8(at + 15)
 		e.flash = bytes.decode_u8(at + 16)
+		var marks: int = bytes.decode_u8(at + 17)  # M9c
+		e.stunned = (marks & MARK_STUNNED) != 0
+		e.slowed = (marks & MARK_SLOWED) != 0
+		e.taunted = (marks & MARK_TAUNTED) != 0
 		if (flags & 0x80) != 0 or (e.poisoned and e.state == HereticSim.State.DEAD) or e.state >= HereticSim.STATE_NAMES.size() or not (is_finite(e.pos.x) and is_finite(e.pos.y)) \
 				or e.hp > Config.HERETIC_HP or e.flash > Config.HIT_FLASH_TICKS or ids.has(e.id) \
-				or (e.since != 0 and not timed_state(e.state)):
+				or (e.since != 0 and not timed_state(e.state)) or (marks & ~MARKS_ALL) != 0 \
+				or (marks != 0 and e.state == HereticSim.State.DEAD):
 			return b
 		ids[e.id] = true
 		b.enemies.append(e)
@@ -1322,11 +1476,12 @@ static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
 	for i: int in n:
 		var e: ShotEvent = events[i]
 		var at: int = out.size()
-		if e.kind == ShotEvent.Kind.SPAWN:
+		if e.kind == ShotEvent.Kind.SPAWN or e.kind == ShotEvent.Kind.SKILL_SHOT:
 			out.resize(at + SHOT_SPAWN_SIZE)
-			out.encode_u8(at, ShotEvent.Kind.SPAWN)
+			out.encode_u8(at, e.kind)
 			out.encode_u32(at + 1, e.id)
-			out.encode_u8(at + 5, ItemDB.index_of(e.item))
+			# M9c: a skill's shot names its skill (Skills.ALL), a weapon's its item (ItemDB).
+			out.encode_u8(at + 5, Skills.ALL.find(e.item) if e.kind == ShotEvent.Kind.SKILL_SHOT else ItemDB.index_of(e.item))
 			out.encode_u8(at + 6, clampi(e.owner, 0, 255))
 			out.encode_u32(at + 7, e.tick)
 			out.encode_float(at + 11, e.pos.x)
@@ -1343,6 +1498,7 @@ static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
 			out.encode_float(at + 15, e.pos.y)
 			out.encode_float(at + 19, e.target.x)
 			out.encode_float(at + 23, e.target.y)
+			out.encode_u8(at + 27, clampi(e.follow, 0, 255))  # M9 review: the ally it follows (NO_SLOT = none)
 		elif e.kind == ShotEvent.Kind.SPLASH:
 			out.resize(at + FLASK_SPLASH_SIZE)
 			out.encode_u8(at, ShotEvent.Kind.SPLASH)
@@ -1352,6 +1508,54 @@ static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
 			out.encode_float(at + 10, e.pos.x)
 			out.encode_float(at + 14, e.pos.y)
 			out.encode_u8(at + 18, e.why)
+		elif e.kind == ShotEvent.Kind.BURST:
+			out.resize(at + BURST_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.BURST)
+			out.encode_u32(at + 1, e.id)
+			out.encode_u8(at + 5, clampi(e.sub, 0, 255))
+			out.encode_u8(at + 6, clampi(e.owner, 0, 255))
+			out.encode_u8(at + 7, clampi(e.follow, 0, 255))
+			out.encode_u32(at + 8, e.tick)
+			out.encode_float(at + 12, e.pos.x)
+			out.encode_float(at + 16, e.pos.y)
+			out.encode_u8(at + 20, clampi(roundi(e.radius), 0, 255))
+			out.encode_u8(at + 21, clampi(e.aim, 0, Combat.AIM_STEPS - 1))
+			out.encode_u8(at + 22, clampi(roundi(e.arc_deg / 2.0), 0, 180))
+		elif e.kind == ShotEvent.Kind.STRIKE:
+			out.resize(at + STRIKE_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.STRIKE)
+			out.encode_u32(at + 1, e.id)
+			out.encode_u8(at + 5, clampi(e.sub, 0, 255))
+			out.encode_u8(at + 6, clampi(e.owner, 0, 255))
+			out.encode_u32(at + 7, e.tick)
+			out.encode_float(at + 11, e.pos.x)
+			out.encode_float(at + 15, e.pos.y)
+			out.encode_u8(at + 19, clampi(roundi(e.radius), 0, 255))
+			out.encode_u8(at + 20, clampi(e.ticks, 0, 255))
+		elif e.kind == ShotEvent.Kind.ZONE:
+			out.resize(at + ZONE_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.ZONE)
+			out.encode_u32(at + 1, e.id)
+			out.encode_u8(at + 5, clampi(e.sub, 0, 255))
+			out.encode_u8(at + 6, clampi(e.owner, 0, 255))
+			out.encode_u8(at + 7, clampi(e.follow, 0, 255))
+			out.encode_u32(at + 8, e.tick)
+			out.encode_float(at + 12, e.pos.x)
+			out.encode_float(at + 16, e.pos.y)
+			out.encode_u8(at + 20, clampi(roundi(e.radius), 0, 255))
+			out.encode_u16(at + 21, clampi(e.ticks, 0, 65535))
+		elif e.kind == ShotEvent.Kind.ZONE_END:
+			out.resize(at + ZONE_END_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.ZONE_END)
+			out.encode_u32(at + 1, e.id)
+			out.encode_u32(at + 5, e.tick)
+		elif e.kind == ShotEvent.Kind.WARD:
+			out.resize(at + WARD_SIZE)
+			out.encode_u8(at, ShotEvent.Kind.WARD)
+			out.encode_u16(at + 1, clampi(e.slots, 0, 65535))
+			out.encode_u32(at + 3, e.tick)
+			out.encode_u16(at + 7, clampi(e.ticks, 0, 65535))
+			out.encode_u8(at + 9, clampi(e.pct, 0, 255))
 		else:
 			out.resize(at + SHOT_END_SIZE)
 			out.encode_u8(at, ShotEvent.Kind.END)
@@ -1363,7 +1567,9 @@ static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
 	return out
 
 
-## The events, or ok = false (size, map, a kind, a weapon that shoots nothing, a NaN, a why).
+## The events, or ok = false (size, map, a kind, a weapon that shoots nothing, a NaN, a why; M9c: a skill that shoots nothing,
+## a burst / strike / zone kind out of range, a slot that is no player's, a radius of 0, a strike's delay or a zone's duration of
+## 0, a ward naming nobody or past its rule's numbers).
 static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 	var s: ShotEvents = ShotEvents.new()
 	if bytes.size() < 2:
@@ -1378,7 +1584,7 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 			return s
 		var e: ShotEvent = ShotEvent.new()
 		e.kind = bytes.decode_u8(at)
-		if e.kind == ShotEvent.Kind.SPAWN:
+		if e.kind == ShotEvent.Kind.SPAWN or e.kind == ShotEvent.Kind.SKILL_SHOT:
 			if at + SHOT_SPAWN_SIZE > bytes.size():
 				return s
 			e.id = bytes.decode_u32(at + 1)
@@ -1387,10 +1593,17 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 			e.tick = bytes.decode_u32(at + 7)
 			e.pos = Vector2(bytes.decode_float(at + 11), bytes.decode_float(at + 15))
 			e.aim = bytes.decode_u8(at + 19)
-			e.item = ItemDB.id_at(item) if item < ItemDB.count() else &""
-			var a: Combat.Attack = Combat.attack_for(e.item) if not e.item.is_empty() else null
-			if a == null or a.kind == Combat.Kind.MELEE or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
+			if not (is_finite(e.pos.x) and is_finite(e.pos.y)):
 				return s
+			if e.kind == ShotEvent.Kind.SKILL_SHOT:
+				e.item = Skills.ALL[item] if item < Skills.ALL.size() else &""
+				if e.item.is_empty() or not Skills.shoots(e.item):
+					return s
+			else:
+				e.item = ItemDB.id_at(item) if item < ItemDB.count() else &""
+				var a: Combat.Attack = Combat.attack_for(e.item) if not e.item.is_empty() else null
+				if a == null or a.kind == Combat.Kind.MELEE:
+					return s
 			at += SHOT_SPAWN_SIZE
 		elif e.kind == ShotEvent.Kind.END:
 			if at + SHOT_END_SIZE > bytes.size():
@@ -1411,7 +1624,10 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 			e.tick = bytes.decode_u32(at + 7)
 			e.pos = Vector2(bytes.decode_float(at + 11), bytes.decode_float(at + 15))
 			e.target = Vector2(bytes.decode_float(at + 19), bytes.decode_float(at + 23))
-			if e.item.is_empty() or not (is_finite(e.pos.x) and is_finite(e.pos.y) and is_finite(e.target.x) 					and is_finite(e.target.y)) or e.pos.distance_to(e.target) > Config.THROW_RANGE_PX + FLASK_RANGE_SLACK_PX:
+			e.follow = bytes.decode_u8(at + 27)
+			if e.item.is_empty() or not (is_finite(e.pos.x) and is_finite(e.pos.y) and is_finite(e.target.x) \
+					and is_finite(e.target.y)) or e.pos.distance_to(e.target) > Config.THROW_RANGE_PX + FLASK_RANGE_SLACK_PX \
+					or not slot_or_none(e.follow):
 				return s
 			at += FLASK_THROW_SIZE
 		elif e.kind == ShotEvent.Kind.SPLASH:
@@ -1425,11 +1641,129 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 			if e.item.is_empty() or e.why >= FLASK_STOPS.size() or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
 				return s
 			at += FLASK_SPLASH_SIZE
+		elif e.kind == ShotEvent.Kind.BURST:
+			if at + BURST_SIZE > bytes.size():
+				return s
+			e.id = bytes.decode_u32(at + 1)
+			e.sub = bytes.decode_u8(at + 5)
+			e.owner = bytes.decode_u8(at + 6)
+			e.follow = bytes.decode_u8(at + 7)
+			e.tick = bytes.decode_u32(at + 8)
+			e.pos = Vector2(bytes.decode_float(at + 12), bytes.decode_float(at + 16))
+			e.radius = bytes.decode_u8(at + 20)
+			e.aim = bytes.decode_u8(at + 21)
+			var half: int = bytes.decode_u8(at + 22)
+			e.arc_deg = half * 2.0
+			if e.sub >= Arena.BurstKind.size() or not slot_or_none(e.owner) or not slot_or_none(e.follow) or e.radius <= 0.0 \
+					or half < 1 or half > 180 or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
+				return s
+			at += BURST_SIZE
+		elif e.kind == ShotEvent.Kind.STRIKE:
+			if at + STRIKE_SIZE > bytes.size():
+				return s
+			e.id = bytes.decode_u32(at + 1)
+			e.sub = bytes.decode_u8(at + 5)
+			e.owner = bytes.decode_u8(at + 6)
+			e.tick = bytes.decode_u32(at + 7)
+			e.pos = Vector2(bytes.decode_float(at + 11), bytes.decode_float(at + 15))
+			e.radius = bytes.decode_u8(at + 19)
+			e.ticks = bytes.decode_u8(at + 20)
+			if e.sub >= Arena.StrikeKind.size() or not slot_or_none(e.owner) or e.radius <= 0.0 or e.ticks <= 0 \
+					or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
+				return s
+			at += STRIKE_SIZE
+		elif e.kind == ShotEvent.Kind.ZONE:
+			if at + ZONE_SIZE > bytes.size():
+				return s
+			e.id = bytes.decode_u32(at + 1)
+			e.sub = bytes.decode_u8(at + 5)
+			e.owner = bytes.decode_u8(at + 6)
+			e.follow = bytes.decode_u8(at + 7)
+			e.tick = bytes.decode_u32(at + 8)
+			e.pos = Vector2(bytes.decode_float(at + 12), bytes.decode_float(at + 16))
+			e.radius = bytes.decode_u8(at + 20)
+			e.ticks = bytes.decode_u16(at + 21)
+			if e.sub >= Arena.ZoneKind.size() or not slot_or_none(e.owner) or not slot_or_none(e.follow) or e.radius <= 0.0 \
+					or e.ticks <= 0 or not (is_finite(e.pos.x) and is_finite(e.pos.y)):
+				return s
+			at += ZONE_SIZE
+		elif e.kind == ShotEvent.Kind.ZONE_END:
+			if at + ZONE_END_SIZE > bytes.size():
+				return s
+			e.id = bytes.decode_u32(at + 1)
+			e.tick = bytes.decode_u32(at + 5)
+			at += ZONE_END_SIZE
+		elif e.kind == ShotEvent.Kind.WARD:
+			if at + WARD_SIZE > bytes.size():
+				return s
+			e.slots = bytes.decode_u16(at + 1)
+			e.tick = bytes.decode_u32(at + 3)
+			e.ticks = bytes.decode_u16(at + 7)
+			e.pct = bytes.decode_u8(at + 9)
+			if e.slots == 0 or e.slots >= (1 << Config.MAX_PLAYERS) or e.ticks <= 0 or e.ticks > Skills.max_ward_ticks() \
+					or e.pct <= 0 or e.pct > 100:
+				return s
+			at += WARD_SIZE
 		else:
 			return s
 		s.events.append(e)
 	s.ok = at == bytes.size()
 	return s
+
+
+## M9c: a slot byte naming a player (below Config.MAX_PLAYERS) or nobody (NO_SLOT).
+static func slot_or_none(slot: int) -> bool:
+	return slot == NO_SLOT or (slot >= 0 and slot < Config.MAX_PLAYERS)
+
+
+# --- the owner's skills (M9c) --------------------------------------------------------------------------
+
+## The skills message for a player whose skill state is `st` at host tick `tick` (SKILLS_SIZE B), moving and up as given: the
+## class meter (the herbalist's herbs come with his inventory: his meter is 0), the cooldowns of SKILLS_COOLDOWN_SLOTS, the
+## meter's rhythms (SkillState: since_hurt, decay_tick, focus_tick, was_moving).
+static func encode_skills(tick: int, st: SkillState, moving: bool, alive: bool) -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(SKILLS_SIZE)
+	out.encode_u32(0, tick)
+	out.encode_u8(4, clampi(st.resource, 0, 255))
+	for i: int in SKILLS_COOLDOWN_SLOTS.size():
+		out.encode_u16(5 + 2 * i, clampi(st.cooldown(SKILLS_COOLDOWN_SLOTS[i]), 0, 65535))
+	out.encode_u16(11, clampi(st.since_hurt, 0, 65535))
+	out.encode_u8(13, clampi(st.decay_tick, 0, 255))
+	out.encode_u8(14, clampi(st.focus_tick, 0, 255))
+	out.encode_u8(15, (SKILLS_WAS_MOVING if st.was_moving else 0) | (SKILLS_MOVING if moving else 0) | (SKILLS_ALIVE if alive else 0))
+	return out
+
+
+## The skills message, or ok = false (its size, a meter past the largest cap, a cooldown past the longest skill's, a rhythm past
+## its rule's, an unknown flag).
+static func decode_skills(bytes: PackedByteArray) -> SkillsState:
+	var k: SkillsState = SkillsState.new()
+	if bytes.size() != SKILLS_SIZE:
+		return k
+	k.tick = bytes.decode_u32(0)
+	var st: SkillState = k.state
+	st.resource = bytes.decode_u8(4)
+	if st.resource > Skills.max_resource():
+		return k
+	for i: int in SKILLS_COOLDOWN_SLOTS.size():
+		var cd: int = bytes.decode_u16(5 + 2 * i)
+		if cd > Skills.max_cooldown():
+			return k
+		st.cooldowns[SKILLS_COOLDOWN_SLOTS[i]] = cd
+	st.since_hurt = bytes.decode_u16(11)
+	st.decay_tick = bytes.decode_u8(13)
+	st.focus_tick = bytes.decode_u8(14)
+	var flags: int = bytes.decode_u8(15)
+	if st.since_hurt > Config.PALADIN_CONVICTION_DECAY_DELAY_TICKS or st.decay_tick >= maxi(Config.PALADIN_CONVICTION_DECAY_TICKS, 1) \
+			or st.focus_tick > maxi(Config.ARCHER_FOCUS_GAIN_TICKS, Config.ARCHER_FOCUS_DRAIN_TICKS) \
+			or (flags & ~(SKILLS_WAS_MOVING | SKILLS_MOVING | SKILLS_ALIVE)) != 0:
+		return k
+	st.was_moving = (flags & SKILLS_WAS_MOVING) != 0
+	k.moving = (flags & SKILLS_MOVING) != 0
+	k.alive = (flags & SKILLS_ALIVE) != 0
+	k.ok = true
+	return k
 
 
 ## M6b: the potion at item index `index` (&"" when it is no potion).

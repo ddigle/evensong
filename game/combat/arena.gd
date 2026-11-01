@@ -24,6 +24,30 @@ extends RefCounted
 ## ends, every heretic forgets its target, the shots in the air are gone and the spawn timer starts over.
 ## So nothing that waits on a map nobody is on lands on the next player to arrive (at the stairs, where a
 ## fleeing player left), no shot flies on unseen, and the first spawn comes one interval after arriving.
+##
+## M9a (offline: the game turns `threat_on` on for its arenas; a session's host leaves it off until M9c): threat (○
+## gameplay-design §2.3, Config "M9a 위협"): damage dealt to a heretic adds threat for its dealer (hit_heretic, a poison tick:
+## the thrower's), a heal adds a little to every heretic engaged with someone near the healed ally (heal_threat), the paladin's
+## taunt forces the heretics around him onto him for a while and puts his threat on top (taunt); pick_target takes the valid
+## target with the highest threat (the M4 rules decide what is valid: up, in sight, outside the light), the nearest when no
+## valid target has any (M4). The identity skills that work on heretics live here too: the taunt, the piercing arrow
+## (skill_shot with `pierce`: it passes through heretics, each hit once), the ground slam (slam: a hit, a stagger by the M4 rule
+## and a push). A skill's burst (display only: CombatView) is kept in `bursts` for Config.SKILL_BURST_TICKS. M9a also lets a
+## thrown healing or buff potion follow the ally it was thrown at (Flask.follow_id, ● gameplay-design §2.1 R42).
+##
+## M9b (offline like M9a): the weapon skills and signatures that work here. melee_skill (the crushing blow, the heavy strike, the
+## sweep: an arc of hits, a stun or a slow on what it hit, the shrine like a swing), fan_shot (ordinary arrows in a spread),
+## area_hit (the holy burst: at once around a point). Strikes (`strikes`: the arrow rain, the rockfall) wait a delay with a warning
+## and then hit every heretic in their circle (a stun for the rocks). Zones (`zones`: the cleric's blessing following him, the
+## herbalist's healing mist on a point) heal every player up inside them on a rhythm; their heals are threat for their caster
+## (heal_threat). A stun (stun_heretic, Config.SKILL_STUN_CANCELS_ATTACK) holds a heretic still and cancels its attack; a slow
+## (slow_heretic) cuts its walking speed. Damage from any of them is threat for the caster (hit_heretic). No skill hurts a player.
+##
+## M9c (sessions: the host's arenas turn `threat_on` on, `logging` records what clients draw): a skill's shot goes out like a
+## weapon's (its let-go event names the skill, NetProtocol kind 4, with the caster's slot); the bursts, strikes and zones go out at
+## the end of the host's tick as events (skill_events: each once, with the tick it showed age 0, so a client draws the same frame
+## the host does on the same tick); a zone that ends early (the blessing's cleric down, dead or gone) and a ward (note_ward) are
+## events when they happen. `slots` (player node id -> session slot, the host fills it each tick) names players on the wire.
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -48,6 +72,9 @@ class Shot:
 	var aim: int = 0
 	var item: StringName = &""
 	var owner_slot: int = 255
+	## M9a: a piercing shot (the archer's identity skill) flies on through heretics, each hit once (`pierced`: their ids).
+	var pierce: bool = false
+	var pierced: Dictionary[int, bool] = {}
 
 
 ## M6a: a thrown potion in flight (the herbalist's skill, items/potions.gd): lobbed over bodies along the
@@ -69,6 +96,9 @@ class Flask:
 	## it as a thrown event).
 	var owner_slot: int = 255
 	var born: int = 0
+	## M9a: the ally a healing or buff potion was thrown at (node instance id, 0 = none): while that ally is up on this map the
+	## bottle's landing point follows its body point (clamped to Config.THROW_RANGE_PX of the hand), so it lands on it.
+	var follow_id: int = 0
 
 	## 0..1 of the way (for the arc it is drawn on).
 	func progress() -> float:
@@ -102,6 +132,85 @@ class Hit:
 	var by_id: int = 0
 	var killed: bool = false
 	var poison: bool = false
+
+
+## M9a: what a skill shows for a moment where it worked (display only, CombatView): the taunt's ring around the paladin, the
+## ground slam's ring around the miner, the heal's sparks over the healed ally. M9b: the oath's ring, the holy burst's ring, the
+## arrow rain's and the rockfall's rings where they landed, and the melee weapon skills' arcs (CRUSH, HEAVY, SWEEP: `aim`,
+## `arc_deg`).
+enum BurstKind { TAUNT, SLAM, HEAL, OATH, HOLY, RAIN, ROCKS, CRUSH, HEAVY, SWEEP }
+
+
+class Burst:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = BurstKind.TAUNT
+	## Where it shows (feet), how far its ring reaches (px), ticks since it started.
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var age: int = 0
+	## The player it follows (node instance id; 0 = it stays where it started).
+	var follow_id: int = 0
+	## M9b: an arc's middle (aim code) and width (degrees; 360 = a whole ring).
+	var aim: int = 0
+	var arc_deg: float = 360.0
+	## M9c: who made it (node instance id, 0 = unknown: a client draws its own at once) and whether its event went out.
+	var owner_id: int = 0
+	var announced: bool = false
+
+
+## M9b: a delayed strike on a circle (the archer's arrow rain, the miner's rockfall): it waits `delay` ticks (a warning ring shows,
+## CombatView) and then hits every live heretic whose feet are within `radius` of `pos` with nothing blocking between `pos` and
+## its body point: `damage` (threat for `owner_id`) and, left alive, a stun of `stun_ticks`.
+enum StrikeKind { ARROWS, ROCKS }
+
+
+class Strike:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = StrikeKind.ARROWS
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var delay: int = 0
+	var age: int = 0
+	var damage: int = 0
+	var stun_ticks: int = 0
+	var owner_id: int = 0
+	## Set when it landed (it leaves `strikes` then): how many heretics it hit.
+	var landed: bool = false
+	var hits: int = 0
+	## M9c: its event went out.
+	var announced: bool = false
+
+	## Ticks before it lands.
+	func left() -> int:
+		return maxi(delay - age, 0)
+
+
+## M9b: a healing zone (the cleric's blessing following him, the herbalist's healing mist on a point): every `interval` ticks (the
+## first an interval after it starts) every player up whose feet are within `radius` of `pos` gets `heal` HP (never past the
+## maximum); it lasts `duration` ticks. `follow_id`: the player it follows (the blessing ends when that one is down, dead or gone).
+enum ZoneKind { BLESSING, MIST }
+
+
+class Zone:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = ZoneKind.BLESSING
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var duration: int = 0
+	var interval: int = 1
+	var heal: int = 0
+	var age: int = 0
+	var owner_id: int = 0
+	var follow_id: int = 0
+	var done: bool = false
+	## HP it healed so far and how many pulses it gave (logs, tests).
+	var healed: int = 0
+	var pulses: int = 0
+	## M9c: its event went out.
+	var announced: bool = false
 
 var data: WorldData
 ## The light rule's zone (SafeZone.for_world). M5b: worked out again when the altar moves (sync_world).
@@ -141,6 +250,15 @@ var _shrine_data: WorldData = null
 ## (sync_world).
 var _synced_altar: Rect2i = Rect2i()
 var _synced_corruption: int = 0
+## M9a: threat on (the offline game's arenas; off: the M4 nearest rule, a session's host until M9c), and the skills' bursts
+## being shown.
+var threat_on: bool = false
+var bursts: Array[Burst] = []
+## M9b: the strikes waiting to land and the healing zones.
+var strikes: Array[Strike] = []
+var zones: Array[Zone] = []
+## M9c (the host fills it each tick): each player's session slot by node instance id (events name players by slot).
+var slots: Dictionary[int, int] = {}
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -165,6 +283,9 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	shots.clear()
 	flasks.clear()
 	splashes.clear()
+	bursts.clear()
+	strikes.clear()
+	zones.clear()
 	next_id = 1
 	spawn_timer = 0
 	occupied = false
@@ -285,6 +406,9 @@ func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if not f.done:
 			in_air.append(f)
 	flasks = in_air
+	_age_bursts(players)  # M9a
+	_step_strikes()  # M9b
+	_step_zones(players)
 	var staying: Array[HereticSim] = []
 	for h: HereticSim in heretics:
 		if not h.finished():
@@ -324,6 +448,8 @@ func on_emptied() -> void:
 		h.has_target = false
 		h.target_id = 0
 		h.watch_ticks = 0
+		_forget_threat(h)  # M9a
+		h.end_skill_effects()  # M9b: a stun or slow ends like a stagger
 		if h.state != HereticSim.State.RETURN:
 			h.state = HereticSim.State.IDLE
 			h.state_ticks = 0
@@ -337,6 +463,9 @@ func on_emptied() -> void:
 		f.stopped_by = "emptied"
 	flasks.clear()
 	splashes.clear()
+	bursts.clear()
+	strikes.clear()  # M9b: nobody is there to see them land
+	zones.clear()
 	spawn_timer = 0
 	attacks_started = 0
 	shrine_flash = 0
@@ -403,6 +532,25 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		h.flash_ticks -= 1
 	if h.alive() and h.poison_ticks > 0:
 		_tick_poison(h)  # M6a
+	if h.taunt_ticks > 0:
+		h.taunt_ticks -= 1  # M9a: the taunt runs out
+		if h.taunt_ticks == 0 or not _up_here(h.taunt_by, players):
+			# M9 review: so does it once its paladin is no longer up on this map (down, dead, gone): it would force nothing, and
+			# its mark would show over a heretic hunting someone else. Out of sight or in the light it holds (M9a's rule).
+			h.taunt_ticks = 0
+			h.taunt_by = 0
+	if h.alive() and h.slow_ticks > 0:
+		h.slow_ticks -= 1  # M9b: the slow runs out
+		if h.slow_ticks == 0:
+			h.slow_pct = 0
+	if h.alive() and h.stun_ticks > 0:
+		# M9b: stunned, it does nothing this tick (its attack was cancelled when the stun landed; its attack cooldown waits).
+		# A watch at the light's edge counts on (as through a stagger: M4-fix).
+		h.stun_ticks -= 1
+		h.walking = false
+		if h.watch_ticks > 0:
+			h.watch_ticks += 1
+		return
 	match h.state:
 		HereticSim.State.DEAD:
 			h.state_ticks += 1
@@ -436,6 +584,7 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		_set_state(h, HereticSim.State.RETURN)
 		h.has_target = false
 		h.watch_ticks = 0
+		_forget_threat(h)  # M9a
 		_go_home(h)
 		return
 	var t: Player = pick_target(h, players)
@@ -455,9 +604,11 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 				_set_state(h, HereticSim.State.RETURN)
 				h.has_target = false
 				h.watch_ticks = 0
+				_forget_threat(h)  # M9a
 			return
 		h.has_target = false
 		h.watch_ticks = 0
+		_forget_threat(h)  # M9a: no valid target left
 		if h.pos.distance_to(h.home) > Config.HERETIC_HOME_IDLE_PX:
 			_set_state(h, HereticSim.State.RETURN)
 			_go_home(h)
@@ -481,6 +632,14 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 	_move_toward(h, t.sim_position)
 
 
+## M9 review: the player with node instance id `id` is among `players` (this map's) and up.
+static func _up_here(id: int, players: Array[Player]) -> bool:
+	for p: Player in players:
+		if p.get_instance_id() == id:
+			return p.vitals.alive()
+	return false
+
+
 func _set_state(h: HereticSim, s: int) -> void:
 	if h.state != s:
 		h.state = s
@@ -490,7 +649,14 @@ func _set_state(h: HereticSim, s: int) -> void:
 
 ## The nearest player on this map that is up, in sight (Config.HERETIC_SIGHT_PX, no wall between) and,
 ## unless Config.HERETIC_ENTERS_LIGHT, outside the light (§2.3 ○ aggro = PROVISIONAL "nearest").
+## M9a, with threat_on (○ §2.3, PROVISIONAL "M9a 위협"): among those valid targets, the taunting paladin while a taunt forces
+## it, else the one with the highest threat (ties: the nearer, then the first in `players`), else (no valid target has any
+## threat) the nearest as before.
 func pick_target(h: HereticSim, players: Array[Player]) -> Player:
+	if threat_on:
+		var by_threat: Player = _threat_target(h, players)
+		if by_threat != null:
+			return by_threat
 	var best: Player = null
 	var best_d: float = INF
 	for p: Player in players:
@@ -507,6 +673,65 @@ func can_target(h: HereticSim, p: Player) -> bool:
 	if not p.vitals.alive() or not _in_sight(h, p):
 		return false
 	return Config.HERETIC_ENTERS_LIGHT or not in_light(p.sim_position)
+
+
+## M9a: the target threat picks (pick_target), or null when no valid target has threat (and no taunt forces one).
+func _threat_target(h: HereticSim, players: Array[Player]) -> Player:
+	if h.taunted():
+		for p: Player in players:
+			if p.get_instance_id() == h.taunt_by and can_target(h, p):
+				return p
+	var best: Player = null
+	var best_threat: int = 0
+	var best_d: float = INF
+	for p: Player in players:
+		var t: int = h.threat_of(p.get_instance_id())
+		if t <= 0 or not can_target(h, p):
+			continue
+		var d: float = h.pos.distance_to(p.sim_position)
+		if t > best_threat or (t == best_threat and d < best_d):
+			best = p
+			best_threat = t
+			best_d = d
+	return best
+
+
+## M9a: adds `amount` threat for the player with node instance id `by` on heretic `h` (threat_on, a live heretic, a known
+## player only).
+func add_threat(h: HereticSim, by: int, amount: int) -> void:
+	if not threat_on or by == 0 or amount <= 0 or not h.alive():
+		return
+	h.threat[by] = h.threat_of(by) + amount
+
+
+## M9a: heretic `h` lost its target, walks home or its map emptied: it forgets its threat and any taunt
+## (Config.THREAT_FORGOTTEN_WITH_TARGET; false = it keeps its threat).
+func _forget_threat(h: HereticSim) -> void:
+	h.taunt_by = 0
+	h.taunt_ticks = 0
+	if Config.THREAT_FORGOTTEN_WITH_TARGET:
+		h.threat.clear()
+
+
+## M9a (○ §2.3 "힐은 위협을 넓게 조금씩"): the player with node instance id `healer_id` healed `amount` HP on `healed`: every live
+## heretic engaged with (has a target) a player among `players` within Config.THREAT_HEAL_REACH_PX of the healed ally gets
+## Config.THREAT_HEAL_PCT percent of it (at least 1) as threat for the healer. Returns how many got some.
+func heal_threat(healer_id: int, healed: Player, amount: int, players: Array[Player]) -> int:
+	if not threat_on or healer_id == 0 or amount <= 0 or healed == null:
+		return 0
+	var add: int = maxi(amount * Config.THREAT_HEAL_PCT / 100, 1)
+	var n: int = 0
+	for h: HereticSim in heretics:
+		if not h.alive() or not h.has_target:
+			continue
+		for p: Player in players:
+			if p.get_instance_id() == h.target_id \
+					and p.sim_position.distance_to(healed.sim_position) <= Config.THREAT_HEAL_REACH_PX:
+				add_threat(h, healer_id, add)
+				n += 1
+				break
+	count("heal_threat", n)
+	return n
 
 
 func _in_sight(h: HereticSim, p: Player) -> bool:
@@ -556,7 +781,7 @@ func _move_toward(h: HereticSim, to: Vector2) -> bool:
 		tries.append(Vector2i(dir.x, 0))
 		tries.append(Vector2i(0, dir.y))
 	for t: Vector2i in tries:
-		var next: Vector2 = Movement.step(data, h.pos, t, Config.NET_TICK, Config.HERETIC_SPEED)
+		var next: Vector2 = Movement.step(data, h.pos, t, Config.NET_TICK, heretic_speed(h))  # M9b: slowed or not
 		if next == h.pos:
 			continue
 		if not Config.HERETIC_ENTERS_LIGHT and not Combat.box_outside_light(data, safe, next):
@@ -586,6 +811,7 @@ func _go_home(h: HereticSim) -> void:
 func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 	if not h.alive():
 		return
+	add_threat(h, by, amount * Config.THREAT_PER_DAMAGE)  # M9a (threat_on)
 	h.hp = maxi(h.hp - amount, 0)
 	h.flash_ticks = Config.HIT_FLASH_TICKS
 	count("heretic_hits")
@@ -602,8 +828,11 @@ func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 		h.state_ticks = 0
 		h.walking = false
 		_end_poison(h)  # M6-fix: a heretic killed while poisoned is no longer poisoned
+		h.end_skill_effects()  # M9b
 		count("killed")
 		return
+	if h.stun_ticks > 0:
+		return  # M9b: a stunned heretic stays stunned (no stagger on top)
 	if h.state == HereticSim.State.ATTACK and not Config.HERETIC_HURT_INTERRUPTS_ATTACK:
 		return
 	h.state = HereticSim.State.HURT
@@ -650,6 +879,7 @@ static func _end_poison(h: HereticSim) -> void:
 
 
 func _poison_damage(h: HereticSim, amount: int) -> void:
+	add_threat(h, h.poison_by, amount * Config.THREAT_PER_DAMAGE)  # M9a (threat_on): the thrower's
 	h.hp = maxi(h.hp - amount, 0)
 	h.flash_ticks = Config.HIT_FLASH_TICKS
 	count("poison_hits")
@@ -666,6 +896,7 @@ func _poison_damage(h: HereticSim, amount: int) -> void:
 		h.state = HereticSim.State.DEAD
 		h.state_ticks = 0
 		h.walking = false
+		h.end_skill_effects()  # M9b
 		count("killed")
 		count("poison_kills")
 
@@ -677,7 +908,10 @@ const FLASK_ARRIVE_PX: float = 0.001
 ## M6a: player `p` throws potion `item` at `grade` (its release frame) toward ground point `target` (already
 ## clamped to Config.THROW_RANGE_PX, Potions.throw_target). The bottle leaves from its body point. Returns it.
 ## M6b: `owner_slot` = the thrower's session slot; with logging on, a thrown event goes to the map's clients.
-func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owner_slot: int = 255) -> Flask:
+## M9a: `follow` = the ally a healing or buff potion goes to (● §2.1 R42, offline): the bottle flies at its body point now and
+## follows it (Flask.follow_id, _step_flask).
+func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owner_slot: int = 255,
+		follow: Player = null) -> Flask:
 	var f: Flask = Flask.new()
 	f.id = next_id
 	next_id += 1
@@ -686,6 +920,9 @@ func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owne
 	f.origin = Combat.body_point(p.sim_position)
 	f.pos = f.origin
 	f.target = Potions.throw_target(f.origin, target)
+	if follow != null:
+		f.follow_id = follow.get_instance_id()
+		f.target = Potions.throw_target(f.origin, Combat.body_point(follow.sim_position))
 	f.owner_id = p.get_instance_id()
 	f.owner_slot = owner_slot
 	f.born = now
@@ -696,8 +933,9 @@ func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owne
 	return f
 
 
-## M6b: the thrown event of flask `f` (also what a late client gets for one in the air).
-static func flask_event(f: Flask) -> NetProtocol.ShotEvent:
+## M6b: the thrown event of flask `f` (also what a late client gets for one in the air). M9 review: with the slot of the ally a
+## healing or buff bottle follows (slot_of; NetProtocol.NO_SLOT = none), so a client's drawn flight bends toward that ally too.
+func flask_event(f: Flask) -> NetProtocol.ShotEvent:
 	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
 	e.kind = NetProtocol.ShotEvent.Kind.THROW
 	e.id = f.id
@@ -706,6 +944,7 @@ static func flask_event(f: Flask) -> NetProtocol.ShotEvent:
 	e.tick = f.born
 	e.pos = f.origin
 	e.target = f.target
+	e.follow = slot_of(f.follow_id) if f.follow_id != 0 else NetProtocol.NO_SLOT
 	return e
 
 
@@ -728,6 +967,12 @@ static func splash_event(s: Splash) -> NetProtocol.ShotEvent:
 func _step_flask(f: Flask, players: Array[Player]) -> void:
 	if f.done:
 		return
+	if f.follow_id != 0:
+		# M9a: a healing or buff potion follows the ally it was thrown at while that ally is up here (its body point, clamped to
+		# the throw's range from the hand); gone, down or dead, it lands where it was last going.
+		for q: Player in players:
+			if q.get_instance_id() == f.follow_id and q.vitals.alive():
+				f.target = Potions.throw_target(f.origin, Combat.body_point(q.sim_position))
 	var arrive: bool = flask_arrives(f.pos, f.target)  # this tick it lands (float slack: no extra tick)
 	for to: Vector2 in flask_points(f.pos, f.target):
 		var from: Vector2 = f.pos
@@ -799,8 +1044,11 @@ func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
 			if splash_revives(effect) and p.vitals.life == Vitals.Life.DOWN:
 				p.revive_now()  # M6b, PROVISIONAL Config.THROW_HEAL_REVIVES (off: F revives, a splash does not)
 				count("splash_revives")
+			var hp_before: int = p.vitals.hp
 			if p.vitals.alive() and p.apply_potion(f.item, f.grade) != 0:
 				s.players += 1
+				if effect == Potions.Effect.HEAL:
+					heal_threat(f.owner_id, p, p.vitals.hp - hp_before, players)  # M9a (threat_on): the thrower's heal
 	count("splash_players", s.players)
 	count("splash_heretics", s.heretics)
 
@@ -853,14 +1101,20 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 		if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, a.reach, a.arc_deg):
 			edits.append_array(damage_shrine(dmg))
 		return edits
+	_let_go(p, a.kind, item, aim, dmg, a.speed, a.life_ticks(), owner_slot)
+	return edits
+
+
+## A shot of player `p` leaves its body point along aim code `aim` (M4a; M9a: also a skill's). Returns it.
+func _let_go(p: Player, kind: int, item: StringName, aim: int, dmg: int, speed: float, life: int, owner_slot: int) -> Shot:
 	var s: Shot = Shot.new()
 	s.id = next_id
 	next_id += 1
-	s.kind = a.kind
-	s.dir = dir
+	s.kind = kind
+	s.dir = Combat.aim_vector(aim)
 	s.pos = Combat.body_point(p.sim_position)
-	s.speed = a.speed
-	s.left = a.life_ticks()
+	s.speed = speed
+	s.left = life
 	s.damage = dmg
 	s.owner_id = p.get_instance_id()
 	s.aim = posmod(aim, Combat.AIM_STEPS)
@@ -871,16 +1125,474 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	shots.append(s)
 	count("shots")
 	if logging:
-		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
-		e.kind = NetProtocol.ShotEvent.Kind.SPAWN
-		e.id = s.id
-		e.item = item
-		e.owner = owner_slot
-		e.aim = s.aim
-		e.tick = now
-		e.pos = s.pos
+		shot_events.append(shot_event(s))
+	return s
+
+
+## M4b: the let-go event of shot `s` (also what a late client gets for one in the air). M9c: a skill's shot names its skill
+## (NetProtocol kind 4), a weapon's its item.
+static func shot_event(s: Shot) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.SKILL_SHOT if Skills.ALL.has(s.item) else NetProtocol.ShotEvent.Kind.SPAWN
+	e.id = s.id
+	e.item = s.item
+	e.owner = s.owner_slot
+	e.aim = s.aim
+	e.tick = s.born
+	e.pos = s.origin
+	return e
+
+
+# --- M9a: the skills that work on heretics -------------------------------------------------------------------
+
+## The archer's piercing arrow (skill `item`, M9a): an arrow of player `p` along aim code `aim`, `damage` per heretic, flying
+## `reach` px at `speed` px/s; `pierce`: it passes through heretics (each hit once) and only a wall, the shrine or its reach
+## stops it. Returns the shot.
+## M9c: `owner_slot` = the shooter's session slot (its event names it).
+func skill_shot(p: Player, item: StringName, aim: int, damage: int, reach: float, speed: float, pierce: bool,
+		owner_slot: int = 255) -> Shot:
+	var life: int = ceili(reach / speed * Config.NET_TICK_RATE) if speed > 0.0 else 0
+	var s: Shot = _let_go(p, Combat.Kind.ARROW, item, aim, damage, speed, life, owner_slot)
+	s.pierce = pierce
+	count("skill_shots")
+	return s
+
+
+## The paladin's taunt (M9a): every live heretic within `radius` px of player `p`'s feet, not walking home, with nothing
+## blocking between their body points, is forced onto `p` for `ticks` (pick_target, threat_on) and `p`'s threat on it goes
+## Config.TAUNT_THREAT_MARGIN above its top. Shows a taunt burst. Returns how many it taunted.
+func taunt(p: Player, radius: float, ticks: int) -> int:
+	var n: int = 0
+	var pid: int = p.get_instance_id()
+	for h: HereticSim in heretics:
+		if not h.alive() or h.state == HereticSim.State.RETURN or h.pos.distance_to(p.sim_position) > radius:
+			continue
+		if not Combat.line_clear(data, Combat.body_point(h.pos), Combat.body_point(p.sim_position)):
+			continue
+		h.taunt_by = pid
+		h.taunt_ticks = ticks
+		if threat_on:
+			h.threat[pid] = h.top_threat() + Config.TAUNT_THREAT_MARGIN
+		n += 1
+	add_burst(BurstKind.TAUNT, p.sim_position, radius, pid, pid)
+	count("taunts")
+	count("taunted", n)
+	return n
+
+
+## The miner's ground slam (M9a): every live heretic within `radius` px of player `p`'s feet with nothing blocking between their
+## body points takes `damage` (hit_heretic: the M4 stagger rule, threat) and, still alive, is pushed `push` px straight away from
+## `p` (_push). No world edit. Shows a slam burst. Returns how many it hit.
+func slam(p: Player, radius: float, damage: int, push: float) -> int:
+	var n: int = 0
+	for h: HereticSim in heretics:
+		if not h.alive():
+			continue
+		var d: Vector2 = h.pos - p.sim_position
+		if d.length() > radius or not Combat.line_clear(data, Combat.body_point(p.sim_position), Combat.body_point(h.pos)):
+			continue
+		hit_heretic(h, damage, p.get_instance_id())
+		n += 1
+		if h.alive() and push > 0.0:
+			var away: Vector2 = d.normalized() if d.length_squared() > 0.0001 else Vector2(PlayerSim.facing_vector(p.facing))
+			_push(h, away, push)
+	add_burst(BurstKind.SLAM, p.sim_position, radius, 0, p.get_instance_id())
+	count("slams")
+	count("slam_hits", n)
+	return n
+
+
+## M9a: moves heretic `h` up to `dist` px along unit vector `dir`, a px at a time, stopping where its feet could not stand
+## (Movement.can_stand: walls, faces, blocking placeables, the map's edge) or (unless Config.HERETIC_ENTERS_LIGHT) would touch the
+## light. Returns how far it went.
+func _push(h: HereticSim, dir: Vector2, dist: float) -> float:
+	var gone: float = 0.0
+	var steps: int = ceili(dist)
+	for i: int in steps:
+		var step: float = minf(1.0, dist - gone)
+		var next: Vector2 = h.pos + dir * step
+		if not Movement.can_stand(data, next):
+			break
+		if not Config.HERETIC_ENTERS_LIGHT and not Combat.box_outside_light(data, safe, next):
+			break
+		h.pos = next
+		gone += step
+	if gone > 0.0:
+		count("pushed")
+	return gone
+
+
+## M9a: shows a skill's burst of `kind` at feet `pos` reaching `radius` px (CombatView), following the player with node instance
+## id `follow` (0 = it stays). Returns it. M9c: `owner` = who made it (node instance id; its event names that player's slot).
+func add_burst(kind: int, pos: Vector2, radius: float, follow: int = 0, owner: int = 0) -> Burst:
+	var b: Burst = Burst.new()
+	b.id = next_id
+	next_id += 1
+	b.kind = kind
+	b.pos = pos
+	b.radius = radius
+	b.follow_id = follow
+	b.owner_id = owner
+	bursts.append(b)
+	return b
+
+
+## M9a: the bursts age a tick (gone after Config.SKILL_BURST_TICKS) and follow their player.
+func _age_bursts(players: Array[Player]) -> void:
+	var showing: Array[Burst] = []
+	for b: Burst in bursts:
+		b.age += 1
+		if b.follow_id != 0:
+			for q: Player in players:
+				if q.get_instance_id() == b.follow_id:
+					b.pos = q.sim_position
+		if b.age < Config.SKILL_BURST_TICKS:
+			showing.append(b)
+	bursts = showing
+
+
+# --- M9b: the weapon skills and signatures that work here -----------------------------------------------------
+
+## M9b: heretic `h`'s walking speed now (Config.HERETIC_SPEED, less its slow while slowed).
+static func heretic_speed(h: HereticSim) -> float:
+	if not h.slowed():
+		return Config.HERETIC_SPEED
+	return Config.HERETIC_SPEED * float(100 - clampi(h.slow_pct, 0, 100)) / 100.0
+
+
+## M9b (Config.SKILL_STUN_CANCELS_ATTACK): stuns live heretic `h` for `ticks` (a second stun keeps the longer). An attack under way
+## is cancelled (no knife; the attack cooldown follows, as after a swing) and a stagger ends, so it stands still exactly the stun's
+## time and then chases again (or idles / walks home as it was). Returns whether it is stunned.
+func stun_heretic(h: HereticSim, ticks: int) -> bool:
+	if not h.alive() or ticks <= 0:
+		return false
+	if h.state == HereticSim.State.ATTACK and Config.SKILL_STUN_CANCELS_ATTACK:
+		h.state = HereticSim.State.CHASE if h.has_target else HereticSim.State.IDLE
+		h.state_ticks = 0
+		h.cooldown = Config.HERETIC_ATTACK_COOLDOWN_TICKS
+		count("attacks_stunned")
+	elif h.state == HereticSim.State.HURT:
+		h.state = HereticSim.State.CHASE if h.has_target else HereticSim.State.IDLE
+		h.state_ticks = 0
+	h.stun_ticks = maxi(h.stun_ticks, ticks)
+	h.walking = false
+	count("stunned")
+	return true
+
+
+## M9b: slows live heretic `h` by `pct` percent of its walking speed for `ticks` (a running slow keeps the stronger percent and the
+## longer time with Config.EFFECT_REFRESH_KEEPS_STRONGER, else the new one replaces it). Returns whether it is slowed.
+func slow_heretic(h: HereticSim, pct: int, ticks: int) -> bool:
+	if not h.alive() or pct <= 0 or ticks <= 0:
+		return false
+	if h.slow_ticks > 0 and Config.EFFECT_REFRESH_KEEPS_STRONGER:
+		h.slow_pct = maxi(h.slow_pct, pct)
+		h.slow_ticks = maxi(h.slow_ticks, ticks)
+	else:
+		h.slow_pct = clampi(pct, 0, 100)
+		h.slow_ticks = ticks
+	count("slowed")
+	return true
+
+
+## M9b: a melee weapon skill of player `p` (the crushing blow, the heavy strike, the sweep): every live heretic within `reach` px of
+## its feet inside the `arc_deg` arc around aim code `aim` with nothing blocking (Combat.melee_hits) takes `damage` (threat for
+## `p`); one left alive is stunned for `stun` ticks and slowed by `slow_pct` for `slow_ticks` (0 = none). The standing shrine in
+## the arc takes the damage too (like a swing: its edits go into `edits`). Shows an arc burst of `kind`. Returns the hits.
+func melee_skill(p: Player, aim: int, damage: int, reach: float, arc_deg: float, stun: int, slow_pct: int, slow_ticks: int,
+		kind: int, edits: Array[EditLog.WorldEdit]) -> int:
+	var dir: Vector2 = Combat.aim_vector(aim)
+	var n: int = 0
+	for h: HereticSim in heretics:
+		if not h.alive() or not Combat.melee_hits(data, p.sim_position, dir, h.pos, reach, arc_deg):
+			continue
+		hit_heretic(h, damage, p.get_instance_id())
+		n += 1
+		if h.alive():
+			stun_heretic(h, stun)
+			slow_heretic(h, slow_pct, slow_ticks)
+	var rect: Rect2i = shrine_rect()
+	if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, reach, arc_deg):
+		edits.append_array(damage_shrine(damage))
+	var b: Burst = add_burst(kind, p.sim_position, reach, 0, p.get_instance_id())
+	b.aim = posmod(aim, Combat.AIM_STEPS)
+	b.arc_deg = arc_deg
+	count("skill_melee")
+	count("skill_melee_hits", n)
+	return n
+
+
+## M9b: the archer's fan shot: `arrows` ordinary arrows of player `p` (Combat.Kind.ARROW: each stops at the first heretic, a wall or
+## the shrine) along aim code `aim` and `spread` aim codes apart around it, `damage` each, flying `reach` px at `speed`. Returns
+## them (the middle one along `aim`).
+## M9c: `owner_slot` = the shooter's session slot (the arrows' events name it).
+func fan_shot(p: Player, item: StringName, aim: int, damage: int, arrows: int, spread: int, reach: float,
+		speed: float, owner_slot: int = 255) -> Array[Shot]:
+	var out: Array[Shot] = []
+	var life: int = ceili(reach / speed * Config.NET_TICK_RATE) if speed > 0.0 else 0
+	for i: int in arrows:
+		var offset: int = (2 * i - (arrows - 1)) * spread / 2
+		out.append(_let_go(p, Combat.Kind.ARROW, item, aim + offset, damage, speed, life, owner_slot))
+	count("fan_shots")
+	return out
+
+
+## M9b: whether live heretic `h` is in a circle of `radius` px around ground point `at`: its feet within the radius and nothing
+## blocking between `at` and its body point (the holy burst, the strikes).
+func in_circle(at: Vector2, radius: float, h: HereticSim) -> bool:
+	return h.alive() and h.pos.distance_to(at) <= radius and Combat.line_clear(data, at, Combat.body_point(h.pos))
+
+
+## M9b: the cleric's holy burst (at once): every live heretic in the circle of `radius` around `at` (in_circle) takes `damage`
+## (threat for player `p`). Shows a burst of `kind`. Returns the hits.
+func area_hit(p: Player, at: Vector2, radius: float, damage: int, kind: int) -> int:
+	var n: int = 0
+	for h: HereticSim in heretics:
+		if in_circle(at, radius, h):
+			hit_heretic(h, damage, p.get_instance_id())
+			n += 1
+	add_burst(kind, at, radius, 0, p.get_instance_id())
+	count("area_hits", n)
+	return n
+
+
+## M9b: a strike of `kind` (StrikeKind) by the player with node instance id `owner` on the circle of `radius` around `at`, landing
+## `delay` ticks from now (Strike). Returns it.
+func add_strike(kind: int, at: Vector2, radius: float, delay: int, damage: int, stun: int, owner: int) -> Strike:
+	var s: Strike = Strike.new()
+	s.id = next_id
+	next_id += 1
+	s.kind = kind
+	s.pos = at
+	s.radius = radius
+	s.delay = maxi(delay, 0)
+	s.damage = damage
+	s.stun_ticks = stun
+	s.owner_id = owner
+	strikes.append(s)
+	count("strikes")
+	if s.delay == 0:
+		_land_strike(s)
+		strikes.erase(s)
+	return s
+
+
+## M9b: the strikes count down; one whose delay is up lands (_land_strike) and leaves the list.
+func _step_strikes() -> void:
+	if strikes.is_empty():
+		return
+	var waiting: Array[Strike] = []
+	for s: Strike in strikes:
+		s.age += 1
+		if s.age >= s.delay:
+			_land_strike(s)
+		else:
+			waiting.append(s)
+	strikes = waiting
+
+
+## M9b: strike `s` lands: every live heretic in its circle (in_circle) takes its damage (threat for its owner) and, left alive, its
+## stun. Shows the landing's burst (the rain's or the rocks' ring).
+func _land_strike(s: Strike) -> void:
+	s.landed = true
+	for h: HereticSim in heretics:
+		if in_circle(s.pos, s.radius, h):
+			hit_heretic(h, s.damage, s.owner_id)
+			s.hits += 1
+			if h.alive():
+				stun_heretic(h, s.stun_ticks)
+	add_burst(BurstKind.RAIN if s.kind == StrikeKind.ARROWS else BurstKind.ROCKS, s.pos, s.radius, 0, s.owner_id)
+	count("strikes_landed")
+	count("strike_hits", s.hits)
+
+
+## M9b: a healing zone of `kind` (ZoneKind) by the player with node instance id `owner` (Zone): around `at`, following the player
+## with node instance id `follow` (0 = it stays). Returns it.
+func add_zone(kind: int, at: Vector2, radius: float, duration: int, interval: int, heal: int, owner: int, follow: int = 0) -> Zone:
+	var z: Zone = Zone.new()
+	z.id = next_id
+	next_id += 1
+	z.kind = kind
+	z.pos = at
+	z.radius = radius
+	z.duration = maxi(duration, 0)
+	z.interval = maxi(interval, 1)
+	z.heal = heal
+	z.owner_id = owner
+	z.follow_id = follow
+	zones.append(z)
+	count("zones")
+	return z
+
+
+## M9b: the zones age a tick: one that follows a player moves with it (and ends when that player is down, dead or no longer here),
+## every `interval` ticks one heals the players up inside it (_pulse), and one past its duration ends.
+func _step_zones(players: Array[Player]) -> void:
+	if zones.is_empty():
+		return
+	var lasting: Array[Zone] = []
+	for z: Zone in zones:
+		z.age += 1
+		if z.follow_id != 0:
+			var by: Player = null
+			for q: Player in players:
+				if q.get_instance_id() == z.follow_id:
+					by = q
+			if by == null or not by.vitals.alive():
+				z.done = true
+				count("zones_broken")
+				if logging and z.announced:
+					shot_events.append(zone_end_event(z))  # M9c: a client ends it there too
+				continue
+			z.pos = by.sim_position
+		if z.age % z.interval == 0:
+			_pulse(z, players)
+		if z.age >= z.duration:
+			z.done = true
+		else:
+			lasting.append(z)
+	zones = lasting
+
+
+## M9b: one pulse of zone `z`: every player up whose feet are within its radius gets its heal (Player.heal_hp: never past the
+## maximum); what it healed is threat for its owner (heal_threat, the M9a rule) and shows the heal's sparks over that player.
+func _pulse(z: Zone, players: Array[Player]) -> void:
+	z.pulses += 1
+	for p: Player in players:
+		if not p.vitals.alive() or p.sim_position.distance_to(z.pos) > z.radius:
+			continue
+		var gained: int = p.heal_hp(z.heal)
+		if gained <= 0:
+			continue
+		z.healed += gained
+		count("zone_healed", gained)
+		heal_threat(z.owner_id, p, gained, players)
+		add_burst(BurstKind.HEAL, p.sim_position, Config.SKILL_HEAL_SHOW_RADIUS_PX, p.get_instance_id(), z.owner_id)
+
+
+# --- M9c: the skill events a session's clients draw ------------------------------------------------------------
+
+## M9c: the session slot of the player with node instance id `id` (NetProtocol.NO_SLOT when the host gave none: offline).
+func slot_of(id: int) -> int:
+	return slots.get(id, NetProtocol.NO_SLOT)
+
+
+## M9c: the event of burst `b` at host tick `now`: it showed age 0 at `now - b.age` (a burst made by a frame was aged by this tick's
+## step already, one made in the step was not: either way a client's age at a host tick is the host's at that tick).
+func burst_event(b: Burst) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.BURST
+	e.id = b.id
+	e.sub = b.kind
+	e.owner = slot_of(b.owner_id)
+	e.follow = slot_of(b.follow_id) if b.follow_id != 0 else NetProtocol.NO_SLOT
+	e.tick = now - b.age
+	e.pos = b.pos
+	e.radius = b.radius
+	e.aim = b.aim
+	e.arc_deg = b.arc_deg
+	return e
+
+
+## M9c: the event of strike `s` (it lands when a client's age of it reaches its delay, like the host's).
+func strike_event(s: Strike) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.STRIKE
+	e.id = s.id
+	e.sub = s.kind
+	e.owner = slot_of(s.owner_id)
+	e.tick = now - s.age
+	e.pos = s.pos
+	e.radius = s.radius
+	e.ticks = s.delay
+	return e
+
+
+## M9c: the event of zone `z` (its first point: a zone that follows its caster is drawn around that player on the client).
+func zone_event(z: Zone) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.ZONE
+	e.id = z.id
+	e.sub = z.kind
+	e.owner = slot_of(z.owner_id)
+	e.follow = slot_of(z.follow_id) if z.follow_id != 0 else NetProtocol.NO_SLOT
+	e.tick = now - z.age
+	e.pos = z.pos
+	e.radius = z.radius
+	e.ticks = z.duration
+	return e
+
+
+## M9c: the early end of zone `z` (now).
+func zone_end_event(z: Zone) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.ZONE_END
+	e.id = z.id
+	e.tick = now
+	return e
+
+
+## M9c: the bursts, strikes and zones not announced yet go into `shot_events` (the host calls it at the end of its tick, after
+## the step, logging on); each goes out once. A burst that is already gone (made and over within the tick) is not sent.
+func announce_skill_events() -> void:
+	if not logging:
+		return
+	for b: Burst in bursts:
+		if not b.announced:
+			b.announced = true
+			shot_events.append(burst_event(b))
+	for s: Strike in strikes:
+		if not s.announced:
+			s.announced = true
+			shot_events.append(strike_event(s))
+	for z: Zone in zones:
+		if not z.announced:
+			z.announced = true
+			shot_events.append(zone_event(z))
+
+
+## M9c: what a player arriving on this map needs to draw what still shows (a late joiner, a map entry): every burst, strike and
+## zone there now, as events with the ticks they showed age 0.
+func skill_snapshot_events() -> Array[NetProtocol.ShotEvent]:
+	var out: Array[NetProtocol.ShotEvent] = []
+	for b: Burst in bursts:
+		out.append(burst_event(b))
+	for s: Strike in strikes:
+		out.append(strike_event(s))
+	for z: Zone in zones:
+		out.append(zone_event(z))
+	return out
+
+
+## M9c: the guardian oath warded `players` (each with its ward now: grouped by percent and time, one event per group), with
+## logging on: their clients draw the shield over them.
+func note_ward(players: Array[Player]) -> void:
+	if not logging:
+		return
+	for e: NetProtocol.ShotEvent in ward_events(players, now):
 		shot_events.append(e)
-	return edits
+
+
+## M9c: the ward events of `players` at host tick `tick` (their wards as they are then; those without one are left out). Players
+## with the same percent and ticks left share one event (their slots as bits). The host's late-join snapshot uses it too.
+func ward_events(players: Array[Player], tick: int) -> Array[NetProtocol.ShotEvent]:
+	var by: Dictionary[Vector2i, int] = {}
+	for q: Player in players:
+		var slot: int = slot_of(q.get_instance_id())
+		if q.skills.warded() and slot != NetProtocol.NO_SLOT:
+			var key: Vector2i = Vector2i(q.skills.ward_pct, q.skills.ward_ticks)
+			var mask: int = by.get(key, 0)
+			by[key] = mask | (1 << slot)
+	var out: Array[NetProtocol.ShotEvent] = []
+	for key: Vector2i in by:
+		var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+		e.kind = NetProtocol.ShotEvent.Kind.WARD
+		e.slots = by[key]
+		e.tick = tick
+		e.pct = key.x
+		e.ticks = key.y
+		out.append(e)
+	return out
 
 
 func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
@@ -916,6 +1628,14 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if why == "wall":
 			_stop(s, "wall")
 			return edits
+		if s.pierce:
+			# M9a: the piercing arrow hits every heretic its drawn point is inside, each once, and flies on.
+			for ph: HereticSim in heretics:
+				if ph.alive() and not s.pierced.has(ph.id) and Combat.shot_hits_body(s.pos, ph.pos):
+					s.pierced[ph.id] = true
+					hit_heretic(ph, s.damage, s.owner_id)
+					count("pierce_hits")
+			continue
 		var h: HereticSim = heretic_at(s.pos)
 		if h != null:
 			hit_heretic(h, s.damage, s.owner_id)
@@ -964,7 +1684,7 @@ func shrine_hp_now() -> int:
 ## M4b: anything fighting on this map (a heretic not idle at home, a shot in flight): the traffic counts
 ## it as a fight.
 func fighting() -> bool:
-	if not shots.is_empty() or not flasks.is_empty() or not splashes.is_empty():
+	if not shots.is_empty() or not flasks.is_empty() or not splashes.is_empty() or not strikes.is_empty() or not zones.is_empty():
 		return true
 	for h: HereticSim in heretics:
 		if h.state != HereticSim.State.IDLE or h.walking:

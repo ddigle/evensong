@@ -309,7 +309,9 @@ const HERETIC_DAMAGE: int = 12
 const HERETIC_SPEED: float = 46.0
 ## PROVISIONAL (○ gameplay-design §2.3 aggro "위협" until M9; here the nearest player only): a heretic
 ## targets the nearest player on its map that is up, within HERETIC_SIGHT_PX with no wall between, and
-## gives up beyond HERETIC_LEASH_PX from where it spawned (walks back home).
+## gives up beyond HERETIC_LEASH_PX from where it spawned (walks back home). M9a: with threat on (Arena.threat_on: offline; M9c:
+## every session arena too) the valid target with the highest threat comes first (the M9a threat rows below), the nearest when no
+## valid target has any.
 const HERETIC_SIGHT_PX: float = 112.0
 const HERETIC_LEASH_PX: float = 256.0
 ## PROVISIONAL (not in docs): starts its attack when the target is this near (feet to feet), the knife
@@ -442,12 +444,17 @@ const DRINK_AT_FULL_HP: bool = false
 ## the status in M6a, friendly fire being off); false = it is refused.
 const DRINK_POISON_HARMS: bool = true
 ## PROVISIONAL (○ gameplay-design §2.2: the herbalist's identity skill is the potion throw; §3.0 puts potions
-## with the herbalist): only the herbalist throws (true); false = anyone throws.
+## with the herbalist): only the herbalist throws (true); false = anyone throws. M9 review: with the skill kit on (offline and
+## every session member since M9a / M9c) key 1 is each class's identity skill, and only the herbalist's is the throw, so false
+## lets no other class throw any more (the host refuses another class's THROW: Skills.WHY_NO_SKILL). Potions.herbalist_only
+## (a static copy, tests flip it).
 const THROW_HERBALIST_ONLY: bool = true
 ## PROVISIONAL (not in docs): the thrown bottle flies from the thrower's body point toward the mouse, at
 ## most THROW_RANGE_PX, at THROW_SPEED px/s over bodies (lobbed), stopped by what stops a shot (walls,
 ## blocking placeables); where it lands it splashes everyone within THROW_SPLASH_RADIUS_PX of the splash
-## point with no wall between. It leaves the hand on THROW_RELEASE_FRAME (0-based) of the throw action.
+## point with no wall between. It leaves the hand on THROW_RELEASE_FRAME (0-based) of the throw action. M9a (offline; sessions M9c):
+## the throw is the herbalist's identity skill and a healing or buff potion goes to the ally nearest the cursor within
+## THROW_RANGE_PX (● gameplay-design §2.1 R42, Skills.prepare), following it in flight; poison stays aimed at the mouse.
 const THROW_RANGE_PX: float = 96.0
 const THROW_SPEED: float = 192.0
 const THROW_SPLASH_RADIUS_PX: float = 24.0
@@ -857,6 +864,179 @@ const SHOP_RESTOCK_TICKS: int = 10 * 60 * 60
 ## and the host refuses a carrier's BUY / SELL (AltarMove.WHY_CARRYING, SessionHost._blocked_while_carrying).
 const SHOP_WHILE_CARRYING: bool = true
 
+# --- PROVISIONAL, M9a (the skill kit: slots and keys, cooldowns, refusals, class resources, the near-cursor ally pick, threat,
+# the five identity skills) ----------------------------------------------------------------------------------------------------
+# Offline first (M9a, like M5a-M8a); M9c turned them on in sessions too (every member keeps Player.skills_on, every host arena
+# Arena.threat_on; the herbalist's healing / buff throw goes to the ally nearest the cursor there too). README "임시값" M9a. ● decided and
+# followed as written: real-time, aimed skill shots (gameplay-design §2.1 R12); heals and buffs go to the ally nearest the cursor
+# (§2.1 R42; "잡는 반경 같은 숫자는 정하지 않았다"); the hybrid kit of four slots, 1 identity (fixed), 2 weapon (decided by the
+# equipped weapon), 3 choice (an unlock pool), 4 signature (fixed, spends the class resource) (§2.2 R42); the slice count "5클래스
+# × 고정 2 + 무기군 5 = 15" (identity + signature + one weapon group skill per class: no choice skill in the slice). What each
+# skill does is not designed ("각 클래스의 스킬 내용은 층 3에서 정하고"): every skill below is a PROVISIONAL placeholder fitted
+# to the ● class roles (game-concept §3: paladin tank, archer low-risk ranged, cleric healer, miner terrain, herbalist buffer).
+
+## PROVISIONAL (● §2.2 R42 slots; the skills are layer 3, not designed; keys ○ §1 "1 2 3 스킬, R 시그니처"): each class's kit,
+## one skill id per slot in Skills.Slot order [identity (key 1), weapon (key 2: Config.SKILL_BY_WEAPON decides it, so &"" here),
+## choice (key 3: not in the slice, always &""), signature (key R)]. The identity skills are built (SKILLS, M9a), the signatures
+## and the weapon skills too (M9b); a key whose skill had no SKILLS row would be refused "not built yet".
+const SKILL_KITS: Dictionary[String, Array] = {
+	"paladin": [&"taunt", &"", &"", &"guardian_oath"],
+	"archer": [&"piercing_arrow", &"", &"", &"arrow_rain"],
+	"cleric": [&"heal", &"", &"", &"blessing"],
+	"miner": [&"ground_slam", &"", &"", &"rockfall"],
+	"herbalist": [&"potion_throw", &"", &"", &"healing_mist"],
+}
+## PROVISIONAL (● §2.2 R42 "무기 스킬 — 장착 무기가 정함 … 클래스당 무기군 2개, 무기군마다 스킬 1"; the slice has one weapon group
+## per class, ○ numbers): the weapon skill of each class weapon (by base item: a tier-1 weapon is its base's). Key 2 is refused
+## unless the class weapon is the held hotbar item (M9b: and, with Gear.broken_unusable, not broken). Built in M9b.
+const SKILL_BY_WEAPON: Dictionary[StringName, StringName] = {
+	&"sword": &"crushing_blow", &"bow": &"fan_shot", &"holy_light": &"holy_burst", &"pickaxe": &"heavy_strike",
+	&"sickle": &"sweep",
+}
+## PROVISIONAL (placeholders, README "M9 스킬 <클래스> <슬롯>"; not in the docs): one table of numbers per built skill. Every row:
+## `cooldown` (game ticks, from the tick it lands), `anim` (the body action it plays, RigData.Anim: the slice's own, no new art),
+## `impact` (0-based frame of that action on which it lands; a hit before then cuts it off: nothing spent, no cooldown). Then the
+## skill's own numbers:
+## - taunt (팔라딘 도발, ● R42 names it): every heretic alive within `radius_px` of the paladin's feet with nothing blocking between
+##   (not one walking home) is forced onto him for `taunt_ticks` and his threat on it goes to the top (Arena.taunt).
+## - piercing_arrow (아처 꿰뚫는 화살): an arrow along the aim that passes through heretics (each hit once), `damage` each, flying
+##   `reach_px` at `speed` px/s; a wall or the shrine stops it.
+## - heal (성직자 치유): `heal_hp` to the ally nearest the cursor (● R42) within `range_px` of the cleric (himself too); nobody there
+##   or that ally at full HP = refused, nothing spent.
+## - ground_slam (광부 땅 울리기): every heretic within `radius_px` of the miner's feet, nothing blocking between, takes `damage`
+##   (a hit: staggered by the M4 rule, Config.HERETIC_HURT_INTERRUPTS_ATTACK) and is pushed `push_px` straight away from him
+##   (stopped by walls and the light; a heretic mid-swing is pushed too). No world edit.
+## - potion_throw (약초사 약제 투척, ● R42 names it; M6's throw): its numbers stay M6's (THROW_*); cooldown 0 = M6's rate (the
+##   throw action and the potion it uses); impact = THROW_RELEASE_FRAME.
+## M9b, the weapon skills (key 2: the held class weapon decides it, ● §2.2 R42 B; `damage` is the base weapon's: a tier-1 weapon
+## lands Config.GEAR_T1_DAMAGE_PCT of it while not broken (Gear.attack_damage, like its basic attack) and every use wears it
+## once (Gear.wear_weapon, like an attack); the melee ones hit the standing shrine like a swing):
+## - crushing_blow (팔라딘 검 내려치기): a melee arc of `reach_px` / `arc_deg` along the aim, `damage` to every heretic in it with
+##   nothing blocking, and each one left alive is stunned for `stun_ticks` (○ §2.4 "기절", SKILL_STUN_CANCELS_ATTACK).
+## - fan_shot (아처 활 부채 사격): `arrows` ordinary arrows (each stops at the first heretic, like the bow's) along the aim and
+##   `spread_aim` aim codes (of Combat.AIM_STEPS) apart, `damage` each, `reach_px` at `speed` px/s.
+## - holy_burst (성직자 성광 폭발): a burst at the cursor point (pulled in to `range_px` of the cleric's feet and to the last point
+##   before a wall, Skills.reach_point), `damage` to every heretic whose feet are within `radius_px` of it with nothing blocking
+##   between the point and its body point. At once on the impact frame.
+## - heavy_strike (광부 곡괭이 내리찍기): a melee arc of `reach_px` / `arc_deg`, `damage`; combat only: it never mines, even
+##   aimed at a wall.
+## - sweep (약초사 낫 휩쓸기): a wide melee arc of `reach_px` / `arc_deg`, `damage`, and each heretic left alive is slowed by
+##   `slow_pct` percent of its walking speed for `slow_ticks` (○ §2.4 herbalist status "둔화"; the slow rule below).
+## M9b, the signatures (key R: spend the class resource when they land, Config.SKILL_SIGNATURE_COST; not enough then = they fizzle,
+## nothing spent, no cooldown):
+## - guardian_oath (팔라딘 수호의 맹세, ● game-concept §3 "강공 억제·상쇄"): every player up within `radius_px` of the paladin's
+##   feet (himself too) takes `ward_pct` percent less from every hit for `ward_ticks` (SkillState.ward; SKILL_WARD_* below).
+## - arrow_rain (아처 화살비): a volley on the cursor point (Skills.reach_point, `range_px`) that lands `delay_ticks` later (a
+##   warning ring shows meanwhile) on every heretic within `radius_px` with nothing blocking: `damage` plus
+##   `damage_per_focus_pct` percent of the focus spent (all of it, at least SKILL_SIGNATURE_COST: 30 -> 12, 100 -> 26).
+## - blessing (성직자 축복): a ring of `radius_px` around the cleric that follows him for `duration_ticks` and heals every player
+##   up inside it `heal_hp` every `interval_ticks` (the first an interval after it lands; 8 x 5 = 40). It ends when he is down,
+##   dead or gone. Its heals are threat for him (the M9a heal rule) but grow no faith (they would refill what it spent).
+## - rockfall (광부 낙석): rocks fall on the cursor point (Skills.reach_point, `range_px`) `delay_ticks` after it lands (a warning
+##   ring, then the rocks seen falling): `damage` to every heretic within `radius_px` with nothing blocking, and each one left
+##   alive is stunned for `stun_ticks`. No world edit (no rubble, no wall: terrain-changing skills are M12).
+## - healing_mist (약초사 회복 안개): a cloud on the cursor point (Skills.reach_point, `range_px` = the throw's) for
+##   `duration_ticks` that heals every player up inside `radius_px` of it `heal_hp` every `interval_ticks` (10 x 4 = 40). It
+##   spends SKILL_SIGNATURE_COST healing herbs (Config.HERBALIST_MATERIAL_ITEM, any grade).
+const SKILLS: Dictionary[StringName, Dictionary] = {
+	&"taunt": {"cooldown": 10 * 60, "anim": RigData.Anim.MAGIC, "impact": 2, "radius_px": 64.0, "taunt_ticks": 4 * 60},
+	&"piercing_arrow": {"cooldown": 6 * 60, "anim": RigData.Anim.BOW, "impact": 6, "damage": 16, "reach_px": 240.0,
+		"speed": 260.0},
+	&"heal": {"cooldown": 5 * 60, "anim": RigData.Anim.MAGIC, "impact": 3, "heal_hp": 25, "range_px": 112.0},
+	&"ground_slam": {"cooldown": 8 * 60, "anim": RigData.Anim.PICKAXE, "impact": 3, "radius_px": 40.0, "damage": 6,
+		"push_px": 16.0},
+	&"potion_throw": {"cooldown": 0, "anim": RigData.Anim.THROW, "impact": THROW_RELEASE_FRAME},
+	&"crushing_blow": {"cooldown": 8 * 60, "anim": RigData.Anim.SWORD, "impact": 4, "damage": 20, "reach_px": 28.0,
+		"arc_deg": 120.0, "stun_ticks": 60},
+	&"fan_shot": {"cooldown": 5 * 60, "anim": RigData.Anim.BOW, "impact": 6, "damage": 8, "arrows": 3, "spread_aim": 12,
+		"reach_px": 160.0, "speed": 220.0},
+	&"holy_burst": {"cooldown": 6 * 60, "anim": RigData.Anim.MAGIC, "impact": 3, "damage": 14, "range_px": 112.0,
+		"radius_px": 24.0},
+	&"heavy_strike": {"cooldown": 6 * 60, "anim": RigData.Anim.PICKAXE, "impact": 3, "damage": 22, "reach_px": 24.0,
+		"arc_deg": 90.0},
+	&"sweep": {"cooldown": 6 * 60, "anim": RigData.Anim.SICKLE, "impact": 3, "damage": 8, "reach_px": 26.0, "arc_deg": 240.0,
+		"slow_pct": 40, "slow_ticks": 3 * 60},
+	&"guardian_oath": {"cooldown": 20 * 60, "anim": RigData.Anim.MAGIC, "impact": 3, "radius_px": 64.0, "ward_pct": 50,
+		"ward_ticks": 5 * 60},
+	&"arrow_rain": {"cooldown": 15 * 60, "anim": RigData.Anim.BOW, "impact": 6, "range_px": 160.0, "radius_px": 32.0,
+		"delay_ticks": 45, "damage": 6, "damage_per_focus_pct": 20},
+	&"blessing": {"cooldown": 20 * 60, "anim": RigData.Anim.MAGIC, "impact": 3, "radius_px": 64.0, "duration_ticks": 4 * 60,
+		"interval_ticks": 30, "heal_hp": 5},
+	&"rockfall": {"cooldown": 15 * 60, "anim": RigData.Anim.PICKAXE, "impact": 3, "range_px": 128.0, "radius_px": 28.0,
+		"delay_ticks": 60, "damage": 24, "stun_ticks": 60},
+	&"healing_mist": {"cooldown": 15 * 60, "anim": RigData.Anim.THROW, "impact": THROW_RELEASE_FRAME,
+		"range_px": THROW_RANGE_PX, "radius_px": 32.0, "duration_ticks": 5 * 60, "interval_ticks": 30, "heal_hp": 4},
+}
+## PROVISIONAL (○ gameplay-design §2.4 "군중 제어: 팔라딘(도발·기절·밀치기)"; how a stun works is not in the docs): a stunned
+## heretic does nothing for its stun (no walking, no new attack, its attack cooldown waits; a hit on it adds no stagger on top);
+## a stun that lands during its attack's wind-up or swing cancels that attack (no knife; the attack cooldown follows, as after a
+## swing) when this is on. A second stun keeps the longer time. Its taunt, poison and slow run on meanwhile. Off: the attack is
+## not cancelled but paused with the heretic (its wind-up counts on after the stun, so its knife lands that much later; it shows
+## its hurt pose meanwhile, the knife still out).
+const SKILL_STUN_CANCELS_ATTACK: bool = true
+# PROVISIONAL (○ §2.4 "상태이상: 약초사 담당. 중독·둔화·취약·출혈"; the slow's rule is not in the docs): a slowed heretic walks
+# (chasing and going home) at (100 - slow) percent of Config.HERETIC_SPEED; its attacks are not slowed. A second slow keeps the
+# stronger percent and the longer time (Config.EFFECT_REFRESH_KEEPS_STRONGER, M6a's effect rule). Only heretics are slowed (no
+# friendly fire); a death or the map emptying ends it (no constant of its own: Arena.slow_heretic, README "M9b 둔화").
+
+## PROVISIONAL (● game-concept §3 paladin "강공 억제·상쇄"; how is not in the docs): a warded player takes ward percent less from a
+## hit (Player.take_hit: after the armour, rounded down, never below SKILL_WARD_MIN_DAMAGE). Poison ticks are not hits (not
+## warded). A second ward keeps the stronger percent and the longer time; a death ends it.
+const SKILL_WARD_MIN_DAMAGE: int = 1
+## PROVISIONAL (● §2.1 R42 "커서에서 가장 가까운 아군이 받는다 … 잡는 반경 같은 숫자는 정하지 않았다"): a single-target heal or buff
+## (the cleric's heal, the herbalist's healing or buff throw) goes to the ally (up, not down or dead, the caster too) whose body's
+## middle (Combat.body_centre: the figure the player points at, half Config.BODY_HIT_HEIGHT_PX above the feet; M9 review: the feet
+## before) is nearest the cursor point, within this many px of the cursor (2.5 tiles) and whose feet are within the skill's range
+## of the caster's (Skills.pick_ally; ties: the lower player slot, offline the local player first). No line-of-sight check.
+## Nobody = refused, nothing spent. The area heals and buffs (oath, blessing, mist) reach everyone in their area (README).
+const SKILL_GRAB_RADIUS_PX: float = 40.0
+## PROVISIONAL (M9 review, sessions; not in the docs): a SKILL / THROW carries the ally its sender's machine picked (the gold ring,
+## from the players as drawn there: others a buffer and the one-way lag behind). The host takes that ally while it is up on the
+## caster's map, within the skill's range of the caster (host positions) and within SKILL_GRAB_RADIUS_PX plus this many px of the
+## cursor (what a walk covers in about a third of a second: the drawing buffer and a round trip); else the host picks by its own
+## positions (Skills.prepare `hint`).
+const SKILL_PICK_LAG_PX: float = 24.0
+## PROVISIONAL (○ §2.2 class resources "신념 / 집중 / 신앙 / 지구력 / 재료"; caps and rates are not in the docs; README "M9a 자원"): each
+## meter's cap (0 = no meter: the herbalist's material is items), what the signature spends (M9b; the archer's is the least it
+## needs and it spends all of its focus, the task's "화살비 … 소모한 집중에 비례"; the herbalist's is that many healing herbs), and
+## whether a meter is lost on death (the cooldowns run on: the game clock).
+const SKILL_RESOURCE_CAP: Dictionary[String, int] = {"paladin": 100, "archer": 100, "cleric": 100, "miner": 100, "herbalist": 0}
+const SKILL_SIGNATURE_COST: Dictionary[String, int] = {"paladin": 50, "archer": 30, "cleric": 50, "miner": 40, "herbalist": 3}
+const SKILL_RESOURCE_LOST_ON_DEATH: bool = true
+## PROVISIONAL (○ §2.2 "팔라딘: 신념 (피해를 받거나 막을수록 쌓임)"; no block exists in the slice: the right-click "방패 들기" of ○ §1 is not
+## built): conviction gained per HP of damage the paladin takes (a knife hit after armour, a poison tick), and once he has taken
+## none for PALADIN_CONVICTION_DECAY_DELAY_TICKS it fades 1 every PALADIN_CONVICTION_DECAY_TICKS ("out of combat").
+const PALADIN_CONVICTION_PER_HP: int = 1
+const PALADIN_CONVICTION_DECAY_DELAY_TICKS: int = 5 * 60
+const PALADIN_CONVICTION_DECAY_TICKS: int = 30
+## PROVISIONAL (○ §2.2 "아처: 집중 (정지 상태에서 쌓임)", §2.5 "정지 시 집중이 쌓이고 이동하면 빠진다"): focus +1 every
+## ARCHER_FOCUS_GAIN_TICKS standing (alive, not walking or dashing; an action played standing counts: 0 -> 100 in 10 s), -1 every
+## ARCHER_FOCUS_DRAIN_TICKS moving (100 -> 0 in about 3.3 s).
+const ARCHER_FOCUS_GAIN_TICKS: int = 6
+const ARCHER_FOCUS_DRAIN_TICKS: int = 2
+## PROVISIONAL (○ §2.2 "성직자: 신앙 (기도·성물·봉헌으로 쌓임)"; prayer is M10, relics and offerings are not in the slice): in M9a faith
+## grows with the HP the cleric's skills heal, this much per HP (the heal; M10 adds prayer). No fading.
+const CLERIC_FAITH_PER_HP: int = 1
+## PROVISIONAL (○ §2.2 "광부: 지구력 (채굴로 쌓임 → 전투에서 지형 스킬로 씀)"): endurance per block the miner breaks mining (a 3x3 swing that
+## breaks nine gives nine times this). No fading.
+const MINER_ENDURANCE_PER_BLOCK: int = 4
+## PROVISIONAL (○ §2.2 "약초사: 재료 (채집한 약초·독을 소모)"): the herbalist's material is the healing herb in his inventory (wild or
+## harvested: the same item, any grade); the HUD shows it as pips, his signature spends SKILL_SIGNATURE_COST of them.
+const HERBALIST_MATERIAL_ITEM: StringName = &"wild_healing"
+## PROVISIONAL (○ gameplay-design §2.3 "위협 수치가 가장 높은 대상을 공격 … 피해량에 비례 … 힐은 위협을 넓게 조금씩"; README "M9a 위협"): a
+## heretic keeps a threat per player (Arena, host-only state: offline in M9a, the host's arenas since M9c). Damage dealt to it adds THREAT_PER_DAMAGE per HP
+## (weapon hits, skills, poison ticks: the thrower's); a heal adds THREAT_HEAL_PCT percent of the HP healed (at least 1) to
+## every heretic engaged with (has a target) a player within THREAT_HEAL_REACH_PX of the healed ally; the taunt puts the
+## paladin TAUNT_THREAT_MARGIN above the top. It goes after the valid target (the M4 rules: up, in sight, outside the light)
+## with the highest threat (ties: the nearer); with no threat on any valid target, the nearest (M4). A heretic that loses its
+## target (no valid one left), walks home or whose map empties forgets its threat (THREAT_FORGOTTEN_WITH_TARGET; false = it
+## keeps it until it dies).
+const THREAT_PER_DAMAGE: int = 1
+const THREAT_HEAL_PCT: int = 50
+const THREAT_HEAL_REACH_PX: float = 96.0
+const TAUNT_THREAT_MARGIN: int = 1
+const THREAT_FORGOTTEN_WITH_TARGET: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -1037,6 +1217,20 @@ const FIELD_STAGE_STEP: int = 8
 const PURIFY_FLASH_TICKS: int = 30
 const PURIFY_ASH_TICKS: int = 60
 const PURIFY_MOTES: int = 16
+## IMPL (M9a, placeholder effects drawn in code, combat/combat_view.gd): a skill's burst (the taunt's ring, the slam's ring, the
+## heal's sparks over the healed ally) shows this many ticks; the heal's sparks spread this far (px); a refused skill key's red
+## mark on the HUD shows this many ticks.
+const SKILL_BURST_TICKS: int = 18
+const SKILL_HEAL_SHOW_RADIUS_PX: float = 10.0
+const SKILL_REFUSED_SHOW_TICKS: int = 24
+## IMPL (M9b, placeholder effects drawn in code, combat/combat_view.gd): a strike's rocks or arrows are seen falling for its last
+## SKILL_FALL_TICKS ticks from SKILL_FALL_HEIGHT_PX above the ground; a stunned heretic holds hurt frame SKILL_STUN_FRAME.
+const SKILL_FALL_TICKS: int = 15
+const SKILL_FALL_HEIGHT_PX: int = 45
+const SKILL_STUN_FRAME: int = 1
+## IMPL (M9c): the most steps a session client's own skill copy runs in one tick to catch up with the host's time as heard
+## (SessionClient._run_skills_copy).
+const NET_SKILLS_COPY_STEPS: int = 8
 
 
 static func safe_radius_px() -> float:

@@ -66,6 +66,14 @@ extends RefCounted
 ## stock is part of it (WorldData.shop: the snapshot, shop stock edits). F at him opens the shop panel here (Main), a click is a
 ## BUY / SELL request; the trade is the host's: the inventory and the stock edits that come back show it (nothing predicted).
 ## The prediction walks around him like any blocking placeable (Movement on this machine's world).
+##
+## M9c (the class skills): the own player's skill keys go as SKILL requests (the herbalist's key 1 as THROW) with the cursor, after
+## this machine's own look at the refusals (Skills.prepare on its own player: the host's cooldowns and meter as last sent, its
+## predicted action, the players as drawn here for the near-cursor pick and the ring under that ally). The prediction plays the
+## skill's body action at once, like a USE's; nothing the skill does is predicted (the host lands it). The own cooldowns and meter
+## come in the skills message (on_skills) and count down here between messages; the herbalist's herbs with the inventory. The
+## skills' shots, bursts, strikes, zones and wards come as shot events, the heretics' stun, slow and taunt as marks in the batches
+## (net/net_combat.gd); a ward is drawn over the warded player's head.
 
 var s: NetSession
 var prediction: Prediction
@@ -110,6 +118,18 @@ var shot_msgs: Dictionary[int, int] = {}
 var bad_combat: int = 0
 ## M5c: tiles flashed as purified (from the host's edits).
 var purify_flashes: int = 0
+## M9c: skills messages taken, the last one's host tick, malformed ones; the moving / up flags the own copy runs on, the host tick
+## the copy stands for, and the newest host tick heard of (a state batch, an enemy batch, a skills message) with this client's
+## tick when it came: the copy runs on to that host tick plus the client ticks since (not one step a client tick: two processes'
+## clocks drift apart, and a copy ahead of the host would show a cooldown over that the host still counts).
+var skills_msgs: int = 0
+var skills_tick: int = -1
+var bad_skills: int = 0
+var skills_moving: bool = false
+var skills_alive: bool = true
+var skills_copy_tick: int = 0
+var heard_tick: int = -1
+var heard_at: int = 0
 
 var _last_state_tick: int = -1
 
@@ -200,6 +220,9 @@ func on_welcome(payload: PackedByteArray) -> void:
 		return
 	_show_others()
 	s.local.player.potions_on = true  # M6b: drinking and throwing in a session (the host decides the effect)
+	s.local.player.skills_on = true  # M9c: the skill keys (the host decides), the HUD's skill row (the host's skills message)
+	var me_player: Player = s.local.player
+	me_player.party_provider = func() -> Array[Player]: return SessionHost.players_with(s, me_player)  # the near-cursor pick here
 	s.local.player.farming_on = true  # M5c: farming, purifying and carrying the altar too (the host decides the result)
 	s.local.player.purify_on = true
 	prediction = Prediction.new()
@@ -214,6 +237,8 @@ func on_welcome(payload: PackedByteArray) -> void:
 	_combat_on(Config.MAP_SURFACE, s.world)
 	clock.observe(w.tick, Interpolation.RemoteClock.now_ticks())
 	_last_state_tick = w.tick
+	skills_copy_tick = w.tick  # M9c: the own skill state's copy starts at the welcome's host tick
+	_heard(w.tick)
 	s.active = true
 	join_ms = (Time.get_ticks_usec() - connected_usec) / 1000.0
 	var fields: Dictionary = SessionReport.fields_of(data)  # M5c: what the snapshot brought of the fields and the altar
@@ -355,6 +380,8 @@ func on_joined(payload: PackedByteArray) -> void:
 		info.state.facing, info.state.map)
 	_as_remote(m, info.state)
 	m.interp.push(maxi(_last_state_tick, 0), info.state)
+	if combat != null:
+		combat.forget_player(m.slot)  # M9 review: nothing a former holder of the slot left (a ward, a ring following it)
 	s.log_event("joined", "slot=%d class=%s players=%d" % [m.slot, m.class_id, s.members.size()])
 
 
@@ -373,6 +400,8 @@ func on_left(payload: PackedByteArray) -> void:
 		s.bad_messages += 1
 		return
 	s.remove_member(payload[0])
+	if combat != null:
+		combat.forget_player(payload[0])  # M9 review: its ward and what followed it go with it
 	s.log_event("left", "slot=%d players=%d" % [payload[0], s.members.size()])
 
 
@@ -468,6 +497,7 @@ func _apply_states(payload: PackedByteArray) -> void:
 		return
 	_last_state_tick = batch.tick
 	clock.observe(batch.tick, Interpolation.RemoteClock.now_ticks())
+	_heard(batch.tick)
 	for st: NetProtocol.PlayerState in batch.states:
 		if st.slot == s.local.slot:
 			# M3b: a state on another map than the loaded one (the host moved this player, its map entry
@@ -496,8 +526,12 @@ func _show_predicted(tick: bool) -> void:
 
 func tick(action: NetBot.Action) -> void:
 	var me: Player = s.local.player
+	# M9c: the own skill state as the host last sent it, run on here by its rule up to the host's time as heard (the host runs the
+	# same copy, _send_skills).
+	_run_skills_copy(me)
 	var f: NetProtocol.InputFrame = me.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
-		action.use_held, action.dash, action.interact, action.skill)
+		action.use_held, action.dash, action.interact, action.skill, action.skill_slot)  # M9c: the keys 2 3 R too
+	SessionHost.note_pick(s, f)  # M9 review: the ally this machine's ring showed goes with a SKILL / THROW
 	SessionHost.attach_local_op(s, me, f, action)
 	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
 	_show_predicted(true)
@@ -583,12 +617,21 @@ func drop_combat() -> void:
 func _draw_combat(t_fresh: float) -> void:
 	if combat == null or combat_view == null or not is_instance_valid(combat_view):
 		return
-	combat.sample(t_fresh, interp_delay_ticks())
 	var players: Array[Player] = []
+	var positions: Dictionary[int, Vector2] = {}  # M9c: a burst or zone that follows a player is drawn around it
 	for slot: int in s.slots():
 		var m: NetMember = s.members[slot]
 		if m.map_id == s.local.map_id and m.player.visible:
 			players.append(m.player)
+			positions[slot] = m.player.sim_position
+	combat.sample(t_fresh, interp_delay_ticks(), positions)
+	# M9c: the wards over the players' heads (this player's at t_fresh like its own picture, the others' at t_draw).
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		if m.player.vitals.life == Vitals.Life.DEAD:
+			combat.end_ward(slot)
+		var w: Vector2i = combat.ward_at(slot, t_fresh if m == s.local else t_fresh - interp_delay_ticks())
+		m.player.show_ward(w.x, w.y)
 	combat_view.sync(players)
 
 
@@ -616,6 +659,7 @@ func _apply_enemies(payload: PackedByteArray, keyframe: bool) -> void:
 	var n: int = enemy_msgs.get(b.map, 0)
 	enemy_msgs[b.map] = n + 1
 	clock.observe(b.tick, Interpolation.RemoteClock.now_ticks())
+	_heard(b.tick)
 	combat.on_batch(b, payload, keyframe)
 
 
@@ -630,6 +674,51 @@ func on_shots(payload: PackedByteArray) -> void:
 	var n: int = shot_msgs.get(e.map, 0)
 	shot_msgs[e.map] = n + 1
 	combat.on_shots(e)
+
+
+## M9c: the own skill state as the host has it (cooldowns, the class meter; the HUD's skill row and this machine's refusals read
+## it). A malformed one is counted and dropped.
+func on_skills(payload: PackedByteArray) -> void:
+	if not s.active or s.local == null or s.over:
+		return
+	var k: NetProtocol.SkillsState = NetProtocol.decode_skills(payload)
+	if not k.ok:
+		bad_skills += 1
+		s.bad_messages += 1
+		return
+	skills_msgs += 1
+	skills_tick = k.tick
+	s.local.player.skills.take_clock(k.state)
+	skills_moving = k.moving
+	skills_alive = k.alive
+	skills_copy_tick = k.tick
+	_heard(k.tick)
+
+
+## M9c: a message from host tick `host_tick` came now (the newest one sets the time the skill copy runs to).
+func _heard(host_tick: int) -> void:
+	if host_tick > heard_tick:
+		heard_tick = host_tick
+		heard_at = s.tick
+
+
+## M9c: runs player `me`'s skill copy (SkillState.tick with the last message's flags) up to the host tick heard last plus this
+## client's ticks since, at most Config.NET_SKILLS_COPY_STEPS steps a tick (a long hitch catches up over the next ticks); a copy
+## ahead of that waits.
+func _run_skills_copy(me: Player) -> void:
+	var target: int = heard_tick + (s.tick - heard_at) if heard_tick >= 0 else skills_copy_tick + 1
+	var steps: int = 0
+	while skills_copy_tick < target and steps < Config.NET_SKILLS_COPY_STEPS:
+		me.skills.tick(s.local.class_id, skills_moving, skills_alive)
+		skills_copy_tick += 1
+		steps += 1
+
+
+## M9c results: the skills messages taken and the own skill state as this machine has it now.
+func skills_result() -> Dictionary:
+	var st: SkillState = s.local.player.skills if s.local != null else SkillState.new()
+	return {"msgs": skills_msgs, "tick": skills_tick, "bad": bad_skills, "meter": st.resource,
+		"res": Skills.resource_of(s.local.player) if s.local != null else 0, "cd": Array(st.cooldowns), "copy_tick": skills_copy_tick}
 
 
 ## Enemy batches / shot messages received for map `map` (tests).

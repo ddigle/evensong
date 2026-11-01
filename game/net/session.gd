@@ -69,6 +69,14 @@ extends Node
 ## players, both in the snapshot; the owner gets its inventory. A client never decides a trade: its panel shows its world and
 ## waits.
 ##
+## M9c (the class skills): a skill key is a SKILL request (the herbalist's key 1 a THROW) carrying the cursor; the host checks it
+## against its own state (the class's kit, the slot, the held class weapon, cooldown, resource, down / carrying / busy, the
+## request budget, the map) and resolves what the offline game would (the near-cursor ally from its own positions, a point
+## skill's point from where it has the caster), lands it on its own clock and keeps the cooldowns, the class meters and the
+## heretics' threat. What a client draws comes as events on the shot events message (a skill's shot, bursts, strikes, zones,
+## wards) and as marks in the enemy batches (stunned, slowed, taunted); its own cooldowns and meter come in the skills message
+## (_rpc_skills, to that player only). A client predicts its own skill's body action, nothing it does.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -484,6 +492,13 @@ func _rpc_shots(payload: PackedByteArray) -> void:
 		client.on_shots(payload)
 
 
+## Client (M9c): its own skill state (cooldowns, the class meter) as the host has it.
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_skills(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_skills(payload)
+
+
 @rpc("authority", "call_remote", "reliable", 0)
 func _rpc_go() -> void:
 	if role == Role.CLIENT:
@@ -568,6 +583,10 @@ func send_shots(peer: int, payload: PackedByteArray) -> void:
 	_rpc_shots.rpc_id(peer, payload)
 
 
+func send_skills(peer: int, payload: PackedByteArray) -> void:
+	_rpc_skills.rpc_id(peer, payload)
+
+
 func send_go(peer: int) -> void:
 	_rpc_go.rpc_id(peer)
 
@@ -644,6 +663,7 @@ func add_member(slot: int, peer_id: int, class_id: String, pos: Vector2, facing:
 		w = world
 	var m: NetMember = NetMember.create(w.data, w.entities, slot, peer_id, class_id, pos, facing)
 	m.map_id = map_id
+	m.player.skills_on = true  # M9c: the skill kit (the host's clock: SessionHost; a client draws the others' wards)
 	members[slot] = m
 	if role == Role.CLIENT and local != null:
 		m.player.visible = map_id == local.map_id

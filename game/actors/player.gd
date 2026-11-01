@@ -67,6 +67,19 @@ extends Node2D
 ## M7b: a click with a build piece selected is a USE without an action like a torch's (place_requested: offline Main builds,
 ## items/building.gd; M7c: the host builds from the USE); the axe plays its own body action and lands on
 ## Forest.impact_tick (action_impact: offline Main chops; M7c: the host).
+## M9a (`skills_on`: offline Main's player and allies; a session's players keep it off until M9c): the skill keys 1 2 3 R
+## (combat/skills.gd: Skills.prepare decides a press, the HUD marks a refusal) put a skill's body action into the frame
+## (frame.skill, its slot and target); action_item is the skill id then (the herbalist's throw keeps its potion) and
+## action_impact comes on the skill's impact frame (Skills.impact_tick): offline Main lands it (Skills.land). `skills` holds the
+## cooldowns, the class meter and the refusal mark; step_frame ticks it, take_hit and a poison tick feed the paladin's
+## conviction, a death loses the meter. `skill_aim_target` = the ally a heal or buff would go to now (Skills.aim_target from
+## `party_provider`, the players on this map: Main's AllyMark draws a ring under it). Without `skills_on` key 1 is M6's throw.
+## M9b: a skill's frame carries the selected hotbar slot (a weapon skill's stack: action_slot) and a point skill's point
+## (throw_to -> action_target); take_hit takes the paladin's oath ward off a hit (after the armour), shown over the head (WARD).
+## M9c (sessions): every frame carries the mouse (`cursor`); a skill key's frame is a SKILL request (the herbalist's key 1 a THROW,
+## as since M6b), which a session sends and its host resolves again from its own state (SessionHost._skill). The host's members
+## keep `skills_on` with `skills_clock_external`: the host counts their skill clock once a host tick (SessionHost.tick), not once
+## a frame. A client's own player has `skills_on` for its keys and HUD; its `skills` shows the host's (the skills message).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -93,6 +106,10 @@ signal altar_place_requested(cell: Vector2i)
 ## M7a: a click with armour selected in hotbar slot `slot` (Main puts it on); a use the gear rules did not start.
 signal equip_requested(slot: int)
 signal gear_refused(what: String, why: String)
+## M9a: a skill key of slot `slot` (Skills.Slot) was refused (`why`: Skills.WHY_* or a throw's Potions.WHY_*; nothing spent) /
+## started skill `id`'s action.
+signal skill_refused(slot: int, id: StringName, why: String)
+signal skill_started(slot: int, id: StringName)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -157,6 +174,25 @@ var action_slot: int = 0
 var action_grade: int = ItemDB.Grade.NONE
 var action_target: Vector2 = Vector2.ZERO
 var effect_marks: EffectMarks
+## M9a (Main turns it on offline for its player and the allies; a session's players keep it off until M9c): the skill kit.
+## `skills`: the cooldowns, the class meter, the HUD's refusal mark (actors/skill_state.gd).
+var skills_on: bool = false
+var skills: SkillState = SkillState.new()
+## M9c: the skill clock (SkillState.tick: the cooldowns, the meter's rules, the ward) is counted by someone else once a game
+## tick, not by step_frame (a session host's members: SessionHost ticks them on host time, frames or no frames).
+var skills_clock_external: bool = false
+## M9a: returns the players the near-cursor pick may choose from (Array[Player]: the players on this player's map, in a fixed
+## order; Main sets it offline). Unset: this player alone.
+var party_provider: Callable = Callable()
+## M9a: the skill the playing action is (&"" = none), its slot and the ally it goes to (node instance id, 0 = none).
+var action_skill: StringName = &""
+var action_skill_slot: int = -1
+var action_skill_target: int = 0
+## M9a: the ally a heal or buff of this player would go to now (Skills.aim_target, every controls tick; null = none).
+var skill_aim_target: Player
+## M9 review: a press now would be refused on that ally (the cleric's heal on an ally at full HP: Skills.aim_refused); the ring
+## shows dim then.
+var skill_aim_refused: bool = false
 var _mouse_moved_msec: int = -1000000
 ## make_frame(): the mouse aimed or the use button was held (step_frame() adds "an action plays").
 var _aim_input: bool = false
@@ -201,6 +237,12 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	carrying_altar = false
 	altar_hold_ticks = 0
 	altar_set_down_failed = false
+	skills = SkillState.new()
+	action_skill = &""
+	action_skill_slot = -1
+	action_skill_target = 0
+	skill_aim_target = null
+	skill_aim_refused = false
 	_sync_view()
 
 
@@ -214,7 +256,7 @@ func _physics_process(delta: float) -> void:
 		if controls:
 			tick_controls(read_input(), mouse_world(), mouse_aiming(), Input.is_action_just_pressed(&"use_item"),
 				Input.is_action_pressed(&"use_item"), delta, Input.is_action_just_pressed(&"dash"),
-				Input.is_action_pressed(&"interact"), Input.is_action_just_pressed(&"skill_1"))
+				Input.is_action_pressed(&"interact"), Input.is_action_just_pressed(&"skill_1"), pressed_skill_slot())
 		else:
 			apply_input(read_input(), delta)
 
@@ -244,10 +286,15 @@ func mouse_aiming() -> bool:
 ## advances (and may end), the aim is updated, use may start an action (the selected hotbar item's),
 ## then the player moves (unless an action locks it) and faces the mouse while aiming or the
 ## movement otherwise. M4a: `dash` (Space this tick) and `interact` (F held). M6a: `skill` (the skill key 1
-## this tick: the herbalist's potion throw). While `ui_locked` (a panel is open) the frame is empty.
+## this tick: the herbalist's potion throw). While `ui_locked` (a panel is open) the frame is empty. M9a: `skill_slot` (the skill
+## key 2 / 3 / R pressed this tick: Skills.Slot, -1 = none; key 1 is `skill`); with `skills_on` a skill key pressed while a
+## panel is open is refused (Skills.WHY_PANEL: the HUD marks it).
 func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, delta: float,
-		dash: bool = false, interact: bool = false, skill: bool = false) -> void:
+		dash: bool = false, interact: bool = false, skill: bool = false, skill_slot: int = -1) -> void:
 	if ui_locked:
+		if skills_on and (skill or skill_slot >= 0):
+			var slot: int = skill_slot if skill_slot >= 0 else Skills.Slot.IDENTITY
+			_refuse_skill(slot, Skills.kit_skill(class_id(), slot), Skills.WHY_PANEL)
 		input = Vector2i.ZERO
 		aiming = false
 		use_pressed = false
@@ -255,7 +302,9 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 		dash = false
 		interact = false
 		skill = false
-	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held, dash, interact, skill)
+		skill_slot = -1
+	var f: NetProtocol.InputFrame = make_frame(input, mouse, aiming, use_pressed, use_held, dash, interact, skill,
+		skill_slot)
 	step_frame(f, delta)
 	if f.op == NetProtocol.Op.USE and f.anim < 0:
 		place_requested.emit(f.slot, f.cell)
@@ -267,6 +316,90 @@ func tick_controls(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: b
 ## when Purify.channel_refusal allows and the player stands free, PlayerSim.step).
 func request_channel() -> void:
 	_channel_pending = true
+
+
+## M9a: the skill key pressed this tick other than key 1 (Skills.Slot: 2 = WEAPON, 3 = CHOICE, R = SIGNATURE; -1 = none).
+static func pressed_skill_slot() -> int:
+	if Input.is_action_just_pressed(&"skill_2"):
+		return Skills.Slot.WEAPON
+	if Input.is_action_just_pressed(&"skill_3"):
+		return Skills.Slot.CHOICE
+	if Input.is_action_just_pressed(&"skill_signature"):
+		return Skills.Slot.SIGNATURE
+	return -1
+
+
+## M9a: the players the near-cursor pick may choose from (party_provider; unset: this player alone).
+func party() -> Array[Player]:
+	if party_provider.is_valid():
+		var got: Array[Player] = party_provider.call()
+		return got
+	var alone: Array[Player] = [self]
+	return alone
+
+
+## M9a: a skill key of slot `slot` resolved by Skills.prepare into frame `f` (the skill's action toward the target tile, its
+## slot and target; the herbalist's throw as M6's THROW frame), or refused (the HUD's mark, skill_refused).
+func _skill_frame(f: NetProtocol.InputFrame, slot: int, mouse: Vector2) -> void:
+	var prep: Skills.Prepared = Skills.prepare(self, slot, mouse, party())
+	if prep.ok() and f.dash:
+		# M9 review (PROVISIONAL README "M9a 거부"): the dash pressed in the same tick wins (PlayerSim: an action does not start
+		# under a dash, the M6-fix rule), so the key is refused here with its HUD mark instead of vanishing (the host does the
+		# same, SessionHost._skill).
+		prep.why = Skills.WHY_BUSY
+	if not prep.ok():
+		_refuse_skill(slot, prep.id, prep.why)
+		return
+	f.cell = aim_cell
+	f.skill = prep.id
+	f.skill_slot = slot
+	f.skill_target = prep.target.get_instance_id() if prep.target != null else 0
+	if prep.id == Skills.POTION_THROW:
+		f.op = NetProtocol.Op.THROW
+		f.slot = inventory.selected
+		f.anim = RigData.Anim.THROW
+		f.item = prep.item
+		f.throw_to = prep.throw_to
+	else:
+		f.op = NetProtocol.Op.SKILL  # M9c: a session sends it (the host resolves it again); offline Main plays it as resolved here
+		f.anim = Skills.anim(prep.id)
+		f.item = prep.id
+		f.slot = inventory.selected  # M9b: the weapon skill's stack (its tier-1 damage and wear: Skills.weapon_stack)
+		f.throw_to = prep.throw_to  # M9b: a point skill's point (Skills.reach_point)
+
+
+## M9a: marks slot `slot` refused on the HUD (SkillState.refuse) and says why (skill_refused).
+func _refuse_skill(slot: int, id: StringName, why: String) -> void:
+	if why.is_empty():
+		return
+	skills.refuse(slot, why)
+	skill_refused.emit(slot, id, why)
+
+
+## M9c: a skill key of slot `slot` pressed while a panel holds the keys (a session's input, SessionBots.local_action; offline
+## tick_controls does the same): refused with the HUD's mark (Skills.WHY_PANEL).
+func refuse_skill_key(slot: int) -> void:
+	if skills_on and slot >= 0:
+		_refuse_skill(slot, Skills.kit_skill(class_id(), slot), Skills.WHY_PANEL)
+
+
+## M9c: a session client shows a ward of `pct` percent with `ticks` left over this player (the host's ward events; 0 = none).
+func show_ward(pct: int, ticks: int) -> void:
+	if skills.ward_pct == pct and skills.ward_ticks == ticks:
+		return
+	skills.ward_pct = pct
+	skills.ward_ticks = ticks
+	_sync_view()
+
+
+## M9a: restores up to `amount` HP (PlayerSim.heal: not past the maximum, only while up). Returns the HP gained.
+func heal_hp(amount: int) -> int:
+	var st: PlayerSim = to_sim()
+	var gained: int = st.heal(amount)
+	if gained > 0:
+		load_sim(st)
+		_sync_view()
+	return gained
 
 
 ## M5b: this player carries the altar now (Main: picked up / put down), shown over its head.
@@ -287,12 +420,20 @@ func set_carrying_altar(on: bool) -> void:
 ## Potions.throw_refusal: the herbalist's, Config.THROW_HERBALIST_ONLY). The drink is a USE frame, the throw (M6b)
 ## a THROW frame, with the action set; the potion works on its effect / release frame (Potions.impact_tick,
 ## action_impact).
+##
+## M9a (with `skills_on`): a skill key (`skill` = key 1, `skill_slot` = key 2 / 3 / R as Skills.Slot) goes through the skill kit
+## instead (Skills.prepare: the common refusals, then the skill's own): it puts the skill's body action, the skill, its slot and
+## the ally it goes to into the frame, or marks the slot refused (skill_refused). The herbalist's identity skill is M6's throw
+## (a THROW frame with its potion), a healing or buff potion thrown at the ally nearest the cursor (● R42), poison at the cursor.
 func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool, use_held: bool, dash: bool = false,
-		interact: bool = false, skill: bool = false) -> NetProtocol.InputFrame:
+		interact: bool = false, skill: bool = false, skill_slot: int = -1) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(0, input)
 	f.dash = dash
 	f.interact = interact
 	f.aim = Combat.aim_code(mouse - Combat.aim_origin(sim_position))  # M4-fix: the drawn shot flies through the mouse
+	# M9c: a SKILL's and a THROW's point on the wire, in whole px (the host's near-cursor pick, a point skill's point, a throw's
+	# landing): the skill kit below works from it too, so offline and the host resolve a press alike.
+	f.cursor = Vector2(NetProtocol.wire_point(mouse))
 	if data != null:
 		f.map = data.map_id  # M3b: a request aims at a tile of the map this player stands on
 	aim_point = mouse
@@ -301,6 +442,10 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	aim_cell = Aim.target_cell(sim_position, aim_sector)
 	var free: bool = vitals.alive() and not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
 	var selected: ItemStack = inventory.selected_stack()
+	var slot: int = skill_slot if skill_slot >= 0 else (Skills.Slot.IDENTITY if skill else -1)
+	if skills_on:
+		skill_aim_target = Skills.aim_target(self, party(), f.cursor)  # M9 review: none while a panel is open or carrying
+		skill_aim_refused = Skills.aim_refused(self, skill_aim_target)
 	if _channel_pending:
 		_channel_pending = false
 		if purify_on and free and not carrying_altar and data != null \
@@ -313,6 +458,10 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 		f.cell = aim_cell
 		if f.altar_place:
 			f.op = NetProtocol.Op.ALTAR_PLACE
+		if skills_on and slot >= 0:
+			_refuse_skill(slot, Skills.kit_skill(class_id(), slot), Skills.refusal(self, slot))  # M9a: carrying the altar
+	elif skills_on and slot >= 0:
+		_skill_frame(f, slot, f.cursor)  # M9a: the skill kit (the herbalist's key 1 = M6's throw through it; M9c: whole px)
 	elif free and potions_on and skill:
 		var why_throw: String = Potions.throw_refusal(class_id(), selected)
 		if why_throw.is_empty():
@@ -393,6 +542,7 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 	var before: int = action_anim
 	var poison_amount: int = vitals.poison_damage
 	var was_channel: bool = channel_tick > 0
+	var hp_before: int = vitals.hp
 	var st: PlayerSim = to_sim()
 	var events: int = st.step(data, frame.dir, frame.look, frame.anim, frame.cell, delta, frame.dash, frame.interact,
 		frame.aim, frame.channel)
@@ -404,12 +554,31 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 		var played: ItemStack = inventory.stack_at(frame.slot)
 		action_grade = played.grade if played != null and played.id == frame.item else ItemDB.normalize_grade(frame.item)
 		action_target = frame.throw_to
+		# M9a: the skill it plays (&"" for a use or a drink), its slot and the ally it goes to.
+		action_skill = frame.skill
+		action_skill_slot = frame.skill_slot if not frame.skill.is_empty() else -1
+		action_skill_target = frame.skill_target if not frame.skill.is_empty() else 0
+	elif action_anim < 0:
+		action_skill = &""
+		action_skill_slot = -1
+		action_skill_target = 0
+	if skills_on:
+		# M9a: the game clock (cooldowns, the refusal mark) and the class meter; a poison tick is damage taken (the paladin's
+		# conviction), a death loses the meter. M9c: a session host's members count their clock on host time instead.
+		if not skills_clock_external:
+			skills.tick(class_id(), walking or vitals.dashing(), vitals.alive())
+		if events & PlayerSim.POISON_TICK:
+			skills.on_hurt(class_id(), maxi(hp_before - vitals.hp, 0))
+		if events & PlayerSim.DIED:
+			skills.on_death()
 	aim_active = (_aim_input or action_anim >= 0) and vitals.alive()
 	_sync_view()
 	if events & PlayerSim.ENDED:
 		action_finished.emit(before)
 	if events & PlayerSim.STARTED:
 		action_started.emit(action_item, action_anim, action_cell)
+		if not action_skill.is_empty():
+			skill_started.emit(action_skill_slot, action_skill)
 	if action_anim >= 0 and action_tick == impact_tick_of(action_item, action_anim):
 		action_impact.emit(action_item, action_anim, action_cell)
 	if events & PlayerSim.CHANNEL_STARTED:
@@ -433,6 +602,8 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 ## The tick of an action played with `item` on which it lands: a weapon's hit frame (Combat.impact_tick),
 ## M6a: a potion's effect / release frame (Potions.impact_tick). M5b: holy water's effect frame (Purify.impact_tick).
 static func impact_tick_of(item: StringName, anim: int) -> int:
+	if Skills.is_skill(item):
+		return Skills.impact_tick(item)  # M9a: a skill's action lands on its own frame (Config.SKILLS "impact")
 	if Potions.is_potion(item):
 		return Potions.impact_tick(anim)
 	if Purify.is_holy_water(item):
@@ -494,12 +665,17 @@ func take_hit(amount: int, armored: bool = false) -> int:
 	var was_channel: bool = channel_tick > 0
 	if armored and gear_on:
 		amount = Gear.after_armor(amount, inventory)
+	if skills_on:
+		amount = Skills.after_ward(amount, skills)  # M9b: the oath's ward, after the armour
+	var hp_before: int = vitals.hp
 	var events: int = st.hurt(amount)
 	if events == 0:
 		return 0
 	if armored and gear_on:
 		Gear.wear_armor(inventory)
 	load_sim(st)
+	if skills_on:
+		skills.on_hurt(class_id(), hp_before - vitals.hp)  # M9a: the paladin's conviction grows with the damage taken
 	_sync_view()
 	if was_channel:
 		channel_broken.emit("down" if events & PlayerSim.DOWNED else "hit")  # M5b
@@ -681,7 +857,10 @@ func _sync_view() -> void:
 	character.walking = walking
 	character.visible = vitals.life != Vitals.Life.DEAD
 	character.modulate = HIT_FLASH if vitals.flash_ticks > 0 else Color.WHITE
-	effect_marks.show_kinds(EffectMarks.kinds_of(vitals))  # M6a
+	var kinds: Array[int] = EffectMarks.kinds_of(vitals)  # M6a
+	if skills_on and skills.warded() and vitals.life != Vitals.Life.DEAD:
+		kinds.append(EffectMarks.Kind.WARD)  # M9b: the paladin's oath wards this player
+	effect_marks.show_kinds(kinds)
 	if vitals.life == Vitals.Life.DOWN:
 		character.show_action(RigData.Anim.DEATH, mini(vitals.life_ticks / Config.DEATH_FRAME_TICKS,
 			RigData.frame_count(RigData.Anim.DEATH) - 1))

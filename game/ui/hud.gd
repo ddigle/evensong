@@ -20,6 +20,13 @@ extends CanvasLayer
 ## outline; a click on it while the inventory is open takes the armour off: armor_clicked), and the chest panel
 ## (`chest`, ui/chest_panel.gd) that Main opens with F at a storage chest.
 ## M8a: the merchant's shop panel (`shop`, ui/shop_panel.gd) that Main opens with F at the merchant.
+## M9a (PLACEHOLDERS drawn in code, offline: only for a player with `skills_on`; a session draws none until M9c): the skill row
+## right of the hotbar (SKILL_GAP apart): the slots 1 2 3 R (slot frames like the hotbar's, the skill's icon (SkillIcons), the key
+## in the bottom-right corner like a stack count; a cooling slot is veiled from the top by the share of its cooldown left with a
+## gold sweep line at the veil's edge; the choice slot 3 is locked (dark, a lock: not in the slice); a named skill not built
+## yet (M9b) shows a dim diamond; a refused key's slot is framed red for Config.SKILL_REFUSED_SHOW_TICKS), and above it the class
+## resource: a bar in the class's colour with an ivory tick where the signature's cost is, or (the herbalist, whose material is
+## items) one pip per healing herb carried.
 
 signal armor_clicked
 
@@ -62,6 +69,28 @@ const DUR_MID: Color = Color8(0xe0, 0x86, 0x1a)
 const DUR_LOW: Color = Color8(0xb8, 0x43, 0x2f)
 const ARMOR_GAP: int = 6
 const ARMOR_EMPTY: Color = Color(1.0, 1.0, 1.0, 0.28)
+## M9a (IMPL): the skill row's gap from the hotbar, the icon's place in a slot, the resource bar's height and its gap above the
+## slots (from the bar's frame to the slots), the herbalist's pips, and the colours: the cooldown veil (translucent ash black),
+## the sweep line (faith gold), a refused slot's frame (rust), the locked slot's fill (ash black), the signature cost tick (faith
+## ivory) and each class meter (paladin conviction faith gold, archer focus buff amber, cleric faith ivory, miner endurance
+## copper, the herbalist's herbs healing red).
+const SKILL_GAP: int = 6
+const SKILL_ICON_AT: Vector2i = Vector2i(3, 3)
+const SKILL_BAR_H: int = 2
+const SKILL_BAR_GAP: int = 2
+const SKILL_PIP: Vector2i = Vector2i(5, 2)
+const SKILL_PIP_GAP: int = 1
+const SKILL_VEIL: Color = Color(0.102, 0.090, 0.078, 0.72)
+const SKILL_SWEEP: Color = Color8(0xf4, 0xc9, 0x5d)
+const SKILL_REFUSED: Color = Color8(0xb8, 0x43, 0x2f)
+const SKILL_LOCKED_FILL: Color = Color8(0x1a, 0x17, 0x14)
+const SKILL_COST_MARK: Color = Color8(0xef, 0xe3, 0xc6)
+const RESOURCE_COLOURS: Dictionary[String, Color] = {
+	"paladin": Color8(0xf4, 0xc9, 0x5d), "archer": Color8(0xe0, 0x86, 0x1a), "cleric": Color8(0xef, 0xe3, 0xc6),
+	"miner": Color8(0xc0, 0x6a, 0x2e), "herbalist": Color8(0xb8, 0x2e, 0x24),
+}
+## The inner area a cooldown veil covers (inside the slot's two frames: 14 x 14 at (2, 2)).
+const SKILL_INNER: Rect2i = Rect2i(2, 2, 14, 14)
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
@@ -135,10 +164,29 @@ func bind_player(p: Player) -> void:
 
 
 func _process(_delta: float) -> void:
-	var key: String = vitals_key()
+	var key: String = vitals_key() + "|" + skills_key()
 	if key != _shown:
 		_shown = key
 		canvas.queue_redraw()
+
+
+## M9a: what the skill row shows now (redrawn when it changes): per slot its veil height and refusal mark, the resource.
+func skills_key() -> String:
+	if player == null or not is_instance_valid(player) or not player.skills_on:
+		return ""
+	var parts: PackedStringArray = [player.class_id(), str(Skills.resource_of(player))]
+	for slot: int in SkillState.SLOT_COUNT:
+		parts.append("%d/%d" % [skill_veil_rows(player, slot), 1 if player.skills.shows_refusal(slot) else 0])
+	return "/".join(parts)
+
+
+## M9a: the rows of a slot's inner area its cooldown veil covers (0 = ready): the share of the cooldown left, rounded up.
+static func skill_veil_rows(p: Player, slot: int) -> int:
+	var left: int = p.skills.cooldown(slot)
+	if left <= 0:
+		return 0
+	var full: int = maxi(Skills.cooldown_ticks(Skills.kit_skill(p.class_id(), slot)), left)
+	return clampi(ceili(float(left) / full * SKILL_INNER.size.y), 1, SKILL_INNER.size.y)
 
 
 ## What the bars show now (redrawn when it changes).
@@ -201,6 +249,7 @@ func view_size() -> Vector2i:
 
 func _draw_hud() -> void:
 	_draw_vitals()
+	_draw_skill_row()  # M9a
 	if inventory == null:
 		return
 	var view: Vector2i = view_size()
@@ -215,6 +264,82 @@ func _draw_hud() -> void:
 ## M7a: top-left of the armour slot (left of the hotbar's first slot, ARMOR_GAP apart).
 static func armor_slot_origin(hotbar: int, view: Vector2i) -> Vector2i:
 	return slot_origin(0, hotbar, view) - Vector2i(ARMOR_GAP + SLOT, 0)
+
+
+## M9a: top-left of skill slot `slot` (Skills.Slot: 1 2 3 R from the left), SKILL_GAP right of the hotbar's last slot.
+static func skill_slot_origin(slot: int, hotbar: int, view: Vector2i) -> Vector2i:
+	var last: Vector2i = slot_origin(hotbar - 1, hotbar, view)
+	return Vector2i(last.x + SLOT + SKILL_GAP + slot * (SLOT + GAP), last.y)
+
+
+## M9a: the resource bar's inside (its 1 px dark frame around it): over the skill row, one px in from its ends.
+static func skill_bar_rect(hotbar: int, view: Vector2i) -> Rect2i:
+	var o: Vector2i = skill_slot_origin(0, hotbar, view)
+	var w: int = SkillState.SLOT_COUNT * SLOT + (SkillState.SLOT_COUNT - 1) * GAP
+	return Rect2i(Vector2i(o.x + 1, o.y - SKILL_BAR_GAP - 1 - SKILL_BAR_H), Vector2i(w - 2, SKILL_BAR_H))
+
+
+## M9a: how many herb pips fit the bar.
+static func skill_pips(hotbar: int, view: Vector2i) -> int:
+	return (skill_bar_rect(hotbar, view).size.x + SKILL_PIP_GAP) / (SKILL_PIP.x + SKILL_PIP_GAP)
+
+
+## M9a: the x (from the bar's left) of the ivory tick marking the signature's cost on a bar `w` px wide for a meter of `cap`.
+static func skill_cost_x(cost: int, cap: int, w: int) -> int:
+	return clampi(ceili(float(cost) * w / maxi(cap, 1)) - 1, 0, w - 1)
+
+
+## M9a: the skill row (see the class comment).
+func _draw_skill_row() -> void:
+	if player == null or not is_instance_valid(player) or not player.skills_on:
+		return
+	var view: Vector2i = view_size()
+	var hotbar: int = inventory.hotbar_size if inventory != null else Config.HOTBAR_SLOTS
+	var class_id: String = player.class_id()
+	for slot: int in SkillState.SLOT_COUNT:
+		var o: Vector2i = skill_slot_origin(slot, hotbar, view)
+		var r: Rect2i = Rect2i(o, Vector2i(SLOT, SLOT))
+		var locked: bool = slot == Skills.Slot.CHOICE
+		canvas.draw_rect(Rect2(r), SKILL_LOCKED_FILL if locked else FILL)
+		var refused: bool = player.skills.shows_refusal(slot)
+		_frame(r, SKILL_REFUSED if refused else FRAME_DARK)
+		_frame(r.grow(-1), SKILL_REFUSED if refused else FRAME)
+		var tex: Texture2D = SkillIcons.lock_texture() if locked else SkillIcons.texture_for(Skills.kit_skill(class_id, slot))
+		canvas.draw_texture(tex, Vector2(o + SKILL_ICON_AT))
+		var rows: int = skill_veil_rows(player, slot)
+		if rows > 0:
+			var veil: Rect2i = Rect2i(o + SKILL_INNER.position, Vector2i(SKILL_INNER.size.x, rows))
+			canvas.draw_rect(Rect2(veil), SKILL_VEIL)
+			canvas.draw_rect(Rect2(Vector2(veil.position.x, veil.end.y - 1), Vector2(veil.size.x, 1)), SKILL_SWEEP)
+		_draw_key(slot, o + Vector2i(SLOT - 3, SLOT - 3))
+	var bar: Rect2i = skill_bar_rect(hotbar, view)
+	var colour: Color = RESOURCE_COLOURS.get(class_id, SKILL_COST_MARK)
+	var cap: int = Skills.resource_cap(class_id)
+	if cap > 0:
+		_bar(bar.position, bar.size, float(player.skills.resource) / cap, colour, FILL)
+		var cx: int = skill_cost_x(Skills.signature_cost(class_id), cap, bar.size.x)
+		canvas.draw_rect(Rect2(Vector2(bar.position.x + cx, bar.position.y), Vector2(1, bar.size.y)), SKILL_COST_MARK)
+		return
+	# The herbalist: one pip per healing herb carried (the bar's frame, the pips lit from the left).
+	canvas.draw_rect(Rect2(bar.grow(1)), FRAME_DARK)
+	var have: int = Skills.resource_of(player)
+	for i: int in skill_pips(hotbar, view):
+		var at: Vector2 = Vector2(bar.position.x + i * (SKILL_PIP.x + SKILL_PIP_GAP), bar.position.y)
+		canvas.draw_rect(Rect2(at, Vector2(SKILL_PIP)), colour if i < have else FILL)
+
+
+## M9a: a skill slot's key (1 2 3 in the HUD's digits, R in SkillIcons.R_GLYPH) with its shadow, bottom-right at `bottom_right`.
+func _draw_key(slot: int, bottom_right: Vector2i) -> void:
+	var rows: Array = DIGITS[slot + 1] if slot < Skills.Slot.SIGNATURE else SkillIcons.R_GLYPH
+	var x: int = bottom_right.x - 2
+	var y: int = bottom_right.y - 4
+	for pass_i: int in 2:
+		var color: Color = FRAME_DARK if pass_i == 0 else DIGIT
+		var shift: int = 1 if pass_i == 0 else 0
+		for dy: int in 5:
+			for dx: int in 3:
+				if str(rows[dy])[dx] == "1":
+					canvas.draw_rect(Rect2(Vector2(x + dx + shift, y + dy + shift), Vector2.ONE), color)
 
 
 ## M7a: the armour slot: the worn piece (and its bar), else a dim armour outline.

@@ -67,6 +67,9 @@ class CaptureSession:
 	func send_shots(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "shots", payload])
 
+	func send_skills(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "skills", payload])  # M9c
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -383,6 +386,8 @@ func _deliver(c: Client, kind: String, payload: PackedByteArray) -> void:
 		"shots":
 			c.shot_events.append_array(NetProtocol.decode_shots(payload).events)
 			c.s.client.on_shots(payload)
+		"skills":
+			c.s.client.on_skills(payload)  # M9c
 
 
 ## The fight spot on the surface.

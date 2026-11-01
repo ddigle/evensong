@@ -153,7 +153,7 @@ func stock_up(m: NetMember, money: int, extra: Array = []) -> void:
 # --- the wire (protocol v10) ------------------------------------------------------------------------------------------
 
 func _check_shop_codec() -> void:
-	check_eq(NetProtocol.VERSION, 10, "protocol version 10 (M8b: the shop)")
+	check_eq(NetProtocol.VERSION, 11, "protocol version 11 (M8b: 10, the shop; M9c: 11, the skills)")
 	check_eq([NetProtocol.OP_SIZES[NetProtocol.Op.BUY], NetProtocol.OP_SIZES[NetProtocol.Op.SELL]], [6, 9],
 		"BUY 6 B (map, the merchant's tile, the offer), SELL 9 B (+ the whole byte; M8 review: + the item and grade seen)")
 	check(NetProtocol.op_has_map(NetProtocol.Op.BUY) and NetProtocol.op_has_map(NetProtocol.Op.SELL), "both name their map")

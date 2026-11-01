@@ -64,7 +64,7 @@ extends RefCounted
 ##   --test-shrine-hp=<n>         a host's dungeon shrine starts with n hit points
 ##   --test-no-spawns             no heretic spawns (offline and host; the test heretics still come)
 ##   --test-start-hp=<class>:<hp>[,...]   host: members of that class start with that HP (tests: one hit
-##                                downs them)
+##                                downs them). M9 review: offline too (the local player and the --test-ally of that class)
 ## M5a (offline screenshot / test flag):
 ##   --test-field=<x>,<y>:<soil|healing|buff|poison>[:<stage 0..4>][:wet][:fast][/...]   tilled soil (and a crop at that
 ##                                stage, wet, planted by the herbalist) on those tiles of the start map at the start,
@@ -79,6 +79,12 @@ extends RefCounted
 ## M8b (offline and a host: the world's shop):
 ##   --test-shop-restock=<n>      the shop's stock comes back every n ticks in place of Config.SHOP_RESTOCK_TICKS (1..that):
 ##                                a session test sees a restock in seconds (Shop.restock_ticks)
+## M9b (offline screenshot / test flag):
+##   --test-resource=<n>          the local player's class meter starts at n (0..100, cut to its class's cap; the herbalist has
+##                                no meter: give him healing herbs with --give)
+## M9c (a host: its members):
+##   --test-start-resource=<class>:<n>[,...]   that class's meter starts at n when it joins (0..100, cut to the cap): a session
+##                                test can use a signature at once
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -141,6 +147,10 @@ var test_fields: Array[Array] = []
 var test_crop_ticks: int = 0
 ## M8b test flag: the shop's restock period in ticks (0 = Config.SHOP_RESTOCK_TICKS).
 var test_shop_restock: int = 0
+## M9b test flag: the local player's class meter at the start (-1 = as it is: empty).
+var test_resource: int = -1
+## M9c, test only (the host): each named class's meter starts at that value when it joins (--test-start-resource).
+var test_start_resource: Dictionary[String, int] = {}
 ## M7a test flags: durability left per inventory slot ([slot 0-based, points]) after --give; the armour in that hotbar slot
 ## (1-based, 0 = none) is put on at the start.
 var test_durability: Array[Vector2i] = []
@@ -340,6 +350,19 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: expected --test-shop-restock=<1..%d>" % [raw, Config.SHOP_RESTOCK_TICKS])
 				else:
 					o.test_shop_restock = value.to_int()
+			"test-resource":
+				if not value.is_valid_int() or value.to_int() < 0 or value.to_int() > 100:
+					o.errors.append("%s: expected --test-resource=<0..100>" % raw)
+				else:
+					o.test_resource = value.to_int()
+			"test-start-resource":
+				for part: String in value.split(",", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not Config.CLASSES.has(kv[0]) or not kv[1].is_valid_int() or kv[1].to_int() < 0 \
+							or kv[1].to_int() > 100:
+						o.errors.append("%s: expected --test-start-resource=<class>:<0..100>[,...]" % raw)
+						break
+					o.test_start_resource[kv[0]] = kv[1].to_int()
 			"test-durability":
 				for part: String in value.split("/", false):
 					var kv: PackedStringArray = part.split(":")

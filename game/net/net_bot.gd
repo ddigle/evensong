@@ -76,12 +76,14 @@ extends RefCounted
 ## world has it, `world`):
 ##   waitstock:<n>,<left>[,<ticks>]   stand until entry <n> (1 = the top left) of the world's shop has exactly <left> left
 ##                                (default 1800 ticks)
+## M9a (offline: the skill kit is Main's player's; in a session the keys do what they did before M9a, M9c):
+##   skill:<1|2|3|r>              press that skill key this tick (1 = identity, 2 = weapon, 3 = choice, r = signature) toward the aim
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -148,6 +150,8 @@ class Action:
 	var buy_entry: int = -1
 	var sell_slot: int = -1
 	var sell_all: bool = false
+	## M9a: a skill key 2 / 3 / R this tick (Skills.Slot, -1 = none; key 1 is `skill`, as M6a's throw).
+	var skill_slot: int = -1
 
 
 var commands: Array[Command] = []
@@ -292,6 +296,11 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			if args.size() != 1 or not _whole(args[0], 1):
 				return "expected %s:<slot>" % c.op
 			c.count = args[0].to_int() - 1
+		"skill":
+			var keys: PackedStringArray = ["1", "2", "3", "r"]
+			if args.size() != 1 or not keys.has(args[0].to_lower()):
+				return "expected skill:<1|2|3|r>"
+			c.slot = keys.find(args[0].to_lower())
 		"craft":
 			if args.size() != 1 or not _whole(args[0], 1):
 				return "expected craft:<row>"
@@ -514,6 +523,13 @@ func _advance(a: Action, feet: Vector2) -> void:
 				return
 			"throw":
 				a.skill = true
+				_next()
+				return
+			"skill":
+				if c.slot == Skills.Slot.IDENTITY:
+					a.skill = true
+				else:
+					a.skill_slot = c.slot
 				_next()
 				return
 			"store":

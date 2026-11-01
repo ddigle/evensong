@@ -56,6 +56,17 @@ var poison_damage: int = 0
 var poison_ticks: int = 0
 var poison_timer: int = 0
 var poison_by: int = 0
+## M9a (○ gameplay-design §2.3, Arena.threat_on; the host's AI only, not sent): threat per player (node instance id -> threat),
+## and the paladin whose taunt forces it onto him (node instance id, 0 = none) for taunt_ticks more ticks (M9c: a taunt's mark
+## is sent; M9 review: it ends early once that paladin is no longer up on its map, Arena._step_heretic).
+var threat: Dictionary[int, int] = {}
+var taunt_by: int = 0
+var taunt_ticks: int = 0
+## M9b (host-side state like the threat; M9c: only whether each runs is sent, the enemy batch's marks byte): a stun (the paladin's crushing blow, the miner's rockfall: ticks left, it does nothing
+## meanwhile, Config.SKILL_STUN_CANCELS_ATTACK) and a slow (the herbalist's sweep: percent off its walking speed, ticks left).
+var stun_ticks: int = 0
+var slow_pct: int = 0
+var slow_ticks: int = 0
 ## Display: ticks since spawning (walk / idle frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0
@@ -97,8 +108,10 @@ static func death_ticks() -> int:
 	return FRAME_COUNTS[Anim.DEATH] * Config.HERETIC_DEATH_FRAME_TICKS
 
 
-## The animation and frame to show now.
+## The animation and frame to show now. M9b: a stunned heretic shows its hurt pose, frame Config.SKILL_STUN_FRAME held.
 func anim() -> int:
+	if stunned():
+		return Anim.HURT
 	match state:
 		State.ATTACK:
 			return Anim.ATTACK
@@ -110,6 +123,8 @@ func anim() -> int:
 
 
 func frame() -> int:
+	if stunned():
+		return Config.SKILL_STUN_FRAME
 	match state:
 		State.ATTACK:
 			return attack_frame(row(), state_ticks)
@@ -140,3 +155,39 @@ func describe() -> String:
 ## M6a: poisoned now (M6-fix: only while alive; a dead heretic's poison has ended).
 func poisoned() -> bool:
 	return alive() and poison_ticks > 0
+
+
+## M9a: a taunt forces it now (alive only).
+func taunted() -> bool:
+	return alive() and taunt_ticks > 0 and taunt_by != 0
+
+
+## M9a: its threat on the player with node instance id `player_id` (0 when none).
+func threat_of(player_id: int) -> int:
+	var v: int = threat.get(player_id, 0)
+	return v
+
+
+## M9a: the highest threat it holds on anyone (0 when none).
+func top_threat() -> int:
+	var top: int = 0
+	for v: int in threat.values():
+		top = maxi(top, v)
+	return top
+
+
+## M9b: stunned now (alive only).
+func stunned() -> bool:
+	return alive() and stun_ticks > 0
+
+
+## M9b: slowed now (alive only).
+func slowed() -> bool:
+	return alive() and slow_ticks > 0 and slow_pct > 0
+
+
+## M9b: no stun, no slow (a death, the map emptying).
+func end_skill_effects() -> void:
+	stun_ticks = 0
+	slow_pct = 0
+	slow_ticks = 0
