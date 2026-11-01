@@ -5,7 +5,8 @@ extends Node
 ## hurt, and over each downed player its bleed-out and revive bars. Nodes go under the map's y-sorted
 ## Entities (shots sort by their ground point and are drawn Config.SHOT_DRAW_LIFT_PX higher); bars are
 ## unshaded so they read in the dark. sync() after every arena step. M6a: thrown potions and their splashes
-## (_sync_flasks).
+## (_sync_flasks). M9a: the skills' bursts (_sync_bursts: the taunt's and the slam's rings, the heal's sparks over the healed
+## ally; PLACEHOLDERS drawn in code, unshaded) and the piercing arrow (the arrow with a gold tail).
 
 ## IMPL: bars over a downed player: width, place above the feet, colours (bleed-out = rust, revive = the
 ## faith gold, background ash black).
@@ -16,6 +17,8 @@ const BLEED: Color = Color8(0xa3, 0x49, 0x2c)
 const REVIVE: Color = Color8(0xf4, 0xc9, 0x5d)
 ## Arrow (10 x 3): shaft wood, iron head, ivory fletching. Bolt (6 x 6): gold with an ivory core.
 const ARROW_MAP: Array = ["s.wwwwwwhm", "sswwwwwwmh", "s.wwwwwwhm"]
+## M9a: the piercing arrow (12 x 3): the arrow with a gold streak behind it (IMPL, a PLACEHOLDER).
+const PIERCE_MAP: Array = ["gg.wwwwwwwhm", "ggswwwwwwwmh", "gg.wwwwwwwhm"]
 const BOLT_MAP: Array = [".gggg.", "gglsgg", "glsssg", "glsssg", "gglsgg", ".gggg."]
 const SHRINE_BAR_Y: int = -40
 ## IMPL (named in M4-fix): the shrine's HP bar width (px).
@@ -32,6 +35,8 @@ var shrine_bar: Node2D
 ## unshaded).
 var flasks: Dictionary[int, Node2D] = {}
 var splashes: Dictionary[int, Node2D] = {}
+## M9a: a node per skill burst (Arena.bursts).
+var bursts: Dictionary[int, Node2D] = {}
 var _bars: Dictionary[int, Node2D] = {}
 var _shrine_ratio: float = 1.0
 ## M4-fix: the shrine's fixture node found once for its footprint (not a walk over every entity per sync).
@@ -55,10 +60,24 @@ const SPLASH_COLOURS: Array[Array] = [
 	[Color8(0xd5, 0xce, 0x40), Color8(0x6e, 0x66, 0x20), Color8(0xc4, 0x42, 0x1c)],
 ]
 const SHARD: Color = Color8(0xef, 0xe3, 0xc6)
+## IMPL (M9a): a burst's frames over Config.SKILL_BURST_TICKS; its colours by Arena.BurstKind [dot, its dark corner] (the taunt
+## faith gold, the slam copper dust, the heal gold with an ivory core); the heal's sparks float this far above the feet (the
+## middle of the figure) and rise a px a frame; a ring's dots: one per this many px of its circumference, at least BURST_MIN_DOTS.
+const BURST_FRAMES: int = 3
+const BURST_COLOURS: Array[Array] = [
+	[Color8(0xf4, 0xc9, 0x5d), Color8(0x9c, 0x6a, 0x1f)],
+	[Color8(0xc0, 0x6a, 0x2e), Color8(0x8c, 0x4a, 0x22)],
+	[Color8(0xf4, 0xc9, 0x5d), Color8(0xef, 0xe3, 0xc6)],
+]
+const HEAL_BURST_LIFT_PX: int = 14
+const BURST_DOT_SPACING_PX: float = 6.0
+const BURST_MIN_DOTS: int = 8
 
 static var _splash: Dictionary[int, ImageTexture] = {}
 static var _arrow: ImageTexture
 static var _bolt: ImageTexture
+static var _pierce: ImageTexture
+static var _burst: Dictionary[String, ImageTexture] = {}
 
 
 func setup(p_arena: Arena, p_entities: Node2D) -> void:
@@ -78,8 +97,11 @@ func clear() -> void:
 		_free(f)
 	for sp: Node2D in splashes.values():
 		_free(sp)
+	for b: Node2D in bursts.values():
+		_free(b)
 	flasks.clear()
 	splashes.clear()
+	bursts.clear()
 	heretics.clear()
 	shots.clear()
 	_bars.clear()
@@ -119,6 +141,7 @@ func sync(players: Array[Player] = []) -> void:
 			_free(shots[id])
 			shots.erase(id)
 	_sync_flasks()
+	_sync_bursts()
 	_sync_shrine()
 	_sync_down_bars(players)
 
@@ -129,6 +152,8 @@ func _shot_node(s: Arena.Shot) -> Node2D:
 	var sp: Sprite2D = Sprite2D.new()
 	sp.name = &"Sprite"
 	sp.texture = arrow_texture() if s.kind == Combat.Kind.ARROW else bolt_texture()
+	if s.pierce:
+		sp.texture = pierce_texture()  # M9a
 	sp.position = Vector2(0, -Config.SHOT_DRAW_LIFT_PX)
 	sp.rotation = s.dir.angle() if s.kind == Combat.Kind.ARROW else 0.0
 	sp.light_mask = Config.LIGHT_LAYER_ACTORS
@@ -149,6 +174,104 @@ static func bolt_texture() -> ImageTexture:
 	if _bolt == null:
 		_bolt = ImageTexture.create_from_image(_image(BOLT_MAP))
 	return _bolt
+
+
+static func pierce_texture() -> ImageTexture:
+	if _pierce == null:
+		_pierce = ImageTexture.create_from_image(_image(PIERCE_MAP))
+	return _pierce
+
+
+## M9a: a node per skill burst (its picture for its age; it follows its player, Arena._age_bursts).
+func _sync_bursts() -> void:
+	var seen: Dictionary[int, bool] = {}
+	for b: Arena.Burst in arena.bursts:
+		seen[b.id] = true
+		var n: Node2D = bursts.get(b.id, null)
+		if n == null:
+			n = Node2D.new()
+			n.name = StringName("Burst_%d" % b.id)
+			var sp: Sprite2D = Sprite2D.new()
+			sp.name = &"Sprite"
+			sp.centered = false
+			sp.material = FixtureView.unshaded_material()
+			sp.light_mask = Config.LIGHT_LAYER_ACTORS
+			n.add_child(sp)
+			entities.add_child(n)
+			bursts[b.id] = n
+		n.position = b.pos.round()
+		var frame: int = burst_frame(b.age)
+		var tex: ImageTexture = burst_texture(b.kind, frame, b.radius)
+		var sprite: Sprite2D = n.get_node(^"Sprite") as Sprite2D
+		if sprite.texture != tex:
+			sprite.texture = tex
+		sprite.position = Vector2(burst_offset(b.kind, frame, b.radius))
+	for id: int in bursts.keys():
+		if not seen.has(id):
+			_free(bursts[id])
+			bursts.erase(id)
+
+
+## M9a: the burst frame for a burst `age` ticks old (BURST_FRAMES over Config.SKILL_BURST_TICKS).
+static func burst_frame(age: int) -> int:
+	return clampi(age * BURST_FRAMES / maxi(Config.SKILL_BURST_TICKS, 1), 0, BURST_FRAMES - 1)
+
+
+## M9a: half the burst picture's size for a ring reaching `radius` px (a px more than the ring and its 2x2 dots).
+static func burst_half(radius: float) -> int:
+	return ceili(radius) + 2
+
+
+## M9a: the top-left of a burst's picture relative to its feet: centred on the feet (the rings), or on the middle of the figure
+## and rising a px a frame (the heal).
+static func burst_offset(kind: int, frame: int, radius: float) -> Vector2i:
+	var half: int = burst_half(radius)
+	if kind == Arena.BurstKind.HEAL:
+		return Vector2i(-half, -half - HEAL_BURST_LIFT_PX - frame)
+	return Vector2i(-half, -half)
+
+
+static func burst_texture(kind: int, frame: int, radius: float) -> ImageTexture:
+	var key: String = "%d/%d/%d" % [kind, frame, roundi(radius)]
+	if not _burst.has(key):
+		_burst[key] = ImageTexture.create_from_image(burst_image(kind, frame, radius))
+	return _burst[key]
+
+
+## M9a: burst frame `frame` of `kind` (Arena.BurstKind) reaching `radius` px, a (2 * burst_half + 1) square with the burst's
+## point in the middle. The taunt and the slam: a ring of 2x2 dots (colour, the dark corner) at (frame + 1) / BURST_FRAMES of the
+## radius, one dot per BURST_DOT_SPACING_PX of its circumference (at least BURST_MIN_DOTS), turned half a dot each frame. The
+## heal: four plus signs (3x3, gold arms, an ivory middle) on a circle of the radius, turned a quarter of the way between them
+## each frame.
+static func burst_image(kind: int, frame: int, radius: float) -> Image:
+	var half: int = burst_half(radius)
+	var size: int = half * 2 + 1
+	var img: Image = Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
+	var colours: Array = BURST_COLOURS[clampi(kind, 0, BURST_COLOURS.size() - 1)]
+	var c0: Color = colours[0]
+	var c1: Color = colours[1]
+	if kind == Arena.BurstKind.HEAL:
+		for k: int in 4:
+			var a: float = TAU * k / 4.0 + frame * TAU / 16.0
+			var at: Vector2i = Vector2i(roundi(half + radius * cos(a)), roundi(half + radius * sin(a)))
+			for o: Vector2i in [Vector2i(0, -1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, 1)]:
+				_put(img, at + o, c0)
+			_put(img, at, c1)
+		return img
+	var r: float = radius * (frame + 1) / BURST_FRAMES
+	var dots: int = maxi(BURST_MIN_DOTS, ceili(TAU * r / BURST_DOT_SPACING_PX))
+	for k2: int in dots:
+		var a2: float = TAU * (k2 + 0.5 * frame) / dots
+		var p: Vector2i = Vector2i(roundi(half + r * cos(a2)), roundi(half + r * sin(a2)))
+		for dy: int in 2:
+			for dx: int in 2:
+				_put(img, p + Vector2i(dx, dy), c1 if dx == 1 and dy == 1 else c0)
+	return img
+
+
+static func _put(img: Image, p: Vector2i, c: Color) -> void:
+	if p.x >= 0 and p.y >= 0 and p.x < img.get_width() and p.y < img.get_height():
+		img.set_pixelv(p, c)
 
 
 static func _image(rows: Array) -> Image:

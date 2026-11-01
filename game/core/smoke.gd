@@ -92,6 +92,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_chain(r)
 	_check_build(r)
 	_check_shop(r)
+	_check_skills(r)  # M9a
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -290,7 +291,7 @@ static func _check_items(r: Report) -> void:
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
 	r.expect_eq(tools, 13, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons; M7b: + the axe)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand"]:
+			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand", "skill_2", "skill_3", "skill_signature"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -680,6 +681,47 @@ static func _check_shop(r: Report) -> void:
 			adds += 1
 	r.expect_eq(adds, 0, "recipes that make a thing worth more than its inputs")
 	r.fields.append("shop=%d,%d/%d/%d" % [at.x, at.y, Shop.offers().size(), Shop.money_in(inv)])
+
+
+## M9a: the skill kit: every class has four slots, the slice's fifteen skills are named and the five identity skills built; on a
+## bare map with threat on, the near-cursor pick takes the ally nearest the cursor, damage turns a heretic onto its dealer, the
+## paladin's taunt forces it onto him and the miner's slam pushes it away. Field `skills=<built>/<named> pick=<ok> taunt=<n>
+## slam=<px pushed>`.
+static func _check_skills(r: Report) -> void:
+	var named: Dictionary[StringName, bool] = {}
+	for c: String in Config.CLASSES:
+		for slot: int in SkillState.SLOT_COUNT:
+			var id: StringName = Skills.kit_skill(c, slot)
+			if not id.is_empty():
+				named[id] = true
+		r.expect(Skills.built(Skills.kit_skill(c, Skills.Slot.IDENTITY)), "%s's identity skill built" % c)
+	r.expect_eq(named.size(), 15, "the slice's named skills (● R42 count)")
+	var d: WorldData = WorldData.new(Vector2i(40, 30))
+	d.map_id = Config.MAP_DUNGEON
+	var a: Arena = Arena.new()
+	a.setup(d, 1)
+	a.spawning = false
+	a.threat_on = true
+	var pal: Player = Player.new()
+	pal.setup(d, "paladin", Vector2(200, 200))
+	var arc: Player = Player.new()
+	arc.setup(d, "archer", Vector2(240, 200))
+	var both: Array[Player] = [pal, arc]
+	var pick: bool = Skills.pick_ally(both, pal, arc.sim_position + Vector2(4, -10), 112.0) == arc
+	r.expect(pick, "the near-cursor pick")
+	var h: HereticSim = a.spawn_heretic(Vector2(210, 160))
+	a.hit_heretic(h, 10, arc.get_instance_id())
+	r.expect(a.pick_target(h, both) == arc, "damage turns the heretic onto its dealer")
+	var taunted: int = a.taunt(pal, Skills.num_f(Skills.TAUNT, "radius_px"), Skills.num_i(Skills.TAUNT, "taunt_ticks"))
+	r.expect(taunted == 1 and a.pick_target(h, both) == pal, "the taunt forces it onto the paladin")
+	arc.teleport(h.pos + Vector2(0, 25))
+	var before: float = h.pos.distance_to(arc.sim_position)
+	a.slam(arc, Skills.num_f(Skills.GROUND_SLAM, "radius_px"), 1, Skills.num_f(Skills.GROUND_SLAM, "push_px"))
+	var pushed: float = h.pos.distance_to(arc.sim_position) - before
+	r.expect(pushed > 0.0, "the slam pushes it away")
+	pal.free()
+	arc.free()
+	r.fields.append("skills=%d/%d pick=%s taunt=%d slam=%.0f" % [Config.SKILLS.size(), named.size(), str(pick), taunted, pushed])
 
 
 static func _check_light(r: Report) -> void:

@@ -2,7 +2,7 @@ extends SceneTree
 ## Windowed render check: what the GPU actually draws (needs a renderer, so not part of the
 ## headless tests). Run from the repo root in a desktop session (a window opens for a few seconds):
 ##
-##   godot --path game --script res://tools/check_render.gd [-- --out=build/render_check] [--save]
+##   godot --path game --script res://tools/check_render.gd [-- --out=build/render_check] [--save] [--only=<part,...>]
 ##
 ## Parts (each prints "EVENSONG_RENDER <part> ok|FAIL ..."):
 ##   ground   every screen pixel around the altar (480x270, the whole safe-zone disc and its
@@ -148,6 +148,14 @@ extends SceneTree
 ##            one (it differs from the bare world there) and gone from the old one, the client's fixtures equal its data; then
 ##            the shop panel each machine opens (the host's from its shop and its inventory, the client's from its world's
 ##            shop and the inventory an inventory message brought): the same pixels, the sold-out holy water veiled.
+##   skills_hud (M9a) the HUD's skill row for an archer, every opaque pixel on the layout written out here: the slots' frames (rust
+##            on the refused R slot), the icons from their character maps (the piercing arrow, the "not built yet" diamond on 2 and
+##            R, the lock on the ash-black choice slot 3), the keys' glyphs 1 2 3 R with their shadows, the half-cooled slot's gold
+##            sweep line (the icon pixels under the translucent veil darker), the resource bar's frame, its fill for 50 focus and the
+##            ivory tick at the signature's minimum; then the herbalist's five herb pips of twelve; with skills off nothing there.
+##   skills_fx (M9a) evening off, then on: a taunt burst's ring (frame 1: its 2x2 dots on the ring written out here) and the ally
+##            ring under an ally's feet (AllyMark's map) on their exact pixels, nothing else changed, unshaded (the same pixels in
+##            the evening).
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -160,6 +168,8 @@ const LIT_RATIO: float = 0.66
 var out_dir: String = "build/render_check"
 ## --save: keep every capture in out_dir (for a human look), not only the failing ones.
 var save_all: bool = false
+## M9a: --only=<part,...>: run only these parts (the names after `_check_`, e.g. skills_hud); empty = all.
+var only: PackedStringArray = []
 var failed: int = 0
 var world: GameWorld
 var zone: SafeZone
@@ -176,6 +186,8 @@ func _run() -> void:
 			out_dir = arg.substr(6)
 		elif arg == "--save":
 			save_all = true
+		elif arg.begins_with("--only="):
+			only = arg.substr(7).split(",", false)  # M9a: only these parts (by their function's name after _check_)
 	if DisplayServer.get_name() == "headless":
 		printerr("EVENSONG_RENDER error: needs a renderer; run without --headless in a desktop session")
 		quit(2)
@@ -202,35 +214,69 @@ func _run() -> void:
 	if view != Config.VIEW_SIZE:
 		_fail("setup", "viewport is %s, expected %s (window %s)" % [view, Config.VIEW_SIZE, root.size])
 	else:
-		await _check_ground_and_flames()
-		await _check_actor_light()
-		await _check_rig()
-		await _check_heretic()
-		await _check_bars()
-		await _check_combat_net()
-		await _check_crafting()
-		await _check_potions()
-		await _check_potions_net()
-		await _check_fields()
-		await _check_items()
-		await _check_ysort()
-		await _check_cave_and_dark()
-		await _check_purify()
-		await _check_altar_move()
-		await _check_fields_net()
-		await _check_stations()
-		await _check_gear_hud()
-		await _check_m7_panels()
-		await _check_builds()
-		await _check_trees()
-		await _check_build_ghost()
-		await _check_builds_net()  # M7c
-		await _check_merchant()  # M8a
-		await _check_shop_panel()
-		await _check_shop_net()  # M8b
+		if _want("ground_and_flames"):
+			await _check_ground_and_flames()
+		if _want("actor_light"):
+			await _check_actor_light()
+		if _want("rig"):
+			await _check_rig()
+		if _want("heretic"):
+			await _check_heretic()
+		if _want("bars"):
+			await _check_bars()
+		if _want("combat_net"):
+			await _check_combat_net()
+		if _want("crafting"):
+			await _check_crafting()
+		if _want("potions"):
+			await _check_potions()
+		if _want("potions_net"):
+			await _check_potions_net()
+		if _want("fields"):
+			await _check_fields()
+		if _want("items"):
+			await _check_items()
+		if _want("ysort"):
+			await _check_ysort()
+		if _want("cave_and_dark"):
+			await _check_cave_and_dark()
+		if _want("purify"):
+			await _check_purify()
+		if _want("altar_move"):
+			await _check_altar_move()
+		if _want("fields_net"):
+			await _check_fields_net()
+		if _want("stations"):
+			await _check_stations()
+		if _want("gear_hud"):
+			await _check_gear_hud()
+		if _want("m7_panels"):
+			await _check_m7_panels()
+		if _want("builds"):
+			await _check_builds()
+		if _want("trees"):
+			await _check_trees()
+		if _want("build_ghost"):
+			await _check_build_ghost()
+		if _want("builds_net"):
+			await _check_builds_net()  # M7c
+		if _want("merchant"):
+			await _check_merchant()  # M8a
+		if _want("shop_panel"):
+			await _check_shop_panel()
+		if _want("shop_net"):
+			await _check_shop_net()  # M8b
+		if _want("skills_hud"):
+			await _check_skills_hud()  # M9a
+		if _want("skills_fx"):
+			await _check_skills_fx()
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
+
+
+func _want(part: String) -> bool:
+	return only.is_empty() or only.has(part)
 
 
 func _fail(part: String, message: String) -> void:
@@ -3442,3 +3488,223 @@ func _check_shop_net() -> void:
 		w2.free()
 	world.visible = true
 	world.camera.make_current()
+
+
+## M9a: the HUD's skill row for an archer (written out here: the row 6 px right of the hotbar, slots 18 px 2 apart; in a slot the
+## two 1 px frames (ash black, the base frame; rust while refused), the 12 px icon at (3, 3) from its character map, the key's 3x5
+## glyph (1 2 3 / R) with its ash-black shadow one px down-right, bottom-right at (15, 15); the choice slot filled ash black under
+## its lock; a cooling slot's sweep line (faith gold) on the last veiled row of the 14 x 14 inside at (2, 2), the icon pixels under
+## the translucent veil darker than the icon; the resource bar's frame ring 6..3 px above the slots, its fill (buff amber) for 50
+## of 100 and the ivory tick at the archer's signature minimum (30)), then the herbalist's herb pips (healing red, one per herb)
+## and, with skills off (a session until M9c), nothing drawn there at all.
+func _check_skills_hud() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var p: Player = Player.new()
+	p.setup(world.data, "archer", Vector2(400, 400))
+	p.skills_on = true
+	hud.bind(p.inventory)
+	hud.bind_player(p)
+	# Slot 1 (the piercing arrow) half cooled (7 of 14 rows veiled), slot 2 (fan shot: M9b) not built, slot 3 locked, slot R
+	# (arrow rain: M9b) refused; focus 50.
+	var full: int = Skills.cooldown_ticks(Skills.PIERCING_ARROW)
+	p.skills.start_cooldown(Skills.Slot.IDENTITY, full / 2)
+	p.skills.refuse(Skills.Slot.SIGNATURE, Skills.WHY_LATER)
+	p.skills.resource = 50
+	hud.canvas.queue_redraw()
+	var got: Image = await _capture()
+	var view: Vector2i = Config.VIEW_SIZE
+	var hotbar_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
+	var top: int = view.y - 4 - 18
+	var x0: int = hotbar_left + 7 * 20 + 18 + 6
+	var dark: Color = Color8(0x1a, 0x17, 0x14)
+	var base: Color = Color8(0x4a, 0x42, 0x3a)
+	var rust: Color = Color8(0xb8, 0x43, 0x2f)
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var ivory: Color = Color8(0xef, 0xe3, 0xc6)
+	var amber: Color = Color8(0xe0, 0x86, 0x1a)
+	var glyphs: Array[Array] = [
+		["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"], ["111", "001", "011", "001", "111"],
+		["110", "101", "110", "101", "101"],
+	]
+	var maps: Array[Array] = [SkillIcons.MAPS[&"piercing_arrow"], SkillIcons.LATER_MAP, SkillIcons.LOCK_MAP, SkillIcons.LATER_MAP]
+	var want: Dictionary[Vector2i, Color] = {}
+	var veiled: Array[Vector2i] = []
+	var veil_rows: int = 7
+	for slot: int in 4:
+		var o: Vector2i = Vector2i(x0 + slot * 20, top)
+		var refused: bool = slot == 3
+		if slot == 2:
+			for y: int in range(2, 16):
+				for x: int in range(2, 16):
+					want[o + Vector2i(x, y)] = dark
+		_frame_pixels(want, Rect2i(o, Vector2i(18, 18)), rust if refused else dark)
+		_frame_pixels(want, Rect2i(o + Vector2i(1, 1), Vector2i(16, 16)), rust if refused else base)
+		var rows: Array = maps[slot]
+		for my: int in 12:
+			var line: String = rows[my]
+			for mx: int in 12:
+				if ItemIcons.PALETTE.has(line[mx]):
+					var q: Vector2i = o + Vector2i(3 + mx, 3 + my)
+					if slot == 0 and my + 3 < 2 + veil_rows:
+						veiled.append(q)
+					else:
+						want[q] = ItemIcons.PALETTE[line[mx]]
+		if slot == 0:
+			for x2: int in range(2, 16):
+				var sq: Vector2i = o + Vector2i(x2, 2 + veil_rows - 1)
+				want[sq] = gold
+				veiled.erase(sq)
+		var g: Array = glyphs[slot]
+		for pass_i: int in 2:
+			for gy: int in 5:
+				var gl: String = g[gy]
+				for gx: int in 3:
+					if gl[gx] == "1":
+						var gp: Vector2i = o + Vector2i(13 + gx, 11 + gy) + (Vector2i.ONE if pass_i == 0 else Vector2i.ZERO)
+						want[gp] = dark if pass_i == 0 else ivory
+						veiled.erase(gp)
+	# The resource bar: the ring of its frame, the fill for 50 of 100 (38 of 76 px) and the ivory tick at 30 (x 22).
+	var bar_at: Vector2i = Vector2i(x0 + 1, top - 5)
+	var bar_px: int = 0
+	for x3: int in range(x0, x0 + 78):
+		want[Vector2i(x3, top - 6)] = dark
+		want[Vector2i(x3, top - 3)] = dark
+	for y3: int in [top - 5, top - 4]:
+		want[Vector2i(x0, y3)] = dark
+		want[Vector2i(x0 + 77, y3)] = dark
+		for x4: int in 38:
+			want[bar_at + Vector2i(x4, y3 - bar_at.y)] = amber
+			bar_px += 1
+		want[Vector2i(bar_at.x + 22, y3)] = ivory
+	var bad: int = _count_wrong(got, want)
+	var veil_not_darker: int = 0
+	var o0: Vector2i = Vector2i(x0, top)
+	var arrow: Array = SkillIcons.MAPS[&"piercing_arrow"]
+	var veil_bright: int = 0
+	for q2: Vector2i in veiled:
+		var arrow_row: String = arrow[q2.y - o0.y - 3]
+		var src: Color = ItemIcons.PALETTE[arrow_row[q2.x - o0.x - 3]]
+		if _brightness(src) <= _brightness(dark) + 0.01:
+			continue  # the outline is the veil's own colour: nothing to darken
+		veil_bright += 1
+		if _brightness(got.get_pixelv(q2)) >= _brightness(src):
+			veil_not_darker += 1
+	if bad > 0 or veil_not_darker > 0 or save_all:
+		_save(got, "skills_hud_got.png")
+	# The herbalist: five healing herbs = five lit pips of twelve (5 x 2, 1 px apart).
+	var herb: Player = Player.new()
+	herb.setup(world.data, "herbalist", Vector2(400, 400))
+	herb.skills_on = true
+	herb.inventory.add(Config.HERBALIST_MATERIAL_ITEM, 5)
+	hud.bind(herb.inventory)
+	hud.bind_player(herb)
+	var got2: Image = await _capture()
+	var pips: Dictionary[Vector2i, Color] = {}
+	var red: Color = Color8(0xb8, 0x2e, 0x24)
+	for i: int in 5:
+		for py: int in 2:
+			for px: int in 5:
+				pips[bar_at + Vector2i(i * 6 + px, py)] = red
+	for x5: int in range(x0, x0 + 78):
+		pips[Vector2i(x5, top - 6)] = dark
+		pips[Vector2i(x5, top - 3)] = dark
+	var bad2: int = _count_wrong(got2, pips)
+	var lit_beyond: int = 0
+	for i2: int in range(5, 12):
+		if got2.get_pixelv(bar_at + Vector2i(i2 * 6, 0)).to_rgba32() == red.to_rgba32():
+			lit_beyond += 1
+	if bad2 > 0 or lit_beyond > 0 or save_all:
+		_save(got2, "skills_hud_herbs_got.png")
+	# Skills off: the row's place is the background.
+	herb.skills_on = false
+	hud.canvas.queue_redraw()
+	var got3: Image = await _capture()
+	var off_diff: int = 0
+	for y6: int in range(top - 6, top + 18):
+		for x6: int in range(x0, x0 + 78):
+			if got3.get_pixel(x6, y6).to_rgba32() != bg.get_pixel(x6, y6).to_rgba32():
+				off_diff += 1
+	root.remove_child(hud)
+	hud.free()
+	p.free()
+	herb.free()
+	var line2: String = "pixels=%d bar_fill=%d veiled=%d (bright %d) veil_not_darker=%d mismatches=%d herb_pixels=%d herb_mismatches=%d lit_beyond=%d off_diff=%d" % [
+		want.size(), bar_px, veiled.size(), veil_bright, veil_not_darker, bad, pips.size(), bad2, lit_beyond, off_diff]
+	if bad == 0 and veil_not_darker == 0 and veil_bright >= 5 and bar_px == 76 and bad2 == 0 and lit_beyond == 0 and off_diff == 0:
+		print("EVENSONG_RENDER skills_hud ok %s" % line2)
+	else:
+		_fail("skills_hud", line2)
+
+
+## M9a: the skills' drawn effects, evening off then on: a taunt burst's ring (its frame-1 picture, CombatView.burst_image, written
+## out here as the dots on the ring: 2x2, faith gold with a dark corner at (1, 1)) centred on its feet and the ally ring under an
+## ally's feet (AllyMark's map, centred one px above the feet), both unshaded: the same pixels with the evening on.
+func _check_skills_fx() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var a: Arena = Arena.new()
+	a.setup(world.data, 1)
+	a.spawning = false
+	var view: CombatView = CombatView.new()
+	root.add_child(view)
+	view.setup(a, world.entities)
+	var burst_feet: Vector2 = Vector2(origin + Vector2i(150, 140))
+	var b: Arena.Burst = a.add_burst(Arena.BurstKind.TAUNT, burst_feet, 32.0)
+	b.age = 6  # frame 1 of 3 over 18 ticks
+	view.sync([] as Array[Player])
+	var mark: AllyMark = AllyMark.new()
+	world.add_child(mark)
+	world.move_child(mark, world.entities.get_index())
+	var ghost: Player = Player.new()
+	ghost.setup(world.data, "cleric", Vector2(origin + Vector2i(330, 150)))
+	mark.show_for(ghost)
+	var got: Image = await _capture()
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var want: Dictionary[Vector2i, Color] = {}
+	# The ring of frame 1: radius 32 * 2 / 3, one dot per 6 px of its circumference (at least 8), turned half a dot.
+	var r: float = 32.0 * 2.0 / 3.0
+	var dots: int = maxi(8, ceili(TAU * r / 6.0))
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var corner: Color = Color8(0x9c, 0x6a, 0x1f)
+	var c: Vector2i = Vector2i(burst_feet) - origin
+	for k: int in dots:
+		var ang: float = TAU * (k + 0.5) / dots
+		var dp: Vector2i = c + Vector2i(roundi(r * cos(ang)), roundi(r * sin(ang)))
+		for dy: int in 2:
+			for dx: int in 2:
+				want[dp + Vector2i(dx, dy)] = corner if dx == 1 and dy == 1 else gold
+	var ring_feet: Vector2i = Vector2i(ghost.position) - origin
+	for my: int in AllyMark.MAP.size():
+		var line: String = AllyMark.MAP[my]
+		for mx: int in line.length():
+			if line[mx] == "g":
+				want[ring_feet + Vector2i(mx - 7, my - 3)] = gold
+	var bad: int = _count_wrong(got, want)
+	var bad_eve: int = _count_wrong(eve, want)
+	var others: int = 0
+	for y: int in got.get_height():
+		for x: int in got.get_width():
+			var q: Vector2i = Vector2i(x, y)
+			if not want.has(q) and got.get_pixelv(q).to_rgba32() != bg.get_pixelv(q).to_rgba32():
+				others += 1
+	if bad > 0 or bad_eve > 0 or others > 0 or save_all:
+		_save(got, "skills_fx_got.png")
+	view.clear()
+	root.remove_child(view)
+	view.free()
+	world.remove_child(mark)
+	mark.free()
+	ghost.free()
+	var line2: String = "pixels=%d dots=%d mismatches=%d evening_mismatches=%d other_changed=%d" % [want.size(), dots, bad, bad_eve,
+		others]
+	if bad == 0 and bad_eve == 0 and others == 0 and want.size() > 60:
+		print("EVENSONG_RENDER skills_fx ok %s" % line2)
+	else:
+		_fail("skills_fx", line2)

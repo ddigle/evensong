@@ -271,6 +271,11 @@ class InputFrame:
 	## stack (as far as the money fits) when `sell_all`. Both aim at the merchant's tile `cell`. M8 review: a SELL's
 	## `item_index` and `grade` are what its sender showed in that slot (NetProtocol.seen_in).
 	var sell_all: bool = false
+	## M9a, resolved, not sent (offline only: a session's players have no skills until M9c, which puts them on the wire): the
+	## skill the frame starts (Skills; &"" = none), its slot (Skills.Slot) and the ally it goes to (node instance id, 0 = none).
+	var skill: StringName = &""
+	var skill_slot: int = -1
+	var skill_target: int = 0
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq

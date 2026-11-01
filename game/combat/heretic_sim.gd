@@ -56,6 +56,11 @@ var poison_damage: int = 0
 var poison_ticks: int = 0
 var poison_timer: int = 0
 var poison_by: int = 0
+## M9a (○ gameplay-design §2.3, Arena.threat_on; the host's AI only, not sent): threat per player (node instance id -> threat),
+## and the paladin whose taunt forces it onto him (node instance id, 0 = none) for taunt_ticks more ticks.
+var threat: Dictionary[int, int] = {}
+var taunt_by: int = 0
+var taunt_ticks: int = 0
 ## Display: ticks since spawning (walk / idle frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0
@@ -140,3 +145,22 @@ func describe() -> String:
 ## M6a: poisoned now (M6-fix: only while alive; a dead heretic's poison has ended).
 func poisoned() -> bool:
 	return alive() and poison_ticks > 0
+
+
+## M9a: a taunt forces it now (alive only).
+func taunted() -> bool:
+	return alive() and taunt_ticks > 0 and taunt_by != 0
+
+
+## M9a: its threat on the player with node instance id `player_id` (0 when none).
+func threat_of(player_id: int) -> int:
+	var v: int = threat.get(player_id, 0)
+	return v
+
+
+## M9a: the highest threat it holds on anyone (0 when none).
+func top_threat() -> int:
+	var top: int = 0
+	for v: int in threat.values():
+		top = maxi(top, v)
+	return top

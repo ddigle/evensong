@@ -4,9 +4,10 @@ extends Node2D
 ## the same icons for the HUD. PLACEHOLDERS drawn in code from 7x7 character maps (no effect art exists):
 ## the buff an amber arrow up, the poison a poison-herb yellow drop with a rust spot (● brief §5.7 R29: the
 ## potion colours follow the crops; ItemIcons.PALETTE). Unshaded so they read in the dark. The node sits on
-## the feet; the icons are centred in a row MARK_Y px above them. Layout values are IMPL.
+## the feet; the icons are centred in a row MARK_Y px above them. Layout values are IMPL. M9a: a taunted heretic's mark (the
+## paladin's taunt, Arena.taunt): a faith-gold "!" (a PLACEHOLDER like the others).
 
-enum Kind { BUFF, POISON }
+enum Kind { BUFF, POISON, TAUNT }
 
 const SIZE: int = 7
 const GAP: int = 1
@@ -15,6 +16,7 @@ const MARK_Y: int = -44
 const MAPS: Array[Array] = [
 	["...k...", "..kak..", ".kaaak.", "kkaaakk", "..kak..", "..kak..", "..kkk.."],
 	["...k...", "..kyk..", ".kyyyk.", "kyyuyYk", "kyyyyYk", ".kYYYk.", "..kkk.."],
+	["..kkk..", "..kgk..", "..kgk..", "..kgk..", "..kkk..", "..kgk..", "..kkk.."],
 ]
 
 static var _textures: Array[ImageTexture] = []

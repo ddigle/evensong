@@ -24,6 +24,16 @@ extends RefCounted
 ## ends, every heretic forgets its target, the shots in the air are gone and the spawn timer starts over.
 ## So nothing that waits on a map nobody is on lands on the next player to arrive (at the stairs, where a
 ## fleeing player left), no shot flies on unseen, and the first spawn comes one interval after arriving.
+##
+## M9a (offline: the game turns `threat_on` on for its arenas; a session's host leaves it off until M9c): threat (○
+## gameplay-design §2.3, Config "M9a 위협"): damage dealt to a heretic adds threat for its dealer (hit_heretic, a poison tick:
+## the thrower's), a heal adds a little to every heretic engaged with someone near the healed ally (heal_threat), the paladin's
+## taunt forces the heretics around him onto him for a while and puts his threat on top (taunt); pick_target takes the valid
+## target with the highest threat (the M4 rules decide what is valid: up, in sight, outside the light), the nearest when no
+## valid target has any (M4). The identity skills that work on heretics live here too: the taunt, the piercing arrow
+## (skill_shot with `pierce`: it passes through heretics, each hit once), the ground slam (slam: a hit, a stagger by the M4 rule
+## and a push). A skill's burst (display only: CombatView) is kept in `bursts` for Config.SKILL_BURST_TICKS. M9a also lets a
+## thrown healing or buff potion follow the ally it was thrown at (Flask.follow_id, ● gameplay-design §2.1 R42).
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -48,6 +58,9 @@ class Shot:
 	var aim: int = 0
 	var item: StringName = &""
 	var owner_slot: int = 255
+	## M9a: a piercing shot (the archer's identity skill) flies on through heretics, each hit once (`pierced`: their ids).
+	var pierce: bool = false
+	var pierced: Dictionary[int, bool] = {}
 
 
 ## M6a: a thrown potion in flight (the herbalist's skill, items/potions.gd): lobbed over bodies along the
@@ -69,6 +82,9 @@ class Flask:
 	## it as a thrown event).
 	var owner_slot: int = 255
 	var born: int = 0
+	## M9a: the ally a healing or buff potion was thrown at (node instance id, 0 = none): while that ally is up on this map the
+	## bottle's landing point follows its body point (clamped to Config.THROW_RANGE_PX of the hand), so it lands on it.
+	var follow_id: int = 0
 
 	## 0..1 of the way (for the arc it is drawn on).
 	func progress() -> float:
@@ -102,6 +118,23 @@ class Hit:
 	var by_id: int = 0
 	var killed: bool = false
 	var poison: bool = false
+
+
+## M9a: what a skill shows for a moment where it worked (display only, CombatView): the taunt's ring around the paladin, the
+## ground slam's ring around the miner, the heal's sparks over the healed ally.
+enum BurstKind { TAUNT, SLAM, HEAL }
+
+
+class Burst:
+	extends RefCounted
+	var id: int = 0
+	var kind: int = BurstKind.TAUNT
+	## Where it shows (feet), how far its ring reaches (px), ticks since it started.
+	var pos: Vector2 = Vector2.ZERO
+	var radius: float = 0.0
+	var age: int = 0
+	## The player it follows (node instance id; 0 = it stays where it started).
+	var follow_id: int = 0
 
 var data: WorldData
 ## The light rule's zone (SafeZone.for_world). M5b: worked out again when the altar moves (sync_world).
@@ -141,6 +174,10 @@ var _shrine_data: WorldData = null
 ## (sync_world).
 var _synced_altar: Rect2i = Rect2i()
 var _synced_corruption: int = 0
+## M9a: threat on (the offline game's arenas; off: the M4 nearest rule, a session's host until M9c), and the skills' bursts
+## being shown.
+var threat_on: bool = false
+var bursts: Array[Burst] = []
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -165,6 +202,7 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	shots.clear()
 	flasks.clear()
 	splashes.clear()
+	bursts.clear()
 	next_id = 1
 	spawn_timer = 0
 	occupied = false
@@ -285,6 +323,7 @@ func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if not f.done:
 			in_air.append(f)
 	flasks = in_air
+	_age_bursts(players)  # M9a
 	var staying: Array[HereticSim] = []
 	for h: HereticSim in heretics:
 		if not h.finished():
@@ -324,6 +363,7 @@ func on_emptied() -> void:
 		h.has_target = false
 		h.target_id = 0
 		h.watch_ticks = 0
+		_forget_threat(h)  # M9a
 		if h.state != HereticSim.State.RETURN:
 			h.state = HereticSim.State.IDLE
 			h.state_ticks = 0
@@ -337,6 +377,7 @@ func on_emptied() -> void:
 		f.stopped_by = "emptied"
 	flasks.clear()
 	splashes.clear()
+	bursts.clear()
 	spawn_timer = 0
 	attacks_started = 0
 	shrine_flash = 0
@@ -403,6 +444,10 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		h.flash_ticks -= 1
 	if h.alive() and h.poison_ticks > 0:
 		_tick_poison(h)  # M6a
+	if h.taunt_ticks > 0:
+		h.taunt_ticks -= 1  # M9a: the taunt runs out
+		if h.taunt_ticks == 0:
+			h.taunt_by = 0
 	match h.state:
 		HereticSim.State.DEAD:
 			h.state_ticks += 1
@@ -436,6 +481,7 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		_set_state(h, HereticSim.State.RETURN)
 		h.has_target = false
 		h.watch_ticks = 0
+		_forget_threat(h)  # M9a
 		_go_home(h)
 		return
 	var t: Player = pick_target(h, players)
@@ -455,9 +501,11 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 				_set_state(h, HereticSim.State.RETURN)
 				h.has_target = false
 				h.watch_ticks = 0
+				_forget_threat(h)  # M9a
 			return
 		h.has_target = false
 		h.watch_ticks = 0
+		_forget_threat(h)  # M9a: no valid target left
 		if h.pos.distance_to(h.home) > Config.HERETIC_HOME_IDLE_PX:
 			_set_state(h, HereticSim.State.RETURN)
 			_go_home(h)
@@ -490,7 +538,14 @@ func _set_state(h: HereticSim, s: int) -> void:
 
 ## The nearest player on this map that is up, in sight (Config.HERETIC_SIGHT_PX, no wall between) and,
 ## unless Config.HERETIC_ENTERS_LIGHT, outside the light (§2.3 ○ aggro = PROVISIONAL "nearest").
+## M9a, with threat_on (○ §2.3, PROVISIONAL "M9a 위협"): among those valid targets, the taunting paladin while a taunt forces
+## it, else the one with the highest threat (ties: the nearer, then the first in `players`), else (no valid target has any
+## threat) the nearest as before.
 func pick_target(h: HereticSim, players: Array[Player]) -> Player:
+	if threat_on:
+		var by_threat: Player = _threat_target(h, players)
+		if by_threat != null:
+			return by_threat
 	var best: Player = null
 	var best_d: float = INF
 	for p: Player in players:
@@ -507,6 +562,65 @@ func can_target(h: HereticSim, p: Player) -> bool:
 	if not p.vitals.alive() or not _in_sight(h, p):
 		return false
 	return Config.HERETIC_ENTERS_LIGHT or not in_light(p.sim_position)
+
+
+## M9a: the target threat picks (pick_target), or null when no valid target has threat (and no taunt forces one).
+func _threat_target(h: HereticSim, players: Array[Player]) -> Player:
+	if h.taunted():
+		for p: Player in players:
+			if p.get_instance_id() == h.taunt_by and can_target(h, p):
+				return p
+	var best: Player = null
+	var best_threat: int = 0
+	var best_d: float = INF
+	for p: Player in players:
+		var t: int = h.threat_of(p.get_instance_id())
+		if t <= 0 or not can_target(h, p):
+			continue
+		var d: float = h.pos.distance_to(p.sim_position)
+		if t > best_threat or (t == best_threat and d < best_d):
+			best = p
+			best_threat = t
+			best_d = d
+	return best
+
+
+## M9a: adds `amount` threat for the player with node instance id `by` on heretic `h` (threat_on, a live heretic, a known
+## player only).
+func add_threat(h: HereticSim, by: int, amount: int) -> void:
+	if not threat_on or by == 0 or amount <= 0 or not h.alive():
+		return
+	h.threat[by] = h.threat_of(by) + amount
+
+
+## M9a: heretic `h` lost its target, walks home or its map emptied: it forgets its threat and any taunt
+## (Config.THREAT_FORGOTTEN_WITH_TARGET; false = it keeps its threat).
+func _forget_threat(h: HereticSim) -> void:
+	h.taunt_by = 0
+	h.taunt_ticks = 0
+	if Config.THREAT_FORGOTTEN_WITH_TARGET:
+		h.threat.clear()
+
+
+## M9a (○ §2.3 "힐은 위협을 넓게 조금씩"): the player with node instance id `healer_id` healed `amount` HP on `healed`: every live
+## heretic engaged with (has a target) a player among `players` within Config.THREAT_HEAL_REACH_PX of the healed ally gets
+## Config.THREAT_HEAL_PCT percent of it (at least 1) as threat for the healer. Returns how many got some.
+func heal_threat(healer_id: int, healed: Player, amount: int, players: Array[Player]) -> int:
+	if not threat_on or healer_id == 0 or amount <= 0 or healed == null:
+		return 0
+	var add: int = maxi(amount * Config.THREAT_HEAL_PCT / 100, 1)
+	var n: int = 0
+	for h: HereticSim in heretics:
+		if not h.alive() or not h.has_target:
+			continue
+		for p: Player in players:
+			if p.get_instance_id() == h.target_id \
+					and p.sim_position.distance_to(healed.sim_position) <= Config.THREAT_HEAL_REACH_PX:
+				add_threat(h, healer_id, add)
+				n += 1
+				break
+	count("heal_threat", n)
+	return n
 
 
 func _in_sight(h: HereticSim, p: Player) -> bool:
@@ -586,6 +700,7 @@ func _go_home(h: HereticSim) -> void:
 func hit_heretic(h: HereticSim, amount: int, by: int = 0) -> void:
 	if not h.alive():
 		return
+	add_threat(h, by, amount * Config.THREAT_PER_DAMAGE)  # M9a (threat_on)
 	h.hp = maxi(h.hp - amount, 0)
 	h.flash_ticks = Config.HIT_FLASH_TICKS
 	count("heretic_hits")
@@ -650,6 +765,7 @@ static func _end_poison(h: HereticSim) -> void:
 
 
 func _poison_damage(h: HereticSim, amount: int) -> void:
+	add_threat(h, h.poison_by, amount * Config.THREAT_PER_DAMAGE)  # M9a (threat_on): the thrower's
 	h.hp = maxi(h.hp - amount, 0)
 	h.flash_ticks = Config.HIT_FLASH_TICKS
 	count("poison_hits")
@@ -677,7 +793,10 @@ const FLASK_ARRIVE_PX: float = 0.001
 ## M6a: player `p` throws potion `item` at `grade` (its release frame) toward ground point `target` (already
 ## clamped to Config.THROW_RANGE_PX, Potions.throw_target). The bottle leaves from its body point. Returns it.
 ## M6b: `owner_slot` = the thrower's session slot; with logging on, a thrown event goes to the map's clients.
-func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owner_slot: int = 255) -> Flask:
+## M9a: `follow` = the ally a healing or buff potion goes to (● §2.1 R42, offline): the bottle flies at its body point now and
+## follows it (Flask.follow_id, _step_flask).
+func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owner_slot: int = 255,
+		follow: Player = null) -> Flask:
 	var f: Flask = Flask.new()
 	f.id = next_id
 	next_id += 1
@@ -686,6 +805,9 @@ func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owne
 	f.origin = Combat.body_point(p.sim_position)
 	f.pos = f.origin
 	f.target = Potions.throw_target(f.origin, target)
+	if follow != null:
+		f.follow_id = follow.get_instance_id()
+		f.target = Potions.throw_target(f.origin, Combat.body_point(follow.sim_position))
 	f.owner_id = p.get_instance_id()
 	f.owner_slot = owner_slot
 	f.born = now
@@ -728,6 +850,12 @@ static func splash_event(s: Splash) -> NetProtocol.ShotEvent:
 func _step_flask(f: Flask, players: Array[Player]) -> void:
 	if f.done:
 		return
+	if f.follow_id != 0:
+		# M9a: a healing or buff potion follows the ally it was thrown at while that ally is up here (its body point, clamped to
+		# the throw's range from the hand); gone, down or dead, it lands where it was last going.
+		for q: Player in players:
+			if q.get_instance_id() == f.follow_id and q.vitals.alive():
+				f.target = Potions.throw_target(f.origin, Combat.body_point(q.sim_position))
 	var arrive: bool = flask_arrives(f.pos, f.target)  # this tick it lands (float slack: no extra tick)
 	for to: Vector2 in flask_points(f.pos, f.target):
 		var from: Vector2 = f.pos
@@ -799,8 +927,11 @@ func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
 			if splash_revives(effect) and p.vitals.life == Vitals.Life.DOWN:
 				p.revive_now()  # M6b, PROVISIONAL Config.THROW_HEAL_REVIVES (off: F revives, a splash does not)
 				count("splash_revives")
+			var hp_before: int = p.vitals.hp
 			if p.vitals.alive() and p.apply_potion(f.item, f.grade) != 0:
 				s.players += 1
+				if effect == Potions.Effect.HEAL:
+					heal_threat(f.owner_id, p, p.vitals.hp - hp_before, players)  # M9a (threat_on): the thrower's heal
 	count("splash_players", s.players)
 	count("splash_heretics", s.heretics)
 
@@ -853,14 +984,20 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 		if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, a.reach, a.arc_deg):
 			edits.append_array(damage_shrine(dmg))
 		return edits
+	_let_go(p, a.kind, item, aim, dmg, a.speed, a.life_ticks(), owner_slot)
+	return edits
+
+
+## A shot of player `p` leaves its body point along aim code `aim` (M4a; M9a: also a skill's). Returns it.
+func _let_go(p: Player, kind: int, item: StringName, aim: int, dmg: int, speed: float, life: int, owner_slot: int) -> Shot:
 	var s: Shot = Shot.new()
 	s.id = next_id
 	next_id += 1
-	s.kind = a.kind
-	s.dir = dir
+	s.kind = kind
+	s.dir = Combat.aim_vector(aim)
 	s.pos = Combat.body_point(p.sim_position)
-	s.speed = a.speed
-	s.left = a.life_ticks()
+	s.speed = speed
+	s.left = life
 	s.damage = dmg
 	s.owner_id = p.get_instance_id()
 	s.aim = posmod(aim, Combat.AIM_STEPS)
@@ -880,7 +1017,112 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 		e.tick = now
 		e.pos = s.pos
 		shot_events.append(e)
-	return edits
+	return s
+
+
+# --- M9a: the skills that work on heretics -------------------------------------------------------------------
+
+## The archer's piercing arrow (skill `item`, M9a): an arrow of player `p` along aim code `aim`, `damage` per heretic, flying
+## `reach` px at `speed` px/s; `pierce`: it passes through heretics (each hit once) and only a wall, the shrine or its reach
+## stops it. Returns the shot.
+func skill_shot(p: Player, item: StringName, aim: int, damage: int, reach: float, speed: float, pierce: bool) -> Shot:
+	var life: int = ceili(reach / speed * Config.NET_TICK_RATE) if speed > 0.0 else 0
+	var s: Shot = _let_go(p, Combat.Kind.ARROW, item, aim, damage, speed, life, 255)
+	s.pierce = pierce
+	count("skill_shots")
+	return s
+
+
+## The paladin's taunt (M9a): every live heretic within `radius` px of player `p`'s feet, not walking home, with nothing
+## blocking between their body points, is forced onto `p` for `ticks` (pick_target, threat_on) and `p`'s threat on it goes
+## Config.TAUNT_THREAT_MARGIN above its top. Shows a taunt burst. Returns how many it taunted.
+func taunt(p: Player, radius: float, ticks: int) -> int:
+	var n: int = 0
+	var pid: int = p.get_instance_id()
+	for h: HereticSim in heretics:
+		if not h.alive() or h.state == HereticSim.State.RETURN or h.pos.distance_to(p.sim_position) > radius:
+			continue
+		if not Combat.line_clear(data, Combat.body_point(h.pos), Combat.body_point(p.sim_position)):
+			continue
+		h.taunt_by = pid
+		h.taunt_ticks = ticks
+		if threat_on:
+			h.threat[pid] = h.top_threat() + Config.TAUNT_THREAT_MARGIN
+		n += 1
+	add_burst(BurstKind.TAUNT, p.sim_position, radius, pid)
+	count("taunts")
+	count("taunted", n)
+	return n
+
+
+## The miner's ground slam (M9a): every live heretic within `radius` px of player `p`'s feet with nothing blocking between their
+## body points takes `damage` (hit_heretic: the M4 stagger rule, threat) and, still alive, is pushed `push` px straight away from
+## `p` (_push). No world edit. Shows a slam burst. Returns how many it hit.
+func slam(p: Player, radius: float, damage: int, push: float) -> int:
+	var n: int = 0
+	for h: HereticSim in heretics:
+		if not h.alive():
+			continue
+		var d: Vector2 = h.pos - p.sim_position
+		if d.length() > radius or not Combat.line_clear(data, Combat.body_point(p.sim_position), Combat.body_point(h.pos)):
+			continue
+		hit_heretic(h, damage, p.get_instance_id())
+		n += 1
+		if h.alive() and push > 0.0:
+			var away: Vector2 = d.normalized() if d.length_squared() > 0.0001 else Vector2(PlayerSim.facing_vector(p.facing))
+			_push(h, away, push)
+	add_burst(BurstKind.SLAM, p.sim_position, radius, 0)
+	count("slams")
+	count("slam_hits", n)
+	return n
+
+
+## M9a: moves heretic `h` up to `dist` px along unit vector `dir`, a px at a time, stopping where its feet could not stand
+## (Movement.can_stand: walls, faces, blocking placeables, the map's edge) or (unless Config.HERETIC_ENTERS_LIGHT) would touch the
+## light. Returns how far it went.
+func _push(h: HereticSim, dir: Vector2, dist: float) -> float:
+	var gone: float = 0.0
+	var steps: int = ceili(dist)
+	for i: int in steps:
+		var step: float = minf(1.0, dist - gone)
+		var next: Vector2 = h.pos + dir * step
+		if not Movement.can_stand(data, next):
+			break
+		if not Config.HERETIC_ENTERS_LIGHT and not Combat.box_outside_light(data, safe, next):
+			break
+		h.pos = next
+		gone += step
+	if gone > 0.0:
+		count("pushed")
+	return gone
+
+
+## M9a: shows a skill's burst of `kind` at feet `pos` reaching `radius` px (CombatView), following the player with node instance
+## id `follow` (0 = it stays). Returns it.
+func add_burst(kind: int, pos: Vector2, radius: float, follow: int = 0) -> Burst:
+	var b: Burst = Burst.new()
+	b.id = next_id
+	next_id += 1
+	b.kind = kind
+	b.pos = pos
+	b.radius = radius
+	b.follow_id = follow
+	bursts.append(b)
+	return b
+
+
+## M9a: the bursts age a tick (gone after Config.SKILL_BURST_TICKS) and follow their player.
+func _age_bursts(players: Array[Player]) -> void:
+	var showing: Array[Burst] = []
+	for b: Burst in bursts:
+		b.age += 1
+		if b.follow_id != 0:
+			for q: Player in players:
+				if q.get_instance_id() == b.follow_id:
+					b.pos = q.sim_position
+		if b.age < Config.SKILL_BURST_TICKS:
+			showing.append(b)
+	bursts = showing
 
 
 func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
@@ -916,6 +1158,14 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if why == "wall":
 			_stop(s, "wall")
 			return edits
+		if s.pierce:
+			# M9a: the piercing arrow hits every heretic its drawn point is inside, each once, and flies on.
+			for ph: HereticSim in heretics:
+				if ph.alive() and not s.pierced.has(ph.id) and Combat.shot_hits_body(s.pos, ph.pos):
+					s.pierced[ph.id] = true
+					hit_heretic(ph, s.damage, s.owner_id)
+					count("pierce_hits")
+			continue
 		var h: HereticSim = heretic_at(s.pos)
 		if h != null:
 			hit_heretic(h, s.damage, s.owner_id)

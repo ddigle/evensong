@@ -140,8 +140,10 @@ const WHY_NO_ARENA: String = "no arena"
 ## the one rule for the offline game (core/main.gd) and the host (net/session_host.gd). The drink is checked
 ## again (Potions.drink_refusal: refused at full HP then, nothing used), takes one potion of the action's slot
 ## and grade (take_one) and works on `p` (apply); the throw takes one and lets the bottle go into `arena`
-## (Arena.throw_potion toward Player.action_target, `owner_slot` = the thrower's session slot).
-static func release(p: Player, item: StringName, anim: int, arena: Arena, owner_slot: int = 255) -> Released:
+## (Arena.throw_potion toward Player.action_target, `owner_slot` = the thrower's session slot). M9a: `follow` = the ally a
+## healing or buff throw goes to (offline: Skills.prepare picked it; the bottle follows it, Arena.throw_potion).
+static func release(p: Player, item: StringName, anim: int, arena: Arena, owner_slot: int = 255,
+		follow: Player = null) -> Released:
 	var r: Released = Released.new()
 	r.thrown = anim == RigData.Anim.THROW
 	r.grade = p.action_grade
@@ -156,7 +158,7 @@ static func release(p: Player, item: StringName, anim: int, arena: Arena, owner_
 		r.why = WHY_GONE
 		return r
 	if r.thrown:
-		r.flask = arena.throw_potion(p, item, r.grade, p.action_target, owner_slot)
+		r.flask = arena.throw_potion(p, item, r.grade, p.action_target, owner_slot, follow)
 	else:
 		r.events = p.apply_potion(item, r.grade)
 	return r

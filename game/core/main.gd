@@ -107,6 +107,13 @@ extends Node2D
 ## the host with the world). The host places and moves the merchant and keeps the stock; F at him opens the same panel on this
 ## machine (NetSession.shop_wanted), a click is a BUY / SELL request (not predicted: the host's inventory and stock edits come
 ## back; the panel marks at once the refusal this machine's own world foresees, as a hint, and sends the request anyway).
+## M9a (offline first; a session's players and arenas keep it off until M9c, the herbalist's M6 throw goes on there as it was):
+## the skill kit (combat/skills.gd). The local player and the allies have `skills_on` (keys 1 2 3 R, the class resources, the
+## HUD's skill row) and the near-cursor pick chooses among the players on the local player's map (players_on); a skill's impact
+## frame (Player.action_impact with the skill id) lands it (skill_impact: Skills.land on the map's arena), the herbalist's throw
+## lands through potion_impact as before (a healing or buff potion following the ally it was thrown at). The arenas have
+## `threat_on` (Arena: damage, heals and the taunt make threat; heretics go after the highest). Mining feeds the miner's
+## endurance. An AllyMark rings the ally a heal or buff would go to now (Player.skill_aim_target).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -149,6 +156,9 @@ var build_ghost: BuildGhost
 var shop: Shop
 var shop_on: bool = false
 var merchant_moves: int = 0
+## M9a (offline): the ring under the ally a heal or buff would go to; skills landed (logs, tests).
+var ally_mark: AllyMark
+var skills_landed: int = 0
 
 @onready var world: GameWorld = $World
 @onready var camera: PlayerCamera = $Camera
@@ -173,6 +183,9 @@ func _ready() -> void:
 	build_ghost = BuildGhost.new()
 	world.add_child(build_ghost)
 	world.move_child(build_ghost, world.entities.get_index())  # M7b: where the selected build piece would go
+	ally_mark = AllyMark.new()
+	world.add_child(ally_mark)
+	world.move_child(ally_mark, world.entities.get_index())  # M9a: who a heal or buff would go to
 	world.altar_moved.connect(_on_altar_moved)
 	worlds[Config.MAP_SURFACE] = world
 	if options.host or options.join:
@@ -252,6 +265,12 @@ func _show_map(to: int) -> void:
 			w.add_child(build_ghost)
 		w.move_child(build_ghost, w.entities.get_index())  # M7b: the build ghost goes with the local player's map
 		build_ghost.hide_ghost()
+	if ally_mark != null:
+		if ally_mark.get_parent() != w:
+			ally_mark.get_parent().remove_child(ally_mark)
+			w.add_child(ally_mark)
+		w.move_child(ally_mark, w.entities.get_index())  # M9a: the ally ring goes with the local player's map
+		ally_mark.show_for(null)
 
 
 ## M3a: takes the local player to map `to` (offline): its arrival point there (the dungeon: south of
@@ -290,6 +309,7 @@ func _physics_process(delta: float) -> void:
 		_redraw_chest()  # M7c: the host's chest slot edits change an open panel
 		_redraw_shop()  # M8b: the host's shop stock edits change an open panel
 		_show_merchant_prompt()  # M8b
+		ally_mark.show_for(null)  # M9a: no skills in a session until M9c
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -302,6 +322,7 @@ func _physics_process(delta: float) -> void:
 	_show_purify()
 	_show_build_ghost()  # M7b
 	_show_merchant_prompt()  # M8a
+	ally_mark.show_for(player.skill_aim_target if player.skills_on else null)  # M9a
 
 
 func _bot_tick(delta: float) -> void:
@@ -336,7 +357,8 @@ func _bot_tick(delta: float) -> void:
 	if a.heretic != null and ensure_combat(current_map):
 		var hc: Vector2i = a.heretic
 		arenas[current_map].spawn_heretic(Arena.spawn_feet(hc))  # M7c, test only (bot "heretic")
-	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill)
+	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill,
+		a.skill_slot)
 	if a.op == null:
 		return
 	match a.op.op:
@@ -373,6 +395,7 @@ func spawn(local_class: String) -> void:
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
 	_connect_gear(player)
+	_connect_skills(player)  # M9a (offline; M9c: sessions)
 	player.action_started.connect(_on_action_started)
 	player.action_impact.connect(_on_action_impact)
 	player.place_requested.connect(_on_place_requested)
@@ -634,6 +657,9 @@ func debug_next_action() -> void:
 func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 	if _in_session() or player == null:
 		return
+	if Skills.is_skill(item):
+		skill_impact(player, item)  # M9a
+		return
 	if Potions.is_potion(item):
 		potion_impact(player, item, anim)  # M6a
 		return
@@ -657,6 +683,8 @@ func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 		return  # a swing at open ground (the surface): nothing to report, as in M2
 	for e: EditLog.WorldEdit in r.edits:
 		w.apply_edit(e)
+	if player.skills_on and not r.broken.is_empty():
+		player.skills.on_mined(player.class_id(), r.broken.size())  # M9a: the miner's endurance
 	print("EVENSONG_MINE at=%d,%d class=%s %s" % [target.x, target.y, player.class_id(),
 		r.describe() if r.ok() else "refused: " + r.why])
 
@@ -702,6 +730,7 @@ func ensure_combat(id: int) -> bool:
 	var a: Arena = Arena.new()
 	a.setup(w.data, CliOptions.current().world_seed)
 	a.spawning = not CliOptions.current().test_no_spawns
+	a.threat_on = true  # M9a: offline (a session's host arenas stay off until M9c)
 	arenas[id] = a
 	v = CombatView.new()
 	v.name = &"Combat"
@@ -889,6 +918,8 @@ func _go_offline_combat() -> void:
 	setup_forests()
 	# M8a: and the merchant with his shop (the world the host sent has none in M8a: he comes down by the same rule).
 	setup_shop()
+	# M9a: and the skill kit (the meter starts empty: the host's skills were off).
+	_connect_skills(player)
 
 
 ## --test-ally: a player of `class_id` beside the local one (no input; `down` = it starts downed).
@@ -898,6 +929,7 @@ func add_ally(class_id: String, down: bool) -> Player:
 	a.local_input = false
 	var w: GameWorld = current_world()
 	a.setup(w.data, class_id, player.sim_position + Vector2(18, 0), RigData.Dir.WEST)
+	a.skills_on = true  # M9a: its meter grows (a paladin hit, an archer standing); it presses no key
 	a.died.connect(_on_died.bind(a))
 	a.respawn_due.connect(_on_respawn_due.bind(a))
 	a.hurt.connect(_on_hurt.bind(a))
@@ -1624,11 +1656,20 @@ func _chest_input(event: InputEvent) -> void:
 ## and then nothing is used); the throw takes one and lets the bottle go into the map's arena.
 func potion_impact(p: Player, item: StringName, anim: int) -> void:
 	var arena: Arena = arenas[current_map] if ensure_combat(current_map) else null
-	var r: Potions.Released = Potions.release(p, item, anim, arena)  # M6b: the host's rule too
+	# M9a: a healing or buff throw (the herbalist's skill) goes to the ally picked when the key was pressed.
+	var follow: Player = null
+	if p.skills_on and p.action_skill == Skills.POTION_THROW and p.action_skill_target != 0:
+		follow = _player_by_id(p.action_skill_target)
+	var hp_before: int = p.vitals.hp
+	var r: Potions.Released = Potions.release(p, item, anim, arena, 255, follow)  # M6b: the host's rule too
 	var what: String = "throw" if r.thrown else "drink"
 	if not r.ok():
 		print("EVENSONG_POTION %s refused item=%s: %s" % [what, item, r.why])
 		return
+	if p.skills_on and p.action_skill == Skills.POTION_THROW:
+		p.skills.start_cooldown(Skills.Slot.IDENTITY, Skills.cooldown_ticks(Skills.POTION_THROW))  # M9a: committed (0: M6's rate)
+	if not r.thrown and r.events & PlayerSim.HEALED and arena != null:
+		arena.heal_threat(p.get_instance_id(), p, p.vitals.hp - hp_before, players_on(current_map))  # M9a: a drunk heal
 	if r.thrown:
 		print("EVENSONG_POTION throw item=%s grade=%s from=%d,%d to=%d,%d" % [item, ItemDB.GRADE_NAMES[r.grade],
 			roundi(r.flask.origin.x), roundi(r.flask.origin.y), roundi(r.flask.target.x), roundi(r.flask.target.y)])
@@ -1639,6 +1680,54 @@ func potion_impact(p: Player, item: StringName, anim: int) -> void:
 
 func _on_potion_refused(what: String, why: String) -> void:
 	print("EVENSONG_POTION %s refused: %s" % [what, why])
+
+
+# --- M9a: the skill kit (offline) ---------------------------------------------------------------------------
+
+## Player `p` (the local one) gets the skill kit: `skills_on`, the near-cursor pick over the players on its map, the logs.
+func _connect_skills(p: Player) -> void:
+	p.skills_on = true
+	p.party_provider = _local_party
+	for pair: Array in [[p.skill_refused, _on_skill_refused], [p.skill_started, _on_skill_started]]:
+		var sig: Signal = pair[0]
+		var handler: Callable = pair[1]
+		if not sig.is_connected(handler):
+			sig.connect(handler)
+
+
+## The players on the local player's map (the near-cursor pick's party: the local player first, then the allies).
+func _local_party() -> Array[Player]:
+	return players_on(current_map)
+
+
+## The player with node instance id `id` on the local player's map, or null.
+func _player_by_id(id: int) -> Player:
+	for q: Player in players_on(current_map):
+		if q.get_instance_id() == id:
+			return q
+	return null
+
+
+## Skill `id` of player `p` reaches its impact frame: it lands on the map's arena (Skills.land: the taunt, the piercing arrow,
+## the heal, the ground slam; the cooldown starts when it worked).
+func skill_impact(p: Player, id: StringName) -> void:
+	var arena: Arena = arenas[current_map] if ensure_combat(current_map) else null
+	var r: Skills.Landed = Skills.land(p, id, arena, players_on(current_map))
+	if not r.ok():
+		print("EVENSONG_SKILL fizzled who=%s skill=%s: %s" % [p.name, id, r.why])
+		return
+	skills_landed += 1
+	print("EVENSONG_SKILL land who=%s skill=%s taunted=%d hits=%d healed=%d%s cooldown=%d res=%d" % [p.name, id, r.taunted,
+		r.hits, r.healed, " to=%s" % r.target.name if r.target != null else "", Skills.cooldown_ticks(id),
+		Skills.resource_of(p)])
+
+
+func _on_skill_refused(slot: int, id: StringName, why: String) -> void:
+	print("EVENSONG_SKILL refused key=%s skill=%s: %s" % [Skills.SLOT_KEYS[clampi(slot, 0, 3)], id, why])
+
+
+func _on_skill_started(slot: int, id: StringName) -> void:
+	print("EVENSONG_SKILL start key=%s skill=%s" % [Skills.SLOT_KEYS[clampi(slot, 0, 3)], id])
 
 
 # --- M5a: farming (offline) -------------------------------------------------------------------------------
