@@ -190,6 +190,9 @@ var action_skill_slot: int = -1
 var action_skill_target: int = 0
 ## M9a: the ally a heal or buff of this player would go to now (Skills.aim_target, every controls tick; null = none).
 var skill_aim_target: Player
+## M9 review: a press now would be refused on that ally (the cleric's heal on an ally at full HP: Skills.aim_refused); the ring
+## shows dim then.
+var skill_aim_refused: bool = false
 var _mouse_moved_msec: int = -1000000
 ## make_frame(): the mouse aimed or the use button was held (step_frame() adds "an action plays").
 var _aim_input: bool = false
@@ -239,6 +242,7 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	action_skill_slot = -1
 	action_skill_target = 0
 	skill_aim_target = null
+	skill_aim_refused = false
 	_sync_view()
 
 
@@ -338,6 +342,11 @@ func party() -> Array[Player]:
 ## slot and target; the herbalist's throw as M6's THROW frame), or refused (the HUD's mark, skill_refused).
 func _skill_frame(f: NetProtocol.InputFrame, slot: int, mouse: Vector2) -> void:
 	var prep: Skills.Prepared = Skills.prepare(self, slot, mouse, party())
+	if prep.ok() and f.dash:
+		# M9 review (PROVISIONAL README "M9a 거부"): the dash pressed in the same tick wins (PlayerSim: an action does not start
+		# under a dash, the M6-fix rule), so the key is refused here with its HUD mark instead of vanishing (the host does the
+		# same, SessionHost._skill).
+		prep.why = Skills.WHY_BUSY
 	if not prep.ok():
 		_refuse_skill(slot, prep.id, prep.why)
 		return
@@ -435,7 +444,8 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	var selected: ItemStack = inventory.selected_stack()
 	var slot: int = skill_slot if skill_slot >= 0 else (Skills.Slot.IDENTITY if skill else -1)
 	if skills_on:
-		skill_aim_target = Skills.aim_target(self, party(), f.cursor) if not carrying_altar else null
+		skill_aim_target = Skills.aim_target(self, party(), f.cursor)  # M9 review: none while a panel is open or carrying
+		skill_aim_refused = Skills.aim_refused(self, skill_aim_target)
 	if _channel_pending:
 		_channel_pending = false
 		if purify_on and free and not carrying_altar and data != null \

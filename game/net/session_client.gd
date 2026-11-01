@@ -380,6 +380,8 @@ func on_joined(payload: PackedByteArray) -> void:
 		info.state.facing, info.state.map)
 	_as_remote(m, info.state)
 	m.interp.push(maxi(_last_state_tick, 0), info.state)
+	if combat != null:
+		combat.forget_player(m.slot)  # M9 review: nothing a former holder of the slot left (a ward, a ring following it)
 	s.log_event("joined", "slot=%d class=%s players=%d" % [m.slot, m.class_id, s.members.size()])
 
 
@@ -398,6 +400,8 @@ func on_left(payload: PackedByteArray) -> void:
 		s.bad_messages += 1
 		return
 	s.remove_member(payload[0])
+	if combat != null:
+		combat.forget_player(payload[0])  # M9 review: its ward and what followed it go with it
 	s.log_event("left", "slot=%d players=%d" % [payload[0], s.members.size()])
 
 
@@ -527,6 +531,7 @@ func tick(action: NetBot.Action) -> void:
 	_run_skills_copy(me)
 	var f: NetProtocol.InputFrame = me.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
 		action.use_held, action.dash, action.interact, action.skill, action.skill_slot)  # M9c: the keys 2 3 R too
+	SessionHost.note_pick(s, f)  # M9 review: the ally this machine's ring showed goes with a SKILL / THROW
 	SessionHost.attach_local_op(s, me, f, action)
 	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
 	_show_predicted(true)

@@ -190,7 +190,8 @@ func _check_codec() -> void:
 	frames[2].op = NetProtocol.Op.CRAFT
 	frames[2].recipe = Crafting.recipe_count() - 1
 	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
-	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 3 + 1 + (2 + 11) + (2 + 2), "a THROW is 11 B, a CRAFT 2 B (with the map)")
+	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 3 + 1 + (2 + 12) + (2 + 2),
+		"a THROW is 12 B (M9 review: + the picked ally), a CRAFT 2 B (with the map)")
 	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
 	check(p.ok and p.frames.size() == 3 and p.frames[0].op == NetProtocol.Op.THROW and p.frames[0].slot == 2
 		and p.frames[0].cell == Vector2i(40, -1) and p.frames[0].aim == 201 and p.frames[0].map == Config.MAP_DUNGEON
@@ -336,6 +337,7 @@ func _check_flask_codec() -> void:
 	t.tick = 9000
 	t.pos = Vector2(1016.5, 851.25)
 	t.target = t.pos + Vector2(0, Config.THROW_RANGE_PX)
+	t.follow = 4  # M9 review: the ally a healing or buff bottle follows
 	var sp: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
 	sp.kind = NetProtocol.ShotEvent.Kind.SPLASH
 	sp.id = 77
@@ -344,9 +346,11 @@ func _check_flask_codec() -> void:
 	sp.pos = Vector2(1016.5, 900.0)
 	sp.why = NetProtocol.FLASK_STOPS.find("wall")
 	var bytes: PackedByteArray = NetProtocol.encode_shots(Config.MAP_SURFACE, [t, sp] as Array[NetProtocol.ShotEvent])
-	check_eq(bytes.size(), 2 + NetProtocol.FLASK_THROW_SIZE + NetProtocol.FLASK_SPLASH_SIZE, "flask events: 2 B + 27 B thrown + 19 B broke")
+	check_eq(bytes.size(), 2 + NetProtocol.FLASK_THROW_SIZE + NetProtocol.FLASK_SPLASH_SIZE,
+		"flask events: 2 B + 28 B thrown (M9 review: + the ally it follows) + 19 B broke")
 	var back: NetProtocol.ShotEvents = NetProtocol.decode_shots(bytes)
-	check(back.ok and back.events.size() == 2 and back.events[0].same_as(t) and back.events[1].same_as(sp), "flask events round trip")
+	check(back.ok and back.events.size() == 2 and back.events[0].same_as(t) and back.events[1].same_as(sp)
+		and back.events[0].follow == 4, "flask events round trip (the followed ally too)")
 	var cases: Dictionary[String, PackedByteArray] = {}
 	var c: PackedByteArray = bytes.duplicate()
 	c[2 + 5] = ItemDB.index_of(&"bow")
@@ -366,6 +370,9 @@ func _check_flask_codec() -> void:
 	c = bytes.duplicate()
 	c[2] = 4
 	cases["unknown kind"] = c
+	c = bytes.duplicate()
+	c[2 + 27] = Config.MAX_PLAYERS  # M9 review: a followed ally that is no player slot
+	cases["following no player"] = c
 	for label: String in cases:
 		check(not NetProtocol.decode_shots(cases[label]).ok, "flask events refused: %s" % label)
 	var short_ok: int = 0

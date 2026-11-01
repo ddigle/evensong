@@ -312,7 +312,7 @@ func _physics_process(delta: float) -> void:
 		_redraw_chest()  # M7c: the host's chest slot edits change an open panel
 		_redraw_shop()  # M8b: the host's shop stock edits change an open panel
 		_show_merchant()  # M8b (M8: and which way he looks)
-		ally_mark.show_for(_aim_ring_target())  # M9c: as this machine sees the players
+		ally_mark.show_for(_aim_ring_target(), player.skill_aim_refused)  # M9c: as this machine sees the players
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -325,7 +325,7 @@ func _physics_process(delta: float) -> void:
 	_show_purify()
 	_show_build_ghost()  # M7b
 	_show_merchant()  # M8a (M8: and which way he looks)
-	ally_mark.show_for(_aim_ring_target())  # M9a
+	ally_mark.show_for(_aim_ring_target(), player.skill_aim_refused)  # M9a (M9 review: dim when refused)
 
 
 func _bot_tick(delta: float) -> void:
@@ -2165,6 +2165,10 @@ func _apply_test_options(options: CliOptions) -> void:
 		camera.follow()
 	if not options.test_ally.is_empty():
 		add_ally(options.test_ally, options.test_ally_down)
+	for q: Player in players_on(current_map):
+		if options.test_start_hp.has(q.class_id()) and q.vitals.alive():
+			# M9 review: offline too (the local player and the ally of that class: a hurt ally for the heal's ring in screenshots).
+			q.vitals.hp = clampi(options.test_start_hp[q.class_id()], 1, Config.PLAYER_HP_MAX)
 	if options.test_down:
 		player.take_hit(Config.PLAYER_HP_MAX)
 	if options.test_shrine_hp > 0 and arenas.has(current_map) and arenas[current_map].shrine_rect().has_area():

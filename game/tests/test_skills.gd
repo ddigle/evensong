@@ -497,18 +497,49 @@ func _check_pick() -> void:
 	check(Skills.pick_ally(party, c, a1.sim_position + Vector2(5, -10), r) == a1, "the ally nearest the cursor")
 	check(Skills.pick_ally(party, c, b.sim_position + Vector2(-3, -20), r) == b, "another one")
 	check(Skills.pick_ally(party, c, c.sim_position + Vector2(2, -12), r) == c, "the caster itself")
-	check(Skills.pick_ally(party, c, Vector2(153, 130), r) == e, "between two: the nearer feet")
-	# A tie: the first in the party order (the lower slot).
+	check(Skills.pick_ally(party, c, Vector2(153, 130), r) == e, "between two: the nearer figure")
+	# A tie: the first in the party order (the lower slot). M9 review: measured to the middle of each figure (Combat.body_centre).
 	var f1: Player = player(d, "miner", Vector2(130, 60))
 	var f2: Player = player(d, "archer", Vector2(130, 100))
-	var tie: Vector2 = Vector2(130, 80)
+	var tie: Vector2 = (Combat.body_centre(f1.sim_position) + Combat.body_centre(f2.sim_position)) / 2.0
 	var tied1: Array[Player] = [c, f1, f2]
 	var tied2: Array[Player] = [c, f2, f1]
 	check(Skills.pick_ally(tied1, c, tie, r) == f1 and Skills.pick_ally(tied2, c, tie, r) == f2, "a tie: the first in order")
-	# The grab radius.
-	var edge: Vector2 = a1.sim_position + Vector2(Config.SKILL_GRAB_RADIUS_PX, 0)
+	# The grab radius (from the middle of the figure).
+	var edge: Vector2 = Combat.body_centre(a1.sim_position) + Vector2(Config.SKILL_GRAB_RADIUS_PX, 0)
 	check(Skills.pick_ally(party, c, edge, r) == a1, "at the grab radius: picked")
 	check(Skills.pick_ally(party, c, edge + Vector2(1, 0), 500.0) == null, "beyond it: nobody")
+	check_eq(Skills.cursor_distance(a1, a1.sim_position), Config.BODY_HIT_HEIGHT_PX / 2.0,
+		"the cursor on the feet is half a figure from its middle")
+	# M9 review: two allies stacked one above the other, the cursor on the front one's torso or head: the front one gets it (the
+	# feet would have handed it to the one behind).
+	var front: Player = player(d, "paladin", Vector2(200, 200))
+	var behind: Player = player(d, "archer", Vector2(200, 184))
+	var stacked: Array[Player] = [c, behind, front]
+	var torso_ok: bool = true
+	for up: int in [0, 4, 8, 12, 14, 18]:
+		if Skills.pick_ally(stacked, c, front.sim_position - Vector2(0, up), 300.0) != front:
+			torso_ok = false
+	check(torso_ok, "the cursor on the front ally's feet, torso or chest picks him, not the one standing behind")
+	check(Skills.pick_ally(stacked, c, Combat.body_centre(behind.sim_position), 300.0) == behind,
+		"the cursor on the middle of the one behind picks him")
+	# M9 review: the host's pick with its sender's hint (Config.SKILL_PICK_LAG_PX): the hinted ally while it is within the radius plus
+	# the allowance, else the host's own nearest.
+	var near_cursor: Vector2 = Combat.body_centre(front.sim_position)
+	check(Skills.pick_with_hint(stacked, c, near_cursor, 300.0, null) == front, "no hint: the nearest")
+	check(Skills.pick_with_hint(stacked, c, near_cursor + Vector2(0, -16), 300.0, front) == front, "a hint near the cursor: taken")
+	var lag_edge: Vector2 = Combat.body_centre(behind.sim_position) + Vector2(Config.SKILL_GRAB_RADIUS_PX + Config.SKILL_PICK_LAG_PX, 0)
+	check(Skills.pick_with_hint(stacked, c, lag_edge, 300.0, behind) == behind,
+		"a hint at the radius plus the lag allowance: taken (the sender drew him there)")
+	check(Skills.pick_with_hint(stacked, c, lag_edge + Vector2(1, 0), 300.0, behind) != behind,
+		"a hint one px farther: the host's own pick instead")
+	check(Skills.pick_with_hint(stacked, c, near_cursor, 10.0, front) == null,
+		"a hint out of the skill's range: not taken (nor anyone else in range)")
+	var stranger: Player = player(open_world(), "miner", front.sim_position)
+	check(Skills.pick_with_hint(stacked, c, near_cursor, 300.0, stranger) == front, "a hint not in the party: the host's own pick")
+	behind.take_hit(Config.PLAYER_HP_MAX)
+	check(Skills.pick_with_hint(stacked, c, Combat.body_centre(behind.sim_position), 300.0, behind) == front,
+		"a downed hint: the host's own pick")
 	# The range (feet to feet from the caster).
 	var far: Player = player(d, "paladin", Vector2(100 + 120, 220))
 	var with_far: Array[Player] = [c, far]
@@ -547,6 +578,25 @@ func _check_pick() -> void:
 	h.inventory.select(0)
 	check(Skills.aim_target(h, hparty, a1.sim_position) == null, "poison: no ring (aimed at the point)")
 	check(Skills.aim_target(a1, party, a1.sim_position) == null, "a paladin has no heal")
+	# M9 review: no ring while a panel is open or the altar is carried (the key would be refused); a dim ring on a full-HP ally.
+	var c2: Player = player(d, "cleric", Vector2(100, 100))
+	var party2: Array[Player] = [c2, a1]
+	check(Skills.aim_target(c2, party2, a1.sim_position) == a1 and Skills.aim_refused(c2, a1),
+		"the heal's ring on a full-HP ally: shown, marked refused")
+	a1.vitals.hp = 70
+	check(not Skills.aim_refused(c2, a1), "a hurt ally: not refused")
+	c2.ui_locked = true
+	check(Skills.aim_target(c2, party2, a1.sim_position) == null, "a panel open: no ring")
+	c2.ui_locked = false
+	c2.carrying_altar = true
+	check(Skills.aim_target(c2, party2, a1.sim_position) == null, "carrying the altar: no ring")
+	c2.carrying_altar = false
+	h.inventory.clear()
+	h.inventory.add(&"potion_buff", 1)
+	h.inventory.select(0)
+	a1.vitals.hp = Config.PLAYER_HP_MAX
+	check(Skills.aim_target(h, hparty, a1.sim_position) == a1 and not Skills.aim_refused(h, a1),
+		"a buff throw at a full-HP ally: not refused (a buff, not a heal)")
 
 
 # --- threat (○ §2.3) ------------------------------------------------------------------------------------

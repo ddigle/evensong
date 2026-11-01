@@ -64,7 +64,7 @@ extends RefCounted
 ##   --test-shrine-hp=<n>         a host's dungeon shrine starts with n hit points
 ##   --test-no-spawns             no heretic spawns (offline and host; the test heretics still come)
 ##   --test-start-hp=<class>:<hp>[,...]   host: members of that class start with that HP (tests: one hit
-##                                downs them)
+##                                downs them). M9 review: offline too (the local player and the --test-ally of that class)
 ## M5a (offline screenshot / test flag):
 ##   --test-field=<x>,<y>:<soil|healing|buff|poison>[:<stage 0..4>][:wet][:fast][/...]   tilled soil (and a crop at that
 ##                                stage, wet, planted by the herbalist) on those tiles of the start map at the start,
@@ -358,7 +358,8 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 			"test-start-resource":
 				for part: String in value.split(",", false):
 					var kv: PackedStringArray = part.split(":")
-					if kv.size() != 2 or not Config.CLASSES.has(kv[0]) or not kv[1].is_valid_int() or kv[1].to_int() < 0 							or kv[1].to_int() > 100:
+					if kv.size() != 2 or not Config.CLASSES.has(kv[0]) or not kv[1].is_valid_int() or kv[1].to_int() < 0 \
+							or kv[1].to_int() > 100:
 						o.errors.append("%s: expected --test-start-resource=<class>:<0..100>[,...]" % raw)
 						break
 					o.test_start_resource[kv[0]] = kv[1].to_int()

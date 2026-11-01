@@ -534,7 +534,10 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 		_tick_poison(h)  # M6a
 	if h.taunt_ticks > 0:
 		h.taunt_ticks -= 1  # M9a: the taunt runs out
-		if h.taunt_ticks == 0:
+		if h.taunt_ticks == 0 or not _up_here(h.taunt_by, players):
+			# M9 review: so does it once its paladin is no longer up on this map (down, dead, gone): it would force nothing, and
+			# its mark would show over a heretic hunting someone else. Out of sight or in the light it holds (M9a's rule).
+			h.taunt_ticks = 0
 			h.taunt_by = 0
 	if h.alive() and h.slow_ticks > 0:
 		h.slow_ticks -= 1  # M9b: the slow runs out
@@ -627,6 +630,14 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 			attacks_started += 1
 		return
 	_move_toward(h, t.sim_position)
+
+
+## M9 review: the player with node instance id `id` is among `players` (this map's) and up.
+static func _up_here(id: int, players: Array[Player]) -> bool:
+	for p: Player in players:
+		if p.get_instance_id() == id:
+			return p.vitals.alive()
+	return false
 
 
 func _set_state(h: HereticSim, s: int) -> void:
@@ -922,8 +933,9 @@ func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owne
 	return f
 
 
-## M6b: the thrown event of flask `f` (also what a late client gets for one in the air).
-static func flask_event(f: Flask) -> NetProtocol.ShotEvent:
+## M6b: the thrown event of flask `f` (also what a late client gets for one in the air). M9 review: with the slot of the ally a
+## healing or buff bottle follows (slot_of; NetProtocol.NO_SLOT = none), so a client's drawn flight bends toward that ally too.
+func flask_event(f: Flask) -> NetProtocol.ShotEvent:
 	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
 	e.kind = NetProtocol.ShotEvent.Kind.THROW
 	e.id = f.id
@@ -932,6 +944,7 @@ static func flask_event(f: Flask) -> NetProtocol.ShotEvent:
 	e.tick = f.born
 	e.pos = f.origin
 	e.target = f.target
+	e.follow = slot_of(f.follow_id) if f.follow_id != 0 else NetProtocol.NO_SLOT
 	return e
 
 

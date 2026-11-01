@@ -81,6 +81,9 @@ class FlaskTrack:
 	var id: int = 0
 	var item: StringName = &""
 	var owner: int = 255
+	## M9 review: the slot of the ally a healing or buff bottle follows (NetProtocol.NO_SLOT = none): its path is built again
+	## toward that player as drawn here while it flies (NetCombat.sample), like the host's bottle follows the ally (Arena).
+	var follow: int = 255
 	## Whether its thrown event came (a late client may get only the splash).
 	var thrown: bool = false
 	var tick: int = 0
@@ -374,6 +377,7 @@ func _on_flask(e: NetProtocol.ShotEvent) -> void:
 	if e.kind == NetProtocol.ShotEvent.Kind.THROW:
 		tr.thrown = true
 		tr.owner = e.owner
+		tr.follow = e.follow  # M9 review
 		tr.tick = e.tick
 		tr.origin = e.pos
 		tr.target = e.target
@@ -461,6 +465,21 @@ func end_ward(slot: int) -> void:
 	wards.erase(slot)
 
 
+## M9 review: player slot `slot` left (or a newcomer took it): its ward goes, so do the bursts and zones that followed it (the
+## host ends a zone that follows a player who leaves anyway: ZONE_END), and a bottle following it flies on to its last point.
+func forget_player(slot: int) -> void:
+	end_ward(slot)
+	for id: int in bursts.keys():
+		if bursts[id].follow == slot:
+			bursts.erase(id)
+	for id: int in zones.keys():
+		if zones[id].follow == slot:
+			zones.erase(id)
+	for id: int in flasks.keys():
+		if flasks[id].follow == slot:
+			flasks[id].follow = NetProtocol.NO_SLOT
+
+
 ## Fills the mirror arena for drawing at host time `t_fresh` (the newest this client knows) with positions
 ## `delay` ticks behind it (see the class comment). M9c: `positions` = the players on this map as drawn here, by slot (a burst
 ## or a zone that follows one is drawn around it).
@@ -503,6 +522,12 @@ func sample(t_fresh: float, delay: float, positions: Dictionary[int, Vector2] = 
 		if ft.over(tf):
 			flasks.erase(id)
 			continue
+		if ft.thrown and ft.end_tick < 0 and ft.follow != NetProtocol.NO_SLOT and positions.has(ft.follow):
+			# M9 review: a healing or buff bottle bends toward the ally it follows, as drawn here (the host's lands on him).
+			var toward: Vector2 = Potions.throw_target(ft.origin, Combat.body_point(positions[ft.follow]))
+			if toward != ft.target:
+				ft.target = toward
+				ft.build_path()
 		var fp: Vector2 = ft.pos_at(tf)
 		if fp != Vector2.INF:
 			var f: Arena.Flask = Arena.Flask.new()

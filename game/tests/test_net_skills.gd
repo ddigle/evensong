@@ -41,12 +41,15 @@ func run() -> Array[String]:
 
 # --- helpers -----------------------------------------------------------------------------------------------
 
-## A SKILL request of slot `slot` with the cursor at `cursor` (aimed at tile `cell`, which only turns the player).
-static func _skill(map: int, cell: Vector2i, slot: int, cursor: Vector2, aim: int = 0) -> NetProtocol.InputFrame:
-	var f: NetProtocol.InputFrame = _op(NetProtocol.Op.SKILL, map, cell)
+## A SKILL request of slot `slot` with the cursor at `cursor` (aimed at tile `cell`, which only turns the player). M9 review: its
+## hotbar slot (`hotbar`: the class weapon's in these tests) and the ally its sender picked (`pick`, a member slot).
+static func _skill(map: int, cell: Vector2i, slot: int, cursor: Vector2, aim: int = 0, hotbar: int = WEAPON_SLOT,
+		pick: int = NetProtocol.NO_SLOT) -> NetProtocol.InputFrame:
+	var f: NetProtocol.InputFrame = _op(NetProtocol.Op.SKILL, map, cell, hotbar)
 	f.skill_slot = slot
 	f.cursor = cursor
 	f.aim = aim
+	f.pick = pick
 	return f
 
 
@@ -106,20 +109,32 @@ func _check_skill_codec() -> void:
 	frames[0].skill_slot = Skills.Slot.SIGNATURE
 	frames[0].cell = Vector2i(40, -1)
 	frames[0].aim = 201
-	frames[0].slot = 5  # the hotbar slot is not sent (the host plays the class weapon it has selected)
+	frames[0].slot = 5  # M9 review: the hotbar slot rides along (key 2 plays the class weapon there)
+	frames[0].pick = 3  # M9 review: the ally the sender's machine picked
 	frames[0].cursor = Vector2(700.4, -3.6)
 	frames[1].op = NetProtocol.Op.THROW
 	frames[1].slot = 2
+	frames[1].pick = 6
 	frames[1].cursor = Vector2(-12.5, 1300.49)
 	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
-	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 2 + 1 + (2 + 11) + (2 + 11), "a SKILL is 11 B (with the map), a THROW still 11 B")
+	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 2 + 1 + (2 + 13) + (2 + 12),
+		"a SKILL is 13 B (with the map, M9 review: the hotbar slot and the picked ally), a THROW 12 B (the picked ally)")
 	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
 	check(p.ok and p.frames.size() == 2 and p.frames[0].op == NetProtocol.Op.SKILL and p.frames[0].skill_slot == Skills.Slot.SIGNATURE
 		and p.frames[0].cell == Vector2i(40, -1) and p.frames[0].aim == 201 and p.frames[0].map == Config.MAP_DUNGEON
-		and p.frames[0].cursor == Vector2(700, -4) and p.frames[0].same_request(frames[0]),
-		"a SKILL round trips: its slot, tile, aim, map and cursor in whole px (%s)" % (p.frames[0].cursor if p.ok else Vector2.INF))
-	check(p.ok and p.frames[1].cursor == Vector2(-13, 1300) and p.frames[1].throw_to == p.frames[1].cursor and p.frames[1].slot == 2,
-		"a THROW's point is its cursor (v11), whole px (%s)" % (p.frames[1].cursor if p.ok else Vector2.INF))
+		and p.frames[0].cursor == Vector2(700, -4) and p.frames[0].slot == 5 and p.frames[0].pick == 3
+		and p.frames[0].same_request(frames[0]),
+		"a SKILL round trips: its slot, hotbar slot, tile, aim, map, picked ally and cursor in whole px (%s)" % (
+		p.frames[0].cursor if p.ok else Vector2.INF))
+	check(p.ok and p.frames[1].cursor == Vector2(-13, 1300) and p.frames[1].throw_to == p.frames[1].cursor and p.frames[1].slot == 2
+		and p.frames[1].pick == 6 and p.frames[1].same_request(frames[1]),
+		"a THROW's point is its cursor (v11), whole px, with its picked ally (%s)" % (p.frames[1].cursor if p.ok else Vector2.INF))
+	var other_pick: NetProtocol.InputFrame = _copy_frame(frames[0])
+	other_pick.pick = 4
+	var other_hotbar: NetProtocol.InputFrame = _copy_frame(frames[0])
+	other_hotbar.slot = 6
+	check(not frames[0].same_request(other_pick) and not frames[0].same_request(other_hotbar),
+		"another picked ally or hotbar slot is another request")
 	for n: int in range(NetProtocol.INPUT_HEADER + 3, bytes.size()):
 		if NetProtocol.decode_inputs(bytes.slice(0, n)).ok:
 			check(false, "a SKILL cut to %d B is refused" % n)
@@ -128,6 +143,21 @@ func _check_skill_codec() -> void:
 		var b: PackedByteArray = bytes.duplicate()
 		b.encode_u8(at + 1, bad_slot)
 		check(not NetProtocol.decode_inputs(b).ok, "a SKILL naming slot %d is refused (the whole packet)" % bad_slot)
+	for bad_hotbar: int in [Config.HOTBAR_SLOTS, 255]:
+		var bh: PackedByteArray = bytes.duplicate()
+		bh.encode_u8(at + 2, bad_hotbar)
+		check(not NetProtocol.decode_inputs(bh).ok, "a SKILL naming hotbar slot %d is refused" % bad_hotbar)
+	for bad_pick: int in [Config.MAX_PLAYERS, 254]:
+		var bp: PackedByteArray = bytes.duplicate()
+		bp.encode_u8(at + 12, bad_pick)
+		check(not NetProtocol.decode_inputs(bp).ok, "a SKILL picking slot %d (no player's) is refused" % bad_pick)
+		var bt: PackedByteArray = bytes.duplicate()
+		bt.encode_u8(at + 13 + 2 + 11, bad_pick)  # the THROW's picked ally (its index and op, then its map and ten field bytes)
+		check(not NetProtocol.decode_inputs(bt).ok, "a THROW picking slot %d is refused" % bad_pick)
+	var none: PackedByteArray = bytes.duplicate()
+	none.encode_u8(at + 12, NetProtocol.NO_SLOT)
+	var pn: NetProtocol.InputPacket = NetProtocol.decode_inputs(none)
+	check(pn.ok and pn.frames[0].pick == NetProtocol.NO_SLOT, "a SKILL picking nobody (255) is fine")
 	var bm: PackedByteArray = bytes.duplicate()
 	bm.encode_u8(at, Config.MAP_COUNT)
 	check(not NetProtocol.decode_inputs(bm).ok, "a SKILL naming no map is refused")
@@ -139,8 +169,23 @@ func _check_skill_codec() -> void:
 	check(fp.ok and fp.frames[0].cursor == Vector2(32767, -32768), "a cursor beyond s16 is clamped on the wire (%s)" % (
 		fp.frames[0].cursor if fp.ok else Vector2.INF))
 	check_eq(NetProtocol.OP_NAMES[NetProtocol.Op.SKILL], "skill", "the op's name")
-	check(frames[0].describe_op().contains("key=R") and frames[0].describe_op().contains("cursor=700,-4"), "its log line (%s)" % (
+	check(frames[0].describe_op().contains("key=R") and frames[0].describe_op().contains("cursor=700,-4")
+		and frames[0].describe_op().contains("slot=5") and frames[0].describe_op().contains("pick=3"), "its log line (%s)" % (
 		frames[0].describe_op()))
+
+
+## M9 review: a copy of request frame `f`'s fields (same_request checks).
+static func _copy_frame(f: NetProtocol.InputFrame) -> NetProtocol.InputFrame:
+	var c: NetProtocol.InputFrame = NetProtocol.InputFrame.new(f.seq, f.dir)
+	c.op = f.op
+	c.map = f.map
+	c.skill_slot = f.skill_slot
+	c.slot = f.slot
+	c.cell = f.cell
+	c.aim = f.aim
+	c.cursor = f.cursor
+	c.pick = f.pick
+	return c
 
 
 func _check_marks_codec() -> void:
@@ -405,9 +450,17 @@ func _check_skill_requests() -> void:
 	check_eq(am.refused(Skills.WHY_RESOURCE), 1, "his key R without the focus: not enough")
 	skill_frame(r, am, _skill(Config.MAP_SURFACE, beside(am), Skills.Slot.CHOICE, cm.player.sim_position))
 	check_eq(am.refused(Skills.WHY_LOCKED), 1, "key 3: the choice slot is locked")
-	am.player.inventory.select(0)  # the host's selection: no bow
-	skill_frame(r, am, _skill(Config.MAP_SURFACE, beside(am), Skills.Slot.WEAPON, cm.player.sim_position))
-	check_eq(am.refused(Skills.WHY_NO_WEAPON), 1, "key 2 with no class weapon selected on the host: refused (hold your class weapon)")
+	skill_frame(r, am, _skill(Config.MAP_SURFACE, beside(am), Skills.Slot.WEAPON, cm.player.sim_position, 0, 0))
+	check_eq(am.refused(Skills.WHY_NO_WEAPON), 1, "key 2 naming a hotbar slot without the class weapon: refused (hold your class weapon)")
+	# M9 review: the request's hotbar slot decides, not the host's selection (a SELECT queued behind the key on the sender's
+	# machine reaches the host a frame later).
+	am.player.inventory.select(0)
+	skill_frame(r, am, _skill(Config.MAP_SURFACE, beside(am), Skills.Slot.WEAPON, cm.player.sim_position, 0, WEAPON_SLOT))
+	check(am.player.action_item == Skills.FAN_SHOT and am.player.action_slot == WEAPON_SLOT,
+		"key 2 naming the bow's slot plays the fan shot with that bow, whatever the host has selected (%s, slot %d)" % [
+		am.player.action_item, am.player.action_slot])
+	idle_ticks(r, am, PlayerSim.action_ticks(RigData.Anim.BOW))
+	am.player.skills.cooldowns = PackedInt32Array([0, 0, 0, 0])
 	am.player.inventory.select(WEAPON_SLOT)
 	# The cleric heals the archer; the cooldown cannot be cut short by pressing again.
 	skill_frame(r, cm, _skill(Config.MAP_SURFACE, beside(cm), Skills.Slot.IDENTITY, am.player.sim_position + Vector2(10, -6)))

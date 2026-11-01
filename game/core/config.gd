@@ -309,8 +309,9 @@ const HERETIC_DAMAGE: int = 12
 const HERETIC_SPEED: float = 46.0
 ## PROVISIONAL (○ gameplay-design §2.3 aggro "위협" until M9; here the nearest player only): a heretic
 ## targets the nearest player on its map that is up, within HERETIC_SIGHT_PX with no wall between, and
-## gives up beyond HERETIC_LEASH_PX from where it spawned (walks back home). M9a: with threat on (Arena.threat_on, offline) the
-## valid target with the highest threat comes first (the M9a threat rows below), the nearest when no valid target has any.
+## gives up beyond HERETIC_LEASH_PX from where it spawned (walks back home). M9a: with threat on (Arena.threat_on: offline; M9c:
+## every session arena too) the valid target with the highest threat comes first (the M9a threat rows below), the nearest when no
+## valid target has any.
 const HERETIC_SIGHT_PX: float = 112.0
 const HERETIC_LEASH_PX: float = 256.0
 ## PROVISIONAL (not in docs): starts its attack when the target is this near (feet to feet), the knife
@@ -443,7 +444,10 @@ const DRINK_AT_FULL_HP: bool = false
 ## the status in M6a, friendly fire being off); false = it is refused.
 const DRINK_POISON_HARMS: bool = true
 ## PROVISIONAL (○ gameplay-design §2.2: the herbalist's identity skill is the potion throw; §3.0 puts potions
-## with the herbalist): only the herbalist throws (true); false = anyone throws.
+## with the herbalist): only the herbalist throws (true); false = anyone throws. M9 review: with the skill kit on (offline and
+## every session member since M9a / M9c) key 1 is each class's identity skill, and only the herbalist's is the throw, so false
+## lets no other class throw any more (the host refuses another class's THROW: Skills.WHY_NO_SKILL). Potions.herbalist_only
+## (a static copy, tests flip it).
 const THROW_HERBALIST_ONLY: bool = true
 ## PROVISIONAL (not in docs): the thrown bottle flies from the thrower's body point toward the mouse, at
 ## most THROW_RANGE_PX, at THROW_SPEED px/s over bodies (lobbed), stopped by what stops a shot (walls,
@@ -862,8 +866,8 @@ const SHOP_WHILE_CARRYING: bool = true
 
 # --- PROVISIONAL, M9a (the skill kit: slots and keys, cooldowns, refusals, class resources, the near-cursor ally pick, threat,
 # the five identity skills) ----------------------------------------------------------------------------------------------------
-# Offline first (M9a, like M5a-M8a): a session's players keep Player.skills_on off and a session's arenas keep Arena.threat_on
-# off until M9c; the herbalist's M6 throw goes on in sessions as it was (aimed at the point). README "임시값" M9a. ● decided and
+# Offline first (M9a, like M5a-M8a); M9c turned them on in sessions too (every member keeps Player.skills_on, every host arena
+# Arena.threat_on; the herbalist's healing / buff throw goes to the ally nearest the cursor there too). README "임시값" M9a. ● decided and
 # followed as written: real-time, aimed skill shots (gameplay-design §2.1 R12); heals and buffs go to the ally nearest the cursor
 # (§2.1 R42; "잡는 반경 같은 숫자는 정하지 않았다"); the hybrid kit of four slots, 1 identity (fixed), 2 weapon (decided by the
 # equipped weapon), 3 choice (an unlock pool), 4 signature (fixed, spends the class resource) (§2.2 R42); the slice count "5클래스
@@ -966,21 +970,32 @@ const SKILLS: Dictionary[StringName, Dictionary] = {
 ## PROVISIONAL (○ gameplay-design §2.4 "군중 제어: 팔라딘(도발·기절·밀치기)"; how a stun works is not in the docs): a stunned
 ## heretic does nothing for its stun (no walking, no new attack, its attack cooldown waits; a hit on it adds no stagger on top);
 ## a stun that lands during its attack's wind-up or swing cancels that attack (no knife; the attack cooldown follows, as after a
-## swing) when this is on. A second stun keeps the longer time. Its taunt, poison and slow run on meanwhile.
+## swing) when this is on. A second stun keeps the longer time. Its taunt, poison and slow run on meanwhile. Off: the attack is
+## not cancelled but paused with the heretic (its wind-up counts on after the stun, so its knife lands that much later; it shows
+## its hurt pose meanwhile, the knife still out).
 const SKILL_STUN_CANCELS_ATTACK: bool = true
-## PROVISIONAL (○ §2.4 "상태이상: 약초사 담당. 중독·둔화·취약·출혈"; the slow's rule is not in the docs): a slowed heretic walks
-## (chasing and going home) at (100 - slow) percent of Config.HERETIC_SPEED; its attacks are not slowed. A second slow keeps the
-## stronger percent and the longer time (Config.EFFECT_REFRESH_KEEPS_STRONGER, M6a's effect rule). Only heretics are slowed (no
-## friendly fire); a death or the map emptying ends it (no constant of its own: Arena.slow_heretic).
+# PROVISIONAL (○ §2.4 "상태이상: 약초사 담당. 중독·둔화·취약·출혈"; the slow's rule is not in the docs): a slowed heretic walks
+# (chasing and going home) at (100 - slow) percent of Config.HERETIC_SPEED; its attacks are not slowed. A second slow keeps the
+# stronger percent and the longer time (Config.EFFECT_REFRESH_KEEPS_STRONGER, M6a's effect rule). Only heretics are slowed (no
+# friendly fire); a death or the map emptying ends it (no constant of its own: Arena.slow_heretic, README "M9b 둔화").
+
 ## PROVISIONAL (● game-concept §3 paladin "강공 억제·상쇄"; how is not in the docs): a warded player takes ward percent less from a
 ## hit (Player.take_hit: after the armour, rounded down, never below SKILL_WARD_MIN_DAMAGE). Poison ticks are not hits (not
 ## warded). A second ward keeps the stronger percent and the longer time; a death ends it.
 const SKILL_WARD_MIN_DAMAGE: int = 1
-## PROVISIONAL (● §2.1 R42 "커서에서 가장 가까운 아군이 받는다 … 잡는 반경 같은 숫자는 정하지 않았다"): a heal or buff goes to the ally (up,
-## not down or dead, the caster too) whose feet are nearest the cursor point, within this many px of the cursor (2.5 tiles) and
-## within the skill's range of the caster (Skills.pick_ally; ties: the lower player slot, offline the local player first). No
-## line-of-sight check. Nobody = refused, nothing spent.
+## PROVISIONAL (● §2.1 R42 "커서에서 가장 가까운 아군이 받는다 … 잡는 반경 같은 숫자는 정하지 않았다"): a single-target heal or buff
+## (the cleric's heal, the herbalist's healing or buff throw) goes to the ally (up, not down or dead, the caster too) whose body's
+## middle (Combat.body_centre: the figure the player points at, half Config.BODY_HIT_HEIGHT_PX above the feet; M9 review: the feet
+## before) is nearest the cursor point, within this many px of the cursor (2.5 tiles) and whose feet are within the skill's range
+## of the caster's (Skills.pick_ally; ties: the lower player slot, offline the local player first). No line-of-sight check.
+## Nobody = refused, nothing spent. The area heals and buffs (oath, blessing, mist) reach everyone in their area (README).
 const SKILL_GRAB_RADIUS_PX: float = 40.0
+## PROVISIONAL (M9 review, sessions; not in the docs): a SKILL / THROW carries the ally its sender's machine picked (the gold ring,
+## from the players as drawn there: others a buffer and the one-way lag behind). The host takes that ally while it is up on the
+## caster's map, within the skill's range of the caster (host positions) and within SKILL_GRAB_RADIUS_PX plus this many px of the
+## cursor (what a walk covers in about a third of a second: the drawing buffer and a round trip); else the host picks by its own
+## positions (Skills.prepare `hint`).
+const SKILL_PICK_LAG_PX: float = 24.0
 ## PROVISIONAL (○ §2.2 class resources "신념 / 집중 / 신앙 / 지구력 / 재료"; caps and rates are not in the docs; README "M9a 자원"): each
 ## meter's cap (0 = no meter: the herbalist's material is items), what the signature spends (M9b; the archer's is the least it
 ## needs and it spends all of its focus, the task's "화살비 … 소모한 집중에 비례"; the herbalist's is that many healing herbs), and
@@ -1009,7 +1024,7 @@ const MINER_ENDURANCE_PER_BLOCK: int = 4
 ## harvested: the same item, any grade); the HUD shows it as pips, his signature spends SKILL_SIGNATURE_COST of them.
 const HERBALIST_MATERIAL_ITEM: StringName = &"wild_healing"
 ## PROVISIONAL (○ gameplay-design §2.3 "위협 수치가 가장 높은 대상을 공격 … 피해량에 비례 … 힐은 위협을 넓게 조금씩"; README "M9a 위협"): a
-## heretic keeps a threat per player (Arena, host-only state: offline in M9a). Damage dealt to it adds THREAT_PER_DAMAGE per HP
+## heretic keeps a threat per player (Arena, host-only state: offline in M9a, the host's arenas since M9c). Damage dealt to it adds THREAT_PER_DAMAGE per HP
 ## (weapon hits, skills, poison ticks: the thrower's); a heal adds THREAT_HEAL_PCT percent of the HP healed (at least 1) to
 ## every heretic engaged with (has a target) a player within THREAT_HEAL_REACH_PX of the healed ally; the taunt puts the
 ## paladin TAUNT_THREAT_MARGIN above the top. It goes after the valid target (the M4 rules: up, in sight, outside the light)
@@ -1210,12 +1225,12 @@ const SKILL_HEAL_SHOW_RADIUS_PX: float = 10.0
 const SKILL_REFUSED_SHOW_TICKS: int = 24
 ## IMPL (M9b, placeholder effects drawn in code, combat/combat_view.gd): a strike's rocks or arrows are seen falling for its last
 ## SKILL_FALL_TICKS ticks from SKILL_FALL_HEIGHT_PX above the ground; a stunned heretic holds hurt frame SKILL_STUN_FRAME.
-## IMPL (M9c): the most steps a session client's own skill copy runs in one tick to catch up with the host's time as heard
-## (SessionClient._run_skills_copy).
-const NET_SKILLS_COPY_STEPS: int = 8
 const SKILL_FALL_TICKS: int = 15
 const SKILL_FALL_HEIGHT_PX: int = 45
 const SKILL_STUN_FRAME: int = 1
+## IMPL (M9c): the most steps a session client's own skill copy runs in one tick to catch up with the host's time as heard
+## (SessionClient._run_skills_copy).
+const NET_SKILLS_COPY_STEPS: int = 8
 
 
 static func safe_radius_px() -> float:

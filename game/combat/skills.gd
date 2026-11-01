@@ -4,7 +4,8 @@ extends RefCounted
 ## start (the common refusals), the near-cursor ally pick every heal and buff uses (● §2.1 R42), the class resources' caps and
 ## the signature's spend, and what each built skill does when it lands. Pure rules on Player / Arena; the offline game
 ## (core/main.gd) calls land() on a skill's impact frame, the player (actors/player.gd) calls prepare() when a skill key is
-## pressed. M9a is offline: a session's players keep `skills_on` off (M9c), and the herbalist's M6 throw goes on there as it was.
+## pressed. M9a was offline; M9c: in sessions the host calls prepare() again on its own state for a SKILL / THROW request and
+## land() on the impact frame (net/session_host.gd), every member keeps `skills_on`.
 ##
 ## Slots (● R42): 1 identity (fixed per class), 2 weapon (decided by the held class weapon: Config.SKILL_BY_WEAPON), 3 choice
 ## (an unlock pool: not in the slice count "5클래스 × 고정 2 + 무기군 5 = 15", so the slot stays locked), R signature (fixed,
@@ -212,13 +213,14 @@ static func spend_signature(p: Player) -> int:
 ## Why player `p` may not start the skill of slot `slot` now ("" = it may): the choice slot is locked (not in the slice); the
 ## weapon slot without the class weapon held (M9b: or with it broken while Gear.broken_unusable); no skill or not built; down,
 ## dead, carrying the altar, a panel open, mid-action (an action that will still play, a dash, a stagger), cooling down, not
-## enough resource (the signature).
-static func refusal(p: Player, slot: int) -> String:
+## enough resource (the signature). M9 review: `hotbar_slot` = the hotbar slot the press holds (-1 = the selected one; the host
+## passes a SKILL request's slot, the one its sender's machine had selected, NetProtocol SKILL).
+static func refusal(p: Player, slot: int, hotbar_slot: int = -1) -> String:
 	if slot == Slot.CHOICE:
 		return WHY_LOCKED
 	var class_id: String = p.class_id()
 	if slot == Slot.WEAPON:
-		var held: ItemStack = p.inventory.selected_stack()
+		var held: ItemStack = held_stack(p, hotbar_slot)
 		var weapon: StringName = Combat.class_weapon(class_id)
 		if held == null or weapon.is_empty() or Gear.base(held.id) != weapon:
 			return WHY_NO_WEAPON
@@ -244,6 +246,13 @@ static func refusal(p: Player, slot: int) -> String:
 	if slot == Slot.SIGNATURE and not can_spend_signature(p):
 		return WHY_RESOURCE
 	return ""
+
+
+## M9 review: the stack in hotbar slot `hotbar_slot` of player `p` (-1 = the selected one; a slot past the hotbar = none).
+static func held_stack(p: Player, hotbar_slot: int = -1) -> ItemStack:
+	if hotbar_slot < 0:
+		return p.inventory.selected_stack()
+	return p.inventory.stack_at(hotbar_slot) if hotbar_slot < p.inventory.hotbar_size else null
 
 
 ## An action will still play on the next frame, or a dash or a stagger is under way (no action can start then).
@@ -313,26 +322,47 @@ static func wear_weapon(p: Player) -> bool:
 
 ## The ally a heal or buff of `caster` goes to (● §2.1 R42 "커서에서 가장 가까운 아군이 받는다"): among `party` (the players
 ## on the caster's map, in a fixed order: offline the local player first, then the allies), the one up (not down or dead) on
-## the caster's map whose feet are nearest the cursor point `cursor`, within Config.SKILL_GRAB_RADIUS_PX of it and within
-## `range_px` of the caster's feet; the caster itself counts. Ties: the first in `party`. Heretics are never in `party`, so
-## never picked. null = nobody.
+## the caster's map whose body's middle (cursor_distance: the figure the player points at; M9 review, the feet before) is
+## nearest the cursor point `cursor`, within Config.SKILL_GRAB_RADIUS_PX of it and with its feet within `range_px` of the
+## caster's; the caster itself counts. Ties: the first in `party`. Heretics are never in `party`, so never picked. null =
+## nobody.
 static func pick_ally(party: Array[Player], caster: Player, cursor: Vector2, range_px: float) -> Player:
 	var best: Player = null
 	var best_d: float = INF
 	for p: Player in party:
-		if p == null or not is_instance_valid(p) or not p.vitals.alive():
+		if not pick_ok(p, caster, cursor, range_px):
 			continue
-		if caster != null and p.data != caster.data:
-			continue
-		var d: float = p.sim_position.distance_to(cursor)
-		if d > Config.SKILL_GRAB_RADIUS_PX:
-			continue
-		if caster != null and p.sim_position.distance_to(caster.sim_position) > range_px:
-			continue
+		var d: float = cursor_distance(p, cursor)
 		if d < best_d:
 			best = p
 			best_d = d
 	return best
+
+
+## How far the cursor point `cursor` is from player `p` as the pick measures it: from the middle of its figure
+## (Combat.body_centre, half Config.BODY_HIT_HEIGHT_PX above the feet).
+static func cursor_distance(p: Player, cursor: Vector2) -> float:
+	return Combat.body_centre(p.sim_position).distance_to(cursor)
+
+
+## Player `p` may get a heal or buff of `caster` with the cursor at `cursor`: up, on the caster's map, within
+## Config.SKILL_GRAB_RADIUS_PX + `slack` of the cursor (cursor_distance) and with its feet within `range_px` of the caster's.
+static func pick_ok(p: Player, caster: Player, cursor: Vector2, range_px: float, slack: float = 0.0) -> bool:
+	if p == null or not is_instance_valid(p) or not p.vitals.alive():
+		return false
+	if caster != null and p.data != caster.data:
+		return false
+	if cursor_distance(p, cursor) > Config.SKILL_GRAB_RADIUS_PX + slack:
+		return false
+	return caster == null or p.sim_position.distance_to(caster.sim_position) <= range_px
+
+
+## M9 review (sessions, PROVISIONAL Config.SKILL_PICK_LAG_PX): the ally a heal or buff goes to on the host: `hint` (the ally the
+## sender's machine picked, as it drew the players) while pick_ok allows it with the lag allowance, else the host's own pick.
+static func pick_with_hint(party: Array[Player], caster: Player, cursor: Vector2, range_px: float, hint: Player) -> Player:
+	if hint != null and party.has(hint) and pick_ok(hint, caster, cursor, range_px, Config.SKILL_PICK_LAG_PX):
+		return hint
+	return pick_ally(party, caster, cursor, range_px)
 
 
 ## Potion `id` is a healing or buff potion (its throw goes to an ally, ● R42; poison stays aimed at the point).
@@ -344,8 +374,8 @@ static func throw_picks_ally(id: StringName) -> bool:
 ## The ally player `p`'s heal or buff would go to now with the mouse at `cursor` (the highlight under that ally), or null: the
 ## cleric's heal while it is ready, the herbalist's throw while a healing or buff potion is selected.
 static func aim_target(p: Player, party: Array[Player], cursor: Vector2) -> Player:
-	if not p.vitals.alive():
-		return null
+	if not p.vitals.alive() or p.ui_locked or p.carrying_altar:
+		return null  # M9 review: a panel open or the altar carried refuses the key, so no ring
 	var id: StringName = kit_skill(p.class_id(), Slot.IDENTITY)
 	if id == HEAL and built(HEAL) and p.skills.cooldown(Slot.IDENTITY) == 0:
 		return pick_ally(party, p, cursor, num_f(HEAL, "range_px"))
@@ -354,6 +384,11 @@ static func aim_target(p: Player, party: Array[Player], cursor: Vector2) -> Play
 		if s != null and throw_picks_ally(s.id):
 			return pick_ally(party, p, cursor, Config.THROW_RANGE_PX)
 	return null
+
+
+## M9 review: the ring under `target` (aim_target's) shows a press that would be refused: the cleric's heal on an ally at full HP.
+static func aim_refused(p: Player, target: Player) -> bool:
+	return target != null and kit_skill(p.class_id(), Slot.IDENTITY) == HEAL and target.vitals.hp >= Config.PLAYER_HP_MAX
 
 
 # --- starting a skill ----------------------------------------------------------------------------------------
@@ -379,29 +414,32 @@ class Prepared:
 ## common refusals, then the skill's own: the heal needs an ally near the cursor (nobody = refused, nothing spent) who is not
 ## at full HP; the herbalist's throw needs a potion selected (Potions.throw_refusal) and, for a healing or buff potion, an ally
 ## near the cursor within the throw's range (● R42: it goes to that ally); a poison potion stays aimed at the cursor (M6).
-static func prepare(p: Player, slot: int, cursor: Vector2, party: Array[Player]) -> Prepared:
+## M9 review: `hotbar_slot` = the hotbar slot the press holds (refusal; -1 = the selected one), `hint` = the ally the sender's
+## machine picked (the host's SKILL / THROW: pick_with_hint; null offline and on the client).
+static func prepare(p: Player, slot: int, cursor: Vector2, party: Array[Player], hotbar_slot: int = -1,
+		hint: Player = null) -> Prepared:
 	var r: Prepared = Prepared.new()
 	r.slot = slot
 	r.id = kit_skill(p.class_id(), slot)
-	r.why = refusal(p, slot)
+	r.why = refusal(p, slot, hotbar_slot)
 	if not r.ok():
 		return r
 	match r.id:
 		HEAL:
-			r.target = pick_ally(party, p, cursor, num_f(HEAL, "range_px"))
+			r.target = pick_with_hint(party, p, cursor, num_f(HEAL, "range_px"), hint)
 			if r.target == null:
 				r.why = WHY_NO_ALLY
 			elif r.target.vitals.hp >= Config.PLAYER_HP_MAX:
 				r.why = WHY_FULL_HP
 		POTION_THROW:
-			var s: ItemStack = p.inventory.selected_stack()
+			var s: ItemStack = held_stack(p, hotbar_slot)
 			r.why = Potions.throw_refusal(p.class_id(), s)
 			if not r.ok():
 				return r
 			r.item = s.id
 			var origin: Vector2 = Combat.body_point(p.sim_position)
 			if throw_picks_ally(s.id):
-				r.target = pick_ally(party, p, cursor, Config.THROW_RANGE_PX)
+				r.target = pick_with_hint(party, p, cursor, Config.THROW_RANGE_PX, hint)
 				if r.target == null:
 					r.why = WHY_NO_ALLY
 					return r
@@ -447,7 +485,8 @@ class Landed:
 ## and `party` (the players on that map) and, when it worked, its slot's cooldown starts (Config.SKILLS "cooldown"). The
 ## taunt forces the heretics around the paladin onto him (Arena.taunt), the piercing arrow lets its shot go along the aim the
 ## action started with, the heal restores HP to the ally picked when the key was pressed (Player.action_skill_target; gone,
-## down or dead now = it fizzles) and grows the cleric's faith, the ground slam hits, staggers and pushes the heretics around
+## down, dead, on another map or (M9 review) at full HP now = it fizzles) and grows the cleric's faith, the ground slam hits,
+## staggers and pushes the heretics around
 ## the miner (Arena.slam). The throw is not here: it lands through Potions.release (its potion), like M6.
 ## M9b: the weapon skills land along the action's aim (the melee arcs, the fan) or on its point (the holy burst) at the damage
 ## weapon_damage gives and wear the weapon once; a signature first spends its resource (spend_signature; too little now = it
@@ -472,6 +511,9 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], 
 					t = q
 			if t == null or not t.vitals.alive() or t.data != p.data:
 				r.why = WHY_NO_ALLY
+				return r
+			if t.vitals.hp >= Config.PLAYER_HP_MAX:
+				r.why = WHY_FULL_HP  # M9 review: full by now (another heal, a potion): nothing spent, no cooldown, as at the press
 				return r
 			r.target = t
 			r.healed = t.heal_hp(num_i(HEAL, "heal_hp"))

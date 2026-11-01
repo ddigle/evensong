@@ -29,6 +29,9 @@ const WHY_HERBALIST: String = "herbalist only"
 const WHY_GONE: String = "the potion is gone"
 ## The class that throws (Config.THROW_HERBALIST_ONLY) and brews FINE and status potions (● §3.0).
 const HERB_CLASS: String = "herbalist"
+## M9 review: Config.THROW_HERBALIST_ONLY as throw_refusal reads it (tests turn it off to check the host still refuses another
+## class's THROW once the skill kit is on, and put it back).
+static var herbalist_only: bool = Config.THROW_HERBALIST_ONLY
 
 
 static func is_potion(id: StringName) -> bool:
@@ -104,7 +107,7 @@ static func apply(sim: PlayerSim, id: StringName, grade: int) -> int:
 static func throw_refusal(class_id: String, stack: ItemStack) -> String:
 	if stack == null or not is_potion(stack.id):
 		return WHY_NOT_POTION
-	if Config.THROW_HERBALIST_ONLY and class_id != HERB_CLASS:
+	if herbalist_only and class_id != HERB_CLASS:
 		return WHY_HERBALIST
 	return ""
 

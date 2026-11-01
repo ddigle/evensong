@@ -806,21 +806,29 @@ func _drink(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 ## nearest it (● gameplay-design §2.1 R42, Skills.pick_ally on the host's positions: nobody = refused, nothing used) and lands on
 ## that ally's body point (following it, Arena), poison toward the cursor (Potions.throw_target from where the host has the
 ## thrower, whole px: offline make_frame's rule).
+## M9 review: the THROW carries the ally its sender's machine picked (frame.pick: the host takes it within its lag allowance,
+## Skills.pick_with_hint); a dash pressed in the same frame refuses it (the key's rule, Player._skill_frame); another class's THROW
+## is refused while the skill kit is on (its key 1 is its own identity skill: Config.THROW_HERBALIST_ONLY off lets nobody else
+## throw any more).
 func _throw(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	var st: ItemStack = p.inventory.stack_at(frame.slot) if frame.slot < p.inventory.hotbar_size else null
 	var why: String = Potions.throw_refusal(m.class_id, st)
+	if why.is_empty() and p.skills_on and Skills.kit_skill(m.class_id, Skills.Slot.IDENTITY) != Skills.POTION_THROW:
+		why = Skills.WHY_NO_SKILL
 	if why.is_empty() and not WorldItems.in_reach(p.sim_position, frame.cell):
 		why = WorldItems.WHY_REACH
 	if why.is_empty() and busy(p):
 		why = WHY_BUSY
+	if why.is_empty() and p.skills_on and frame.dash:
+		why = Skills.WHY_BUSY
 	var target: Player = null
 	if why.is_empty() and p.skills_on:
 		why = Skills.refusal(p, Skills.Slot.IDENTITY)
 		if why.is_empty():
 			var origin: Vector2 = Combat.body_point(p.sim_position)
 			if Skills.throw_picks_ally(st.id):
-				target = Skills.pick_ally(players_on(m.map_id), p, frame.cursor, Config.THROW_RANGE_PX)
+				target = Skills.pick_with_hint(players_on(m.map_id), p, frame.cursor, Config.THROW_RANGE_PX, _pick_hint(frame))
 				if target == null:
 					why = Skills.WHY_NO_ALLY
 				else:
@@ -838,11 +846,34 @@ func _throw(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		frame.skill_target = target.get_instance_id() if target != null else 0
 
 
-## M6-fix: the request name an accepted action frame counts under once its action started (run_frame).
+## M6-fix: the request name an accepted action frame counts under once its action started (run_frame). M9 review: a SKILL counts
+## as "skill" then (once, whatever it plays: the herbalist's key 1 through SKILL too), not when it is accepted.
 static func _action_op_name(frame: NetProtocol.InputFrame) -> String:
 	if frame.op == NetProtocol.Op.THROW:
 		return "throw"
+	if frame.op == NetProtocol.Op.SKILL:
+		return "skill"
 	return "drink" if Potions.is_potion(frame.item) else "use"
+
+
+## M9 review: the player a SKILL / THROW frame says its sender picked (frame.pick, a member slot), or null.
+func _pick_hint(frame: NetProtocol.InputFrame) -> Player:
+	if frame.pick == NetProtocol.NO_SLOT or not s.members.has(frame.pick):
+		return null
+	return s.members[frame.pick].player
+
+
+## M9 review: puts the slot of the ally frame `f`'s skill picked on this machine (f.skill_target, a node instance id) into f.pick
+## (NetProtocol.NO_SLOT = none), so the host can take the ally this machine's ring showed (Skills.pick_with_hint).
+static func note_pick(session: NetSession, f: NetProtocol.InputFrame) -> void:
+	f.pick = NetProtocol.NO_SLOT
+	if f.skill_target == 0 or (f.op != NetProtocol.Op.SKILL and f.op != NetProtocol.Op.THROW):
+		return
+	for slot: int in session.slots():
+		var q: Player = session.members[slot].player
+		if q != null and is_instance_valid(q) and q.get_instance_id() == f.skill_target:
+			f.pick = slot
+			return
 
 
 ## M6b: member `m`'s potion reaches its effect / release frame: Potions.release (the offline rule) on the host's
@@ -986,6 +1017,7 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 	var p: Player = s.local.player
 	var f: NetProtocol.InputFrame = p.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
 		action.use_held, action.dash, action.interact, action.skill, action.skill_slot)  # M9c: the keys 2 3 R too
+	note_pick(s, f)  # M9 review
 	attach_local_op(s, p, f, action)
 	return f
 
@@ -1479,7 +1511,7 @@ func send_combat_snapshot(peer: int, map: int) -> void:
 	# M6b: the thrown potions in the air and the splashes still shown.
 	for f: Arena.Flask in a.flasks:
 		if not f.done:
-			flying.append(Arena.flask_event(f))
+			flying.append(a.flask_event(f))
 	for sp: Arena.Splash in a.splashes:
 		flying.append(Arena.splash_event(sp))
 	# M9c: the bursts still shown, the strikes on their way, the zones (clouds, a blessing) and the players warded there now (the
@@ -2348,10 +2380,17 @@ func _tick_skills() -> void:
 ## members on that map from the host's positions, nobody = refused; a point skill's point pulled in to its range and the last point
 ## before a wall from where the host has the caster). The frame then plays the skill's body action (like a USE's) and its impact
 ## frame lands it (_skill_impact). The herbalist's key 1 through SKILL is his throw (the same rule as THROW's, the selected potion).
+## M9 review: the request's hotbar slot (the one its sender had selected) is the stack key 2 plays (and the potion key 1
+## throws), so a SELECT queued behind it cannot swap the weapon; the ally its sender picked (frame.pick) is taken within the lag
+## allowance (Skills.pick_with_hint); a dash pressed in the same frame refuses it (WHY_BUSY, before the budget: the dash wins, as
+## on the sender's machine); it counts as done when its action starts (run_frame), not here.
 func _skill(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var p: Player = m.player
 	frame.skill = &""
 	frame.skill_target = 0
+	if frame.dash:
+		_refuse_op(m, frame, Skills.WHY_BUSY)
+		return
 	if not m.take_op():
 		_refuse_op(m, frame, "rate")
 		return
@@ -2361,17 +2400,17 @@ func _skill(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if not WorldItems.in_reach(p.sim_position, frame.cell):
 		_refuse_op(m, frame, WorldItems.WHY_REACH)
 		return
-	var prep: Skills.Prepared = Skills.prepare(p, frame.skill_slot, frame.cursor, players_on(m.map_id))
+	var prep: Skills.Prepared = Skills.prepare(p, frame.skill_slot, frame.cursor, players_on(m.map_id), frame.slot,
+		_pick_hint(frame))
 	if not prep.ok():
 		_refuse_op(m, frame, prep.why)
 		return
 	frame.anim = RigData.Anim.THROW if prep.id == Skills.POTION_THROW else Skills.anim(prep.id)
 	frame.item = prep.item if prep.id == Skills.POTION_THROW else prep.id
-	frame.slot = p.inventory.selected  # the weapon skill's stack (its tier-1 damage and wear), the thrown potion's
+	# frame.slot stays the request's: the weapon skill's stack (its tier-1 damage and wear), the thrown potion's.
 	frame.throw_to = prep.throw_to  # a point skill's point, a throw's landing point
 	frame.skill = prep.id
 	frame.skill_target = prep.target.get_instance_id() if prep.target != null else 0
-	m.count_done("skill")
 
 
 ## M9c: member `m`'s skill reaches its impact frame: Skills.land on its map's arena (the offline rule, with its slot for its shots'

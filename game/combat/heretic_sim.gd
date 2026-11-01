@@ -57,11 +57,12 @@ var poison_ticks: int = 0
 var poison_timer: int = 0
 var poison_by: int = 0
 ## M9a (○ gameplay-design §2.3, Arena.threat_on; the host's AI only, not sent): threat per player (node instance id -> threat),
-## and the paladin whose taunt forces it onto him (node instance id, 0 = none) for taunt_ticks more ticks.
+## and the paladin whose taunt forces it onto him (node instance id, 0 = none) for taunt_ticks more ticks (M9c: a taunt's mark
+## is sent; M9 review: it ends early once that paladin is no longer up on its map, Arena._step_heretic).
 var threat: Dictionary[int, int] = {}
 var taunt_by: int = 0
 var taunt_ticks: int = 0
-## M9b (offline like the threat; not sent): a stun (the paladin's crushing blow, the miner's rockfall: ticks left, it does nothing
+## M9b (host-side state like the threat; M9c: only whether each runs is sent, the enemy batch's marks byte): a stun (the paladin's crushing blow, the miner's rockfall: ticks left, it does nothing
 ## meanwhile, Config.SKILL_STUN_CANCELS_ATTACK) and a slow (the herbalist's sweep: percent off its walking speed, ticks left).
 var stun_ticks: int = 0
 var slow_pct: int = 0
