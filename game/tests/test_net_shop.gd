@@ -51,6 +51,9 @@ func run() -> Array[String]:
 	await _check_late_and_map_entry()
 	await _check_restock()
 	await _check_merchant_follows()
+	await _check_stale_sell()
+	await _check_merchant_clearance()
+	_check_bot_bounds()
 	await _check_death_bag_money()
 	await _check_four_shoppers()
 	await _check_version_9_refused()
@@ -65,10 +68,13 @@ static func buy_req(offer: int, at: Vector2i = MERCHANT, map: int = Config.MAP_S
 	return _op(NetProtocol.Op.BUY, map, at, offer)
 
 
-## A SELL of inventory slot `slot` (`whole`: the whole stack) aimed at the merchant's tile `at`.
-static func sell_req(slot: int, whole: bool, at: Vector2i = MERCHANT) -> NetProtocol.InputFrame:
+## A SELL of inventory slot `slot` (`whole`: the whole stack) aimed at the merchant's tile `at`. M8 review: it names what `inv`
+## (the sender's inventory as its own machine has it) shows in that slot (NetProtocol.seen_in; no inventory or an empty slot:
+## item 0, grade 0).
+static func sell_req(slot: int, whole: bool, at: Vector2i = MERCHANT, inv: Inventory = null) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = _op(NetProtocol.Op.SELL, Config.MAP_SURFACE, at, slot)
 	f.sell_all = whole
+	NetProtocol.seen_in(f, inv.stack_at(slot) if inv != null else null)
 	return f
 
 
@@ -80,9 +86,9 @@ static func buy_click(offer: int, at: Vector2i = MERCHANT) -> NetBot.Action:
 	return a
 
 
-static func sell_click(slot: int, whole: bool) -> NetBot.Action:
+static func sell_click(slot: int, whole: bool, inv: Inventory = null) -> NetBot.Action:
 	var a: NetBot.Action = NetBot.Action.new()
-	a.op = sell_req(slot, whole)
+	a.op = sell_req(slot, whole, MERCHANT, inv)
 	return a
 
 
@@ -148,24 +154,32 @@ func stock_up(m: NetMember, money: int, extra: Array = []) -> void:
 
 func _check_shop_codec() -> void:
 	check_eq(NetProtocol.VERSION, 10, "protocol version 10 (M8b: the shop)")
-	check_eq([NetProtocol.OP_SIZES[NetProtocol.Op.BUY], NetProtocol.OP_SIZES[NetProtocol.Op.SELL]], [6, 7],
-		"BUY 6 B (map, the merchant's tile, the offer), SELL 7 B (+ the whole byte)")
+	check_eq([NetProtocol.OP_SIZES[NetProtocol.Op.BUY], NetProtocol.OP_SIZES[NetProtocol.Op.SELL]], [6, 9],
+		"BUY 6 B (map, the merchant's tile, the offer), SELL 9 B (+ the whole byte; M8 review: + the item and grade seen)")
 	check(NetProtocol.op_has_map(NetProtocol.Op.BUY) and NetProtocol.op_has_map(NetProtocol.Op.SELL), "both name their map")
+	var shown: Inventory = Inventory.new()
+	shown.add(&"wild_healing", 4, 2)
 	var b: NetProtocol.InputFrame = buy_req(HOLY)
 	b.seq = 5
-	var s1: NetProtocol.InputFrame = sell_req(3, false)
+	var s1: NetProtocol.InputFrame = sell_req(0, false, MERCHANT, shown)
 	s1.seq = 6
 	var s2: NetProtocol.InputFrame = sell_req(Config.INVENTORY_SLOTS - 1, true)
 	s2.seq = 7
 	var frames: Array[NetProtocol.InputFrame] = [b, s1, s2]
 	var bytes: PackedByteArray = NetProtocol.encode_inputs(frames)
-	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 3 + 1 + (2 + 6) + (2 + 7) + (2 + 7), "three requests on three frames")
+	check_eq(bytes.size(), NetProtocol.INPUT_HEADER + 3 + 1 + (2 + 6) + (2 + 9) + (2 + 9), "three requests on three frames")
 	var p: NetProtocol.InputPacket = NetProtocol.decode_inputs(bytes)
 	check(p.ok and p.frames.size() == 3 and p.frames[0].same_request(b) and p.frames[1].same_request(s1)
 		and p.frames[2].same_request(s2) and not p.frames[1].sell_all and p.frames[2].sell_all and p.frames[0].slot == HOLY
 		and p.frames[0].cell == MERCHANT, "BUY and SELL round trip")
-	var other: NetProtocol.InputFrame = sell_req(3, true)
+	check(p.ok and p.frames[1].item_index == ItemDB.index_of(&"wild_healing") and p.frames[1].grade == 2
+		and NetProtocol.shows(p.frames[1], shown.stack_at(0)), "the SELL names the item and grade its sender showed (M8 review)")
+	var other: NetProtocol.InputFrame = sell_req(0, true, MERCHANT, shown)
 	check(not other.same_request(s1), "a SELL of the whole stack is another request than a SELL of one")
+	var plain: Inventory = Inventory.new()
+	plain.add(&"wild_healing", 4, 1)
+	check(not sell_req(0, false, MERCHANT, plain).same_request(s1) and not NetProtocol.shows(s1, plain.stack_at(0)),
+		"a SELL naming another grade is another request, and does not match that stack")
 	var cut: int = 0
 	for n: int in range(NetProtocol.INPUT_HEADER + 3 + 1, bytes.size()):
 		if not NetProtocol.decode_inputs(bytes.slice(0, n)).ok:
@@ -183,6 +197,8 @@ func _check_shop_codec() -> void:
 		[one_sell, at + 7, Config.INVENTORY_SLOTS, "inventory slot %d" % Config.INVENTORY_SLOTS],
 		[one_sell, at + 8, 2, "a whole byte of 2"],
 		[one_sell, at + 8, 255, "a whole byte of 255"],
+		[one_sell, at + 9, ItemDB.count(), "an item index past the last (%d)" % ItemDB.count()],
+		[one_sell, at + 10, ItemDB.GRADE_NAMES.size(), "a grade past the last (%d)" % ItemDB.GRADE_NAMES.size()],
 	]
 	for row: Array in bad:
 		var src: PackedByteArray = row[0]
@@ -193,7 +209,9 @@ func _check_shop_codec() -> void:
 		check(not NetProtocol.decode_inputs(w).ok, "refused on the wire: %s" % row[3])
 	check(not NetProtocol.decode_inputs(one_buy + PackedByteArray([0])).ok, "a byte after the request refused")
 	check_eq(buy_req(HOLY).describe_op(), "buy map=0 at=67,50 offer=2 item=holy_water", "a BUY describes itself")
-	check_eq(sell_req(4, true).describe_op(), "sell map=0 at=67,50 slot=4 all", "a SELL too")
+	var logs: Inventory = Inventory.new()
+	logs.add(&"log", 3)
+	check_eq(sell_req(0, true, MERCHANT, logs).describe_op(), "sell map=0 at=67,50 slot=0 all saw=log:none", "a SELL too")
 
 
 func _check_shop_edit_codec() -> void:
@@ -334,7 +352,7 @@ func _check_shop_requests() -> void:
 	check_eq(m.refused(Shop.WHY_NOT_SOLD), 2, "an offer that does not exist (past the last, -1): %s" % Shop.WHY_NOT_SOLD)
 	give(m, &"sword", 1)
 	refill(m)
-	run_one(r, m, sell_req(slot_of(inv, &"sword"), false))
+	run_one(r, m, sell_req(slot_of(inv, &"sword"), false, MERCHANT, inv))
 	check_eq(m.refused(Shop.WHY_NOT_BOUGHT), 1, "selling the basic sword: %s" % Shop.WHY_NOT_BOUGHT)
 	refill(m)
 	run_one(r, m, sell_req(20, false))
@@ -359,11 +377,28 @@ func _check_shop_requests() -> void:
 		and data.shop.left_of(&"potion_healing") == Shop.offer_of(&"potion_healing").cap - 2,
 		"a BUY with count -5, then 100000: one healing potion each (%s)" % inv.describe())
 	give(m, &"stone_a", 30)
-	var sell_huge: NetProtocol.InputFrame = sell_req(slot_of(inv, &"stone_a"), false)
+	var sell_huge: NetProtocol.InputFrame = sell_req(slot_of(inv, &"stone_a"), false, MERCHANT, inv)
 	sell_huge.count = 100000
 	refill(m)
 	run_one(r, m, sell_huge)
 	check_eq(inv.count_of(&"stone_a"), 29, "a SELL of one with count 100000: one stone sold")
+	# M8 review: a SELL names what its sender showed in that slot; the host sells only that (a stale click never sells what
+	# came into the slot meanwhile).
+	var shown_log: Inventory = Inventory.new()
+	shown_log.add(&"log", 1)
+	var stale: NetProtocol.InputFrame = sell_req(slot_of(inv, &"stone_a"), true)
+	NetProtocol.seen_in(stale, shown_log.stack_at(0))
+	var money_before: int = money_of(m)
+	refill(m)
+	run_one(r, m, stale)
+	check(m.refused(SessionHost.WHY_SLOT_CHANGED) == 1 and inv.count_of(&"stone_a") == 29 and money_of(m) == money_before,
+		"a SELL naming a log in the stones' slot: %s, nothing sold" % SessionHost.WHY_SLOT_CHANGED)
+	var graded: NetProtocol.InputFrame = sell_req(slot_of(inv, &"stone_a"), false, MERCHANT, inv)
+	graded.grade = ItemDB.GRADE_NAMES.size() - 1
+	refill(m)
+	run_one(r, m, graded)
+	check(m.refused(SessionHost.WHY_SLOT_CHANGED) == 2 and inv.count_of(&"stone_a") == 29,
+		"naming the right item at another grade: refused too")
 	check_eq(shop_edits_since(r, edits0), 2, "a shop stock edit for each buy, none for the sale or the refusals")
 	# From the dungeon, and aimed at another map.
 	r.host.move_to_map(m, Config.MAP_DUNGEON)
@@ -403,6 +438,12 @@ func _check_shop_requests() -> void:
 	var rated: int = r.host.shop_refusals.get("rate", 0)
 	check(rated == 10 - Config.NET_OP_BURST and r.host.buys == 2 + Config.NET_OP_BURST + (1 if Config.SHOP_WHILE_CARRYING else 0)
 		and r.host.sales == 1, "the host counted it all (%s, %d buys, %d sales)" % [r.host.shop_refusals, r.host.buys, r.host.sales])
+	# M8 review: run_frame's own refusals of a BUY / SELL (wrong map, down) count among the shop's refusals too.
+	var wrong_map: int = r.host.shop_refusals.get(WorldItems.WHY_WRONG_MAP, 0)
+	var downed: int = r.host.shop_refusals.get(SessionHost.WHY_DOWN, 0)
+	var changed: int = r.host.shop_refusals.get(SessionHost.WHY_SLOT_CHANGED, 0)
+	check(wrong_map == 1 and downed == 1 and changed == 2,
+		"the shop's refusals hold run_frame's too (wrong map, down) and the slot changes (%s)" % r.host.shop_refusals)
 	_free_rig(r)
 
 
@@ -432,8 +473,8 @@ func _check_two_at_once() -> void:
 	var shop: Shop = r.surface.data.shop
 	check(shop.left_of(&"potion_healing") == 2 and shop.left_of(&"torch") == 9 and shops_agree(r), "the stock: 2 potions, 9 torches, on both")
 	check_eq(shop_edits_since(r, edits0), 2, "two shop stock edits")
-	r.action = sell_click(slot_of(hp.inventory, &"stone_a"), true)
-	a.action = sell_click(slot_of(a.s.local.player.inventory, &"log"), false)
+	r.action = sell_click(slot_of(hp.inventory, &"stone_a"), true, hp.inventory)
+	a.action = sell_click(slot_of(a.s.local.player.inventory, &"log"), false, a.s.local.player.inventory)
 	_tick(r)
 	r.action = null
 	a.action = null
@@ -479,7 +520,7 @@ func _check_last_item_race() -> void:
 	check(inventories_agree(r) and worlds_agree(r), "inventories and worlds = the host's")
 	# One sells while the other buys.
 	b.action = buy_click(TORCH)
-	a.action = sell_click(slot_of(a.s.local.player.inventory, &"stone_a"), true)
+	a.action = sell_click(slot_of(a.s.local.player.inventory, &"stone_a"), true, a.s.local.player.inventory)
 	_tick(r)
 	a.action = null
 	b.action = null
@@ -604,7 +645,103 @@ func _check_merchant_follows() -> void:
 	_tick(r, 4)
 	check(ma.player.inventory.count_of(&"torch") == 1 and a.s.local.player.inventory.count_of(&"torch") == 1 and shops_agree(r),
 		"a buy at his new tile: a torch (refusals %s)" % ma.ops_refused)
+	check_prediction("merchant follows (the carrier)", a)
+	check_prediction("merchant follows (the other client)", b)
 	_free_rig(r)
+
+
+## M8 review: a client with a delay clicks faster than its inventory comes back. It sells its whole stack of stones and buys
+## the tier-1 sword at once (on the host the sword takes the slot the stones left), then clicks that slot again while it still
+## shows the stones: the SELL names the stones, so the host refuses it (the slot changed) and the sword stays. A SELL that
+## names nothing (a slot that looked empty: Main sends none, an old or forged frame) does not sell the sword either.
+func _check_stale_sell() -> void:
+	var r: Rig = _rig("paladin")
+	r.delay = 3
+	await await_frames(1)
+	r.s.local.player.teleport(feet_in(Vector2i(58, 47)))
+	var a: Client = _join(r, 101, "miner", feet_in(WEST), false)
+	var ma: NetMember = hm(r, a)
+	stock_up(ma, 100, [[&"stone_a", 5]])
+	_tick(r, 12)
+	var inv: Inventory = a.s.local.player.inventory
+	var k: int = slot_of(inv, &"stone_a")
+	check(k >= 0 and inventories_agree(r), "the client shows its stones in slot %d, as the host has them" % k)
+	press(r, null, a, sell_click(k, true, inv))
+	press(r, null, a, buy_click(SWORD))
+	var shows_stones: bool = inv.stack_at(k) != null and inv.stack_at(k).id == &"stone_a"
+	press(r, null, a, sell_click(k, false, inv))
+	_tick(r, 12)
+	var host_inv: Inventory = ma.player.inventory
+	var want: int = 100 + 5 * Shop.pays_for(&"stone_a") - Shop.price_of(&"sword_t1")
+	check(shows_stones and host_inv.stack_at(k) != null and host_inv.stack_at(k).id == &"sword_t1"
+		and ma.refused(SessionHost.WHY_SLOT_CHANGED) == 1 and r.host.sales == 1 and money_of(ma) == want,
+		"a click on the slot still showing stones: %s, the sword stays (money %d, sales %d)" % [SessionHost.WHY_SLOT_CHANGED,
+		money_of(ma), r.host.sales])
+	# The reviewer's case: a SELL of the slot that looked empty (item 0, grade 0) one tick after the buy.
+	var empty: int = -1
+	for i: int in inv.size():
+		if inv.stack_at(i) == null and host_inv.stack_at(i) == null:
+			empty = i
+			break
+	press(r, null, a, sell_click(empty, false, inv))
+	press(r, null, a, buy_click(ORE))
+	press(r, null, a, sell_click(empty, true, Inventory.new()))
+	_tick(r, 12)
+	check(host_inv.count_of(&"ore_copper") == 1 and host_inv.count_of(&"sword_t1") == 1 and r.host.sales == 1,
+		"SELLs naming nothing (slot %d looked empty) never sell the ore just bought there nor anything else (%s)" % [empty,
+		host_inv.describe()])
+	check(inventories_agree(r) and shops_agree(r), "the client ends with the host's inventory and stock")
+	_free_rig(r)
+
+
+## M8 review (PROVISIONAL README "M8b 상인 막기 여유"): the altar goes down while a client walks toward the tile the merchant would
+## take (its feet on the host clear of the tile, its prediction a round trip ahead): he takes a tile Config.BLOCK_CLEARANCE_PX
+## away from the client instead, and the client's prediction is never pulled back.
+func _check_merchant_clearance() -> void:
+	var r: Rig = _rig("paladin")
+	r.delay = 4
+	await await_frames(1)
+	var data: WorldData = r.surface.data
+	var home: Rect2i = data.altar_rect
+	var hp: NetMember = r.s.local
+	hp.player.teleport(feet_in(Vector2i(60, 54)))
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		r.host.apply_world_edit(e)
+	hp.player.set_carrying_altar(true)
+	r.host.altar_home = home
+	var a: Client = _join(r, 101, "miner", Vector2(905.0, feet_in(MERCHANT_MOVED).y), false)
+	var ma: NetMember = hm(r, a)
+	_tick(r, 12)
+	var walk: NetBot.Action = NetBot.Action.new()
+	walk.dir = Vector2i(-1, 0)
+	a.action = walk
+	var at_placing: Vector2 = Vector2.ZERO
+	for t: int in 120:
+		_tick(r)
+		if at_placing == Vector2.ZERO and ma.player.sim_position.x <= 886.5:
+			at_placing = ma.player.sim_position
+			r.host._put_altar(hp, Rect2i(ALTAR_NEW, Config.ALTAR_FOOTPRINT), "placed")
+	a.action = null
+	_tick(r, 20)
+	var got: Vector2i = Merchant.tile_of(data)
+	check(at_placing != Vector2.ZERO and got != Walls.NO_CELL and got != MERCHANT_MOVED
+		and Building.clear_of_others([got] as Array[Vector2i], [at_placing] as Array[Vector2]),
+		"the merchant took %s, clear of the walking client (at %s), not %s" % [got, at_placing, MERCHANT_MOVED])
+	check_eq(Merchant.spot_refusal(data, MERCHANT_MOVED, [] as Array[Vector2], [] as Array[Vector2], [at_placing] as Array[Vector2]),
+		Building.WHY_NEAR, "the preferred tile was too close to the client then")
+	check(worlds_agree(r), "the client's world = the host's")
+	check_prediction("merchant clearance", a)
+	_free_rig(r)
+
+
+## M8 review: the bot's buy:<n> and sell:<n> stay within the panel (waitstock's rule): a typo is a parse error, not a request
+## the decoder refuses (which would stall the client's inputs).
+func _check_bot_bounds() -> void:
+	check_eq(NetBot.new().parse("buy:1;buy:%d;sell:1;sell:%d,all" % [Shop.offers().size(), Config.INVENTORY_SLOTS]), "",
+		"buy:1..%d and sell:1..%d parse" % [Shop.offers().size(), Config.INVENTORY_SLOTS])
+	check_ne(NetBot.new().parse("buy:%d" % (Shop.offers().size() + 1)), "", "buy past the last entry: an error")
+	check_ne(NetBot.new().parse("sell:%d" % (Config.INVENTORY_SLOTS + 1)), "", "sell past the last slot: an error")
+	check_ne(NetBot.new().parse("buy:0"), "", "buy:0: an error")
 
 
 ## ● gameplay-design §2.6: a client dies holding money; half of its money stack falls in the bag (M4a's rule), the other
@@ -692,10 +829,10 @@ func _check_four_shoppers() -> void:
 	check(got == ([0, 1, 2] as Array[int]) and last.refused(Shop.WHY_SOLD_OUT) == 1, "three potions for four: slots %s got one, the last %s" % [got,
 		Shop.WHY_SOLD_OUT])
 	_tick(r, Config.NET_OP_INTERVAL_TICKS)
-	r.action = sell_click(slot_of(r.s.local.player.inventory, &"potion_healing"), false)
+	r.action = sell_click(slot_of(r.s.local.player.inventory, &"potion_healing"), false, r.s.local.player.inventory)
 	for c4: Client in r.clients:
 		var s: int = slot_of(c4.s.local.player.inventory, &"potion_healing")
-		c4.action = sell_click(s if s >= 0 else 0, false)
+		c4.action = sell_click(s if s >= 0 else 0, false, c4.s.local.player.inventory)
 	_tick(r)
 	_tick(r, 8)
 	var pays: int = Shop.pays_for(&"potion_healing")
@@ -762,7 +899,7 @@ func _measure_shop_traffic() -> void:
 		var was: int = before.get(k, 0)
 		buy_bytes += r.bytes_by_kind[k] - was
 	before = r.bytes_by_kind.duplicate()
-	press(r, null, a, sell_click(slot_of(a.s.local.player.inventory, &"stone_a"), false))
+	press(r, null, a, sell_click(slot_of(a.s.local.player.inventory, &"stone_a"), false, a.s.local.player.inventory))
 	_tick(r, 59)
 	var sell_rate: float = _rate_since(r, before, 60, lines, "one sale (1 s window)")
 	before = r.bytes_by_kind.duplicate()
@@ -771,7 +908,7 @@ func _measure_shop_traffic() -> void:
 		if i % 2 == 0:
 			press(r, null, a, buy_click(TORCH if i % 4 == 0 else ORE))
 		else:
-			press(r, null, a, sell_click(slot_of(a.s.local.player.inventory, &"stone_a"), false))
+			press(r, null, a, sell_click(slot_of(a.s.local.player.inventory, &"stone_a"), false, a.s.local.player.inventory))
 		_tick(r, 19)
 	var session_rate: float = _rate_since(r, before, 12 * 20, lines, "a shop session (6 buys + 6 sales in 4 s)")
 	var own: int = 0

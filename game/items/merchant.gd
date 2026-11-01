@@ -15,7 +15,9 @@ extends RefCounted
 ##     it (rings out to Config.MERCHANT_SEARCH_TILES, row by row in a ring); allowed = spot_refusal() "" (see there);
 ##   - when: the offline game puts him down when the world starts (settle_edits) and moves him by the same rule each time the
 ##     altar is put down (placed, set down, restored); while the altar is carried he waits where he stood, and when no tile
-##     around the new altar allows him he stays where he is (both logged);
+##     around the new altar allows him he stays where he is (both logged). M8 review: the altar may go down where his waiting
+##     tile is all that keeps one of its new spawn slots from standing or walking out (AltarMove: he moves off them right
+##     after), as long as he then has a tile to go to (would_move_off);
 ##   - he is always there ("순례" suggests visits; no schedule in the slice).
 
 const WHY_SURFACE: String = "the merchant stays on the surface"
@@ -26,6 +28,9 @@ const WHY_NOT_OPEN: String = "not open ground"
 const WHY_NOT_GRASS: String = "not grass"
 const WHY_GROWING: String = "something grows there"
 const WHY_DROP: String = "something lies there"
+## M8 review: no tile beside his lets anyone walk Config.BUILD_SEAL_REACH_TILES away (a doorless built ring or pocket around
+## it): nobody could stand next to him to open the shop.
+const WHY_UNREACHABLE: String = "nobody could reach him"
 
 ## The one place the offline game looks for a merchant (the surface).
 const MAP: int = Config.MAP_SURFACE
@@ -59,7 +64,12 @@ static func feet_of(c: Vector2i) -> Vector2:
 ## grass with nothing on it (no placeable, no built wall or door, no wall face or doorway, no corruption, no field, gatherable
 ## or crop, no drop; a floor piece is fine); no spot where players appear (WorldItems.reserved_feet: the altar's spawn slots,
 ## the arrival point below the entrance) and no body on it; and none of those spots nor `others` walled in by him.
-static func spot_refusal(data: WorldData, c: Vector2i, bodies: Array[Vector2] = [], others: Array[Vector2] = []) -> String:
+## M8 review (PROVISIONAL README "M8a 상인 자리", "M8b 상인 막기 여유"): `predicted` = the feet of the players whose own machine
+## walks them a round trip ahead of the host (a session's clients; offline the --test-ally players, M7c's rule): while he
+## blocks, none within Config.BLOCK_CLEARANCE_PX of the tile (Building.clear_of_others, Building.WHY_NEAR: a blocking tile that
+## appears beside a client never pulls its prediction back); and someone can stand next to him (reachable(), WHY_UNREACHABLE).
+static func spot_refusal(data: WorldData, c: Vector2i, bodies: Array[Vector2] = [], others: Array[Vector2] = [],
+		predicted: Array[Vector2] = []) -> String:
 	if data == null or data.map_id != MAP:
 		return WHY_SURFACE
 	if not data.altar_rect.has_area():
@@ -87,20 +97,38 @@ static func spot_refusal(data: WorldData, c: Vector2i, bodies: Array[Vector2] = 
 	for r: Vector2 in spots:
 		if px.intersects(Movement.feet_box(r)):
 			return WorldItems.WHY_RESERVED
+	var cells: Array[Vector2i] = [c]
 	if Config.MERCHANT_BLOCKS:
+		if not Building.clear_of_others(cells, predicted):
+			return Building.WHY_NEAR
 		var walkers: Array[Vector2] = spots.duplicate()
 		walkers.append_array(others)
-		var cells: Array[Vector2i] = [c]
 		if Building.seals(data, cells, walkers):
 			return Building.WHY_SEALS
+	if not reachable(data, c):
+		return WHY_UNREACHABLE
 	return ""
+
+
+## M8 review: whether someone can stand next to tile `c` (the merchant's): one of the four tiles beside it walks
+## Config.BUILD_SEAL_REACH_TILES away (Building.reaches, the seal rule's walk: 4 ways, doors open; `c` itself blocks while
+## Config.MERCHANT_BLOCKS).
+static func reachable(data: WorldData, c: Vector2i) -> bool:
+	var extra: Dictionary[Vector2i, bool] = {}
+	if Config.MERCHANT_BLOCKS:
+		extra[c] = true
+	for d: Vector2i in DungeonGen.STEPS:
+		if Building.reaches(data, c + d, extra):
+			return true
+	return false
 
 
 ## The tile the merchant stands on for `data`'s altar: preferred_tile() if spot_refusal allows it, else the nearest tile it
 ## allows in rings of growing Chebyshev distance around it (row by row in a ring) out to Config.MERCHANT_SEARCH_TILES;
 ## Walls.NO_CELL when none does (or no altar). Where he stands now counts as free (the rule is where he would stand if he were
 ## not there: his tile is cleared for the search and put back).
-static func spot_for(data: WorldData, bodies: Array[Vector2] = [], others: Array[Vector2] = []) -> Vector2i:
+static func spot_for(data: WorldData, bodies: Array[Vector2] = [], others: Array[Vector2] = [],
+		predicted: Array[Vector2] = []) -> Vector2i:
 	var want: Vector2i = preferred_tile(data)
 	if want == Walls.NO_CELL or data.map_id != MAP:
 		return Walls.NO_CELL
@@ -113,7 +141,7 @@ static func spot_for(data: WorldData, bodies: Array[Vector2] = [], others: Array
 			for x: int in range(want.x - d, want.x + d + 1):
 				if found != Walls.NO_CELL or maxi(absi(x - want.x), absi(y - want.y)) != d:
 					continue
-				if spot_refusal(data, Vector2i(x, y), bodies, others).is_empty():
+				if spot_refusal(data, Vector2i(x, y), bodies, others, predicted).is_empty():
 					found = Vector2i(x, y)
 		if found != Walls.NO_CELL:
 			break
@@ -122,12 +150,23 @@ static func spot_for(data: WorldData, bodies: Array[Vector2] = [], others: Array
 	return found
 
 
-## The edits that put the merchant where spot_for says for `data` now: off his old tile (if any) and onto the new one. None
+## M8 review: where settle_edits puts him: spot_for with `predicted` (the clearance), else without it (the clearance is a
+## preference: a tile within it beats staying on a spot the new altar needs); Walls.NO_CELL when neither finds one.
+static func target(data: WorldData, bodies: Array[Vector2] = [], others: Array[Vector2] = [],
+		predicted: Array[Vector2] = []) -> Vector2i:
+	var to: Vector2i = spot_for(data, bodies, others, predicted)
+	if to == Walls.NO_CELL and not predicted.is_empty():
+		to = spot_for(data, bodies, others)
+	return to
+
+
+## The edits that put the merchant where target() says for `data` now: off his old tile (if any) and onto the new one. None
 ## when he already stands there, when no tile allows him (he stays where he is, or stays away when he was not there) and
 ## while the altar is carried (he waits).
-static func settle_edits(data: WorldData, bodies: Array[Vector2] = [], others: Array[Vector2] = []) -> Array[EditLog.WorldEdit]:
+static func settle_edits(data: WorldData, bodies: Array[Vector2] = [], others: Array[Vector2] = [],
+		predicted: Array[Vector2] = []) -> Array[EditLog.WorldEdit]:
 	var out: Array[EditLog.WorldEdit] = []
-	var to: Vector2i = spot_for(data, bodies, others)
+	var to: Vector2i = target(data, bodies, others, predicted)
 	var now: Vector2i = tile_of(data)
 	if to == Walls.NO_CELL or to == now:
 		return out
@@ -135,6 +174,27 @@ static func settle_edits(data: WorldData, bodies: Array[Vector2] = [], others: A
 		out.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, now, WorldData.PLACEABLE_NONE))
 	out.append(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, to, WorldData.PLACEABLE_MERCHANT))
 	return out
+
+
+## M8 review (AltarMove's placing rule): whether, with the altar put down on footprint `rect` (`data` has none now: it is
+## carried), the merchant would have a tile to go to (target() with `bodies` and `others`, as settle_edits will just after).
+## The footprint is tried on `data` and taken off again (its cells and altar_rect as they were).
+static func would_move_off(data: WorldData, rect: Rect2i, bodies: Array[Vector2] = [], others: Array[Vector2] = []) -> bool:
+	var was_rect: Rect2i = data.altar_rect
+	var was: PackedByteArray = PackedByteArray()
+	for y: int in range(rect.position.y, rect.end.y):
+		for x: int in range(rect.position.x, rect.end.x):
+			was.append(data.get_value(WorldData.Layer.PLACEABLE, Vector2i(x, y)))
+			data.set_value(WorldData.Layer.PLACEABLE, Vector2i(x, y), WorldData.PLACEABLE_ALTAR)
+	data.altar_rect = rect
+	var to: Vector2i = target(data, bodies, others)
+	var i: int = 0
+	for y2: int in range(rect.position.y, rect.end.y):
+		for x2: int in range(rect.position.x, rect.end.x):
+			data.set_value(WorldData.Layer.PLACEABLE, Vector2i(x2, y2), was[i])
+			i += 1
+	data.altar_rect = was_rect
+	return to != Walls.NO_CELL
 
 
 ## Whether F on tile `c` by feet `feet` reaches the merchant (his tile, in reach: WorldItems.in_reach, the chest's rule).

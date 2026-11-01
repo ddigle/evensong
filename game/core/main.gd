@@ -197,9 +197,9 @@ func _ready() -> void:
 	setup_combat()
 	setup_farming()
 	setup_forests()  # M7b
-	setup_shop()  # M8a
 	purify_on = true  # M5b (offline; M5c: a session's is the host's)
 	_apply_test_options(options)
+	setup_shop()  # M8a. M8 review: after the test options, as a host does (the merchant's tile keeps off their pieces and bodies)
 	if not options.bot.is_empty():
 		bot = NetBot.new()
 		bot.parse(options.bot)
@@ -1115,7 +1115,8 @@ func _connect_shop_panel() -> void:
 
 ## Puts the merchant where Merchant.spot_for says on world `w` (the surface) now, with the players and heretics there as bodies
 ## (Merchant.settle_edits; he stays where he is when no tile allows him). Returns his tile (Walls.NO_CELL: none). Offline only
-## (M8b: a session's host moves him, SessionHost.settle_merchant).
+## (M8b: a session's host moves him, SessionHost.settle_merchant). M8 review: the clearance (Merchant.spot_refusal's
+## `predicted`) is against the other players there (the --test-ally players, M7c's offline rule), never the local one.
 func settle_merchant(w: GameWorld) -> Vector2i:
 	if w == null or w.data == null or w.map_id != Merchant.MAP:
 		return Walls.NO_CELL
@@ -1123,7 +1124,11 @@ func settle_merchant(w: GameWorld) -> Vector2i:
 	var players: Array[Vector2] = bodies_on(w.map_id)
 	var bodies: Array[Vector2] = players.duplicate()
 	bodies.append_array(heretics_on(w.map_id))
-	var edits: Array[EditLog.WorldEdit] = Merchant.settle_edits(w.data, bodies, players)
+	var predicted: Array[Vector2] = []
+	for q: Player in players_on(w.map_id):
+		if q != player:
+			predicted.append(q.sim_position)
+	var edits: Array[EditLog.WorldEdit] = Merchant.settle_edits(w.data, bodies, players, predicted)
 	for e: EditLog.WorldEdit in edits:
 		w.apply_edit(e)
 	var now: Vector2i = Merchant.tile_of(w.data)
@@ -1132,7 +1137,7 @@ func settle_merchant(w: GameWorld) -> Vector2i:
 		print("EVENSONG_SHOP merchant at=%d,%d%s" % [now.x, now.y, "" if was == Walls.NO_CELL else " from=%d,%d" % [was.x, was.y]])
 	elif now == Walls.NO_CELL:
 		print("EVENSONG_SHOP merchant none: no tile beside the altar allows him")
-	elif Merchant.spot_for(w.data, bodies, players) != now:
+	elif Merchant.target(w.data, bodies, players, predicted) != now:
 		print("EVENSONG_SHOP merchant stays at=%d,%d: no tile beside the altar allows him" % [now.x, now.y])
 	return now
 
@@ -1181,18 +1186,31 @@ func open_shop(tile: Vector2i) -> void:
 	print("EVENSONG_SHOP open at=%d,%d money=%d stock=%s" % [tile.x, tile.y, Shop.money_in(player.inventory), sh.describe()])
 
 
+## M8 review: in a session the BUY and SELL requests still waiting to go (NetSession.local_ops, paced after a burst) are dropped
+## too: a click made while the panel was open never trades after it closed.
 func close_shop() -> void:
 	hud.shop.close()
 	hud.set_open(false)
 	if player != null and is_instance_valid(player):
 		player.ui_locked = false
+	if _in_session():
+		var kept: Array[NetProtocol.InputFrame] = []
+		for q: NetProtocol.InputFrame in net.local_ops:
+			if q.op != NetProtocol.Op.BUY and q.op != NetProtocol.Op.SELL:
+				kept.append(q)
+		if kept.size() != net.local_ops.size():
+			print("EVENSONG_SHOP closed: %d waiting requests dropped" % (net.local_ops.size() - kept.size()))
+			net.local_ops = kept
 
 
 ## A click on entry `index` (or Enter on the selected one): buy one (Shop.buy: all or nothing). M8b: in a session a BUY request
 ## (the host decides; its inventory and stock edits come back); the refusal this machine's world foresees flashes at once as a
-## hint and the request goes anyway.
+## hint and the request goes anyway. M8 review: an index that is no entry (a bot script's typo) does nothing (logged).
 func shop_buy(index: int) -> void:
 	if not shop_open():
+		return
+	if index < 0 or index >= Shop.offers().size():
+		print("EVENSONG_SHOP buy ignored: no entry %d" % index)
 		return
 	hud.shop.selected = clampi(index, 0, ShopPanel.entries() - 1)
 	if _in_session():
@@ -1212,14 +1230,23 @@ func shop_buy(index: int) -> void:
 
 
 ## A click on inventory slot `slot` while the shop is open: sell one of it, or (`whole`, shift) as many as the money fits. M8b:
-## in a session a SELL request, with the hint like shop_buy.
+## in a session a SELL request, with the hint like shop_buy. M8 review: the request names the item (and grade) this machine
+## shows in that slot, and the host sells only that (else `the slot changed`): a click on an inventory one round trip stale
+## never sells what the host put there meanwhile. A slot that is empty here sends nothing (there is nothing to name); a slot
+## that is no inventory slot does nothing (logged).
 func shop_sell(slot: int, whole: bool) -> void:
 	if not shop_open():
+		return
+	if slot < 0 or slot >= player.inventory.size():
+		print("EVENSONG_SHOP sell ignored: no inventory slot %d" % slot)
 		return
 	if _in_session():
 		var hint: String = Shop.sell_refusal(player.inventory, slot, whole)
 		if not hint.is_empty():
 			hud.shop.flash(hint, -1, slot)
+		if hint == Shop.WHY_EMPTY:
+			print("EVENSONG_SHOP sell not sent slot=%d: %s" % [slot, hint])
+			return
 		_shop_request(NetProtocol.Op.SELL, slot, whole, hint)
 		return
 	var d: Shop.Deal = shop.sell(player.inventory, slot, whole)
@@ -1233,11 +1260,14 @@ func shop_sell(slot: int, whole: bool) -> void:
 
 
 ## M8b: a BUY (offer `slot`) or SELL (inventory slot `slot`, `whole`) request at the open panel's merchant tile; `hint` = the
-## refusal this machine's world foresees ("" = none), for the log only.
+## refusal this machine's world foresees ("" = none), for the log only. M8 review: a SELL names what this machine shows in the
+## slot (NetProtocol.seen_in).
 func _shop_request(op: int, slot: int, whole: bool, hint: String) -> void:
 	var f: NetProtocol.InputFrame = request(op, slot)
 	f.cell = hud.shop.tile
 	f.sell_all = whole
+	if op == NetProtocol.Op.SELL:
+		NetProtocol.seen_in(f, player.inventory.stack_at(slot))
 	net.queue_op(f)
 	print("EVENSONG_SHOP %s request slot=%d%s at=%d,%d%s" % [NetProtocol.OP_NAMES[op], slot, " all" if whole else "", f.cell.x,
 		f.cell.y, "" if hint.is_empty() else " (looks refused here: %s)" % hint])

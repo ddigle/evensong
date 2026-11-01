@@ -1048,9 +1048,11 @@ static func _check_net_shop(r: Report) -> void:
 	sell.cell = Vector2i(67, 50)
 	sell.slot = 5
 	sell.sell_all = true
+	NetProtocol.seen_in(sell, ItemStack.new(&"potion_healing", 3, 2))  # M8 review: what the sender shows in the slot
 	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([buy, sell] as Array[NetProtocol.InputFrame]))
 	r.expect(up.ok and up.frames.size() == 2 and up.frames[0].same_request(buy) and up.frames[1].same_request(sell)
-		and up.frames[1].sell_all, "BUY and SELL round trip (M8b)")
+		and up.frames[1].sell_all and up.frames[1].item_index == ItemDB.index_of(&"potion_healing") and up.frames[1].grade == 2,
+		"BUY and SELL round trip (M8b; M8 review: the SELL names the item and grade seen)")
 	var host: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	host.shop = Shop.new()
 	for e: EditLog.WorldEdit in Merchant.settle_edits(host):

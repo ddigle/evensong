@@ -5,7 +5,8 @@ extends "res://tests/test_net_session.gd"
 ##   market  host (paladin) + c1 (miner) + c2 (cleric) + a late c3 (archer): four players. Each walks next to the merchant, opens
 ##           his shop with F (the panel on its own machine) and trades through it (bot buy / sell = the panel's clicks: BUY /
 ##           SELL requests): the host buys a healing potion and a holy water while c1 buys a torch and sells a stone and c2
-##           sells a log and buys a buff potion (two and three players shopping at once). One holy water is then left: c1 and
+##           sells a log and buys a buff potion (two and three players shopping at once; M8 review: c2's click on an empty slot
+##           first sends nothing). One holy water is then left: c1 and
 ##           c2 both wait until their own machine shows 1 left and click it: exactly one gets it, the other is refused (sold
 ##           out) with its money untouched. c1 sells its stones (shift: the whole stack). c3 joins then: its snapshot has the
 ##           merchant where he stands and the stock as it is, and it buys a torch. Every machine ends with the host's world
@@ -20,7 +21,8 @@ const MARKET_C1_GIVE: String = "--give=money:100,stone_a:20"
 const MARKET_C1: String = ("walkto:66,50;aimat:67,50;wait:10;pick;wait:10;mark:open;buy:4;wait:20;sell:2;wait:20;" +
 	"waitstock:3,1,1800;buy:3;wait:30;waitstock:3,0,1800;mark:raced;wait:20;sell:2,all;wait:30;tab;mark:closed;aim:off;wait:60")
 const MARKET_C2_GIVE: String = "--give=money:100,log:4"
-const MARKET_C2: String = ("walkto:67,45;walkto:67,49;aimat:67,50;wait:10;pick;wait:10;mark:open;sell:2;wait:20;buy:2;wait:20;" +
+const MARKET_C2: String = ("walkto:67,45;walkto:67,49;aimat:67,50;wait:10;pick;wait:10;mark:open;sell:24;wait:10;sell:2;wait:20;" +
+	"buy:2;wait:20;" +
 	"waitstock:3,1,1800;buy:3;wait:30;waitstock:3,0,1800;mark:raced;wait:30;tab;mark:closed;aim:off;wait:60")
 const MARKET_C3_GIVE: String = "--give=money:10"
 const MARKET_C3: String = ("wait:20;mark:seen;walkto:61,51;walkto:68,51;aimat:67,50;wait:10;pick;wait:10;mark:open;buy:4;" +
@@ -153,6 +155,10 @@ func _session_market() -> void:
 		check(_log_count(inst3, "EVENSONG_SHOP open at=67,50") >= 1, "market/%s: opened the shop panel on its own machine" % inst3.name)
 	var hres: Dictionary = host.result.get("shop", {})
 	check(roundi(_num(hres, "buys")) == 6 and roundi(_num(hres, "sales")) == 3, "market: the host counted 6 buys and 3 sales (%s)" % hres)
+	# M8 review: a click on a slot that is empty on the clicker's machine sends nothing (a SELL names what the slot shows).
+	var refused: Dictionary = hres.get("refused", {})
+	check(_log_count(c2, "EVENSONG_SHOP sell not sent slot=23: %s" % Shop.WHY_EMPTY) == 1 and not refused.has(Shop.WHY_EMPTY),
+		"market/c2: its click on an empty slot sent nothing (host refusals %s)" % refused)
 	for key: String in host.result.get("stats", {}):
 		if key.begins_with("req") or key.begins_with("act") or key.begins_with("0/") or key.begins_with("joining"):
 			var b2: Dictionary = host.result["stats"][key]

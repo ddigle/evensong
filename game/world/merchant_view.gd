@@ -81,6 +81,10 @@ const FRAMES: int = 4
 static var _sheet: ImageTexture
 static var _sheet_image: Image
 static var _prompt: ImageTexture
+## M8 review: the idle sheet read once (an exported build's CompressedTexture2D.get_image() reads it back from the GPU) and the
+## hat's top row per breathing frame from it, so set_frame never reads a texture.
+static var _idle_sheet: Image
+static var _hat_tops: PackedInt32Array = PackedInt32Array()
 
 ## Advance the breathing in _process (tests and the render check turn it off and set `frame`).
 var animate: bool = true
@@ -140,9 +144,13 @@ static func prompt_at(f: int) -> Vector2i:
 	return Vector2i((Config.CHAR_FRAME.x - PROMPT_SIZE.x) / 2, hat_top(f) - PROMPT_GAP - PROMPT_SIZE.y)
 
 
-## The hat's top row in frame `f` (frame coordinates): HAT_ABOVE rows over the frame's first opaque row of the base body.
+## The hat's top row in frame `f` (frame coordinates): HAT_ABOVE rows over the frame's first opaque row of the base body
+## (worked out once for the FRAMES frames).
 static func hat_top(f: int) -> int:
-	return _head_top(_idle_frame(f)) - HAT_ABOVE
+	if _hat_tops.is_empty():
+		for i: int in FRAMES:
+			_hat_tops.append(_head_top(_idle_frame(i)) - HAT_ABOVE)
+	return _hat_tops[posmod(f, FRAMES)]
 
 
 ## The merchant's four frames side by side (FRAMES x 32 by 32).
@@ -199,9 +207,10 @@ static func prompt_image() -> Image:
 
 ## Frame `f` of the shared body's idle sheet, south row (RGBA8, 32 x 32).
 static func _idle_frame(f: int) -> Image:
-	var sheet_img: Image = LightGen.to_rgba8(RigData.IDLE_SHEET.get_image())
+	if _idle_sheet == null:
+		_idle_sheet = LightGen.to_rgba8(RigData.IDLE_SHEET.get_image())
 	var rect: Rect2i = RigData.body_rect(RigData.sheet_row(RigData.Dir.SOUTH), posmod(f, FRAMES), RigData.Anim.IDLE)
-	return sheet_img.get_region(rect)
+	return _idle_sheet.get_region(rect)
 
 
 ## The first row of `img` with an opaque pixel (the top of the hair).

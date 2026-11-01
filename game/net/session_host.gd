@@ -123,6 +123,8 @@ extends RefCounted
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
+## M8 review: a SELL whose slot holds another item or grade than the one its sender showed there (NetProtocol.shows).
+const WHY_SLOT_CHANGED: String = "the slot changed"
 
 
 ## A joiner whose world is still being sent, or (M3b, `entry`) a member being sent the map it went to.
@@ -463,11 +465,11 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	m.altar_hold = m.altar_hold + 1 if frame.interact and AltarMove.hold_counts(p, players_on(m.map_id)) \
 		and AltarMove.altar_in_reach(p.data, p.sim_position) else 0
 	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
-		_refuse_op(m, frame, WorldItems.WHY_WRONG_MAP)
+		_refuse_early(m, frame, WorldItems.WHY_WRONG_MAP)
 	elif NetProtocol.op_has_map(frame.op) and not p.vitals.alive():
-		_refuse_op(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
+		_refuse_early(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
 	elif p.carrying_altar and _blocked_while_carrying(frame.op):
-		_refuse_op(m, frame, AltarMove.WHY_CARRYING)  # M5c: the carrier's click is the altar's (M5b)
+		_refuse_early(m, frame, AltarMove.WHY_CARRYING)  # M5c: the carrier's click is the altar's (M5b)
 	elif frame.op == NetProtocol.Op.TRAVEL:
 		_travel(m, frame)
 	elif frame.op == NetProtocol.Op.CHANNEL:
@@ -1846,6 +1848,17 @@ func bodies_on(map: int) -> Array[Vector2]:
 	return out
 
 
+## M8 review: the feet of the clients' players on map `map` (everyone there but the host's own player: their machines predict
+## their walking a round trip ahead, so a blocking tile that appears keeps Config.BLOCK_CLEARANCE_PX from them).
+func clients_feet_on(map: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		if m.map_id == map and m != s.local:
+			out.append(m.player.sim_position)
+	return out
+
+
 ## The feet of the live heretics on map `map`.
 func heretic_feet(map: int) -> Array[Vector2]:
 	var out: Array[Vector2] = []
@@ -2113,7 +2126,9 @@ func _setup_shop() -> void:
 
 ## Puts the merchant where Merchant.spot_for says on the surface now (the players and the live heretics there as bodies; he
 ## stays where he is when no tile allows him). `logged`: as cell edits to the surface's players (the altar was put down), else
-## straight into the world (the start). Returns his tile (Walls.NO_CELL: none).
+## straight into the world (the start). Returns his tile (Walls.NO_CELL: none). M8 review: he keeps
+## Config.BLOCK_CLEARANCE_PX from the clients' feet (Merchant.spot_refusal's `predicted`: their prediction runs a round trip
+## ahead, M7c), not from the host's own player; when that leaves no tile, without it (Merchant.target).
 func settle_merchant(logged: bool) -> Vector2i:
 	var w: GameWorld = s.world_of(Merchant.MAP)
 	if w == null or w.data == null:
@@ -2122,7 +2137,8 @@ func settle_merchant(logged: bool) -> Vector2i:
 	var players: Array[Vector2] = bodies_on(Merchant.MAP)
 	var bodies: Array[Vector2] = players.duplicate()
 	bodies.append_array(heretic_feet(Merchant.MAP))
-	var edits: Array[EditLog.WorldEdit] = Merchant.settle_edits(w.data, bodies, players)
+	var predicted: Array[Vector2] = clients_feet_on(Merchant.MAP)  # M8 review: the clearance (M7c's rule) from the clients
+	var edits: Array[EditLog.WorldEdit] = Merchant.settle_edits(w.data, bodies, players, predicted)
 	for e: EditLog.WorldEdit in edits:
 		if logged:
 			apply_world_edit(e, Merchant.MAP)
@@ -2134,7 +2150,7 @@ func settle_merchant(logged: bool) -> Vector2i:
 		s.log_event("merchant", "at=%d,%d%s" % [now.x, now.y, "" if was == Walls.NO_CELL else " from=%d,%d" % [was.x, was.y]])
 	elif now == Walls.NO_CELL:
 		s.log_event("merchant", "none: no tile beside the altar allows him")
-	elif Merchant.spot_for(w.data, bodies, players) != now:
+	elif Merchant.target(w.data, bodies, players, predicted) != now:
 		s.log_event("merchant", "stays at=%d,%d: no tile beside the altar allows him" % [now.x, now.y])
 	return now
 
@@ -2194,13 +2210,18 @@ func _buy(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 
 
 ## SELL (a click on an inventory slot of the open shop panel, shift = the whole stack): _shop_refusal, a slot of the inventory
-## (WorldItems.WHY_BAD_SLOT), then Shop.sell on the member's inventory (what he buys, worth something, the money fitting).
-## Nothing joins the stock (what he buys is gone), so only the owner hears of it (its inventory).
+## (WorldItems.WHY_BAD_SLOT), what the sender showed there (M8 review: a stack of another item or grade is WHY_SLOT_CHANGED, so
+## a click on an inventory a round trip stale never sells what came into that slot meanwhile; an empty slot is Shop's 빈 칸),
+## then Shop.sell on the member's inventory (what he buys, worth something, the money fitting). Nothing joins the stock (what
+## he buys is gone), so only the owner hears of it (its inventory).
 func _sell(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	var why: String = _shop_refusal(m, frame)
 	var d: Shop.Deal = null
 	if why.is_empty() and (frame.slot < 0 or frame.slot >= m.player.inventory.size()):
 		why = WorldItems.WHY_BAD_SLOT
+	var held: ItemStack = m.player.inventory.stack_at(frame.slot) if why.is_empty() else null
+	if held != null and not NetProtocol.shows(frame, held):
+		why = WHY_SLOT_CHANGED
 	if why.is_empty():
 		d = shop().sell(m.player.inventory, frame.slot, frame.sell_all)
 		why = d.why
@@ -2221,6 +2242,15 @@ func _refuse_shop(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> v
 	var n: int = shop_refusals.get(why, 0)
 	shop_refusals[why] = n + 1
 	_refuse_op(m, frame, why)
+
+
+## run_frame's refusals before a request's own handler (wrong map, down, carrying the altar): M8 review: a BUY or SELL is
+## counted in the shop's refusals too (_refuse_shop), anything else as before (_refuse_op).
+func _refuse_early(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
+	if frame.op == NetProtocol.Op.BUY or frame.op == NetProtocol.Op.SELL:
+		_refuse_shop(m, frame, why)
+	else:
+		_refuse_op(m, frame, why)
 
 
 ## M8b results: buys, sales, restocks, the merchant's moves and tile, the stock, refused shop requests by reason.

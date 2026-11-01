@@ -24,8 +24,12 @@ func run() -> Array[String]:
 	_check_many_altars()
 	_check_blocked()
 	_check_settle()
+	_check_seal()
+	_check_reach_and_clearance()
+	_check_altar_beside_him()
 	_check_tile_kept()
 	_check_heretics()
+	await _check_test_flags()
 	await _check_main()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
@@ -44,7 +48,8 @@ static func move_altar(d: WorldData, rect: Rect2i) -> void:
 	apply(d, AltarMove.place_edits(rect))
 
 
-## Written out here: tile `c` may hold the merchant for `d`'s altar (no seal test: none of the worlds here can seal).
+## Written out here: tile `c` may hold the merchant for `d`'s altar (no seal, clearance or reach test: none of the worlds
+## here can seal, has a client or walls him in; _check_seal and _check_reach_and_clearance check those rules).
 static func allowed(d: WorldData, c: Vector2i) -> bool:
 	if not d.in_bounds(c) or not d.altar_rect.has_area():
 		return false
@@ -257,6 +262,148 @@ func _check_settle() -> void:
 		and Merchant.tile_of(crowded) == SPOT, "no tile allows him there: he stays on %s" % SPOT)
 
 
+## M8 review: the seal rule (Building.seals with the spots where players appear and `others`). A built ring round the altar
+## whose one gap is right south of his tile: on it he would close the ring, so he takes another tile (the reserved feet do not
+## touch his tile: only the walk sees it). A player boxed in on three sides with his tile as the only way out: refused while
+## that player is in `others`, allowed without (so `others` is what keeps them free).
+func _check_seal() -> void:
+	var stone: int = Walls.pack(Walls.KIND_STONE, 0)
+	var ringed: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var gap: Vector2i = SPOT + Vector2i(0, 1)
+	for x: int in range(55, 73):
+		for y: int in [41, 51]:
+			if Vector2i(x, y) != gap:
+				ringed.set_value(WorldData.Layer.WALL, Vector2i(x, y), stone)
+	for y2: int in range(42, 51):
+		ringed.set_value(WorldData.Layer.WALL, Vector2i(55, y2), stone)
+		ringed.set_value(WorldData.Layer.WALL, Vector2i(72, y2), stone)
+	var spots: Array[Vector2] = WorldItems.reserved_feet(ringed)
+	var touching: int = 0
+	for r: Vector2 in spots:
+		if Rect2(Vector2(SPOT * 16), Vector2(16, 16)).intersects(Movement.feet_box(r)):
+			touching += 1
+	check(touching == 0 and not Building.seals(ringed, [] as Array[Vector2i], spots), "the ring with its gap seals nothing yet")
+	check_eq(Merchant.spot_refusal(ringed, SPOT), Building.WHY_SEALS, "on the tile inside the gap he would wall the spawn slots in")
+	var got: Vector2i = Merchant.spot_for(ringed)
+	check(got != SPOT and got != Walls.NO_CELL and Merchant.spot_refusal(ringed, got).is_empty()
+		and not Building.seals(ringed, [got] as Array[Vector2i], spots), "so he takes %s, which walls nobody in" % got)
+	# A player boxed in on three sides, his tile its only way out.
+	var boxed: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	for c: Vector2i in [SPOT + Vector2i(-1, 1), SPOT + Vector2i(1, 1), SPOT + Vector2i(0, 2)]:
+		boxed.set_value(WorldData.Layer.WALL, c, stone)
+	var p: Array[Vector2] = [Arena.spawn_feet(SPOT + Vector2i(0, 1))]
+	var none: Array[Vector2] = []
+	check_eq(Merchant.spot_refusal(boxed, SPOT, p, p), Building.WHY_SEALS, "a player whose only way out is his tile: refused")
+	check_eq(Merchant.spot_refusal(boxed, SPOT, p, none), "", "the same player left out of `others`: allowed (others is the rule)")
+	var got2: Vector2i = Merchant.spot_for(boxed, p, p)
+	check(got2 != SPOT and got2 != Walls.NO_CELL and not Building.seals(boxed, [got2] as Array[Vector2i], p),
+		"so he takes %s and the player still walks out" % got2)
+
+
+## M8 review: someone must be able to stand next to him (Merchant.reachable: a tile beside his walks
+## Config.BUILD_SEAL_REACH_TILES away). A doorless built ring (66, 49)-(71, 54) round his tile: inside it nobody could reach him,
+## so he stands outside it; a door in the ring makes the inside fine again (doors count as open). A one-tile pocket (walls west,
+## east and south, a lantern post north): refused. And the clearance (`predicted`, PROVISIONAL README "M8b 상인 막기 여유"):
+## a client's feet within Config.BLOCK_CLEARANCE_PX of his tile move him on (Building.WHY_NEAR) where the same feet as a plain
+## body beside him do not; when only tiles within it are left he still goes (Merchant.target: the clearance is a preference).
+func _check_reach_and_clearance() -> void:
+	var stone: int = Walls.pack(Walls.KIND_STONE, 0)
+	var ringed: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var inside: Rect2i = Rect2i(Vector2i(67, 50), Vector2i(4, 4))
+	for x: int in range(66, 72):
+		ringed.set_value(WorldData.Layer.WALL, Vector2i(x, 49), stone)
+		ringed.set_value(WorldData.Layer.WALL, Vector2i(x, 54), stone)
+	for y: int in range(50, 54):
+		ringed.set_value(WorldData.Layer.WALL, Vector2i(66, y), stone)
+		ringed.set_value(WorldData.Layer.WALL, Vector2i(71, y), stone)
+	check(not Merchant.reachable(ringed, Vector2i(67, 51)) and not Merchant.reachable(ringed, Vector2i(68, 52)),
+		"inside a doorless ring nobody could stand next to him")
+	var got: Vector2i = Merchant.spot_for(ringed)
+	check(got != Walls.NO_CELL and not inside.has_point(got) and Merchant.reachable(ringed, got),
+		"so he stands outside it (%s)" % got)
+	ringed.set_value(WorldData.Layer.WALL, Vector2i(66, 51), Walls.pack(Walls.KIND_DOOR, 0))
+	check(Merchant.reachable(ringed, Vector2i(67, 51)), "with a door in the ring the inside is reachable (a door counts as open)")
+	var pocket: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	for c: Vector2i in [SPOT + Vector2i(-1, 0), SPOT + Vector2i(1, 0), SPOT + Vector2i(0, 1)]:
+		pocket.set_value(WorldData.Layer.WALL, c, stone)
+	pocket.set_value(WorldData.Layer.PLACEABLE, SPOT + Vector2i(0, -1), WorldData.PLACEABLE_LANTERN)
+	check_eq(Merchant.spot_refusal(pocket, SPOT), Merchant.WHY_UNREACHABLE, "a one-tile pocket: refused")
+	check(Merchant.spot_for(pocket) != SPOT, "he stands elsewhere")
+	# The clearance: a client one tile east of his tile.
+	var d: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var f: Array[Vector2] = [Arena.spawn_feet(SPOT + Vector2i(1, 0))]
+	check_eq(Merchant.spot_refusal(d, SPOT, f, f, f), Building.WHY_NEAR, "a client's feet within the clearance: refused")
+	check_eq(Merchant.spot_refusal(d, SPOT, f, f), "", "the same feet as a body beside him (no client): allowed")
+	var got2: Vector2i = Merchant.spot_for(d, f, f, f)
+	check(got2 != SPOT and got2 != Walls.NO_CELL and Building.clear_of_others([got2] as Array[Vector2i], f),
+		"so he takes %s, clear of the client" % got2)
+	check_eq(Merchant.target(d, f, f, f), got2, "target = that tile")
+	var only: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var centre: Vector2i = only.altar_rect.position + Vector2i(1, 1)
+	for y2: int in range(centre.y - 10, centre.y + 11):
+		for x2: int in range(centre.x - 10, centre.x + 11):
+			var c2: Vector2i = Vector2i(x2, y2)
+			if c2 != SPOT and only.get_value(WorldData.Layer.PLACEABLE, c2) == WorldData.PLACEABLE_NONE:
+				only.set_value(WorldData.Layer.CORRUPTION, c2, 1)
+	check(Merchant.spot_for(only, f, f, f) == Walls.NO_CELL and Merchant.target(only, f, f, f) == SPOT,
+		"only his tile is left and it is within the clearance: he still goes there")
+	var edits: Array[EditLog.WorldEdit] = Merchant.settle_edits(only, f, f, f)
+	check(edits.size() == 1 and edits[0].cell == SPOT, "settle_edits puts him there")
+
+
+## M8 review: the altar may go down where his waiting tile is all that keeps a new spawn slot from standing (seed 1, the altar
+## lifted and put down one tile east: spawn slot 4's feet on his tile): allowed, and he steps beside the new place at once,
+## every slot standable. The four other footprints near home the review found refused only because of him go too. Trying a
+## footprint leaves the world as it was. With nowhere for him to go (everything around grown over), refused as before.
+func _check_altar_beside_him() -> void:
+	var d: WorldData = _lifted_with_merchant()
+	var east: Rect2i = Rect2i(ALTAR_AT + Vector2i(1, 0), Config.ALTAR_FOOTPRINT)
+	var tile_px: Rect2 = Rect2(Vector2(SPOT * 16), Vector2(16, 16))
+	check(tile_px.intersects(Movement.feet_box(AltarMove.slot_feet(east)[4])) and not Movement.can_stand(d, AltarMove.slot_feet(east)[4]),
+		"one tile east: spawn slot 4 stands on his tile")
+	var before: String = d.content_hash()
+	check_eq(AltarMove.place_refusal(d, east), "", "allowed: he steps off it right after")
+	check(d.content_hash() == before and not d.altar_rect.has_area() and Merchant.tile_of(d) == SPOT,
+		"trying it left the world as it was (no altar, he on %s)" % SPOT)
+	check(AltarMove.set_down_rect(d, Arena.spawn_feet(east.get_center())) == east, "the set-down search finds it too")
+	apply(d, AltarMove.place_edits(east))
+	var moved: Array[EditLog.WorldEdit] = Merchant.settle_edits(d)
+	d.set_value(WorldData.Layer.PLACEABLE, SPOT, WorldData.PLACEABLE_NONE)  # the written-out rule sees the world without him
+	var expect: Vector2i = first_allowed(d, Merchant.preferred_tile(d))
+	d.set_value(WorldData.Layer.PLACEABLE, SPOT, WorldData.PLACEABLE_MERCHANT)
+	apply(d, moved)
+	var to: Vector2i = Merchant.tile_of(d)
+	check(moved.size() == 2 and to != SPOT and to == expect, "he goes to %s (the written-out rule: %s)" % [to, expect])
+	var standing: int = 0
+	for s: Vector2 in AltarMove.slot_feet(east):
+		if Movement.can_stand(d, s):
+			standing += 1
+	check_eq(standing, Config.SPAWN_SLOTS.size(), "every new spawn slot can be stood on")
+	for off: Vector2i in [Vector2i(2, 0), Vector2i(-1, 1), Vector2i(0, 3), Vector2i(1, 3)]:
+		var d2: WorldData = _lifted_with_merchant()
+		check_eq(AltarMove.place_refusal(d2, Rect2i(ALTAR_AT + off, Config.ALTAR_FOOTPRINT)), "",
+			"moved by %s: allowed too" % off)
+	# Nowhere for him to go: every tile he could take grown over.
+	var stuck: WorldData = _lifted_with_merchant()
+	var want: Vector2i = east.position + Config.MERCHANT_OFFSET
+	for y: int in range(want.y - Config.MERCHANT_SEARCH_TILES, want.y + Config.MERCHANT_SEARCH_TILES + 1):
+		for x: int in range(want.x - Config.MERCHANT_SEARCH_TILES, want.x + Config.MERCHANT_SEARCH_TILES + 1):
+			var c: Vector2i = Vector2i(x, y)
+			if not east.has_point(c) and stuck.get_value(WorldData.Layer.PLACEABLE, c) == WorldData.PLACEABLE_NONE:
+				stuck.set_value(WorldData.Layer.VEGETATION, c, WorldItems.value_of(&"stone_b"))
+	check_eq(AltarMove.place_refusal(stuck, east), AltarMove.WHY_SLOTS, "with nowhere for him to go: no room around it, as before")
+	stuck.set_value(WorldData.Layer.PLACEABLE, SPOT, WorldData.PLACEABLE_NONE)
+	check_eq(AltarMove.place_refusal(stuck, east), "", "(and without him there it is allowed)")
+
+
+## Seed 1 with the merchant settled (on SPOT) and the altar lifted (carried).
+static func _lifted_with_merchant() -> WorldData:
+	var d: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	apply(d, Merchant.settle_edits(d))
+	apply(d, AltarMove.pickup_edits(d))
+	return d
+
+
 ## His tile stays free: nothing is placed, built, tilled, dropped or set down on it; walking stops at him.
 func _check_tile_kept() -> void:
 	var d: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
@@ -457,6 +604,42 @@ func _check_main() -> void:
 	main.pick_up()
 	main._shop_input(_action_event(&"ui_cancel"))
 	check(not main.shop_open(), "Esc closes it")
+	# M8 review, Main's session side (the role switched for the check, nothing is sent: no peer): a SELL names what this machine
+	# shows in the slot, a slot that is empty here sends nothing, an entry or slot past the panel does nothing, and closing
+	# drops the BUY / SELL requests still waiting to go (the others stay).
+	main.pick_up()
+	check(main.shop_open(), "open for the session checks")
+	main.net.role = NetSession.Role.CLIENT
+	main.net.local_ops.clear()
+	p.inventory.add(&"wild_healing", 2, 2)
+	var herb: int = -1
+	var empty_slot: int = -1
+	for i2: int in p.inventory.size():
+		var st: ItemStack = p.inventory.stack_at(i2)
+		if st != null and st.id == &"wild_healing":
+			herb = i2
+		elif st == null and empty_slot < 0:
+			empty_slot = i2
+	main.shop_sell(empty_slot, false)
+	main.shop_buy(Shop.offers().size())
+	main.shop_sell(p.inventory.size(), false)
+	var nothing_sent: bool = main.net.local_ops.is_empty()
+	main.shop_sell(herb, true)
+	var sold: NetProtocol.InputFrame = main.net.local_ops[0] if main.net.local_ops.size() == 1 else null
+	check(nothing_sent and sold != null and sold.op == NetProtocol.Op.SELL and sold.sell_all and sold.slot == herb
+		and sold.item_index == ItemDB.index_of(&"wild_healing") and sold.grade == 2 and sold.cell == SPOT,
+		"session: an empty slot, entry %d and slot %d send nothing; the herbs' SELL names wild_healing, fine" % [
+		Shop.offers().size(), p.inventory.size()])
+	main.net.local_ops.clear()
+	for op: int in [NetProtocol.Op.BUY, NetProtocol.Op.PICKUP, NetProtocol.Op.SELL, NetProtocol.Op.BUY]:
+		main.net.local_ops.append(Main.request(op, 0))
+	main.close_shop()
+	var kept: Array[NetProtocol.InputFrame] = main.net.local_ops.duplicate()
+	main.net.local_ops.clear()
+	main.net.role = NetSession.Role.OFFLINE
+	check(not main.shop_open() and kept.size() == 1 and kept[0].op == NetProtocol.Op.PICKUP,
+		"session: closing dropped the waiting BUY and SELL requests, kept the pick-up (%d left)" % kept.size())
+	p.inventory.remove(herb, 2)
 	# Out of reach: closed.
 	main.pick_up()
 	p.teleport(Arena.spawn_feet(SPOT + Vector2i(0, 4)))
@@ -499,6 +682,26 @@ func _check_main() -> void:
 	check(w.fixtures.merchant_at(want) != null and w.fixtures.merchant_at(SPOT) == null and w.fixtures.verify()["mismatches"] == 0,
 		"drawn there, not here")
 	check_eq(main.merchant_moves, 2, "two moves: the start and this one")
+
+
+## M8 review: offline the merchant comes down after the test options, as a host's does (SessionHost._setup_shop after the test
+## pieces): --test-build's wall on his preferred tile and --test-field's crop on the next keep him off both (before, they were
+## put down under him).
+func _check_test_flags() -> void:
+	var saved: CliOptions = CliOptions._current
+	CliOptions._current = CliOptions.parse(PackedStringArray(["--test-build=%d,%d:wall" % [SPOT.x, SPOT.y],
+		"--test-field=%d,%d:healing:2" % [SPOT.x - 1, SPOT.y - 1]]))
+	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
+	add_node(main)
+	await await_frames(2)
+	CliOptions._current = saved
+	var data: WorldData = main.world.data
+	var at: Vector2i = Merchant.tile_of(data)
+	check(Walls.is_wall(data, SPOT) and Farming.field_at(data, SPOT + Vector2i(-1, -1)) != null and at != Walls.NO_CELL
+		and at != SPOT and at != SPOT + Vector2i(-1, -1) and Merchant.spot_for(data) == at,
+		"--test-build and --test-field come first: the merchant keeps off their tiles (he stands on %s)" % at)
+	main.queue_free()
+	await await_frames(1)
 
 
 static func _action_event(action: StringName) -> InputEventAction:

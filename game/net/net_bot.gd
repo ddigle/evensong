@@ -69,9 +69,9 @@ extends RefCounted
 ##                                chest, anvil, stump, tree ...; default 1800 ticks)
 ##   waitchest:<x>,<y>,<item>[,<ticks>]   stand until the chest with a tile at x,y holds that item (default 1800 ticks)
 ## M8a (offline: Main handles them; the shop panel is open, F at the merchant = pick):
-##   buy:<n>                      click entry <n> (1 = the top left) of the open shop panel: buy one
-##   sell:<n>[,all]               click inventory slot <n> (1 = the hotbar's first) of the open shop panel: sell one (all: shift,
-##                                the whole stack)
+##   buy:<n>                      click entry <n> (1 = the top left, up to Shop.offers().size()) of the open shop panel: buy one
+##   sell:<n>[,all]               click inventory slot <n> (1 = the hotbar's first, up to Config.INVENTORY_SLOTS) of the open shop
+##                                panel: sell one (all: shift, the whole stack)
 ## M8b (sessions: buy / sell go to Main through NetSession.bot_shop and become BUY / SELL requests; the shop as this machine's
 ## world has it, `world`):
 ##   waitstock:<n>,<left>[,<ticks>]   stand until entry <n> (1 = the top left) of the world's shop has exactly <left> left
@@ -297,12 +297,13 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				return "expected craft:<row>"
 			c.count = args[0].to_int() - 1
 		"buy":
-			if args.size() != 1 or not _whole(args[0], 1):
-				return "expected buy:<entry>"
+			if args.size() != 1 or not _whole(args[0], 1) or args[0].to_int() > Shop.offers().size():
+				return "expected buy:<entry 1..%d>" % Shop.offers().size()
 			c.count = args[0].to_int() - 1
 		"sell":
-			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() == 2 and args[1] != "all"):
-				return "expected sell:<slot>[,all]"
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or args[0].to_int() > Config.INVENTORY_SLOTS \
+					or (args.size() == 2 and args[1] != "all"):
+				return "expected sell:<slot 1..%d>[,all]" % Config.INVENTORY_SLOTS
 			c.count = args[0].to_int() - 1
 			c.slot = 1 if args.size() == 2 else 0
 		"fight":

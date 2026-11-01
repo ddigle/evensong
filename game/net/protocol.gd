@@ -43,7 +43,9 @@ extends RefCounted
 ##                 BUY     u8 map, s16 x, s16 y (the merchant's tile as the sender has it), u8 offer (its index in
 ##                         Shop.offers(): one of it)                                M8b: a click on an entry of the open shop panel
 ##                 SELL    u8 map, s16 x, s16 y (the merchant's tile), u8 inventory slot, u8 whole (0 = one, 1 = the whole
-##                         stack as far as the money fits)                          M8b: a click on an inventory slot (shift: whole)
+##                         stack as far as the money fits), u8 item index (255 = nothing), u8 grade (M8 review: what the
+##                         sender shows in that slot; the host sells only that, else `the slot changed`)
+##                                                                                  M8b: a click on an inventory slot (shift: whole)
 ##               M3b: a request aimed at a tile names the map it was aimed on (the map the sender
 ##               was on when it made the frame); the host refuses it on any other map ("wrong map").
 ##               M6b: a USE of a potion is a drink (the host resolves it from the slot, like a tool).
@@ -137,7 +139,8 @@ extends RefCounted
 ## 10 (M8b): the merchant and his shop in sessions: BUY and SELL requests, the shop stock edit (net/edit_log.gd, code 0x43) and
 ## the shop's stock in the world snapshot (net/world_snapshot.gd: one byte more for a world without a shop). The merchant's
 ## tile is a PLACEABLE cell edit and a snapshot layer as before (value 17, M8a). A version 9 peer would read neither the
-## snapshot's last byte nor the new edit code: refused with `version`.
+## snapshot's last byte nor the new edit code: refused with `version`. M8 review (v10 was not released yet, so the number
+## stays): a SELL carries the item and grade its sender showed in the slot (two bytes more).
 const VERSION: int = 10
 
 const CH_CONTROL: int = 0
@@ -158,11 +161,13 @@ enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, 
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
 	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
-## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5, 6, 5, 1, 7, 6, 7]
+## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9).
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 11, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9]
 ## M8b: a SELL request's whole byte.
 const SELL_ONE: int = 0
 const SELL_WHOLE: int = 1
+## M8 review: a SELL's item byte when its sender showed nothing in the slot (Main never sends one; tests and old frames may).
+const SELL_SEEN_NONE: int = 255
 ## M7c: an ARMOR request's slot that takes the worn armour off (any other is the hotbar slot whose armour goes on).
 const ARMOR_OFF: int = 255
 ## M7c: a CHEST request's move byte.
@@ -263,7 +268,8 @@ class InputFrame:
 	## aimed, SessionHost.attach_local_op).
 	var piece: int = 0
 	## M8b: a BUY's offer is `slot` (its index in Shop.offers()) and a SELL's inventory slot is `slot`; a SELL sells the whole
-	## stack (as far as the money fits) when `sell_all`. Both aim at the merchant's tile `cell`.
+	## stack (as far as the money fits) when `sell_all`. Both aim at the merchant's tile `cell`. M8 review: a SELL's
+	## `item_index` and `grade` are what its sender showed in that slot (NetProtocol.seen_in).
 	var sell_all: bool = false
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
@@ -316,7 +322,10 @@ class InputFrame:
 				var o: Shop.Offer = Shop.offer_at(slot)
 				return "buy map=%d at=%d,%d offer=%d item=%s" % [map, cell.x, cell.y, slot, o.item if o != null else &"?"]
 			Op.SELL:
-				return "sell map=%d at=%d,%d slot=%d%s" % [map, cell.x, cell.y, slot, " all" if sell_all else ""]
+				return "sell map=%d at=%d,%d slot=%d%s saw=%s:%s" % [map, cell.x, cell.y, slot, " all" if sell_all else "",
+					ItemDB.id_at(item_index) if item_index >= 0 and item_index < ItemDB.count()
+					else &"nothing" if item_index == SELL_SEEN_NONE else &"?",
+					ItemDB.GRADE_NAMES[grade] if grade >= 0 and grade < ItemDB.GRADE_NAMES.size() else "?"]
 		return "none"
 
 
@@ -527,6 +536,20 @@ static func valid_map(map: int) -> bool:
 	return map >= 0 and map < Config.MAP_COUNT
 
 
+## M8 review: a SELL frame `f` names stack `seen` (what its sender shows in the slot: its item index and grade; an empty slot
+## names SELL_SEEN_NONE, grade 0).
+static func seen_in(f: InputFrame, seen: ItemStack) -> void:
+	f.item_index = ItemDB.index_of(seen.id) if seen != null else SELL_SEEN_NONE
+	f.grade = seen.grade if seen != null else 0
+
+
+## M8 review: whether stack `st` is what SELL frame `f` names (seen_in): the same item and grade (an empty slot: nothing named).
+static func shows(f: InputFrame, st: ItemStack) -> bool:
+	if st == null:
+		return f.item_index == SELL_SEEN_NONE
+	return ItemDB.index_of(st.id) == f.item_index and st.grade == f.grade
+
+
 static func class_index(class_id: String) -> int:
 	return Config.CLASSES.find(class_id)
 
@@ -601,6 +624,8 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_s16(at + 2, f.cell.y)
 			out.encode_u8(at + 4, clampi(f.slot, 0, 255))
 			out.encode_u8(at + 5, SELL_WHOLE if f.sell_all else SELL_ONE)
+			out.encode_u8(at + 6, clampi(f.item_index, 0, 255))
+			out.encode_u8(at + 7, clampi(f.grade, 0, 255))
 		Op.DROP:
 			out.encode_u8(at, f.slot)
 			out.encode_u8(at + 1, f.count)
@@ -663,7 +688,10 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.slot = bytes.decode_u8(at + 4)
 			var whole: int = bytes.decode_u8(at + 5)
 			f.sell_all = whole == SELL_WHOLE
-			return f.slot < Config.INVENTORY_SLOTS and (whole == SELL_ONE or whole == SELL_WHOLE)
+			f.item_index = bytes.decode_u8(at + 6)
+			f.grade = bytes.decode_u8(at + 7)
+			return f.slot < Config.INVENTORY_SLOTS and (whole == SELL_ONE or whole == SELL_WHOLE) \
+				and (f.item_index < ItemDB.count() or f.item_index == SELL_SEEN_NONE) and f.grade < ItemDB.GRADE_NAMES.size()
 		Op.CHANNEL:
 			f.channel = true  # M5c: what the sender asks for; the host decides it again (SessionHost.run_frame)
 			return true
