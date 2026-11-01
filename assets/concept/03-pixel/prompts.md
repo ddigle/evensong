@@ -517,3 +517,43 @@ brief §5.6 ? 동작 중 다른 표식(R25)을 정하기 위해, 5~7차 표식 �
 - 다시 돌리기: 스크래치 복사본에서 손질판·미리보기·목업 9개를 지우고 raw만으로 `all`을 돌려, 저장소 파일과 sha256이 같았다(검토 전·후 두 번)
 - 잔액: 검토 시작 때 `get_balance` 1,701(사용 299)로 첫 판 기록 8회와 맞았다. 검토의 북 다시 뽑기 c·d 각 1회 뒤 1,700·1,699(앞뒤로 `get_balance`)
 - 판정: 남·동은 그대로 쓸 수 있다(남 1열의 빈손 프레임만 열 배치로 고침). 북 b는 날 모양과 내리치는 자리가 약해서 2회 다시 뽑았지만 둘 다 더 나빠 b를 쓴다. 열 배치를 바꿔 세 방향 맞는 프레임을 하나(4열)로 맞췄다. 모두 채택 후보이고 사람 확인 전이다
+
+## PixelLab 15차 (2026-11-01, M8 순례 상인, 5회 사용)
+
+슬라이스 M8(PR #69)의 제단 곁 순례 상인(● gameplay-design §3.0 R11 "제단 곁 상인 NPC (순례 상인)")을 기본 몸과 같은 배치의 idle 시트로 만들었다. M8은 기본 몸에 코드로 망토·모자·등짐을 그린 자리 표시를 쓴다. 사람이 견적(캐릭터 2회 + idle 남·동·북 3회 = 5회)을 보고 다시 뽑기 여유를 넣어 상한 10회를 승인했다. 잔액 1,699 → 1,694 (5회), 5회는 쓰지 않았다. 생성 앞뒤로 `get_balance`를 불렀고 같은 시각에 PixelLab를 쓴 다른 작업은 없다. 힉스필드는 쓰지 않았고 생성 도구에 넣은 그림은 없다(텍스트만).
+상인은 거의 서 있고 제단을 옮기면 새 자리로 바로 옮겨 가므로(M8 임시값) 걷기는 만들지 않았다. 서쪽은 동쪽 반전(R19).
+
+1. 캐릭터 (2회): `create_character`, `mode: "v3"`(레퍼런스 없음), `size: 32`, `view: "low top-down"`, `outline: "single color black outline"`, `detail: "medium detail"`, `name: "merchant_v3_v01"` (character 5fd67914-5c3c-4d92-b2c1-9baad6fba38b, job 4b7ea61d-98b2-4f10-be40-4f8c69a96de4, group 104d9bf1-78bd-4487-a5de-9cd0ba70a4dd, 8방향 중 남·동·북·서만 보관) → `merchant_v01_rotations.png` (128×32, 남·동·북·서)
+   description: "cute chibi travelling pilgrim merchant, about two heads tall with a big head and small body, friendly round smiling face clearly visible, short dark brown beard, wide-brimmed mustard-ochre felt pilgrim hat, deep russet-red travelling cloak over a mustard-yellow scarf, a big wooden-frame backpack on his back reaching up to the back of his head, piled with cloth bundles, a rolled bedroll and a small copper cooking pot hanging from its side, sturdy dark brown boots, empty hands, no weapon, no hood, no grey clothing, cozy warm colours, friendly"
+   - 생활 쪽 톤(R19)으로 겨자색 순례자 모자에 붉은 띠, 적갈색 망토, 청록 꾸러미, 나무틀 큰 등짐, 구리 냄비. 얼굴이 보인다. 수염은 나오지 않았다
+   - 키 28px(회전, 칸 32). 방향 정확(정면·오른쪽 옆·뒷모습). 뒷모습은 등짐이 몸을 거의 덮는다
+   - 플레이어(맨머리, 베이지 튜닉)와 이단(잿빛 두건, 보라 눈)과 색·실루엣으로 갈려 채택
+2. idle (3회, 방향당 1회): 1번에 `animate_character`, `template_animation_id: "breathing-idle"`(4장), 남·동·북, `animation_name: "merchant_idle"`, `ai_freedom` 기본값 0 (group 44d98ff2-18ef-4a52-b1af-b37c59ae5e29) → `merchant_v01_idle.png` (128×96, 줄 남·동·북, 32칸)
+
+| 방향 | animation | job |
+|---|---|---|
+| 남 | eb53078d-f93d-4836-972c-3de9b170be52 | 1ce9e96c-a9ca-4e95-96d1-b5bd0999f88a |
+| 동 | 9fdae71e-162d-46fb-96e3-c7ef617399be | c1b275df-9a13-4a97-9655-ddb5017db234 |
+| 북 | c7d8e28f-f3dd-42ea-949d-c7bb894d4289 | 0238fe3e-1c6e-4758-a58e-0a7ea2e53616 |
+
+   - 키 26~27px(원본, 발 맞춤 전)로 기본 몸·이단의 템플릿 idle과 같은 크기. 등짐·모자는 네 장 모두 있다(이단의 칼·팔라딘 방패처럼 빠지지 않음)
+   - 남쪽 구리 냄비는 idle에서 사라졌다(회전에는 있음). 북쪽 냄비는 네 장 모두 있다
+   - 남쪽 얼굴이 프레임마다 다르다(0번 오른눈 옅은 파랑, 1번 두 눈에 흰 눈빛, 2번 어두운 눈, 3번 코에 옅은 파랑 점). 정면에서 눈이 깜빡여 손질로 고침(아래 3)
+   - 동쪽 0번만 몸 전체가 1~3번보다 1px 낮다
+3. 손질 (무료, `uv run -q --python 3.14.6 --script tools/art/merchant.py`, 고정 버전은 `tools/art/merchant.py.lock`. 다시 돌리면 같은 파일, 두 번 돌려 md5 같음)
+   - 남쪽 얼굴 고정: 1번(두 눈에 흰 눈빛)의 얼굴 상자 x 10~21 · y 9~14를 0·2·3번에 붙임. 붙일 줄은 상자 위아래 둘레가 가장 잘 맞는 값(0번 0, 2번 −1, 3번 0). 프레임마다 41~42px
+   - 떨어진 점(2px 이하): 없었다
+   - 발 맞춤: idle은 프레임마다 가장 낮은 픽셀을 y=31(남 +5, 동 0번 +3·1~3번 +4, 북 +5. 서 있는 발이 숨쉬기 동안 뜨지 않게). 회전도 그림마다 y=31
+   - 가로 맞춤: 무게중심을 기본 몸 idle(남 15.3 · 동 15.4 · 북 15.8)에 맞춰 남 +1, 동 +3, 북 +1. 결과 남 15.3~15.6, 동 15.4~15.8, 북 15.7~16.1 (서 = 동 반전 때 몸이 거의 옮겨지지 않는다)
+   - 외곽선: 밝은 가장자리 바깥에 1px 원본 외곽선 색(#020201). idle 프레임당 0~4px, 회전 1~2px. 실루엣 가장자리 100%가 어두운 색
+   - 색은 원본 그대로(팔레트로 줄이지 않음, 프레임당 46~66색)
+4. 결과 파일 (`base_body_v02_idle.png`와 같은 배치)
+   - `merchant_v02_idle.png` 128×96: 32칸 4열, 줄 남·동·북, 발 y=31
+   - `merchant_v02_rotations.png` 128×32: 남·동·북·서(서 = 동 반전), 발 y=31
+   - `merchant_v02_anims.gif`: 줄 남·동·북·서(반전), idle 4장, 3배, 프레임당 200ms(게임 `IDLE_FRAME_TIME` 0.2초)
+   - `merchant_v02_scale_check.png`: 위 1배, 아래 4배. 남·동·북마다 기본 몸 · 상인 · 이단의 idle 첫 프레임, 빨간 선 = 발 줄. 글자 없음
+5. 판정과 남은 흠
+   - 1배에서 상인이 플레이어·이단과 바로 갈린다(겨자 모자·적갈 망토·큰 등짐). 키는 기본 몸과 같다
+   - 남쪽 얼굴은 1번 얼굴로 고정해 흰 눈빛이 늘 있다(눈을 크게 뜬 얼굴로 읽힘). 손·옷 주름의 1~2px 흔들림은 템플릿 그대로다
+   - 남쪽 idle에 냄비가 없다. 정면 상인의 상점 느낌은 등짐 꾸러미와 모자로 남는다
+   - 채택 후보이고 사람 확인 전이다. 게임(M8의 `world/merchant_view.gd` 자리 표시)에 바꿔 끼우는 일은 game/ 쪽에서 따로 한다
