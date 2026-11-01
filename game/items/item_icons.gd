@@ -11,6 +11,7 @@ extends RefCounted
 ## shrunk to fit 16x16 (fit_icon: the opaque box scaled down by a whole-pixel nearest step, centred on the bottom).
 ## M7b (PLACEHOLDERS too): the axe has a map of its own (a broad iron bit on a wooden haft, like the action sheet's axe); the
 ## build pieces are composed from parts of their placed art (ItemDB.BUILD_ICONS, compose_parts).
+## M8a (PLACEHOLDER too): money is a silver coin with a gold lamp flame (MAPS "money").
 
 const SIZE: int = 16
 ## Map characters -> colour (brief §4 base / faith rows, 04-env iron and copper item colours).
@@ -239,6 +240,26 @@ const MAPS: Dictionary[StringName, Array] = {
 		".kdwk...........",
 		".kwk............",
 		"..k.............",
+		"................",
+	],
+	# M8a: money (● R41; the placeholder name Config.MONEY_NAME, a silver coin): a pale iron coin with a gold lamp flame struck
+	# on it, an ash-black rim (no coin art exists).
+	&"money": [
+		"................",
+		"................",
+		".....kkkkkk.....",
+		"...kkhhhhhhkk...",
+		"..khhsshhhhhmk..",
+		"..khshhhghhhmk..",
+		".khshhhgghhhmmk.",
+		".khshhggghhhmmk.",
+		".khhhhkggkhhmmk.",
+		".khhhhkkkkhmmmk.",
+		"..khhhkkkkhmmk..",
+		"..kmhhhhhhmmmk..",
+		"...kkmmmmmmkk...",
+		".....kkkkkk.....",
+		"................",
 		"................",
 	],
 }

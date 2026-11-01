@@ -16,13 +16,14 @@ extends "res://tests/test_net_session.gd"
 ## brew (seed 1): the table's footprint is (62..64, 50) (the host clicks the tile south of (63, 49)); c1 brews
 ## at (66, 49), throws from (63, 53) (inside the light, 5 tiles north of the heretic); the host throws from
 ## (61, 52), in the light, 36 px from c1 (outside the splash's reach). M6-fix: the table was at (64..66, 50), on
-## spawn slot 4's feet, which a table may no longer cover (WorldItems.reserved_feet).
+## spawn slot 4's feet, which a table may no longer cover (WorldItems.reserved_feet). M8b: c1 walks down by (66, 52), not
+## (67, 52): since sessions have the merchant his tile (67, 50) blocks the diagonal (66, 49) -> (67, 52).
 const BREW_HERETIC: String = "--test-heretic=63,58"
 const BREW_HOST_GIVE: String = "--give=alchemy_table,potion_healing:2:fine,potion_buff:2:fine"
 const BREW_HOST: String = ("select:1;walkto:63,49;aim:0,16;use:1;wait:10;aim:off;mark:table;select:2;walkto:61,49;" +
 	"walkto:61,52;wait:180;aimat:63,53;wait:4;throw;wait:60;select:3;wait:4;throw;wait:60;aim:off;mark:healed;wait:1000")
 const BREW_C1_GIVE: String = "--give=wild_poison:4:fine"
-const BREW_C1: String = ("wait:120;walkto:66,49;tab;wait:10;craft:2;wait:10;craft:2;wait:10;tab;select:2;walkto:67,52;" +
+const BREW_C1: String = ("wait:120;walkto:66,49;tab;wait:10;craft:2;wait:10;craft:2;wait:10;tab;select:2;walkto:66,52;" +
 	"walkto:63,53;mark:edge;wait:240;aimfoe;wait:4;throw;wait:60;mark:poisoned;wait:330;aimfoe;wait:4;throw;" +
 	"waitfoe:0,900;wait:60")
 const BREW_C2: String = "wait:60;mark:seen;wait:60"

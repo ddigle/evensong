@@ -131,6 +131,23 @@ extends SceneTree
 ##            the same pixels, differ from the bare world, and the client's build and fixture views equal its data. M7-rf:
 ##            the room's bottom row and the open door's doorway stand on floor pieces in the snapshot, and the wall through
 ##            the wire goes onto a floor piece laid through the wire just before it.
+##   merchant (M8a) evening off, the merchant put down through the world's edits: for each of his four breathing frames the screen
+##            equals the background plus his look written out here (the shared idle body's south frame, its tunic colours turned
+##            to the cloak's by a table written out here, the pack map behind at (3, 14), the hat map over it from 2 rows above
+##            the hair's top), his feet on his tile's middle 4 px above its bottom; then the evening on: the prompt over him on
+##            its exact pixels (unshaded) while his body darkens like a character's; taken away, nothing drawn.
+##   shop_panel (M8a) the shop panel over the open inventory (the chest panel's place and width; the money held in the header;
+##            eleven entries four a row: slot, icon, the stock always, a small coin and the price, ivory or rust when short; the
+##            selected entry's gold frame; a sold-out entry's icon veiled), the sell marks over the inventory (the price a stack
+##            fetches in gold top right, a stack not bought veiled), every opaque pixel on the layout written out here; then a
+##            refusal (money short): the entry's frame red and its coin struck.
+##   shop_net (M8b) a session's merchant and shop on a client: the host's seed-1 world with the merchant beside the altar and
+##            its shop (a holy water sold), the client's from a surface snapshot; then through the wire codec the second holy
+##            water sold (a shop stock edit) and the altar carried 13 tiles west and put down with the merchant following (cell
+##            edits). Around his new and his old tile both screens are the same pixels, he is drawn on the client at the new
+##            one (it differs from the bare world there) and gone from the old one, the client's fixtures equal its data; then
+##            the shop panel each machine opens (the host's from its shop and its inventory, the client's from its world's
+##            shop and the inventory an inventory message brought): the same pixels, the sold-out holy water veiled.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -208,6 +225,9 @@ func _run() -> void:
 		await _check_trees()
 		await _check_build_ghost()
 		await _check_builds_net()  # M7c
+		await _check_merchant()  # M8a
+		await _check_shop_panel()
+		await _check_shop_net()  # M8b
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -3033,6 +3053,390 @@ func _check_builds_net() -> void:
 		print("EVENSONG_RENDER builds_net ok %s" % line)
 	else:
 		_fail("builds_net", line)
+	for w2: GameWorld in [host_w, client_w, bare_w]:
+		root.remove_child(w2)
+		w2.free()
+	world.visible = true
+	world.camera.make_current()
+
+
+# --- M8a ----------------------------------------------------------------------------------------------------------------
+
+## M8a: the merchant's look written out here (not read from MerchantView's code): the idle sheet's south row, frame f, with these
+## tunic colours (rows 19 down) turned to these cloak colours; behind it the pack map at (3, 14) of the frame; over it the hat map
+## with its left at column 5 and its top 2 rows above the frame's first opaque row. (The maps are MerchantView's data.)
+const M8_TUNIC: Dictionary[String, String] = {
+	"f0d39c": "a9a35a", "eec58d": "a9a35a", "e2b880": "8d8a47", "d0a571": "8d8a47", "c89a68": "737236",
+	"ba895b": "737236", "bc7d4e": "5a5a2b", "b28156": "5a5a2b", "a0724c": "42431f",
+}
+
+
+static func merchant_frame(f: int) -> Image:
+	var sheet: Image = _png("chars/base_body_v02_idle.png")
+	var src: Image = sheet.get_region(Rect2i(f * 32, 0, 32, 32))
+	var out: Image = Image.create_empty(32, 32, false, Image.FORMAT_RGBA8)
+	_map_onto(out, MerchantView.PACK, Vector2i(3, 14), MerchantView.PALETTE)
+	var top: int = -1
+	for y: int in 32:
+		for x: int in 32:
+			var c: Color = src.get_pixel(x, y)
+			if c.a8 < 128:
+				continue
+			if top < 0:
+				top = y
+			var key: String = c.to_html(false)
+			out.set_pixel(x, y, Color.html(M8_TUNIC[key]) if y >= 19 and M8_TUNIC.has(key) else Color(c.r, c.g, c.b, 1.0))
+	_map_onto(out, MerchantView.HAT, Vector2i(5, top - 2), MerchantView.PALETTE)
+	return out
+
+
+static func _map_onto(img: Image, rows: Array, at: Vector2i, colors: Dictionary[String, Color]) -> void:
+	for y: int in rows.size():
+		var row: String = rows[y]
+		for x: int in row.length():
+			var q: Vector2i = at + Vector2i(x, y)
+			if colors.has(row[x]) and q.x >= 0 and q.y >= 0 and q.x < img.get_width() and q.y < img.get_height():
+				img.set_pixelv(q, colors[row[x]])
+
+
+## M8a: the merchant put down through the world's edits (evening off, his breathing held): for each of his four frames the screen
+## equals the background plus the frame written out above with his feet on the tile's middle, 4 px above its bottom (row 31 of
+## the frame just above the feet); then with the evening on, the prompt over him (MerchantView.prompt_image, centred, its bottom
+## 2 px above the hat) on its exact pixels (unshaded) while his body is darker than its art (the actors' light, no altar light
+## here).
+func _check_merchant() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var c: Vector2i = Vector2i(origin.x / Config.TILE + 9, origin.y / Config.TILE + 9)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_MERCHANT))
+	var v: MerchantView = world.fixtures.merchant_at(c)
+	if v == null:
+		_fail("merchant", "no merchant view on %s" % c)
+		return
+	v.animate = false
+	var feet: Vector2i = Vector2i(c.x * 16 + 8, (c.y + 1) * 16 - 4)
+	var bad_frames: int = 0
+	var drawn: int = 0
+	for f: int in 4:
+		v.frame = f
+		var expected: Image = bg.duplicate() as Image
+		_paste_at(expected, merchant_frame(f), feet - Vector2i(16, 32) - origin)
+		var got: Image = await _capture()
+		var n: int = count_diff(got, expected)
+		drawn = maxi(drawn, count_diff(got, bg))
+		if n > 0:
+			bad_frames += 1
+		if n > 0 or save_all:
+			_save(got, "merchant_%d_got.png" % f)
+			_save(expected, "merchant_%d_expected.png" % f)
+	# The prompt, the evening on.
+	v.frame = 0
+	world.lighting.set_evening(true)
+	v.show_prompt(true)
+	var lit: Image = await _capture()
+	var hat_top: int = 32
+	var sheet: Image = _png("chars/base_body_v02_idle.png")
+	for y: int in 32:
+		for x: int in 32:
+			if sheet.get_pixel(x, y).a8 >= 128 and hat_top == 32:
+				hat_top = y - 2
+	var want: Dictionary[Vector2i, Color] = {}
+	var prompt_at: Vector2i = feet - Vector2i(16, 32) + Vector2i((32 - 13) / 2, hat_top - 2 - 11) - origin
+	_image_pixels(want, MerchantView.prompt_image(), prompt_at)
+	var bad_prompt: int = _count_wrong(lit, want)
+	var frame0: Image = merchant_frame(0)
+	var darker: int = 0
+	var body_px: int = 0
+	for y2: int in range(20, 30):
+		for x2: int in range(10, 22):
+			var art: Color = frame0.get_pixel(x2, y2)
+			if art.a8 < 255 or _brightness(art) < 0.2:
+				continue  # the outline: black stays black
+			body_px += 1
+			var q: Vector2i = feet - Vector2i(16, 32) + Vector2i(x2, y2) - origin
+			if _brightness(lit.get_pixelv(q)) < _brightness(art) - 0.05:
+				darker += 1
+	if bad_prompt > 0 or save_all:
+		_save(lit, "merchant_prompt_got.png")
+	v.show_prompt(false)
+	world.lighting.set_evening(false)
+	world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, c, WorldData.PLACEABLE_NONE))
+	var gone: bool = world.fixtures.merchant_at(c) == null
+	var line: String = "frames=4 bad_frames=%d drawn=%d prompt_pixels=%d prompt_mismatches=%d body_darker=%d/%d removed=%s" % [
+		bad_frames, drawn, want.size(), bad_prompt, darker, body_px, str(gone)]
+	if bad_frames == 0 and drawn > 300 and bad_prompt == 0 and want.size() > 100 and darker == body_px and body_px > 50 and gone:
+		print("EVENSONG_RENDER merchant ok %s" % line)
+	else:
+		_fail("merchant", line)
+
+
+## M8a: the shop panel over the open inventory (the layout written out here: the chest panel's place and width, 3 + 18 header,
+## entries 38 px wide 2 apart, 4 a row, rows 20 apart; an entry = an 18 px slot, its stock (always, rust when 0), a 5 px coin 2 px
+## right of the slot and centred, the price 1 px after it (ivory, rust when short)); the selected entry's gold frame; the sold-out
+## holy water's icon veiled (darker); the sell marks over the inventory (the price one fetches in gold digits, top right; a stack
+## not bought veiled); every opaque pixel on its place.
+const M8_COIN: Array = [".kkk.", "khhhk", "khghk", "khhhk", ".kkk."]
+
+
+func _check_shop_panel() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var inv: Inventory = Inventory.new()
+	inv.add(ItemDB.MONEY, 30)
+	inv.add(&"stone_a", 40)
+	inv.add(&"wild_healing", 6, ItemDB.Grade.FINE)
+	inv.add(&"sword_t1", 1)
+	inv.add(&"pickaxe", 1)
+	inv.stack_at(3).durability = 60
+	hud.bind(inv)
+	hud.set_open(true)
+	var shop: Shop = Shop.new()
+	shop.stock[&"holy_water"] = 0
+	hud.shop.open_for(shop, inv, Vector2i(10, 10), Config.MAP_SURFACE)
+	hud.shop.selected = 1
+	hud.shop.queue_redraw()
+	var got: Image = await _capture()
+	var view: Vector2i = Config.VIEW_SIZE
+	var grid_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
+	var top_inv_row: int = view.y - 4 - 18 - 4 - 18 - 20
+	var h: int = 3 + 18 + 3 * 18 + 2 * 2 + 3
+	var p: Rect2i = Rect2i(grid_left - 3, top_inv_row - 6 - h, 8 * 18 + 7 * 2 + 6, h)
+	var place_ok: bool = hud.shop.panel_rect() == p
+	var want: Dictionary[Vector2i, Color] = {}
+	var dark: Color = Hud.FRAME_DARK
+	var ivory: Color = Hud.DIGIT
+	var rust: Color = Color8(0xb8, 0x43, 0x2f)
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	_frame_pixels(want, p, dark)
+	_frame_pixels(want, p.grow(-1), Hud.FRAME)
+	_icon_pixels(want, ItemDB.MONEY, p.position + Vector2i(4, 4), Rect2i())
+	_digits(want, 30, p.position + Vector2i(4, 4) + Vector2i(18 + 2 + 4 * 2 - 2, 11), ivory, true)
+	for ux: int in range(p.position.x + 3, p.end.x - 3):
+		want[Vector2i(ux, p.position.y + 3 + 18 - 1)] = Hud.SELECT_INNER
+	var coin_colors: Dictionary[String, Color] = {"k": dark, "h": Color8(0xd2, 0xcb, 0xb8), "g": gold}
+	var veiled: Rect2i = Rect2i()
+	var offers: Array[Shop.Offer] = Shop.offers()
+	for i: int in offers.size():
+		var o: Shop.Offer = offers[i]
+		var at: Vector2i = p.position + Vector2i(3 + (i % 4) * 40, 3 + 18 + (i / 4) * 20)
+		var sq: Rect2i = Rect2i(at, Vector2i(18, 18))
+		_frame_pixels(want, sq, dark)
+		_frame_pixels(want, sq.grow(-1), Hud.FRAME)
+		var left: int = shop.left_of(o.item)
+		var n: String = str(left)
+		var skip: Rect2i = Rect2i(at + Vector2i(18 - 3 - 4 * n.length(), 18 - 8), Vector2i(4 * n.length() + 2, 7))
+		_icon_pixels(want, o.item, at + Vector2i(1, 1), skip)
+		if left <= 0:
+			veiled = sq.grow(-2)
+			for vy: int in range(veiled.position.y, veiled.end.y):
+				for vx: int in range(veiled.position.x, veiled.end.x):
+					want.erase(Vector2i(vx, vy))
+		for sy: int in range(skip.position.y, skip.end.y):
+			for sx: int in range(skip.position.x, skip.end.x):
+				want.erase(Vector2i(sx, sy))
+		_digits(want, left, at + Vector2i(18 - 3, 18 - 3), rust if left <= 0 else ivory, true)
+		var coin: Vector2i = at + Vector2i(18 + 2, (18 - 5) / 2)
+		for cy: int in 5:
+			var crow: String = M8_COIN[cy]
+			for cx: int in 5:
+				if coin_colors.has(crow[cx]):
+					want[coin + Vector2i(cx, cy)] = coin_colors[crow[cx]]
+		var digits: int = str(o.price).length()
+		_digits(want, o.price, coin + Vector2i(5 + 1 + 4 * digits - 2, 4), ivory if 30 >= o.price else rust, false)
+		if i == 1:
+			_frame_pixels(want, Rect2i(at, Vector2i(38, 18)).grow(1), Hud.SELECT)
+	# The sell marks: the stones fetch 1, the FINE herbs 2, the sword worn to 60 / 120 fetches 4; money and the pickaxe veiled.
+	var marks: Dictionary[int, int] = {1: 1, 2: 2, 3: 4}
+	for slot: int in marks:
+		_digits(want, marks[slot], Hud.slot_origin(slot, 8, view) + Vector2i(18 - 3, 6), gold, true)
+	var veil_px: int = 0
+	var veil_darker: int = 0
+	for veil_slot: Array in [[0, ItemDB.MONEY], [4, &"pickaxe"]]:
+		var vs: int = veil_slot[0]
+		var vid: StringName = veil_slot[1]
+		var vo: Vector2i = Hud.slot_origin(vs, 8, view)
+		var icon: Image = LightGen.to_rgba8(ItemIcons.texture_for(vid).get_image())
+		for iy: int in range(1, 15):
+			for ix: int in range(1, 15):
+				var ic: Color = icon.get_pixel(ix, iy)
+				if ic.a8 == 255 and _brightness(ic) >= 0.6 and not (vs == 0 and iy >= 9):  # bright pixels (the veil is dark)
+					veil_px += 1
+					if _brightness(got.get_pixelv(vo + Vector2i(1 + ix, 1 + iy))) < _brightness(ic) - 0.1:
+						veil_darker += 1
+	var holy_icon: Image = LightGen.to_rgba8(ItemIcons.texture_for(&"holy_water").get_image())
+	var holy_at: Vector2i = veiled.position - Vector2i(1, 1)
+	var holy_px: int = 0
+	var holy_darker: int = 0
+	for hy: int in range(1, 9):
+		for hx: int in range(1, 15):
+			var hc: Color = holy_icon.get_pixel(hx, hy)
+			if hc.a8 == 255 and _brightness(hc) >= 0.6:
+				holy_px += 1
+				if _brightness(got.get_pixelv(holy_at + Vector2i(hx, hy))) < _brightness(hc) - 0.1:
+					holy_darker += 1
+	var bad: int = _count_wrong(got, want)
+	if bad > 0 or save_all:
+		_save(got, "shop_panel_got.png")
+	# A refusal: the holy water's entry clicked with 30 money: its frame in red and the coin struck.
+	hud.shop.flash(Shop.WHY_MONEY, 2, -1)
+	var got2: Image = await _capture()
+	var at2: Vector2i = p.position + Vector2i(3 + 2 * 40, 3 + 18)
+	var want2: Dictionary[Vector2i, Color] = {}
+	_frame_pixels(want2, Rect2i(at2, Vector2i(18, 18)), ShopPanel.REFUSE)
+	var coin2: Vector2i = at2 + Vector2i(18 + 2, (18 - 5) / 2) - Vector2i(1, 1)
+	for k: int in 7:
+		want2[coin2 + Vector2i(k, k)] = ShopPanel.REFUSE
+	var bad2: int = _count_wrong(got2, want2)
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "place=%s pixels=%d mismatches=%d entries=%d veil_darker=%d/%d sold_out_darker=%d/%d refusal_pixels=%d refusal_mismatches=%d" % [
+		str(place_ok), want.size(), bad, offers.size(), veil_darker, veil_px, holy_darker, holy_px, want2.size(), bad2]
+	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 11 and veil_darker == veil_px and veil_px > 30 \
+			and holy_darker == holy_px and holy_px > 15 and bad2 == 0:
+		print("EVENSONG_RENDER shop_panel ok %s" % line)
+	else:
+		_fail("shop_panel", line)
+
+
+## The HUD's 3x5 number `n` (Hud.DIGITS) right-aligned with its bottom-right lit pixel at `bottom_right`, in `c`, with the ash-black
+## shadow 1 px down-right first when `shadow`.
+static func _digits(want: Dictionary[Vector2i, Color], n: int, bottom_right: Vector2i, c: Color, shadow: bool) -> void:
+	var text: String = str(n)
+	var x: int = bottom_right.x - (text.length() * 4 - 1) + 1
+	var y: int = bottom_right.y - 4
+	for ch: String in text:
+		var rows: Array = Hud.DIGITS[ch.to_int()]
+		for pass_i: int in 2:
+			if pass_i == 0 and not shadow:
+				continue
+			for dy: int in 5:
+				for dx: int in 3:
+					if str(rows[dy])[dx] == "1":
+						var s: int = 1 if pass_i == 0 else 0
+						want[Vector2i(x + dx + s, y + dy + s)] = Hud.FRAME_DARK if pass_i == 0 else c
+		x += 4
+
+
+# --- M8b ----------------------------------------------------------------------------------------------------------------
+
+## M8b: one edit made on the host's world and carried to the client's through the wire codec (EditLog.encode_one / decode_one,
+## index `index`). Returns whether the client took it.
+static func _wire_edit(host_w: GameWorld, client_w: GameWorld, e: EditLog.WorldEdit, index: int) -> bool:
+	host_w.apply_edit(e)
+	var got: Array = EditLog.decode_one(EditLog.encode_one(e, index, Config.MAP_SURFACE))
+	var ge: EditLog.WorldEdit = got[1]
+	return ge != null and client_w.apply_edit(ge)
+
+
+## M8b: see the header ("shop_net").
+func _check_shop_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _surface_world()
+	var client_w: GameWorld = _surface_world(false)
+	var bare_w: GameWorld = _surface_world()
+	var d: WorldData = host_w.data
+	d.shop = Shop.new()
+	for e: EditLog.WorldEdit in Merchant.settle_edits(d):
+		host_w.apply_edit(e)
+	var inv: Inventory = Inventory.new()
+	inv.add(ItemDB.MONEY, 120)
+	inv.add(&"stone_a", 12)
+	inv.add(&"wild_buff", 3)
+	var first: Shop.Deal = d.shop.buy(inv, 2)
+	var old_tile: Vector2i = Merchant.tile_of(d)
+	_load_surface_snapshot(host_w, client_w)
+	if client_w.data == null:
+		_fail("shop_net", "no client world")
+		return
+	var snap_ok: bool = first.ok() and client_w.data.shop != null and client_w.data.shop.left_at(2) == 1 \
+		and Merchant.tile_of(client_w.data) == old_tile
+	var second: Shop.Deal = d.shop.buy(inv, 2)
+	var sent: int = 0
+	var wired: int = 0
+	var edits: Array[EditLog.WorldEdit] = [EditLog.WorldEdit.shop_stock(2, second.left)]
+	edits.append_array(AltarMove.pickup_edits(d))
+	for e1: EditLog.WorldEdit in edits:
+		if _wire_edit(host_w, client_w, e1, sent):
+			wired += 1
+		sent += 1
+	var placed: Array[EditLog.WorldEdit] = AltarMove.place_edits(Rect2i(Vector2i(49, 45), Config.ALTAR_FOOTPRINT))
+	for e2: EditLog.WorldEdit in placed:
+		if _wire_edit(host_w, client_w, e2, sent):
+			wired += 1
+		sent += 1
+	for e3: EditLog.WorldEdit in Merchant.settle_edits(d):
+		if _wire_edit(host_w, client_w, e3, sent):
+			wired += 1
+		sent += 1
+	var new_tile: Vector2i = Merchant.tile_of(d)
+	var same_data: bool = client_w.data.content_hash() == d.content_hash()
+	var fx: Dictionary[String, int] = client_w.fixtures.verify()
+	var moved_ok: bool = new_tile != old_tile and Merchant.tile_of(client_w.data) == new_tile \
+		and client_w.fixtures.merchant_at(new_tile) != null and client_w.fixtures.merchant_at(old_tile) == null \
+		and fx.get("mismatches", -1) == 0 and fx.get("merchants", -1) == 1
+	# Breathing animates by time and the worlds are captured one after the other: every merchant held on frame 0.
+	for w0: GameWorld in [host_w, client_w]:
+		var mv: MerchantView = w0.fixtures.merchant_at(new_tile)
+		if mv != null:
+			mv.animate = false
+			mv.frame = 0
+	var host_vs_client: int = 0
+	var drawn: int = 0
+	var shots: Array[Image] = []
+	for spot: Vector2i in [new_tile * Config.TILE, old_tile * Config.TILE]:
+		var imgs: Array[Image] = []
+		for w: GameWorld in [host_w, client_w, bare_w]:
+			for o: GameWorld in [host_w, client_w, bare_w]:
+				o.visible = o == w
+			w.camera.make_current()
+			_cave_look_at(w, spot)
+			imgs.append(await _capture())
+		host_vs_client += count_diff(imgs[0], imgs[1])
+		if spot == new_tile * Config.TILE:
+			drawn = count_diff(imgs[1], imgs[2])
+		shots.append_array(imgs)
+	# The panels: the host's and the client's (its world's shop, the inventory an inventory message brought), over one world.
+	for o2: GameWorld in [host_w, client_w, bare_w]:
+		o2.visible = o2 == host_w
+	host_w.camera.make_current()
+	_cave_look_at(host_w, new_tile * Config.TILE)
+	var msg: NetProtocol.InventoryState = NetProtocol.decode_inventory(NetProtocol.encode_inventory(inv, 0))
+	var cinv: Inventory = Inventory.new()
+	if msg.ok:
+		SessionClient.take_inventory(cinv, msg, msg.selected)
+	var no_panel: Image = await _capture()
+	var panels: Array[Image] = []
+	for side: Array in [[d.shop, inv], [client_w.data.shop, cinv]]:
+		var hud: Hud = Hud.new()
+		root.add_child(hud)
+		var sh: Shop = side[0]
+		var pinv: Inventory = side[1]
+		hud.bind(pinv)
+		hud.set_open(true)
+		hud.shop.open_for(sh, pinv, new_tile, Config.MAP_SURFACE)
+		hud.shop.queue_redraw()
+		panels.append(await _capture())
+		root.remove_child(hud)
+		hud.free()
+	var panel_diff: int = count_diff(panels[0], panels[1])
+	var panel_drawn: int = count_diff(panels[1], no_panel)
+	var holy_veiled: bool = client_w.data.shop.left_at(2) == 0
+	if host_vs_client > 0 or panel_diff > 0 or save_all:
+		for i: int in shots.size():
+			_save(shots[i], "shop_net_%d.png" % i)
+		_save(panels[0], "shop_net_panel_host.png")
+		_save(panels[1], "shop_net_panel_client.png")
+	var line: String = "snapshot %s, %d edits through the wire (%d taken), same data %s, merchant %s -> %s moved %s, fixtures %s, host vs client %d, drawn %d, panels differ %d (panel drawn %d px), holy water sold out %s" % [
+		str(snap_ok), sent, wired, str(same_data), old_tile, new_tile, str(moved_ok), fx, host_vs_client, drawn, panel_diff,
+		panel_drawn, str(holy_veiled)]
+	if snap_ok and wired == sent and same_data and moved_ok and host_vs_client == 0 and drawn > 300 and panel_diff == 0 \
+			and panel_drawn > 3000 and holy_veiled and msg.ok:
+		print("EVENSONG_RENDER shop_net ok %s" % line)
+	else:
+		_fail("shop_net", line)
 	for w2: GameWorld in [host_w, client_w, bare_w]:
 		root.remove_child(w2)
 		w2.free()

@@ -114,13 +114,18 @@ static func slot_feet(rect: Rect2i) -> Array[Vector2]:
 static func place_refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2] = [], heretics: Array[Vector2] = []) -> String:
 	if data.map_id != Config.MAP_SURFACE:
 		return WHY_SURFACE
-	return _refusal(data, rect, bodies, heretics, WorldItems.reserved_feet(data))
+	return _refusal(data, rect, bodies, heretics, WorldItems.reserved_feet(data), Merchant.tile_of(data))
 
 
 ## place_refusal with the spots where players appear given (`reserved`, WorldItems.reserved_feet: M5-fix, a search
 ## reads them once, not once a footprint; the reserved spots never depend on the footprint tried). Surface only.
+## M8 review: `merchant` = the merchant's tile (Merchant.tile_of, read once a search too; Walls.NO_CELL: none). He waits on
+## it while the altar is carried and moves beside the new place right after it goes down (Merchant.settle_edits keeps him off
+## the new spawn slots and never lets him wall them in), so his tile counts as open for the spawn slots' checks, as long as
+## he then has a tile to go to (Merchant.would_move_off; else WHY_SLOTS as before). The footprint itself still may not
+## cover him (WHY_NOT_OPEN).
 static func _refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2], heretics: Array[Vector2],
-		reserved: Array[Vector2]) -> String:
+		reserved: Array[Vector2], merchant: Vector2i = Walls.NO_CELL) -> String:
 	if not rect.has_area() or not Rect2i(Vector2i.ZERO, data.size).encloses(rect):
 		return WorldItems.WHY_OUTSIDE
 	for y: int in range(rect.position.y, rect.end.y):
@@ -141,23 +146,48 @@ static func _refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2], here
 	for r: Vector2 in reserved:
 		if px.intersects(Movement.feet_box(r)):
 			return WorldItems.WHY_RESERVED
-	for s: Vector2 in slot_feet(rect):
-		if not Movement.can_stand(data, s) or px.intersects(Movement.feet_box(s)):
+	var slots_why: String = _slots_refusal(data, rect, px, merchant)
+	if not slots_why.is_empty():
+		return slots_why
+	if merchant != Walls.NO_CELL and not _slots_refusal(data, rect, px, Walls.NO_CELL).is_empty():
+		# M8 review: only his waiting tile is in the way: allowed when he will have somewhere to go (he steps off at once).
+		var all: Array[Vector2] = bodies.duplicate()
+		all.append_array(heretics)
+		if not Merchant.would_move_off(data, rect, all, bodies):
 			return WHY_SLOTS
-	# M7b: built walls (or anything that blocks) may not wall the new spawn slots in (Building.reaches, PROVISIONAL
-	# Config.BUILD_SEAL_REACH_TILES; doors count as open).
-	var cells: Dictionary[Vector2i, bool] = {}
-	for y2: int in range(rect.position.y, rect.end.y):
-		for x2: int in range(rect.position.x, rect.end.x):
-			cells[Vector2i(x2, y2)] = true
-	for s2: Vector2 in slot_feet(rect):
-		if not Building.reaches(data, Aim.feet_cell(s2), cells):
-			return WHY_WALLED_IN
 	if _lights_a_heretic(data, rect, heretics):
 		return WHY_HERETIC
 	if not Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION:
 		return light_corruption_refusal(data, rect)
 	return ""
+
+
+## The spawn slots of an altar on `rect` (its pixel rect `px`): each standable and outside the footprint (WHY_SLOTS), and
+## none walled in (WHY_WALLED_IN); "" = fine. `lift` (M8 review: the merchant's tile, Walls.NO_CELL = none) counts as open
+## ground meanwhile (taken off `data` and put back).
+static func _slots_refusal(data: WorldData, rect: Rect2i, px: Rect2, lift: Vector2i) -> String:
+	var lifted: int = data.get_value(WorldData.Layer.PLACEABLE, lift) if lift != Walls.NO_CELL else WorldData.PLACEABLE_NONE
+	if lifted != WorldData.PLACEABLE_NONE:
+		data.set_value(WorldData.Layer.PLACEABLE, lift, WorldData.PLACEABLE_NONE)
+	var why: String = ""
+	for s: Vector2 in slot_feet(rect):
+		if not Movement.can_stand(data, s) or px.intersects(Movement.feet_box(s)):
+			why = WHY_SLOTS
+			break
+	if why.is_empty():
+		# M7b: built walls (or anything that blocks) may not wall the new spawn slots in (Building.reaches, PROVISIONAL
+		# Config.BUILD_SEAL_REACH_TILES; doors count as open).
+		var cells: Dictionary[Vector2i, bool] = {}
+		for y2: int in range(rect.position.y, rect.end.y):
+			for x2: int in range(rect.position.x, rect.end.x):
+				cells[Vector2i(x2, y2)] = true
+		for s2: Vector2 in slot_feet(rect):
+			if not Building.reaches(data, Aim.feet_cell(s2), cells):
+				why = WHY_WALLED_IN
+				break
+	if lifted != WorldData.PLACEABLE_NONE:
+		data.set_value(WorldData.Layer.PLACEABLE, lift, lifted)
+	return why
 
 
 ## M5-fix (used only with Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION off; tests call it either way): WHY_LIGHT_CORRUPTED
@@ -194,6 +224,7 @@ static func set_down_rect(data: WorldData, feet: Vector2, bodies: Array[Vector2]
 	if data.map_id != Config.MAP_SURFACE:
 		return Rect2i()
 	var reserved: Array[Vector2] = WorldItems.reserved_feet(data)  # M5-fix: once a search, not once a footprint
+	var merchant: Vector2i = Merchant.tile_of(data)  # M8 review: so is the merchant's tile
 	var f: Vector2i = Aim.feet_cell(feet)
 	var half: Vector2i = Config.ALTAR_FOOTPRINT / 2
 	for d: int in Config.ALTAR_SET_DOWN_SEARCH_TILES + 1:
@@ -204,7 +235,7 @@ static func set_down_rect(data: WorldData, feet: Vector2, bodies: Array[Vector2]
 				var rect: Rect2i = Rect2i(Vector2i(x, y) - half, Config.ALTAR_FOOTPRINT)
 				if not heretics.is_empty() and _lights_a_heretic(data, rect, heretics):
 					continue  # M5-fix: the cheap check first (only allowed or not matters in a search)
-				if _refusal(data, rect, bodies, heretics, reserved).is_empty():
+				if _refusal(data, rect, bodies, heretics, reserved, merchant).is_empty():
 					return rect
 	return Rect2i()
 

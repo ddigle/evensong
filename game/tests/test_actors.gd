@@ -860,5 +860,5 @@ func _check_main_scene() -> void:
 	check_eq(dummy_classes, PackedStringArray(["paladin", "miner", "archer", "herbalist"]), "dummies are the other classes")
 	var items: int = world.items.plants.size() + world.items.drops.size()
 	var trees: int = Forest.tree_cells(world.data).size()
-	check_eq(world.entities.get_child_count() - items - trees, 1 + 1 + 4 + 1,
-		"entities: altar + player + 4 dummies (old ones freed) + the dungeon entrance (M3a) besides the %d gatherables and drops (M2b) and the %d trees (M7b)" % [items, trees])
+	check_eq(world.entities.get_child_count() - items - trees, 1 + 1 + 4 + 1 + 1,
+		"entities: altar + player + 4 dummies (old ones freed) + the dungeon entrance (M3a) + the merchant (M8a) besides the %d gatherables and drops (M2b) and the %d trees (M7b)" % [items, trees])

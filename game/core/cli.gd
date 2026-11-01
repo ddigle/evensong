@@ -22,6 +22,8 @@ func _ready() -> void:
 	SurfaceGen.test_perturb = options.test_perturb_generator  # before the scene generates its world
 	if options.test_snapshot_chunk_bytes > 0:
 		WorldSnapshot.chunk_bytes = options.test_snapshot_chunk_bytes
+	if options.test_shop_restock > 0:
+		Shop.restock_ticks = options.test_shop_restock  # M8b: the shop's restock period (offline and a host)
 	if options.smoke:
 		var report: Smoke.Report = Smoke.run(get_tree())
 		print(report.line())

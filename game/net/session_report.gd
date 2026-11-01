@@ -73,7 +73,15 @@ static func map_result(s: NetSession, map: int) -> Dictionary:
 		"altar": "%d,%d" % [w.data.altar_rect.position.x, w.data.altar_rect.position.y] if w.data.altar_rect.has_area() else "none",
 		"fields": fields_of(w.data), "corrupted": Purify.corrupted_count(w.data),
 		# M7c: the built pieces, doors, trees, stumps, stations and chests, and the build view against the data.
-		"builds": builds_of(w.data), "builds_view": w.builds.verify() if w.builds != null else {}}
+		"builds": builds_of(w.data), "builds_view": w.builds.verify() if w.builds != null else {},
+		# M8b: where the merchant stands and the shop's stock (the surface's; "none" on a map without them).
+		"merchant": merchant_of(w.data), "shop": w.data.shop.describe() if w.data.shop != null else "none"}
+
+
+## M8b: the merchant's tile on `data` ("x,y", "none").
+static func merchant_of(data: WorldData) -> String:
+	var t: Vector2i = Merchant.tile_of(data)
+	return "%d,%d" % [t.x, t.y] if t != Walls.NO_CELL else "none"
 
 
 ## M7c: what is built and standing on `data`: built walls, closed and open doors, floor pieces (M7-rf: a tile under a wall
@@ -195,6 +203,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["combat"] = s.host.combat_result()
 		out["fields"] = s.host.fields_result()  # M5c
 		out["builds"] = s.host.builds_result()  # M7c
+		out["shop"] = s.host.shop_result()  # M8b
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}

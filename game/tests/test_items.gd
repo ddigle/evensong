@@ -3,7 +3,7 @@ extends "res://tests/base_test.gd"
 ## are 16x16 and code-drawn ones use only warm palette colours), the inventory (stacking, grades,
 ## overflow, full, remove, split, move / merge / swap, counts), the hotbar (select, Q / E wrap, the
 ## selected item's action), the HUD layout, the --give flag and the debug kit, and in main.tscn the
-## hotbar keys, Tab and F5.
+## hotbar keys, Tab and F5. M8a: money (kind MONEY, appended last).
 
 const TOOLS: Dictionary[StringName, int] = {
 	&"pickaxe": RigData.Anim.PICKAXE, &"hoe": RigData.Anim.HOE, &"sickle": RigData.Anim.SICKLE,
@@ -62,6 +62,8 @@ const M7B_TOOLS: Dictionary[StringName, int] = {&"axe": RigData.Anim.AXE}
 const M7B_PIECES: Dictionary[StringName, String] = {&"stone_wall": "res://art/env/build_stone_candA_v02.png",
 	&"door": "res://art/env/build_stone_candA_v02.png", &"stone_floor": "res://art/env/build_stone_candA_v02.png",
 	&"lantern": "res://art/env/prop_lantern_post_c_v03_lit.png"}
+## M8a (appended after the build pieces): money (kind MONEY, stack Config.STACK_MONEY, a code-drawn coin). Written out here.
+const M8_MONEY: Array[StringName] = [&"money"]
 
 
 func run() -> Array[String]:
@@ -82,13 +84,15 @@ func _check_table() -> void:
 	var ids: Array[StringName] = ItemDB.ids()
 	var m7: int = M7_MATERIALS.size() + M7_PLACEABLES.size() + M7_WEAPONS.size() + M7_ARMOR.size()
 	var m7b: int = M7B_TOOLS.size() + M7B_PIECES.size()
+	var m8: int = M8_MONEY.size()
 	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size() + SEEDS.size()
-		+ CONSUMABLES.size() + m7 + m7b,
-		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b)")
-	var before_m7: int = ids.size() - m7 - m7b
+		+ CONSUMABLES.size() + m7 + m7b + m8,
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b) + money (M8a)")
+	var before_m7: int = ids.size() - m7 - m7b - m8
 	check_eq(ItemDB.index_of(&"armor_t1"), 47, "M7b: the M7a items keep their wire indices")
-	check_eq(ItemDB.ids().slice(48), [&"axe", &"stone_wall", &"door", &"stone_floor", &"lantern"] as Array[StringName],
+	check_eq(ItemDB.ids().slice(48, 53), [&"axe", &"stone_wall", &"door", &"stone_floor", &"lantern"] as Array[StringName],
 		"M7b: the axe and the build pieces appended at the end")
+	check_eq(ItemDB.ids().slice(53), M8_MONEY, "M8a: money appended after them (every earlier wire index unchanged)")
 	check_eq(ItemDB.ids().slice(before_m7 - 4, before_m7 - 1), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
 		"M5a: the seeds appended at the end (the wire's item indices of the others unchanged)")
 	check_eq(ItemDB.ids().slice(before_m7 - 1, before_m7), [&"holy_water"] as Array[StringName], "M5b: holy water appended after them")
@@ -140,6 +144,15 @@ func _check_table() -> void:
 			check_eq(def.icon_path, M7B_PIECES[id], "M7b: %s icon from its placed art" % id)
 			check(not def.icon_parts.is_empty() and def.icon_code.is_empty(), "M7b: %s icon composed of parts" % id)
 			check(Building.is_piece(id), "M7b: Building knows %s" % id)
+			continue
+		if M8_MONEY.has(id):
+			check_eq(def.kind, ItemDB.Kind.MONEY, "M8a: %s is money" % id)
+			check(def.is_money() and not def.is_tool() and def.action == -1 and def.place == WorldData.PLACEABLE_NONE,
+				"M8a: %s is neither used nor placed" % id)
+			check_eq(def.stack_max, Config.STACK_MONEY, "M8a: %s stack size" % id)
+			check(Config.STACK_MONEY <= 255, "M8a: a stack of %s fits the one-byte counts of drops, chests and the wire" % id)
+			check(not def.graded and def.durability == 0 and def.tier == 0, "M8a: %s no grade, durability, tier" % id)
+			check_eq(String(def.icon_code), String(id), "M8a: %s icon drawn in code" % id)
 			continue
 		if M7_ARMOR.has(id):
 			check_eq(def.kind, ItemDB.Kind.ARMOR, "M7a: %s is armour" % id)
@@ -197,9 +210,10 @@ func _check_table() -> void:
 			check_eq(def.graded, HERBS.has(id), "%s graded only if a herb" % id)
 	check_eq([kinds.get(ItemDB.Kind.TOOL, 0), kinds.get(ItemDB.Kind.MATERIAL, 0), kinds.get(ItemDB.Kind.GATHERABLE, 0),
 		kinds.get(ItemDB.Kind.PLACEABLE, 0), kinds.get(ItemDB.Kind.POTION, 0), kinds.get(ItemDB.Kind.SEED, 0),
-		kinds.get(ItemDB.Kind.CONSUMABLE, 0), kinds.get(ItemDB.Kind.ARMOR, 0), kinds.get(ItemDB.Kind.BUILD, 0)],
-		[13, 7, 15, 6, 3, 3, 1, 1, 4],
-		"items per kind (tool (M4a: 7, M7a: + 5 tier-1, M7b: + axe), material (M7a: + wood, ingots), gatherable, placeable (M6a: + table, M7a: + 3 stations, chest), potion (M6a), seed (M5a), consumable (M5b), armour (M7a), build (M7b))")
+		kinds.get(ItemDB.Kind.CONSUMABLE, 0), kinds.get(ItemDB.Kind.ARMOR, 0), kinds.get(ItemDB.Kind.BUILD, 0),
+		kinds.get(ItemDB.Kind.MONEY, 0)],
+		[13, 7, 15, 6, 3, 3, 1, 1, 4, 1],
+		"items per kind (tool (M4a: 7, M7a: + 5 tier-1, M7b: + axe), material (M7a: + wood, ingots), gatherable, placeable (M6a: + table, M7a: + 3 stations, chest), potion (M6a), seed (M5a), consumable (M5b), armour (M7a), build (M7b), money (M8a))")
 	# Every action with a hand tool has exactly one tool; throw has none (README). M4a: magic has the
 	# cleric's holy light.
 	var actions: Array[int] = []

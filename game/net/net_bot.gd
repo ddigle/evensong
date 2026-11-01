@@ -68,12 +68,20 @@ extends RefCounted
 ##   waitplaced:<x>,<y>,<placeable>[,<ticks>]   stand until tile x,y holds that placeable (WorldData.PLACEABLE_NAMES:
 ##                                chest, anvil, stump, tree ...; default 1800 ticks)
 ##   waitchest:<x>,<y>,<item>[,<ticks>]   stand until the chest with a tile at x,y holds that item (default 1800 ticks)
+## M8a (offline: Main handles them; the shop panel is open, F at the merchant = pick):
+##   buy:<n>                      click entry <n> (1 = the top left, up to Shop.offers().size()) of the open shop panel: buy one
+##   sell:<n>[,all]               click inventory slot <n> (1 = the hotbar's first, up to Config.INVENTORY_SLOTS) of the open shop
+##                                panel: sell one (all: shift, the whole stack)
+## M8b (sessions: buy / sell go to Main through NetSession.bot_shop and become BUY / SELL requests; the shop as this machine's
+## world has it, `world`):
+##   waitstock:<n>,<left>[,<ticks>]   stand until entry <n> (1 = the top left) of the world's shop has exactly <left> left
+##                                (default 1800 ticks)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -135,6 +143,11 @@ class Action:
 	var demolish: bool = false
 	## M7c (test only): put a heretic on this tile of the local player's map this tick (Vector2i, or null).
 	var heretic: Variant = null
+	## M8a: a shop panel click this tick: an entry to buy (0-based, -1 = none), an inventory slot to sell (-1 = none) and whether
+	## the whole stack (shift).
+	var buy_entry: int = -1
+	var sell_slot: int = -1
+	var sell_all: bool = false
 
 
 var commands: Array[Command] = []
@@ -283,6 +296,16 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			if args.size() != 1 or not _whole(args[0], 1):
 				return "expected craft:<row>"
 			c.count = args[0].to_int() - 1
+		"buy":
+			if args.size() != 1 or not _whole(args[0], 1) or args[0].to_int() > Shop.offers().size():
+				return "expected buy:<entry 1..%d>" % Shop.offers().size()
+			c.count = args[0].to_int() - 1
+		"sell":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or args[0].to_int() > Config.INVENTORY_SLOTS \
+					or (args.size() == 2 and args[1] != "all"):
+				return "expected sell:<slot 1..%d>[,all]" % Config.INVENTORY_SLOTS
+			c.count = args[0].to_int() - 1
+			c.slot = 1 if args.size() == 2 else 0
 		"fight":
 			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() >= 2 and not _whole(args[1], 0)) \
 					or (args.size() == 3 and not args[2].is_valid_float()):
@@ -360,6 +383,13 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.item = StringName(args[2])
 			c.ticks = args[3].to_int() if args.size() == 4 else WAITMAP_LIMIT_TICKS
+		"waitstock":
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or args[0].to_int() > Shop.offers().size() \
+					or not _whole(args[1], 0) or (args.size() == 3 and not _whole(args[2], 1)):
+				return "expected waitstock:<entry 1..%d>,<left>[,<ticks>]" % Shop.offers().size()
+			c.slot = args[0].to_int() - 1
+			c.count = args[1].to_int()
+			c.ticks = args[2].to_int() if args.size() == 3 else WAITMAP_LIMIT_TICKS
 		"waitmap":
 			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 1) or (args.size() == 3 and not _whole(args[2], 1)):
 				return "expected waitmap:<players>,<map>[,<ticks>]"
@@ -494,6 +524,15 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.take_slot = c.count
 				_next()
 				return
+			"buy":
+				a.buy_entry = c.count
+				_next()
+				return
+			"sell":
+				a.sell_slot = c.count
+				a.sell_all = c.slot == 1
+				_next()
+				return
 			"unequip":
 				a.unequip = true
 				_next()
@@ -538,7 +577,7 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.heretic = c.cell
 				_next()
 				return
-			"waitat", "waitplaced", "waitchest":
+			"waitat", "waitplaced", "waitchest", "waitstock":
 				if _left < 0:
 					_left = c.ticks
 				_left -= 1
@@ -685,6 +724,8 @@ func _waited(c: Command) -> bool:
 			for st: ItemStack in world.chests[key].slots:
 				if st != null and st.id == c.item:
 					return true
+		"waitstock":
+			return world != null and world.shop != null and world.shop.left_at(c.slot) == c.count  # M8b
 	return false
 
 

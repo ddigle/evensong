@@ -38,6 +38,9 @@ extends Node
 ##   stump    04-env stump_v01 (the same canvas and place as the tree: felling swaps the texture)
 ##   lantern  04-env prop_lantern_post_c_v03_lit (the lantern post with a stone base, lit) with its glowing pixels
 ##            (prop_lantern_post_c_v03_emissive) unshaded and a light like the placed torch's (Config.LANTERN_LIGHT_*)
+## M8a (one tile):
+##   merchant  PLACEHOLDER drawn in code (world/merchant_view.gd: the shared base body standing, an olive cloak, a pilgrim's hat,
+##            a pack; no merchant art exists), a MerchantView node at his feet (Merchant.feet_of)
 
 const ARCH: Texture2D = preload("res://art/env/dungeon_entrance_v02.png")
 const STAIRS: Texture2D = preload("res://art/env/dungeon_entrance_stairs_v01.png")
@@ -109,7 +112,7 @@ const SHAKE_STEPS: PackedInt32Array = [1, -1, 1, 0]
 const SHAKE_STEP_MS: int = 40
 ## Placeables drawn one tile at a time (update_cell).
 const TILE_FIXTURES: Array[int] = [WorldData.PLACEABLE_TORCH, WorldData.PLACEABLE_WALL_TORCH, WorldData.PLACEABLE_BAG,
-	WorldData.PLACEABLE_TREE, WorldData.PLACEABLE_STUMP, WorldData.PLACEABLE_LANTERN]
+	WorldData.PLACEABLE_TREE, WorldData.PLACEABLE_STUMP, WorldData.PLACEABLE_LANTERN, WorldData.PLACEABLE_MERCHANT]
 
 var data: WorldData
 var entities: Node2D
@@ -190,6 +193,8 @@ func update_cell(c: Vector2i) -> void:
 			_add_tree(c, p == WorldData.PLACEABLE_STUMP)
 		WorldData.PLACEABLE_LANTERN:
 			_add_lantern(c)
+		WorldData.PLACEABLE_MERCHANT:
+			_add_merchant(c)
 
 
 ## M4a: the anchor (top-left) of a shrine node whose footprint holds tile `c`, or Walls.NO_CELL.
@@ -316,6 +321,22 @@ func _add_tree(c: Vector2i, stump: bool) -> void:
 	var foot: Vector2 = Vector2(c.x * Config.TILE + Config.TILE / 2, (c.y + 1) * Config.TILE)
 	var n: Node2D = _node(c, "%s_%d_%d" % ["Stump" if stump else "Tree", c.x, c.y], foot)
 	_sprite(n, STUMP if stump else TREE, Vector2(tree_origin(c)), foot, Config.LIGHT_LAYER_WORLD).name = &"Sprite"
+
+
+## M8a: the merchant on tile `c` (a MerchantView at his feet, in the y-sorted entities).
+func _add_merchant(c: Vector2i) -> void:
+	var v: MerchantView = MerchantView.new()
+	v.name = StringName("Merchant_%d_%d" % [c.x, c.y])
+	v.position = Merchant.feet_of(c)
+	entities.add_child(v)
+	nodes[c] = v
+
+
+## M8a: the merchant's view on tile `c`, or null.
+func merchant_at(c: Vector2i) -> MerchantView:
+	if not nodes.has(c) or not is_instance_valid(nodes[c]):
+		return null
+	return nodes[c] as MerchantView
 
 
 ## M7b: top-left (world px) of the lantern post picture on tile `c`.
@@ -522,6 +543,7 @@ func verify() -> Dictionary[String, int]:
 	var torches: int = 0
 	var bags: int = 0
 	var trees: int = 0
+	var merchants: int = 0
 	var grid: PackedByteArray = data.layers[WorldData.Layer.PLACEABLE]
 	for i: int in grid.size():
 		var c: Vector2i = Vector2i(i % data.size.x, i / data.size.x)
@@ -542,9 +564,14 @@ func verify() -> Dictionary[String, int]:
 			bags += 1
 			if not nodes.has(c) or light_nodes.has(c):
 				bad += 1
+		elif grid[i] == WorldData.PLACEABLE_MERCHANT:
+			want += 1
+			merchants += 1  # M8a
+			if merchant_at(c) == null or light_nodes.has(c) or merchant_at(c).position != Merchant.feet_of(c):
+				bad += 1
 	bad += maxi(nodes.size() - want, 0)
-	return {"fixtures": nodes.size(), "torches": torches, "bags": bags, "trees": trees, "lights": light_nodes.size(),
-		"mismatches": bad}
+	return {"fixtures": nodes.size(), "torches": torches, "bags": bags, "trees": trees, "merchants": merchants,
+		"lights": light_nodes.size(), "mismatches": bad}
 
 
 func _free(n: Node) -> void:

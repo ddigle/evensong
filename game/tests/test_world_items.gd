@@ -428,8 +428,8 @@ func _check_drops_in_world() -> void:
 	data.drops[second.id] = second
 	check(second.id > drop.id, "new_drop_id rises")
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 * WorldData.DROP_BYTES + 2,
-		"raw snapshot = header + layers + 2 + 11 B per drop + the chest count (M7c)")
+	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 * WorldData.DROP_BYTES + 2 + 1,
+		"raw snapshot = header + layers + 2 + 11 B per drop + the chest count (M7c) + the shop byte (M8b)")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	check(back != null and back.content_hash() == data.content_hash() and back.drops.size() == 2
 		and back.drops[drop.id].same_as(drop) and back.drops[second.id].same_as(second), "drops round trip in the snapshot")

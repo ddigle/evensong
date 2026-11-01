@@ -59,6 +59,8 @@ func local_action() -> NetBot.Action:
 			s.bot_ui.emit(a.tab, a.craft_row)
 		if a.store_slot >= 0 or a.take_slot >= 0 or a.unequip:
 			s.bot_gear.emit(a.store_slot, a.take_slot, a.unequip)  # M7c: Main sends CHEST / ARMOR
+		if a.buy_entry >= 0 or a.sell_slot >= 0:
+			s.bot_shop.emit(a.buy_entry, a.sell_slot, a.sell_all)  # M8b: Main sends BUY / SELL
 		if a.demolish and a.op == null and (p == null or not p.ui_locked):
 			a.op = Main.request(NetProtocol.Op.DEMOLISH)  # M7c: right-click (the frame aims it at the target tile)
 	else:

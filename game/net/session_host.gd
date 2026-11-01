@@ -108,9 +108,23 @@ extends RefCounted
 ## joiner or a player entering the map gets them. Members are handled in slot order and every edit is applied at once: two
 ## players taking the same stack in one tick, the lower slot gets it and the other finds the slot empty (nothing doubles,
 ## nothing is lost).
+##
+## M8b (the merchant and his shop: M8a offline first, here the host decides): the host puts the merchant beside the altar on the
+## surface when it opens (Merchant.settle_edits straight into the world before anyone joins, like --test-build: every joiner
+## gets him with its snapshot) together with the world's one shop (WorldData.shop: his stock, its game clock stepped every tick
+## after the forests, the offline Main's order). Putting the altar down moves him by the same rule (cell edits to the surface's
+## players); while it is carried he waits. BUY and SELL (the open shop panel's clicks) pay the request budget like a pick up
+## ("rate"), then: the surface (Merchant.WHY_SURFACE), the merchant standing on the request's tile (Shop.WHY_NO_MERCHANT),
+## the player within Config.STATION_REACH_TILES of him (the open panel's rule, Merchant.still_at: WorldItems.WHY_REACH), then
+## Shop.buy / sell on its inventory (stock, money, room, what he sells and buys: all or nothing, the Korean refusals). A buy's
+## new count left is a shop stock edit (EditLog.Kind.SHOP) to the surface's players, a restock one per offer that changed; the
+## owner gets its inventory. Members run in slot order and the edits apply at once: two players buying the last one in one
+## tick, the lower slot gets it and the other is refused (Shop.WHY_SOLD_OUT), its money untouched.
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
+## M8 review: a SELL whose slot holds another item or grade than the one its sender showed there (NetProtocol.shows).
+const WHY_SLOT_CHANGED: String = "the slot changed"
 
 
 ## A joiner whose world is still being sent, or (M3b, `entry`) a member being sent the map it went to.
@@ -186,6 +200,12 @@ var demolished: int = 0
 var doors_toggled: int = 0
 var chest_moves: int = 0
 var felled: int = 0
+## M8b: buys and sales done, restocks, how often the merchant moved (the start included), refused shop requests by reason.
+var buys: int = 0
+var sales: int = 0
+var restocks: int = 0
+var merchant_moves: int = 0
+var shop_refusals: Dictionary[String, int] = {}
 
 
 func _init(p_session: NetSession) -> void:
@@ -203,6 +223,7 @@ func on_opened() -> void:
 	_setup_combat()
 	_setup_farms()
 	_setup_forests()  # M7c
+	_setup_shop()  # M8b: after the test pieces (the merchant's tile keeps off them)
 	s.active = true
 	_last_take_usec = Time.get_ticks_usec()
 	s.log_event("hosting", "port=%d slot=%d class=%s" % [s.options.port, slot, s.local.class_id])
@@ -444,11 +465,11 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	m.altar_hold = m.altar_hold + 1 if frame.interact and AltarMove.hold_counts(p, players_on(m.map_id)) \
 		and AltarMove.altar_in_reach(p.data, p.sim_position) else 0
 	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
-		_refuse_op(m, frame, WorldItems.WHY_WRONG_MAP)
+		_refuse_early(m, frame, WorldItems.WHY_WRONG_MAP)
 	elif NetProtocol.op_has_map(frame.op) and not p.vitals.alive():
-		_refuse_op(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
+		_refuse_early(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
 	elif p.carrying_altar and _blocked_while_carrying(frame.op):
-		_refuse_op(m, frame, AltarMove.WHY_CARRYING)  # M5c: the carrier's click is the altar's (M5b)
+		_refuse_early(m, frame, AltarMove.WHY_CARRYING)  # M5c: the carrier's click is the altar's (M5b)
 	elif frame.op == NetProtocol.Op.TRAVEL:
 		_travel(m, frame)
 	elif frame.op == NetProtocol.Op.CHANNEL:
@@ -465,6 +486,10 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_armor(m, frame)
 	elif frame.op == NetProtocol.Op.CHEST:
 		_chest(m, frame)
+	elif frame.op == NetProtocol.Op.BUY:
+		_buy(m, frame)  # M8b
+	elif frame.op == NetProtocol.Op.SELL:
+		_sell(m, frame)
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and not Building.piece_in(p.inventory, frame.slot).is_empty():
@@ -916,7 +941,8 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 ## player's map is a TRAVEL there, and every tile request names the map the player is on. M5c: F held on the altar
 ## counts toward ALTAR_LIFT (hold_altar), and F with nothing to pick up next to corruption is the paladin's CHANNEL
 ## (wants_channel). M7c: F at a chest in reach opens its panel here (NetSession.chest_wanted, no request), F on a door is
-## DOOR, a DEMOLISH aims at the target tile (M7-rf review: and carries the piece this machine's world has on top there).
+## DOOR, a DEMOLISH aims at the target tile (M7-rf review: and carries the piece this machine's world has on top there). M8b: F at
+## the merchant in reach opens his shop panel here (NetSession.shop_wanted, no request); BUY / SELL carry their own tile.
 static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.InputFrame, action: NetBot.Action) -> void:
 	hold_altar(p, f, players_with(session, p))  # M5c: may put ALTAR_LIFT on this frame
 	var q: NetProtocol.InputFrame = null
@@ -940,12 +966,19 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 	f.cell = q.cell
 	f.recipe = q.recipe
 	f.chest_take = q.chest_take
+	f.sell_all = q.sell_all  # M8b
 	if q.op == NetProtocol.Op.PICKUP or q.op == NetProtocol.Op.DROP or q.op == NetProtocol.Op.DEMOLISH:
 		f.cell = p.aim_cell
 	if q.op == NetProtocol.Op.DEMOLISH:
 		f.piece = Building.top_code(p.data, f.cell) if p.data != null else 0  # M7-rf review: what it shows on top
 	if q.op == NetProtocol.Op.PICKUP and p.data != null and WorldItems.is_portal(p.data, f.cell):
 		f.op = NetProtocol.Op.TRAVEL
+	elif q.op == NetProtocol.Op.PICKUP and p.data != null and p.data.shop != null and Merchant.at(p.data, p.sim_position, f.cell):
+		# M8b: F at the merchant opens his shop panel on this machine (Main; offline Main.pick_up's order: after the ways, before
+		# the chest); nothing goes to the host until a click buys or sells.
+		session.shop_wanted.emit(f.cell)
+		f.op = NetProtocol.Op.NONE
+		return
 	elif q.op == NetProtocol.Op.PICKUP and p.data != null and Storage.chest_for(p.data, p.sim_position, f.cell).has_area():
 		# M7c: F at a chest opens its panel on this machine (Main); nothing goes to the host until a click moves a stack.
 		session.chest_wanted.emit(Storage.chest_for(p.data, p.sim_position, f.cell))
@@ -1054,6 +1087,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 	_check_carriers()  # M5c: a carrier who went down this tick sets the altar down
 	_step_farms()  # M5c: after the players and the arenas, like offline (Main: players, combat, farms)
 	_step_forests()  # M7c: then the stumps grow back (offline Main: farms, forests)
+	_step_shop()  # M8b: then the shop's clock (offline Main: forests, shop)
 	# A request's change, or any client frame handled (its acknowledgement goes out): not quiet.
 	if _changed or _frames > 0:
 		broadcast.note_activity(s.tick)
@@ -1652,10 +1686,12 @@ func _purified(m: NetMember, r: Purify.Result, what: String, cell: Vector2i) -> 
 
 
 ## What a carrier may not do (its click is the altar's, M5b): use, throw, channel, travel, lift. M7c: take a piece down
-## (offline Main.demolish refuses it too).
+## (offline Main.demolish refuses it too). M8b: BUY and SELL only when PROVISIONAL Config.SHOP_WHILE_CARRYING is off (by default
+## a carrier trades, as offline).
 static func _blocked_while_carrying(op: int) -> bool:
 	return op == NetProtocol.Op.USE or op == NetProtocol.Op.THROW or op == NetProtocol.Op.CHANNEL \
-		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT or op == NetProtocol.Op.DEMOLISH
+		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT or op == NetProtocol.Op.DEMOLISH \
+		or (not Config.SHOP_WHILE_CARRYING and (op == NetProtocol.Op.BUY or op == NetProtocol.Op.SELL))
 
 
 ## Where member slot `slot` appears: its spawn slot around the altar (GameWorld.spawn_point); while the altar is carried,
@@ -1719,6 +1755,9 @@ func _altar_lift(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	_changed = true
 	_altar_followers(m.map_id)
 	s.log_event("altar", "slot=%d map=%d picked_up from=%d,%d" % [m.slot, m.map_id, from.position.x, from.position.y])
+	var waits: Vector2i = Merchant.tile_of(p.data)
+	if waits != Walls.NO_CELL:
+		s.log_event("merchant", "waits at=%d,%d: the altar is carried" % [waits.x, waits.y])  # M8b (PROVISIONAL "M8a 상인이 옮김")
 
 
 ## ALTAR_PLACE (the carrier's click): carrying, request rate, the target tile in reach, then AltarMove.place_refusal with
@@ -1755,6 +1794,7 @@ func _put_altar(m: NetMember, rect: Rect2i, what: String) -> void:
 	var data: WorldData = s.world_of(m.map_id).data
 	s.log_event("altar", "slot=%d map=%d %s at=%d,%d light=%d,%d" % [m.slot, m.map_id, what, rect.position.x, rect.position.y,
 		roundi(data.altar_center_px().x), roundi(data.altar_center_px().y)])
+	settle_merchant(true)  # M8b: the merchant goes beside the altar's new place (the same rule as offline)
 
 
 ## Carrier `m` went down (or leaves: `leaving`, its own feet no body any more): the altar comes down at the nearest place
@@ -1805,6 +1845,17 @@ func bodies_on(map: int) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	for q: Player in players_on(map):
 		out.append(q.sim_position)
+	return out
+
+
+## M8 review: the feet of the clients' players on map `map` (everyone there but the host's own player: their machines predict
+## their walking a round trip ahead, so a blocking tile that appears keeps Config.BLOCK_CLEARANCE_PX from them).
+func clients_feet_on(map: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		if m.map_id == map and m != s.local:
+			out.append(m.player.sim_position)
 	return out
 
 
@@ -2051,3 +2102,162 @@ func builds_result() -> Dictionary:
 		by_map[str(map)] = forests[map].stats
 	return {"built": builds_done, "demolished": demolished, "doors": doors_toggled, "chest_moves": chest_moves,
 		"felled": felled, "forests": by_map}
+
+
+# --- the merchant and his shop (M8b) ------------------------------------------------------------------------------------
+
+## The world's shop (the surface's WorldData.shop; null before _setup_shop).
+func shop() -> Shop:
+	var w: GameWorld = s.world_of(Merchant.MAP)
+	return w.data.shop if w != null and w.data != null else null
+
+
+## When the host opens: the world's shop on the surface (a new one unless the world has one) and the merchant beside the altar,
+## straight into the world: nobody has joined yet, so every joiner gets both with its snapshot (no edit, like --test-build).
+func _setup_shop() -> void:
+	var w: GameWorld = s.world_of(Merchant.MAP)
+	if w == null or w.data == null:
+		return
+	if w.data.shop == null:
+		w.data.shop = Shop.new()
+	settle_merchant(false)
+	s.log_event("shop", "open stock=%s" % w.data.shop.describe())
+
+
+## Puts the merchant where Merchant.spot_for says on the surface now (the players and the live heretics there as bodies; he
+## stays where he is when no tile allows him). `logged`: as cell edits to the surface's players (the altar was put down), else
+## straight into the world (the start). Returns his tile (Walls.NO_CELL: none). M8 review: he keeps
+## Config.BLOCK_CLEARANCE_PX from the clients' feet (Merchant.spot_refusal's `predicted`: their prediction runs a round trip
+## ahead, M7c), not from the host's own player; when that leaves no tile, without it (Merchant.target).
+func settle_merchant(logged: bool) -> Vector2i:
+	var w: GameWorld = s.world_of(Merchant.MAP)
+	if w == null or w.data == null:
+		return Walls.NO_CELL
+	var was: Vector2i = Merchant.tile_of(w.data)
+	var players: Array[Vector2] = bodies_on(Merchant.MAP)
+	var bodies: Array[Vector2] = players.duplicate()
+	bodies.append_array(heretic_feet(Merchant.MAP))
+	var predicted: Array[Vector2] = clients_feet_on(Merchant.MAP)  # M8 review: the clearance (M7c's rule) from the clients
+	var edits: Array[EditLog.WorldEdit] = Merchant.settle_edits(w.data, bodies, players, predicted)
+	for e: EditLog.WorldEdit in edits:
+		if logged:
+			apply_world_edit(e, Merchant.MAP)
+		else:
+			w.apply_edit(e)
+	var now: Vector2i = Merchant.tile_of(w.data)
+	if not edits.is_empty():
+		merchant_moves += 1
+		s.log_event("merchant", "at=%d,%d%s" % [now.x, now.y, "" if was == Walls.NO_CELL else " from=%d,%d" % [was.x, was.y]])
+	elif now == Walls.NO_CELL:
+		s.log_event("merchant", "none: no tile beside the altar allows him")
+	elif Merchant.target(w.data, bodies, players, predicted) != now:
+		s.log_event("merchant", "stays at=%d,%d: no tile beside the altar allows him" % [now.x, now.y])
+	return now
+
+
+## One tick of the shop's clock (game time: host ticks, never the wall clock). A restock goes out as one shop stock edit per
+## offer whose count changed, to the surface's players.
+func _step_shop() -> void:
+	var sh: Shop = shop()
+	if sh == null:
+		return
+	var before: PackedByteArray = sh.stock_bytes()
+	if not sh.step():
+		return
+	restocks += 1
+	for i: int in sh.changed_since(before):
+		apply_world_edit(EditLog.WorldEdit.shop_stock(i, sh.left_at(i)), Merchant.MAP)
+	s.log_event("shop", "restock n=%d %s" % [sh.restocks, sh.describe()])
+
+
+## Why member `m` may not trade at the merchant with BUY / SELL `frame` now ("" = it may): the request budget ("rate"), the
+## surface (Merchant.WHY_SURFACE: the merchant stays there; a frame aimed on another map than the member's is "wrong map"
+## before this, run_frame), the merchant standing on the request's tile (Shop.WHY_NO_MERCHANT), the player within
+## Config.STATION_REACH_TILES of him (Merchant.still_at, the open panel's rule: WorldItems.WHY_REACH).
+func _shop_refusal(m: NetMember, frame: NetProtocol.InputFrame) -> String:
+	if not m.take_op():
+		return "rate"
+	var p: Player = m.player
+	if m.map_id != Merchant.MAP or p.data == null or p.data.shop == null:
+		return Merchant.WHY_SURFACE
+	var at: Vector2i = Merchant.tile_of(p.data)
+	if at == Walls.NO_CELL or at != frame.cell:
+		return Shop.WHY_NO_MERCHANT
+	if not Merchant.still_at(p.data, p.sim_position, at):
+		return WorldItems.WHY_REACH
+	return ""
+
+
+## BUY (a click on an entry of the open shop panel): _shop_refusal, then Shop.buy of offer `frame.slot` on the member's
+## inventory (one, all or nothing: in stock, the price in hand, room once it is paid; no count rides on the wire, any count a
+## forged frame holds is ignored). The new count left goes to the surface as a shop stock edit, the owner gets its inventory.
+func _buy(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var why: String = _shop_refusal(m, frame)
+	var d: Shop.Deal = null
+	if why.is_empty():
+		d = shop().buy(m.player.inventory, frame.slot)
+		why = d.why
+	if not why.is_empty():
+		_refuse_shop(m, frame, why)
+		return
+	buys += 1
+	apply_world_edit(EditLog.WorldEdit.shop_stock(frame.slot, d.left), Merchant.MAP)
+	m.count_done("buy")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("shop", "slot=%d buy item=%s grade=%s price=%d left=%d money=%d" % [m.slot, d.item, ItemDB.GRADE_NAMES[d.grade],
+		d.money, d.left, Shop.money_in(m.player.inventory)])
+
+
+## SELL (a click on an inventory slot of the open shop panel, shift = the whole stack): _shop_refusal, a slot of the inventory
+## (WorldItems.WHY_BAD_SLOT), what the sender showed there (M8 review: a stack of another item or grade is WHY_SLOT_CHANGED, so
+## a click on an inventory a round trip stale never sells what came into that slot meanwhile; an empty slot is Shop's 빈 칸),
+## then Shop.sell on the member's inventory (what he buys, worth something, the money fitting). Nothing joins the stock (what
+## he buys is gone), so only the owner hears of it (its inventory).
+func _sell(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var why: String = _shop_refusal(m, frame)
+	var d: Shop.Deal = null
+	if why.is_empty() and (frame.slot < 0 or frame.slot >= m.player.inventory.size()):
+		why = WorldItems.WHY_BAD_SLOT
+	var held: ItemStack = m.player.inventory.stack_at(frame.slot) if why.is_empty() else null
+	if held != null and not NetProtocol.shows(frame, held):
+		why = WHY_SLOT_CHANGED
+	if why.is_empty():
+		d = shop().sell(m.player.inventory, frame.slot, frame.sell_all)
+		why = d.why
+	if not why.is_empty():
+		_refuse_shop(m, frame, why)
+		return
+	sales += 1
+	m.count_done("sell")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("shop", "slot=%d sell item=%s count=%d got=%d left=%d money=%d" % [m.slot, d.item, d.count, d.money, d.left,
+		Shop.money_in(m.player.inventory)])
+
+
+## A refused BUY / SELL: counted by reason (the results) and like any refused request (_refuse_op: the member's counters and
+## the thinned log line).
+func _refuse_shop(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
+	var n: int = shop_refusals.get(why, 0)
+	shop_refusals[why] = n + 1
+	_refuse_op(m, frame, why)
+
+
+## run_frame's refusals before a request's own handler (wrong map, down, carrying the altar): M8 review: a BUY or SELL is
+## counted in the shop's refusals too (_refuse_shop), anything else as before (_refuse_op).
+func _refuse_early(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
+	if frame.op == NetProtocol.Op.BUY or frame.op == NetProtocol.Op.SELL:
+		_refuse_shop(m, frame, why)
+	else:
+		_refuse_op(m, frame, why)
+
+
+## M8b results: buys, sales, restocks, the merchant's moves and tile, the stock, refused shop requests by reason.
+func shop_result() -> Dictionary:
+	var sh: Shop = shop()
+	var w: GameWorld = s.world_of(Merchant.MAP)
+	var at: Vector2i = Merchant.tile_of(w.data) if w != null else Walls.NO_CELL
+	return {"buys": buys, "sales": sales, "restocks": restocks, "merchant_moves": merchant_moves,
+		"merchant": "%d,%d" % [at.x, at.y] if at != Walls.NO_CELL else "none", "stock": sh.describe() if sh != null else "none",
+		"refused": shop_refusals}

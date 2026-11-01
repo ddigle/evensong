@@ -62,6 +62,8 @@ var builds: BuildView
 ## M7b: edits applied since this world was loaded. M7c: chest slot edits applied (an open chest panel redraws on them).
 var revision: int = 0
 var chest_edits: int = 0
+## M8b: shop stock edits applied (an open shop panel redraws on them).
+var shop_edits: int = 0
 var generation_ms: float = 0.0
 var view_ms: float = 0.0
 
@@ -217,6 +219,8 @@ func apply_edit(edit: EditLog.WorldEdit) -> bool:
 			items.update_drop(edit.drop_id)
 		EditLog.Kind.CHEST:
 			chest_edits += 1  # M7c: a chest's slot (nothing drawn in the world; an open chest panel reads WorldData.chests)
+		EditLog.Kind.SHOP:
+			shop_edits += 1  # M8b: the shop's stock (nothing drawn in the world; an open shop panel reads WorldData.shop)
 		_:
 			if edit.layer == WorldData.Layer.FLOOR:
 				if cave == null:

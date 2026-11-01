@@ -1099,10 +1099,11 @@ static func arrival_distances(p_data: WorldData) -> Dictionary[Vector2i, int]:
 	return dist
 
 
-## M7-fix: the placeables players put down (stations, the chest, the lantern post). terrain_blocked leaves them out.
+## M7-fix: the placeables players put down (stations, the chest, the lantern post). terrain_blocked leaves them out. M8a: and
+## the merchant (no generator puts him down and he moves with the altar; spawn_ok sees him in the live world).
 const PLAYER_PLACED: Dictionary[int, bool] = {WorldData.PLACEABLE_ALCHEMY: true, WorldData.PLACEABLE_WORKBENCH: true,
 	WorldData.PLACEABLE_ANVIL: true, WorldData.PLACEABLE_RELIC: true, WorldData.PLACEABLE_CHEST: true,
-	WorldData.PLACEABLE_LANTERN: true}
+	WorldData.PLACEABLE_LANTERN: true, WorldData.PLACEABLE_MERCHANT: true}
 
 
 ## M7-fix: tile `c` blocked on the map's own terrain: a blocking placeable the generators put down (the altar, the entrance,

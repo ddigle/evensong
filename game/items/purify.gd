@@ -5,7 +5,7 @@ extends RefCounted
 ##
 ## ● decided (gameplay-design §3.0 R11, paladin row): anyone purifies a few tiles with holy water (공용 수행); the wide
 ## purification channel is the paladin's (클래스 전용 "광역 정화 채널링"). The shop's holy water (대체 수단) is the merchant's,
-## M8. Corruption sources and re-corruption are not here: the slice has no spread (○ §3.7, game-concept §5).
+## M8a (items/shop.gd). Corruption sources and re-corruption are not here: the slice has no spread (○ §3.7, game-concept §5).
 ## ○ / not in the docs (PROVISIONAL, core/config.gd "M5b", README "임시값" M5b):
 ##   - holy water: a click with it on a target tile in reach plays Config.HOLY_WATER_ANIM; on its effect frame one is used
 ##     and every corrupted tile within Config.HOLY_WATER_RADIUS_TILES (Chebyshev) of the target is purified. Nothing

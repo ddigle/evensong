@@ -474,9 +474,9 @@ const THROW_HEAL_REVIVES: bool = false
 const TILL_ONLY_IN_LIGHT: bool = true
 ## PROVISIONAL (not in docs): a seed stack's size.
 const STACK_SEED: int = 99
-## PROVISIONAL (not in docs; no merchant until M8): picking a wild herb (a gatherable, not a drop) also gives this many
-## seeds of its crop (offline in M5a; M5c: the host's pickup too, Farming.seeds_from_wild). The wild herb is the crop's wild
-## plant.
+## PROVISIONAL (not in docs; no merchant until M8: M8a's does not sell seeds, ● R11 lists none): picking a wild herb (a
+## gatherable, not a drop) also gives this many seeds of its crop (offline in M5a; M5c: the host's pickup too,
+## Farming.seeds_from_wild). The wild herb is the crop's wild plant.
 const SEEDS_PER_WILD_HERB: int = 1
 ## PROVISIONAL (○ §9.7 "물주기 → 성장 단계"; how long water lasts is not in the docs): a watered tile stays wet this
 ## many ticks (watering again starts the count over), then dries.
@@ -518,7 +518,7 @@ const WATER_IMPACT_FRAME: int = 5
 # purification (gameplay-design §3.0 R11 paladin row); the altar's position and moving are free (game-concept §9.3);
 # respawning is at the altar (gameplay-design §2.6). Everything below is ○ or not in the docs.
 
-## PROVISIONAL (not in docs; ● §3.0 "누구나 성수로 타일 몇 개 정화", "상점의 성수 (소량 정화, 비쌈)" = the merchant, M8): a holy
+## PROVISIONAL (not in docs; ● §3.0 "누구나 성수로 타일 몇 개 정화", "상점의 성수 (소량 정화, 비쌈)" = the merchant: M8a, SHOP_SELLS): a holy
 ## water stack's size, and the tiles one holy water purifies: every corrupted tile within this many tiles (Chebyshev) of
 ## the target tile (1 = the 3x3 around it, "타일 몇 개").
 const STACK_HOLY_WATER: int = 10
@@ -768,6 +768,94 @@ const BLOCK_CLEARANCE_PX: float = 24.0
 ## what is drawn there is the wall's face or the door, and it belongs to that wall, Walls.owner_of). Tests turn it on through
 ## Building.floor_under_wall.
 const BUILD_FLOOR_UNDER_WALL: bool = false
+
+# --- PROVISIONAL, M8a (money, the merchant beside the altar, his shop; offline first) ------------------------------------
+# M8a adds these offline (a session has no merchant until M8b). README "임시값" M8a. ● decided and followed as written: the
+# merchant NPC beside the altar ("제단 곁 상인 NPC (순례 상인)") is required in the slice as the substitute for the verbs of the
+# four classes the slice leaves out (gameplay-design §3.0 R11, the line after the table; game-concept §12 R23 five classes);
+# tier 1 of the access rule is "상점 또는 기본 수단으로 누구나 얻는다. 성능 상한이 있고 지속 공급이 안 된다" (§3.0 R11); the
+# currency is money, not resource exchange, not offering (R41). Its name, how it is earned and every price are ● R41 "정하지
+# 않았다": every value below is PROVISIONAL.
+
+## PROVISIONAL (● R41 the currency is money; its name is not decided): money is an inventory item (ItemDB `money`, kind MONEY,
+## a code-drawn coin) that stacks to STACK_MONEY, so picking up, dropping, the chest, the death bag (half of every stack, M4a)
+## and the inventory's wire carry it as they carry every item. 250, not a bigger stack: a stack's count is one byte in a drop,
+## a chest slot, the snapshot and the inventory message (at most 255), and a bigger stack would need a new wire format.
+## MONEY_NAME is a placeholder name for logs and the README (the human names it).
+const STACK_MONEY: int = 250
+const MONEY_NAME: String = "은화"
+## PROVISIONAL (● R11 "제단 곁 상인"; which tile is not in the docs): the merchant stands on one tile of the surface: the tile at
+## MERCHANT_OFFSET from the altar footprint's top-left tile (two tiles east of the altar's east edge, two rows below its bottom
+## row: in the light, beside the spawn slots, not under them), else the nearest allowed tile around it, rings of growing Chebyshev
+## distance out to MERCHANT_SEARCH_TILES, row by row in a ring (Merchant.spot_for). Allowed (Merchant.spot_refusal): the whole
+## tile in the altar's light (four corners, the field rule), more than MERCHANT_ALTAR_GAP_TILES tiles from the altar's
+## footprint (his body is never drawn half behind the altar), grass with nothing on it (no placeable, built wall, door or its
+## doorway, field, gatherable, corruption, drop; a floor piece is fine), no spot where players appear (WorldItems.reserved_feet)
+## and no body under it, and no spot where players appear walled in by him (Building.seals). It is worked out when the world
+## starts and again when the altar is put down; nothing else moves him (Main.settle_merchant).
+const MERCHANT_OFFSET: Vector2i = Vector2i(5, 4)
+const MERCHANT_SEARCH_TILES: int = 7
+const MERCHANT_ALTAR_GAP_TILES: int = 1
+## PROVISIONAL (not in the docs): the merchant blocks walking like a fixture (true). He is a placeable tile either way
+## (WorldData.PLACEABLE_MERCHANT), so placing, building, tilling, dropping and the altar keep off his tile.
+const MERCHANT_BLOCKS: bool = true
+## PROVISIONAL (● §3.0 R11 대체 수단 column; stocks and prices are ● R41 "정하지 않았다"): what the merchant sells, one row each
+## [item, price in money, stock cap], in the panel's order. Exactly the column's entries whose item exists in the slice: the
+## herbalist's "상점 포션 … 성능 상한" and the cleric's "상점 치유 포션 (소량)" (the healing and buff potions at SHOP_GRADE only:
+## the cap; poison is the herbalist's status potion and the column does not list it), the paladin's "상점의 성수 (소량 정화,
+## 비쌈)" (holy water, the dearest consumable, the smallest stock), the engineer's "기본 키트 (횃불, 발판)" (the torch: 발판 does not
+## exist), the miner's "상점의 저급 광석 소량" (copper ore, the lower of the slice's two ores, a small stock) and the rune
+## master's "상점 1티어 장비" (the six tier-1 pieces, one of each: the tier cap; dearer than their materials, the anvil being the
+## better way, tier 2 of the rule). The archer's leather and meat (no hunting until M11), the wizard's charms (no elements)
+## and the thief's keys (no locked chests) have no item in the slice.
+const SHOP_SELLS: Array = [
+	[&"potion_healing", 12, 3],
+	[&"potion_buff", 12, 3],
+	[&"holy_water", 40, 2],
+	[&"torch", 3, 10],
+	[&"ore_copper", 8, 5],
+	[&"sword_t1", 30, 1],
+	[&"bow_t1", 24, 1],
+	[&"holy_light_t1", 30, 1],
+	[&"pickaxe_t1", 30, 1],
+	[&"sickle_t1", 24, 1],
+	[&"armor_t1", 45, 1],
+]
+## PROVISIONAL (● R11 "성능 상한" read as no high grade): the grade the shop's graded items (the potions) come in: COMMON
+## (ItemDB.Grade.COMMON = 1).
+const SHOP_GRADE: int = 1
+## PROVISIONAL (● R41 "얻는 길 … 정하지 않았다"): how money is earned: the merchant buys what players gather or make, at these
+## prices (money each, any grade). Gathered: the surface's stones and mushrooms, the wild herbs (= the crops' harvest), mined
+## rock and ore, logs; made: planks, ingots, potions, the tier-1 gear (an item with durability: SHOP_SELL_WORN_SCALED). He never
+## pays as much for a thing as he asks for it, and never more for a made thing than for what it is made of (every recipe and
+## repair; tests/test_shop.gd walks them), so no chain of buying, crafting and selling makes money. Not bought: tools, seeds,
+## placeables, build pieces, holy water, money and the debug-only stone block and herb clump. What he buys is gone (it never
+## joins his stock).
+const SHOP_BUYS: Dictionary[StringName, int] = {
+	&"stone_a": 1, &"stone_b": 1, &"stone_c": 1, &"stone_mossy": 1, &"stone_veined": 1, &"stone_mould": 1,
+	&"mushroom_a": 1, &"mushroom_b": 1, &"mushroom_c": 1, &"mushroom_d": 1, &"mushroom_ash": 1,
+	&"wild_healing": 2, &"wild_buff": 2, &"wild_poison": 2,
+	&"log": 2, &"planks": 1, &"ore_copper": 3, &"ore_iron": 4, &"ingot_copper": 3, &"ingot_iron": 4,
+	&"potion_healing": 4, &"potion_buff": 4, &"potion_poison": 4,
+	&"sword_t1": 8, &"bow_t1": 6, &"holy_light_t1": 6, &"pickaxe_t1": 8, &"sickle_t1": 6, &"armor_t1": 8,
+}
+## PROVISIONAL (not in the docs): an item with durability sells for its SHOP_BUYS price times the share of its durability left,
+## rounded down (a sword_t1 at 60 / 120 sells for 4); one that comes to 0 (broken, or nearly) is refused (Shop.WHY_WORN_OUT).
+## False = a worn item is refused, only a full one sells.
+const SHOP_SELL_WORN_SCALED: bool = true
+## PROVISIONAL (● R11 "지속 공급이 안 된다"; how the stock comes back is not in the docs): every SHOP_RESTOCK_TICKS of game time
+## (simulation ticks the shop counts from the world's start, never the wall clock) every item's stock goes back to its cap.
+## One merchant, one stock for the whole world. 0 = never: what is sold is gone for good.
+const SHOP_RESTOCK_TICKS: int = 10 * 60 * 60
+
+# --- PROVISIONAL, M8b (the merchant and his shop in sessions) ------------------------------------------------------------
+# M8b brings M8a to sessions; the host decides every trade (● game-concept §13). README "임시값" M8b. The other M8b rules reuse
+# M8a's values (the merchant's spot and moves, the open panel's reach Config.STATION_REACH_TILES, the restock period).
+
+## PROVISIONAL (not in the docs): the player carrying the altar may still open the shop and trade (true: M8a's offline
+## behaviour, kept in sessions; README "M8b 든 사람의 거래"). False: the panel does not open while carrying (Main.open_shop)
+## and the host refuses a carrier's BUY / SELL (AltarMove.WHY_CARRYING, SessionHost._blocked_while_carrying).
+const SHOP_WHILE_CARRYING: bool = true
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 

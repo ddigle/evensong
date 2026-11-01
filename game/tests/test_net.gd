@@ -1104,8 +1104,8 @@ func _check_snapshot() -> void:
 		data.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(rng.randi_range(0, data.size.x - 1),
 			rng.randi_range(0, data.size.y - 1)), WorldData.FLOOR_PIECE_STONE)
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2,
-		"raw snapshot = header + seven layers (M7-rf) + drop count (0) + chest count (0, M7c)")
+	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 + 1,
+		"raw snapshot = header + seven layers (M7-rf) + drop count (0) + chest count (0, M7c) + shop offer count (0: no shop, M8b)")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	if check(back != null, "raw snapshot decodes"):
 		var same: bool = back.size == data.size and back.world_seed == data.world_seed and back.altar_rect == data.altar_rect
