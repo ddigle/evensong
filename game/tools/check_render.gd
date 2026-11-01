@@ -156,6 +156,10 @@ extends SceneTree
 ##   skills_fx (M9a) evening off, then on: a taunt burst's ring (frame 1: its 2x2 dots on the ring written out here) and the ally
 ##            ring under an ally's feet (AllyMark's map) on their exact pixels, nothing else changed, unshaded (the same pixels in
 ##            the evening).
+##   skills_fx2 (M9b) evening off, then on: a rockfall's warning ring (outer and inner dot rings, the plus) under its falling
+##            rocks, a healing mist (its edge and puffs), the sweep's arc and the blessing's ring, every pixel on the rules written
+##            out here, nothing else changed, unshaded (the same in the evening); the strike's ring and the zones on the ground
+##            layer before the entities.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -270,6 +274,8 @@ func _run() -> void:
 			await _check_skills_hud()  # M9a
 		if _want("skills_fx"):
 			await _check_skills_fx()
+		if _want("skills_fx2"):
+			await _check_skills_fx2()  # M9b
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -3491,7 +3497,8 @@ func _check_shop_net() -> void:
 
 
 ## M9a: the HUD's skill row for an archer (written out here: the row 6 px right of the hotbar, slots 18 px 2 apart; in a slot the
-## two 1 px frames (ash black, the base frame; rust while refused), the 12 px icon at (3, 3) from its character map, the key's 3x5
+## two 1 px frames (ash black, the base frame; rust while refused), the 12 px icon at (3, 3) from its character map (M9b: 2 = the
+## fan shot's, R = the arrow rain's, both built now), the key's 3x5
 ## glyph (1 2 3 / R) with its ash-black shadow one px down-right, bottom-right at (15, 15); the choice slot filled ash black under
 ## its lock; a cooling slot's sweep line (faith gold) on the last veiled row of the 14 x 14 inside at (2, 2), the icon pixels under
 ## the translucent veil darker than the icon; the resource bar's frame ring 6..3 px above the slots, its fill (buff amber) for 50
@@ -3508,11 +3515,11 @@ func _check_skills_hud() -> void:
 	p.skills_on = true
 	hud.bind(p.inventory)
 	hud.bind_player(p)
-	# Slot 1 (the piercing arrow) half cooled (7 of 14 rows veiled), slot 2 (fan shot: M9b) not built, slot 3 locked, slot R
-	# (arrow rain: M9b) refused; focus 50.
+	# Slot 1 (the piercing arrow) half cooled (7 of 14 rows veiled), slot 2 the fan shot (M9b), slot 3 locked, slot R (the arrow
+	# rain, M9b) refused; focus 50.
 	var full: int = Skills.cooldown_ticks(Skills.PIERCING_ARROW)
 	p.skills.start_cooldown(Skills.Slot.IDENTITY, full / 2)
-	p.skills.refuse(Skills.Slot.SIGNATURE, Skills.WHY_LATER)
+	p.skills.refuse(Skills.Slot.SIGNATURE, Skills.WHY_RESOURCE)
 	p.skills.resource = 50
 	hud.canvas.queue_redraw()
 	var got: Image = await _capture()
@@ -3530,7 +3537,8 @@ func _check_skills_hud() -> void:
 		["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"], ["111", "001", "011", "001", "111"],
 		["110", "101", "110", "101", "101"],
 	]
-	var maps: Array[Array] = [SkillIcons.MAPS[&"piercing_arrow"], SkillIcons.LATER_MAP, SkillIcons.LOCK_MAP, SkillIcons.LATER_MAP]
+	var maps: Array[Array] = [SkillIcons.MAPS[&"piercing_arrow"], SkillIcons.MAPS[&"fan_shot"], SkillIcons.LOCK_MAP,
+		SkillIcons.MAPS[&"arrow_rain"]]
 	var want: Dictionary[Vector2i, Color] = {}
 	var veiled: Array[Vector2i] = []
 	var veil_rows: int = 7
@@ -3708,3 +3716,128 @@ func _check_skills_fx() -> void:
 		print("EVENSONG_RENDER skills_fx ok %s" % line2)
 	else:
 		_fail("skills_fx", line2)
+
+
+## M9b: the weapon skills' and signatures' drawn effects, evening off then on (each rule written out here, not read from
+## CombatView): a rockfall strike's warning (frame 3 of 4, 50 ticks into 60: its outer ring of 1 px rust dots one per 4 px of the
+## circumference at the radius 28, its inner ring of ash-black dots at 3/4 of it, a 3x3 rust plus in the middle) under its seven
+## falling rocks (4x4 map, golden-angle spots within 0.8 of the radius, each map's bottom middle on its spot, 30 px up with 10
+## ticks left), a healing mist (frame 1: its edge of 1 px healing-red dots one per 4 px at the radius 32, nine puffs (5x5 map, an
+## ivory heart; later over earlier) at golden-angle spots within 0.8 of the radius turned a sixteenth of a turn), the sweep's arc (frame 1 of 3: 2x2
+## iron-light dots with an iron corner on the ring at 2/3 of 26, one per 6 px of the whole ring, only those within 120 degrees
+## of the aim east), the blessing's ring (frame 2: 2x2 ivory dots with a gold corner on the radius 40, one per 6 px, turned a dot);
+## nothing else changed and the same pixels in the evening (unshaded).
+func _check_skills_fx2() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var a: Arena = Arena.new()
+	a.setup(world.data, 1)
+	a.spawning = false
+	var view: CombatView = CombatView.new()
+	root.add_child(view)
+	view.setup(a, world.entities)
+	var strike_at: Vector2i = Vector2i(90, 150)
+	var mist_at: Vector2i = Vector2i(210, 150)
+	var arc_at: Vector2i = Vector2i(300, 140)
+	var bless_at: Vector2i = Vector2i(400, 150)
+	var s: Arena.Strike = a.add_strike(Arena.StrikeKind.ROCKS, Vector2(origin + strike_at), 28.0, 60, 10, 30, 0)
+	s.age = 50
+	var z: Arena.Zone = a.add_zone(Arena.ZoneKind.MIST, Vector2(origin + mist_at), 32.0, 300, 30, 4, 0)
+	z.age = 8
+	var zb: Arena.Zone = a.add_zone(Arena.ZoneKind.BLESSING, Vector2(origin + bless_at), 40.0, 300, 30, 5, 0)
+	zb.age = 16
+	var b: Arena.Burst = a.add_burst(Arena.BurstKind.SWEEP, Vector2(origin + arc_at), 26.0, 0)
+	b.aim = 0
+	b.arc_deg = 240.0
+	b.age = 6
+	view.sync([] as Array[Player])
+	var got: Image = await _capture()
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var want: Dictionary[Vector2i, Color] = {}
+	var rust: Color = Color8(0xb8, 0x43, 0x2f)
+	var ash: Color = Color8(0x1a, 0x17, 0x14)
+	var red: Color = Color8(0xb8, 0x2e, 0x24)
+	var ivory: Color = Color8(0xef, 0xe3, 0xc6)
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var iron: Color = Color8(0xa3, 0x9d, 0x92)
+	var iron_light: Color = Color8(0xd2, 0xcb, 0xb8)
+	# The strike's warning ring (the ground layer), then the rocks over it (with the entities).
+	for ring: Array in [[28.0, rust], [21.0, ash]]:
+		var rr: float = ring[0]
+		var rc: Color = ring[1]
+		var n: int = maxi(8, ceili(TAU * rr / 4.0))
+		for k: int in n:
+			var ang: float = TAU * k / n
+			want[strike_at + Vector2i(roundi(rr * cos(ang)), roundi(rr * sin(ang)))] = rc
+	for o: Vector2i in [Vector2i.ZERO, Vector2i(0, -1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, 1)]:
+		want[strike_at + o] = rust
+	var rock: Array = [".kk.", "kmhk", "kmmk", ".kk."]
+	var rock_colours: Dictionary[String, Color] = {"k": ash, "m": iron, "h": iron_light}
+	for k2: int in 7:
+		var rr2: float = 28.0 * 0.8 * sqrt((k2 + 0.5) / 7.0)
+		var a2: float = k2 * 2.399963
+		var spot: Vector2i = Vector2i(roundi(rr2 * cos(a2)), roundi(rr2 * sin(a2)))
+		for y: int in 4:
+			var line: String = rock[y]
+			for x: int in 4:
+				if rock_colours.has(line[x]):
+					want[strike_at + spot - Vector2i(2, 3) + Vector2i(x, y) - Vector2i(0, 30)] = rock_colours[line[x]]
+	# The mist: its edge, then its puffs.
+	var me: int = maxi(8, ceili(TAU * 32.0 / 4.0))
+	for k3: int in me:
+		var a3: float = TAU * k3 / me
+		want[mist_at + Vector2i(roundi(32.0 * cos(a3)), roundi(32.0 * sin(a3)))] = red
+	var puff: Array = [".rrr.", "rrsrr", "rsssr", "rrsrr", ".rrr."]
+	for k4: int in 9:
+		var rr4: float = 32.0 * 0.8 * sqrt((k4 + 0.5) / 9.0)
+		var a4: float = k4 * 2.399963 + 1 * TAU / 16.0
+		var spot4: Vector2i = Vector2i(roundi(rr4 * cos(a4)), roundi(rr4 * sin(a4)))
+		for y4: int in 5:
+			var line4: String = puff[y4]
+			for x4: int in 5:
+				if line4[x4] == "r":
+					want[mist_at + spot4 + Vector2i(x4 - 2, y4 - 2)] = red
+				elif line4[x4] == "s":
+					want[mist_at + spot4 + Vector2i(x4 - 2, y4 - 2)] = ivory
+	# The sweep's arc (frame 1: the ring at 2/3 of 26, dots within 120 degrees of east).
+	var ra: float = 26.0 * 2.0 / 3.0
+	var na: int = maxi(8, ceili(TAU * ra / 6.0))
+	for k5: int in na:
+		var a5: float = TAU * (k5 + 0.5) / na
+		if absf(Vector2.RIGHT.angle_to(Vector2.from_angle(a5))) > deg_to_rad(120.0) + 0.0001:
+			continue
+		var dp: Vector2i = arc_at + Vector2i(roundi(ra * cos(a5)), roundi(ra * sin(a5)))
+		for dy: int in 2:
+			for dx: int in 2:
+				want[dp + Vector2i(dx, dy)] = iron if dx == 1 and dy == 1 else iron_light
+	# The blessing's ring (frame 2: turned a whole dot).
+	var nb: int = maxi(8, ceili(TAU * 40.0 / 6.0))
+	for k6: int in nb:
+		var a6: float = TAU * (k6 + 1.0) / nb
+		var bp: Vector2i = bless_at + Vector2i(roundi(40.0 * cos(a6)), roundi(40.0 * sin(a6)))
+		for dy2: int in 2:
+			for dx2: int in 2:
+				want[bp + Vector2i(dx2, dy2)] = gold if dx2 == 1 and dy2 == 1 else ivory
+	var bad: int = _count_wrong(got, want)
+	var bad_eve: int = _count_wrong(eve, want)
+	var others: int = 0
+	for y7: int in got.get_height():
+		for x7: int in got.get_width():
+			var q: Vector2i = Vector2i(x7, y7)
+			if not want.has(q) and got.get_pixelv(q).to_rgba32() != bg.get_pixelv(q).to_rgba32():
+				others += 1
+	if bad > 0 or bad_eve > 0 or others > 0 or save_all:
+		_save(got, "skills_fx2_got.png")
+	var ground_ok: bool = view.ground != null and view.ground.get_index() < world.entities.get_index()
+	view.clear()
+	root.remove_child(view)
+	view.free()
+	var line2: String = "pixels=%d mismatches=%d evening_mismatches=%d other_changed=%d ground_layer=%s" % [want.size(), bad, bad_eve,
+		others, str(ground_ok)]
+	if bad == 0 and bad_eve == 0 and others == 0 and want.size() > 400 and ground_ok:
+		print("EVENSONG_RENDER skills_fx2 ok %s" % line2)
+	else:
+		_fail("skills_fx2", line2)

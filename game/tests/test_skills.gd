@@ -130,17 +130,21 @@ func _check_tables() -> void:
 		check_eq(Skills.kit_skill(c, Skills.Slot.CHOICE), &"", "%s: no choice skill (not in the slice count)" % c)
 		var sig: StringName = Skills.kit_skill(c, Skills.Slot.SIGNATURE)
 		var weapon: StringName = Skills.kit_skill(c, Skills.Slot.WEAPON)
-		check(not sig.is_empty() and not Skills.built(sig), "%s: the signature is named, not built yet (M9b): %s" % [c, sig])
-		check(not weapon.is_empty() and not Skills.built(weapon), "%s: the weapon skill is named, not built (M9b)" % c)
+		check(not sig.is_empty() and Skills.built(sig), "%s: the signature is named and built (M9b): %s" % [c, sig])
+		check(not weapon.is_empty() and Skills.built(weapon), "%s: the weapon skill is named and built (M9b)" % c)
 		check_eq(weapon, Config.SKILL_BY_WEAPON.get(Combat.class_weapon(c), &""), "%s: the weapon skill is its weapon's" % c)
 		for id: StringName in [Skills.kit_skill(c, Skills.Slot.IDENTITY), weapon, sig]:
 			named[id] = true
 		check_eq(Skills.slot_of(c, identity[c]), Skills.Slot.IDENTITY, "%s: slot_of the identity skill" % c)
 		check_eq(Skills.resource_cap(c), 0 if c == "herbalist" else 100, "%s: the meter's cap" % c)
 	check_eq(named.size(), 15, "5 classes x (identity + signature) + 5 weapon skills = 15 (● R42 slice count)")
-	check_eq(Config.SKILLS.size(), 5, "M9a builds the five identity skills")
+	check_eq(Config.SKILLS.size(), 15, "M9a built the five identity skills, M9b the other ten")
 	var anims: Dictionary[StringName, int] = {Skills.TAUNT: RigData.Anim.MAGIC, Skills.PIERCING_ARROW: RigData.Anim.BOW,
-		Skills.HEAL: RigData.Anim.MAGIC, Skills.GROUND_SLAM: RigData.Anim.PICKAXE, Skills.POTION_THROW: RigData.Anim.THROW}
+		Skills.HEAL: RigData.Anim.MAGIC, Skills.GROUND_SLAM: RigData.Anim.PICKAXE, Skills.POTION_THROW: RigData.Anim.THROW,
+		Skills.CRUSHING_BLOW: RigData.Anim.SWORD, Skills.FAN_SHOT: RigData.Anim.BOW, Skills.HOLY_BURST: RigData.Anim.MAGIC,
+		Skills.HEAVY_STRIKE: RigData.Anim.PICKAXE, Skills.SWEEP: RigData.Anim.SICKLE, Skills.GUARDIAN_OATH: RigData.Anim.MAGIC,
+		Skills.ARROW_RAIN: RigData.Anim.BOW, Skills.BLESSING: RigData.Anim.MAGIC, Skills.ROCKFALL: RigData.Anim.PICKAXE,
+		Skills.HEALING_MIST: RigData.Anim.THROW}
 	for id: StringName in Config.SKILLS:
 		var row: Dictionary = Config.SKILLS[id]
 		for key: String in ["cooldown", "anim", "impact"]:
@@ -169,8 +173,8 @@ func _check_tables() -> void:
 			ok = ok and line.length() == SkillIcons.SIZE
 		check(ok, "an icon map is 12 x 12")
 	check(SkillIcons.texture_for(Skills.TAUNT).get_size() == Vector2(12, 12), "an icon texture is 12 x 12")
-	check(SkillIcons.map_for(&"guardian_oath") == SkillIcons.LATER_MAP and SkillIcons.map_for(&"fan_shot") == SkillIcons.LATER_MAP,
-		"not built: the dim diamond")
+	check(SkillIcons.map_for(&"guardian_oath") != SkillIcons.LATER_MAP and SkillIcons.map_for(&"no_such_skill") == SkillIcons.LATER_MAP,
+		"M9b: every built skill has its own icon; a skill without a map: the dim diamond")
 	check_eq(SkillIcons.R_GLYPH.size(), 5, "the R glyph has 5 rows")
 	var keys: Dictionary[String, int] = {"skill_1": KEY_1, "skill_2": KEY_2, "skill_3": KEY_3, "skill_signature": KEY_R}
 	for action: String in keys:
@@ -305,8 +309,8 @@ func _check_refusals() -> void:
 	_refused(p, Skills.Slot.WEAPON, Skills.WHY_NO_WEAPON, "key 2, another class's weapon")
 	p.inventory.add(&"sword_t1", 1)
 	p.inventory.select(slot_of(p.inventory, &"sword_t1"))
-	_refused(p, Skills.Slot.WEAPON, Skills.WHY_LATER, "key 2, the class weapon (tier 1): not built yet (M9b)")
-	_refused(p, Skills.Slot.SIGNATURE, Skills.WHY_LATER, "key R: not built yet (M9b)")
+	check_eq(Skills.refusal(p, Skills.Slot.WEAPON), "", "key 2, the class weapon (tier 1): it may start (M9b builds it)")
+	_refused(p, Skills.Slot.SIGNATURE, Skills.WHY_RESOURCE, "key R with an empty meter (M9b builds it)")
 	for t: int in Config.SKILL_REFUSED_SHOW_TICKS:
 		tick(p)
 	check(not p.skills.shows_refusal(Skills.Slot.SIGNATURE) and p.skills.refused_slot == -1, "the mark fades after its ticks")

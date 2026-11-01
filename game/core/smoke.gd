@@ -686,7 +686,8 @@ static func _check_shop(r: Report) -> void:
 ## M9a: the skill kit: every class has four slots, the slice's fifteen skills are named and the five identity skills built; on a
 ## bare map with threat on, the near-cursor pick takes the ally nearest the cursor, damage turns a heretic onto its dealer, the
 ## paladin's taunt forces it onto him and the miner's slam pushes it away. Field `skills=<built>/<named> pick=<ok> taunt=<n>
-## slam=<px pushed>`.
+## slam=<px pushed>`. M9b: every weapon skill and signature built; a rockfall strike lands after its warning (damage, stun), the
+## oath's ward softens a knife hit, a healing mist pulse heals: ` rock=<damage>/<stun ticks> ward=<HP taken of 12> mist=<HP>`.
 static func _check_skills(r: Report) -> void:
 	var named: Dictionary[StringName, bool] = {}
 	for c: String in Config.CLASSES:
@@ -719,9 +720,37 @@ static func _check_skills(r: Report) -> void:
 	a.slam(arc, Skills.num_f(Skills.GROUND_SLAM, "radius_px"), 1, Skills.num_f(Skills.GROUND_SLAM, "push_px"))
 	var pushed: float = h.pos.distance_to(arc.sim_position) - before
 	r.expect(pushed > 0.0, "the slam pushes it away")
+	# M9b: every slot's skill built; a rockfall lands after its warning (damage + stun), the oath halves a hit, a mist heals.
+	for c2: String in Config.CLASSES:
+		for slot2: int in [Skills.Slot.WEAPON, Skills.Slot.SIGNATURE]:
+			r.expect(Skills.built(Skills.kit_skill(c2, slot2)), "%s's %s skill built" % [c2, Skills.SLOT_NAMES[slot2]])
+	var foe: HereticSim = a.spawn_heretic(Vector2(400, 400))
+	var nobody: Array[Player] = []
+	a.add_strike(Arena.StrikeKind.ROCKS, foe.pos, Skills.num_f(Skills.ROCKFALL, "radius_px"), Skills.num_i(Skills.ROCKFALL, "delay_ticks"),
+		Skills.num_i(Skills.ROCKFALL, "damage"), Skills.num_i(Skills.ROCKFALL, "stun_ticks"), pal.get_instance_id())
+	for t: int in Skills.num_i(Skills.ROCKFALL, "delay_ticks"):
+		a.step(nobody)
+	var rock: int = Config.HERETIC_HP - foe.hp
+	var stun_left: int = foe.stun_ticks
+	r.expect(rock == Skills.num_i(Skills.ROCKFALL, "damage") and foe.stunned(), "the rockfall lands after its warning: damage and a stun")
+	pal.skills_on = true
+	pal.skills.add_ward(Skills.num_i(Skills.GUARDIAN_OATH, "ward_pct"), 60)
+	var hp0: int = pal.vitals.hp
+	pal.take_hit(Config.HERETIC_DAMAGE)
+	var warded: int = hp0 - pal.vitals.hp
+	r.expect(warded < Config.HERETIC_DAMAGE, "the oath's ward softens a hit")
+	arc.teleport(Vector2(560, 80))  # out of every heretic's sight
+	arc.vitals.hp = 50
+	a.add_zone(Arena.ZoneKind.MIST, arc.sim_position, 32.0, 30, 30, Skills.num_i(Skills.HEALING_MIST, "heal_hp"), 0)
+	var near: Array[Player] = [arc]
+	for t2: int in 30:
+		a.step(near)
+	var mist: int = arc.vitals.hp - 50
+	r.expect(mist == Skills.num_i(Skills.HEALING_MIST, "heal_hp"), "the mist heals")
 	pal.free()
 	arc.free()
-	r.fields.append("skills=%d/%d pick=%s taunt=%d slam=%.0f" % [Config.SKILLS.size(), named.size(), str(pick), taunted, pushed])
+	r.fields.append("skills=%d/%d pick=%s taunt=%d slam=%.0f rock=%d/%d ward=%d mist=%d" % [Config.SKILLS.size(), named.size(), str(pick),
+		taunted, pushed, rock, stun_left, warded, mist])
 
 
 static func _check_light(r: Report) -> void:

@@ -61,6 +61,11 @@ var poison_by: int = 0
 var threat: Dictionary[int, int] = {}
 var taunt_by: int = 0
 var taunt_ticks: int = 0
+## M9b (offline like the threat; not sent): a stun (the paladin's crushing blow, the miner's rockfall: ticks left, it does nothing
+## meanwhile, Config.SKILL_STUN_CANCELS_ATTACK) and a slow (the herbalist's sweep: percent off its walking speed, ticks left).
+var stun_ticks: int = 0
+var slow_pct: int = 0
+var slow_ticks: int = 0
 ## Display: ticks since spawning (walk / idle frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0
@@ -102,8 +107,10 @@ static func death_ticks() -> int:
 	return FRAME_COUNTS[Anim.DEATH] * Config.HERETIC_DEATH_FRAME_TICKS
 
 
-## The animation and frame to show now.
+## The animation and frame to show now. M9b: a stunned heretic shows its hurt pose, frame Config.SKILL_STUN_FRAME held.
 func anim() -> int:
+	if stunned():
+		return Anim.HURT
 	match state:
 		State.ATTACK:
 			return Anim.ATTACK
@@ -115,6 +122,8 @@ func anim() -> int:
 
 
 func frame() -> int:
+	if stunned():
+		return Config.SKILL_STUN_FRAME
 	match state:
 		State.ATTACK:
 			return attack_frame(row(), state_ticks)
@@ -164,3 +173,20 @@ func top_threat() -> int:
 	for v: int in threat.values():
 		top = maxi(top, v)
 	return top
+
+
+## M9b: stunned now (alive only).
+func stunned() -> bool:
+	return alive() and stun_ticks > 0
+
+
+## M9b: slowed now (alive only).
+func slowed() -> bool:
+	return alive() and slow_ticks > 0 and slow_pct > 0
+
+
+## M9b: no stun, no slow (a death, the map emptying).
+func end_skill_effects() -> void:
+	stun_ticks = 0
+	slow_pct = 0
+	slow_ticks = 0

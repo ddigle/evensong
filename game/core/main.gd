@@ -114,6 +114,9 @@ extends Node2D
 ## lands through potion_impact as before (a healing or buff potion following the ally it was thrown at). The arenas have
 ## `threat_on` (Arena: damage, heals and the taunt make threat; heretics go after the highest). Mining feeds the miner's
 ## endurance. An AllyMark rings the ally a heal or buff would go to now (Player.skill_aim_target).
+## M9b (offline too): the weapon skills (key 2) and the signatures (key R) land through skill_impact the same way; a melee weapon
+## skill's shrine edits go into the world, the strikes and zones they start live in the map's arena (stepped in step_combat).
+## --test-resource fills the local player's meter (screenshots).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -1709,16 +1712,22 @@ func _player_by_id(id: int) -> Player:
 
 
 ## Skill `id` of player `p` reaches its impact frame: it lands on the map's arena (Skills.land: the taunt, the piercing arrow,
-## the heal, the ground slam; the cooldown starts when it worked).
+## the heal, the ground slam; M9b: the weapon skills and the signatures; the cooldown starts when it worked). M9b: its world
+## edits (the shrine breaking under a melee weapon skill) go into the world like an attack's.
 func skill_impact(p: Player, id: StringName) -> void:
 	var arena: Arena = arenas[current_map] if ensure_combat(current_map) else null
 	var r: Skills.Landed = Skills.land(p, id, arena, players_on(current_map))
 	if not r.ok():
 		print("EVENSONG_SKILL fizzled who=%s skill=%s: %s" % [p.name, id, r.why])
 		return
+	for e: EditLog.WorldEdit in r.edits:
+		current_world().apply_edit(e)
+		_log_edit(e)
 	skills_landed += 1
-	print("EVENSONG_SKILL land who=%s skill=%s taunted=%d hits=%d healed=%d%s cooldown=%d res=%d" % [p.name, id, r.taunted,
-		r.hits, r.healed, " to=%s" % r.target.name if r.target != null else "", Skills.cooldown_ticks(id),
+	print("EVENSONG_SKILL land who=%s skill=%s taunted=%d hits=%d healed=%d%s damage=%d spent=%d warded=%d shots=%d%s%s cooldown=%d res=%d" % [
+		p.name, id, r.taunted, r.hits, r.healed, " to=%s" % r.target.name if r.target != null else "", r.damage, r.spent,
+		r.warded, r.shots.size(), " strike=%d,%d" % [roundi(r.strike.pos.x), roundi(r.strike.pos.y)] if r.strike != null else "",
+		" zone=%d,%d" % [roundi(r.zone.pos.x), roundi(r.zone.pos.y)] if r.zone != null else "", Skills.cooldown_ticks(id),
 		Skills.resource_of(p)])
 
 
@@ -2159,6 +2168,8 @@ func _apply_test_options(options: CliOptions) -> void:
 			player.inventory.changed.emit()
 	if options.test_wear > 0:
 		equip_armor(options.test_wear - 1)
+	if options.test_resource >= 0:
+		player.skills.resource = clampi(options.test_resource, 0, Skills.resource_cap(player.class_id()))  # M9b
 	if arenas.has(Config.MAP_DUNGEON):
 		for c: Vector2i in options.test_dungeon_heretics:
 			arenas[Config.MAP_DUNGEON].spawn_heretic(Arena.spawn_feet(c))

@@ -16,6 +16,13 @@ extends RefCounted
 ## A skill plays a body action the slice already has (Config.SKILLS "anim": magic, bow, pickaxe, throw; no new art) and lands on
 ## its impact frame ("impact"). It is committed when it lands: the cooldown starts then (game ticks) and a signature spends
 ## its resource then; a hit before that cuts the action off and nothing is spent (the M6 drink rule).
+##
+## M9b builds the other ten, the same way (PROVISIONAL placeholders, one table of numbers each in Config.SKILLS): the weapon
+## skills (key 2, the held class weapon decides: the paladin's crushing blow, the archer's fan shot, the cleric's holy burst, the
+## miner's heavy strike, the herbalist's sweep; a tier-1 weapon lands its Config.GEAR_T1_DAMAGE_PCT and wears once per use, like
+## its basic attack) and the signatures (key R, spending the class resource when they land: the guardian oath, the arrow rain,
+## the blessing, the rockfall, the healing mist). The skills aimed at a point (POINT_SKILLS) take the cursor pulled in to their
+## range and to the last point before a wall (reach_point) when the key is pressed.
 
 enum Slot { IDENTITY, WEAPON, CHOICE, SIGNATURE }
 
@@ -28,6 +35,19 @@ const PIERCING_ARROW: StringName = &"piercing_arrow"
 const HEAL: StringName = &"heal"
 const GROUND_SLAM: StringName = &"ground_slam"
 const POTION_THROW: StringName = &"potion_throw"
+## M9b: the five weapon skills (key 2) and the five signatures (key R).
+const CRUSHING_BLOW: StringName = &"crushing_blow"
+const FAN_SHOT: StringName = &"fan_shot"
+const HOLY_BURST: StringName = &"holy_burst"
+const HEAVY_STRIKE: StringName = &"heavy_strike"
+const SWEEP: StringName = &"sweep"
+const GUARDIAN_OATH: StringName = &"guardian_oath"
+const ARROW_RAIN: StringName = &"arrow_rain"
+const BLESSING: StringName = &"blessing"
+const ROCKFALL: StringName = &"rockfall"
+const HEALING_MIST: StringName = &"healing_mist"
+## M9b: the skills aimed at a point (prepare() puts the cursor, pulled in by reach_point, into Prepared.throw_to).
+const POINT_SKILLS: Array[StringName] = [&"holy_burst", &"arrow_rain", &"rockfall", &"healing_mist"]
 
 ## Why a skill key was refused (logs, tests; the HUD shows a mark, it has no font).
 const WHY_LOCKED: String = "the choice slot is not in the slice"
@@ -44,6 +64,9 @@ const WHY_RESOURCE: String = "not enough"
 const WHY_NO_ALLY: String = "no ally near the cursor"
 const WHY_FULL_HP: String = "full hp"
 const WHY_NO_ARENA: String = "no arena"
+## M9b: the held class weapon is broken while Gear.broken_unusable (Config.GEAR_BROKEN_UNUSABLE, off: a broken weapon works as its
+## base, so its skill does too).
+const WHY_BROKEN: String = "broken"
 
 
 ## The skill in slot `slot` of class `class_id` (Config.SKILL_KITS; the weapon slot: the held class weapon's,
@@ -152,9 +175,10 @@ static func spend_signature(p: Player) -> int:
 
 # --- when a skill may start ---------------------------------------------------------------------------------
 
-## Why player `p` may not start the skill of slot `slot` now ("" = it may): the choice slot is locked (not in the slice); no
-## skill or not built yet (M9b); the weapon slot without the class weapon held; down, dead, carrying the altar, a panel open,
-## mid-action (an action that will still play, a dash, a stagger), cooling down, not enough resource (the signature).
+## Why player `p` may not start the skill of slot `slot` now ("" = it may): the choice slot is locked (not in the slice); the
+## weapon slot without the class weapon held (M9b: or with it broken while Gear.broken_unusable); no skill or not built; down,
+## dead, carrying the altar, a panel open, mid-action (an action that will still play, a dash, a stagger), cooling down, not
+## enough resource (the signature).
 static func refusal(p: Player, slot: int) -> String:
 	if slot == Slot.CHOICE:
 		return WHY_LOCKED
@@ -164,6 +188,8 @@ static func refusal(p: Player, slot: int) -> String:
 		var weapon: StringName = Combat.class_weapon(class_id)
 		if held == null or weapon.is_empty() or Gear.base(held.id) != weapon:
 			return WHY_NO_WEAPON
+		if p.gear_on and Gear.unusable(held):
+			return WHY_BROKEN  # M9b: like the basic attack (Config.GEAR_BROKEN_UNUSABLE)
 	var id: StringName = kit_skill(class_id, slot)
 	if id.is_empty():
 		return WHY_NO_SKILL
@@ -191,6 +217,62 @@ static func busy(p: Player) -> bool:
 	if p.action_anim >= 0 and p.action_tick + 1 < Player.action_ticks(p.action_anim):
 		return true
 	return p.vitals.dashing() or p.vitals.staggered()
+
+
+# --- M9b helpers ----------------------------------------------------------------------------------------------
+
+## M9b (PROVISIONAL README "M9b 점 스킬"): the point a skill aimed at `cursor` lands on, cast from feet `feet` on `data`: the cursor
+## pulled in to `range_px` of the feet, then (whole px) back along that line to the farthest point the line from the feet reaches
+## with no tile that stops a shot on it (Combat.line_clear: walls, wall faces, blocking placeables, the map's edge). So a burst,
+## a strike or a cloud never lands behind a wall the caster cannot see past.
+static func reach_point(data: WorldData, feet: Vector2, cursor: Vector2, range_px: float) -> Vector2:
+	var d: Vector2 = cursor - feet
+	if d.length() > range_px:
+		d = d.normalized() * range_px
+	var target: Vector2 = (feet + d).round()
+	if data == null or Combat.line_clear(data, feet, target):
+		return target
+	var dir: Vector2 = d.normalized() if d.length_squared() > 0.0 else Vector2.ZERO
+	for k: int in range(floori(d.length()), -1, -1):
+		var q: Vector2 = (feet + dir * float(k)).round()
+		if Combat.line_clear(data, feet, q):
+			return q
+	return feet.round()
+
+
+## M9b: a hit of `amount` on a player whose skill state is `s` (Player.take_hit, after the armour): less the oath's ward while it
+## runs (rounded down), never below Config.SKILL_WARD_MIN_DAMAGE (nor above the hit).
+static func after_ward(amount: int, s: SkillState) -> int:
+	if s == null or not s.warded() or amount <= 0:
+		return amount
+	return maxi(amount * (100 - clampi(s.ward_pct, 0, 100)) / 100, mini(Config.SKILL_WARD_MIN_DAMAGE, amount))
+
+
+## M9b: the class weapon stack player `p`'s weapon skill plays: the stack in the hotbar slot it was pressed with
+## (Player.action_slot) while that is still its class weapon (base or tier-1), else null (it lands at the base damage and wears
+## nothing, like an attack whose weapon left the slot).
+static func weapon_stack(p: Player) -> ItemStack:
+	var s: ItemStack = p.inventory.stack_at(p.action_slot)
+	var weapon: StringName = Combat.class_weapon(p.class_id())
+	if s == null or weapon.is_empty() or Gear.base(s.id) != weapon:
+		return null
+	return s
+
+
+## M9b: the damage a weapon skill of base damage `base` lands for player `p`: a tier-1 weapon's Config.GEAR_T1_DAMAGE_PCT while it
+## is not broken (Gear.attack_damage, the basic attack's rule; with `gear_on`, as offline Main's player), else `base`.
+static func weapon_damage(p: Player, base: int) -> int:
+	if not p.gear_on:
+		return base
+	return Gear.attack_damage(weapon_stack(p), base)
+
+
+## M9b: a weapon skill's use wear (like an attack: Gear.wear_weapon once, with `gear_on`). Returns whether it wore.
+static func wear_weapon(p: Player) -> bool:
+	var s: ItemStack = weapon_stack(p)
+	if not p.gear_on or s == null or s.max_durability() <= 0:
+		return false
+	return Gear.wear_weapon(p.inventory, p.action_slot, s.id) != null
 
 
 # --- the near-cursor ally pick (● §2.1 R42) -----------------------------------------------------------------
@@ -251,7 +333,7 @@ class Prepared:
 	var why: String = ""
 	## The ally it goes to (the heal, a healing or buff throw), or null.
 	var target: Player
-	## The herbalist's throw: the potion, the point it is thrown at (whole px).
+	## The herbalist's throw: the potion, the point it is thrown at (whole px). M9b: a point skill's point (reach_point).
 	var item: StringName = &""
 	var throw_to: Vector2 = Vector2.ZERO
 
@@ -292,6 +374,8 @@ static func prepare(p: Player, slot: int, cursor: Vector2, party: Array[Player])
 				r.throw_to = Potions.throw_target(origin, Combat.body_point(r.target.sim_position)).round()
 			else:
 				r.throw_to = Potions.throw_target(origin, cursor).round()
+	if POINT_SKILLS.has(r.id):
+		r.throw_to = reach_point(p.data, p.sim_position, cursor, num_f(r.id, "range_px"))  # M9b
 	return r
 
 
@@ -309,6 +393,17 @@ class Landed:
 	var healed: int = 0
 	var target: Player
 	var shot: Arena.Shot
+	## M9b: the fan's arrows, the resource a signature spent, players warded by the oath, the strike or zone it started, the
+	## weapon skill's damage (after the tier-1 rule) and whether it wore the weapon, and the world edits it made (the shrine
+	## breaking under a melee weapon skill: the caller applies them).
+	var shots: Array[Arena.Shot] = []
+	var spent: int = 0
+	var warded: int = 0
+	var strike: Arena.Strike
+	var zone: Arena.Zone
+	var damage: int = 0
+	var wore: bool = false
+	var edits: Array[EditLog.WorldEdit] = []
 
 	func ok() -> bool:
 		return why.is_empty()
@@ -320,6 +415,9 @@ class Landed:
 ## action started with, the heal restores HP to the ally picked when the key was pressed (Player.action_skill_target; gone,
 ## down or dead now = it fizzles) and grows the cleric's faith, the ground slam hits, staggers and pushes the heretics around
 ## the miner (Arena.slam). The throw is not here: it lands through Potions.release (its potion), like M6.
+## M9b: the weapon skills land along the action's aim (the melee arcs, the fan) or on its point (the holy burst) at the damage
+## weapon_damage gives and wear the weapon once; a signature first spends its resource (spend_signature; too little now = it
+## fizzles) and then wards, strikes or heals (_land_signature). `r.edits` = world edits for the caller (the shrine breaking).
 static func land(p: Player, id: StringName, arena: Arena, party: Array[Player]) -> Landed:
 	var r: Landed = Landed.new()
 	r.id = id
@@ -348,9 +446,65 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player]) 
 		GROUND_SLAM:
 			r.hits = arena.slam(p, num_f(GROUND_SLAM, "radius_px"), num_i(GROUND_SLAM, "damage"),
 				num_f(GROUND_SLAM, "push_px"))
+		CRUSHING_BLOW, HEAVY_STRIKE, SWEEP:
+			# M9b: a melee arc along the aim the action started with (the sword, the pickaxe, the sickle); never mines or harvests.
+			var kinds: Dictionary[StringName, int] = {CRUSHING_BLOW: Arena.BurstKind.CRUSH, HEAVY_STRIKE: Arena.BurstKind.HEAVY,
+				SWEEP: Arena.BurstKind.SWEEP}
+			r.damage = weapon_damage(p, num_i(id, "damage"))
+			r.hits = arena.melee_skill(p, p.action_aim, r.damage, num_f(id, "reach_px"), num_f(id, "arc_deg"),
+				num_i(id, "stun_ticks"), num_i(id, "slow_pct"), num_i(id, "slow_ticks"), kinds[id], r.edits)
+			r.wore = wear_weapon(p)
+		FAN_SHOT:
+			r.damage = weapon_damage(p, num_i(FAN_SHOT, "damage"))
+			r.shots = arena.fan_shot(p, FAN_SHOT, p.action_aim, r.damage, num_i(FAN_SHOT, "arrows"),
+				num_i(FAN_SHOT, "spread_aim"), num_f(FAN_SHOT, "reach_px"), num_f(FAN_SHOT, "speed"))
+			r.wore = wear_weapon(p)
+		HOLY_BURST:
+			r.damage = weapon_damage(p, num_i(HOLY_BURST, "damage"))
+			r.hits = arena.area_hit(p, p.action_target, num_f(HOLY_BURST, "radius_px"), r.damage, Arena.BurstKind.HOLY)
+			r.wore = wear_weapon(p)
+		GUARDIAN_OATH, ARROW_RAIN, BLESSING, ROCKFALL, HEALING_MIST:
+			# M9b: the signature spends its resource now (all or nothing); too little now (an archer's focus, herbs dropped since
+			# the press) = it fizzles: nothing spent, no cooldown.
+			r.spent = spend_signature(p)
+			if r.spent <= 0:
+				r.why = WHY_RESOURCE
+				return r
+			_land_signature(p, id, arena, party, r)
 		_:
 			r.why = WHY_NO_SKILL
 			return r
 	var slot: int = p.action_skill_slot if p.action_skill_slot >= 0 else slot_of(p.class_id(), id)
 	p.skills.start_cooldown(slot, cooldown_ticks(id))
 	return r
+
+
+## M9b: what signature `id` of player `p` does once its resource is spent (`r.spent`): the oath wards every player up around the
+## paladin (himself too), the arrow rain and the rockfall start their strike on the point picked at the press
+## (Player.action_target), the blessing starts its zone following the cleric, the healing mist its zone on the point.
+static func _land_signature(p: Player, id: StringName, arena: Arena, party: Array[Player], r: Landed) -> void:
+	var pid: int = p.get_instance_id()
+	match id:
+		GUARDIAN_OATH:
+			var radius: float = num_f(GUARDIAN_OATH, "radius_px")
+			for q: Player in party:
+				if q == null or not is_instance_valid(q) or not q.vitals.alive() or q.data != p.data:
+					continue
+				if q.sim_position.distance_to(p.sim_position) <= radius \
+						and q.skills.add_ward(num_i(GUARDIAN_OATH, "ward_pct"), num_i(GUARDIAN_OATH, "ward_ticks")):
+					r.warded += 1
+			arena.add_burst(Arena.BurstKind.OATH, p.sim_position, radius, pid)
+		ARROW_RAIN:
+			r.damage = num_i(ARROW_RAIN, "damage") + r.spent * num_i(ARROW_RAIN, "damage_per_focus_pct") / 100
+			r.strike = arena.add_strike(Arena.StrikeKind.ARROWS, p.action_target, num_f(ARROW_RAIN, "radius_px"),
+				num_i(ARROW_RAIN, "delay_ticks"), r.damage, 0, pid)
+		ROCKFALL:
+			r.damage = num_i(ROCKFALL, "damage")
+			r.strike = arena.add_strike(Arena.StrikeKind.ROCKS, p.action_target, num_f(ROCKFALL, "radius_px"),
+				num_i(ROCKFALL, "delay_ticks"), r.damage, num_i(ROCKFALL, "stun_ticks"), pid)
+		BLESSING:
+			r.zone = arena.add_zone(Arena.ZoneKind.BLESSING, p.sim_position, num_f(BLESSING, "radius_px"),
+				num_i(BLESSING, "duration_ticks"), num_i(BLESSING, "interval_ticks"), num_i(BLESSING, "heal_hp"), pid, pid)
+		HEALING_MIST:
+			r.zone = arena.add_zone(Arena.ZoneKind.MIST, p.action_target, num_f(HEALING_MIST, "radius_px"),
+				num_i(HEALING_MIST, "duration_ticks"), num_i(HEALING_MIST, "interval_ticks"), num_i(HEALING_MIST, "heal_hp"), pid)

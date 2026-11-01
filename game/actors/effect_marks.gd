@@ -5,9 +5,10 @@ extends Node2D
 ## the buff an amber arrow up, the poison a poison-herb yellow drop with a rust spot (● brief §5.7 R29: the
 ## potion colours follow the crops; ItemIcons.PALETTE). Unshaded so they read in the dark. The node sits on
 ## the feet; the icons are centred in a row MARK_Y px above them. Layout values are IMPL. M9a: a taunted heretic's mark (the
-## paladin's taunt, Arena.taunt): a faith-gold "!" (a PLACEHOLDER like the others).
+## paladin's taunt, Arena.taunt): a faith-gold "!" (a PLACEHOLDER like the others). M9b (PLACEHOLDERS too): a warded player's
+## faith-gold shield (the paladin's oath), a stunned heretic's gold star, a slowed heretic's iron arrow down.
 
-enum Kind { BUFF, POISON, TAUNT }
+enum Kind { BUFF, POISON, TAUNT, WARD, STUN, SLOW }
 
 const SIZE: int = 7
 const GAP: int = 1
@@ -17,6 +18,9 @@ const MAPS: Array[Array] = [
 	["...k...", "..kak..", ".kaaak.", "kkaaakk", "..kak..", "..kak..", "..kkk.."],
 	["...k...", "..kyk..", ".kyyyk.", "kyyuyYk", "kyyyyYk", ".kYYYk.", "..kkk.."],
 	["..kkk..", "..kgk..", "..kgk..", "..kgk..", "..kkk..", "..kgk..", "..kkk.."],
+	["kkkkkkk", "kgggggk", "kggsggk", "kgsssgk", ".kgsgk.", "..kgk..", "...k..."],
+	["...k...", "..kgk..", "kkkgkkk", "kgggggk", ".kgsgk.", "kgk.kgk", "kk...kk"],
+	["..kkk..", "..khk..", "..khk..", "kkkhkkk", ".khhhk.", "..khk..", "...k..."],
 ]
 
 static var _textures: Array[ImageTexture] = []

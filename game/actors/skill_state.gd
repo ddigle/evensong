@@ -14,6 +14,8 @@ extends RefCounted
 ## HP his skills heal (prayer is M10); the miner's endurance grows with every block he breaks; the herbalist has no meter: his
 ## material is the healing herbs in his inventory (Skills.resource_of reads them). Every meter stops at its cap and is lost on
 ## death (Config.SKILL_RESOURCE_LOST_ON_DEATH).
+##
+## M9b: the ward a paladin's guardian oath gives (ward_pct off every hit for ward_ticks: Player.take_hit applies it, Skills.after_ward).
 
 ## The four slots (● R42: identity, weapon, choice, signature; keys 1 2 3 R, ○ §1).
 const SLOT_COUNT: int = 4
@@ -32,6 +34,10 @@ var was_moving: bool = false
 var refused_slot: int = -1
 var refused_ticks: int = 0
 var refused_why: String = ""
+## M9b: a ward (the paladin's guardian oath, given to every player up around him): percent off each hit, ticks left
+## (Skills.after_ward, Player.take_hit; Config.SKILL_WARD_MIN_DAMAGE).
+var ward_pct: int = 0
+var ward_ticks: int = 0
 
 
 func copy() -> SkillState:
@@ -45,13 +51,16 @@ func copy() -> SkillState:
 	c.refused_slot = refused_slot
 	c.refused_ticks = refused_ticks
 	c.refused_why = refused_why
+	c.ward_pct = ward_pct
+	c.ward_ticks = ward_ticks
 	return c
 
 
 ## The same simulation state (the refusal mark is display only and not compared).
 func same_as(o: SkillState) -> bool:
 	return o != null and cooldowns == o.cooldowns and resource == o.resource and since_hurt == o.since_hurt \
-		and decay_tick == o.decay_tick and focus_tick == o.focus_tick and was_moving == o.was_moving
+		and decay_tick == o.decay_tick and focus_tick == o.focus_tick and was_moving == o.was_moving \
+		and ward_pct == o.ward_pct and ward_ticks == o.ward_ticks
 
 
 ## Ticks left before slot `slot` may be used again (0 = ready).
@@ -86,6 +95,10 @@ func tick(class_id: String, moving: bool, alive: bool) -> void:
 		refused_ticks -= 1
 		if refused_ticks == 0:
 			refused_slot = -1
+	if ward_ticks > 0:
+		ward_ticks -= 1  # M9b: the oath's ward runs out (on the game clock, down too)
+		if ward_ticks == 0:
+			ward_pct = 0
 	if not alive:
 		return
 	match class_id:
@@ -154,7 +167,7 @@ func on_mined(class_id: String, blocks: int) -> int:
 	return gain(class_id, blocks * Config.MINER_ENDURANCE_PER_BLOCK)
 
 
-## Death (Config.SKILL_RESOURCE_LOST_ON_DEATH): the meter is lost; the cooldowns run on (the game clock).
+## Death (Config.SKILL_RESOURCE_LOST_ON_DEATH): the meter is lost; the cooldowns run on (the game clock). M9b: a ward ends.
 func on_death() -> void:
 	if Config.SKILL_RESOURCE_LOST_ON_DEATH:
 		resource = 0
@@ -162,7 +175,28 @@ func on_death() -> void:
 	decay_tick = 0
 	focus_tick = 0
 	was_moving = false
+	ward_pct = 0
+	ward_ticks = 0
+
+
+## M9b: a ward of `pct` percent for `ticks` (the guardian oath). A running one keeps the stronger percent and the longer time
+## (Config.EFFECT_REFRESH_KEEPS_STRONGER, else the new one replaces it). False when it gives nothing.
+func add_ward(pct: int, ticks: int) -> bool:
+	if pct <= 0 or ticks <= 0:
+		return false
+	if ward_ticks > 0 and Config.EFFECT_REFRESH_KEEPS_STRONGER:
+		ward_pct = maxi(ward_pct, pct)
+		ward_ticks = maxi(ward_ticks, ticks)
+	else:
+		ward_pct = clampi(pct, 0, 100)
+		ward_ticks = ticks
+	return true
+
+
+## M9b: warded now.
+func warded() -> bool:
+	return ward_ticks > 0 and ward_pct > 0
 
 
 func describe() -> String:
-	return "cd=%s res=%d" % [cooldowns, resource]
+	return "cd=%s res=%d ward=%d/%d" % [cooldowns, resource, ward_pct, ward_ticks]

@@ -74,6 +74,8 @@ extends Node2D
 ## cooldowns, the class meter and the refusal mark; step_frame ticks it, take_hit and a poison tick feed the paladin's
 ## conviction, a death loses the meter. `skill_aim_target` = the ally a heal or buff would go to now (Skills.aim_target from
 ## `party_provider`, the players on this map: Main's AllyMark draws a ring under it). Without `skills_on` key 1 is M6's throw.
+## M9b: a skill's frame carries the selected hotbar slot (a weapon skill's stack: action_slot) and a point skill's point
+## (throw_to -> action_target); take_hit takes the paladin's oath ward off a hit (after the armour), shown over the head (WARD).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -345,6 +347,8 @@ func _skill_frame(f: NetProtocol.InputFrame, slot: int, mouse: Vector2) -> void:
 	else:
 		f.anim = Skills.anim(prep.id)
 		f.item = prep.id
+		f.slot = inventory.selected  # M9b: the weapon skill's stack (its tier-1 damage and wear: Skills.weapon_stack)
+		f.throw_to = prep.throw_to  # M9b: a point skill's point (Skills.reach_point)
 
 
 ## M9a: marks slot `slot` refused on the HUD (SkillState.refuse) and says why (skill_refused).
@@ -623,6 +627,8 @@ func take_hit(amount: int, armored: bool = false) -> int:
 	var was_channel: bool = channel_tick > 0
 	if armored and gear_on:
 		amount = Gear.after_armor(amount, inventory)
+	if skills_on:
+		amount = Skills.after_ward(amount, skills)  # M9b: the oath's ward, after the armour
 	var hp_before: int = vitals.hp
 	var events: int = st.hurt(amount)
 	if events == 0:
@@ -813,7 +819,10 @@ func _sync_view() -> void:
 	character.walking = walking
 	character.visible = vitals.life != Vitals.Life.DEAD
 	character.modulate = HIT_FLASH if vitals.flash_ticks > 0 else Color.WHITE
-	effect_marks.show_kinds(EffectMarks.kinds_of(vitals))  # M6a
+	var kinds: Array[int] = EffectMarks.kinds_of(vitals)  # M6a
+	if skills_on and skills.warded() and vitals.life != Vitals.Life.DEAD:
+		kinds.append(EffectMarks.Kind.WARD)  # M9b: the paladin's oath wards this player
+	effect_marks.show_kinds(kinds)
 	if vitals.life == Vitals.Life.DOWN:
 		character.show_action(RigData.Anim.DEATH, mini(vitals.life_ticks / Config.DEATH_FRAME_TICKS,
 			RigData.frame_count(RigData.Anim.DEATH) - 1))

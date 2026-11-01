@@ -6,7 +6,7 @@ extends Node2D
 ## head once it has been hurt (drawn in code, unshaded; PLACEHOLDER: no HP art exists). The node sits
 ## on the feet so the y-sorted Entities sorts it with the characters. Light layer: the actors' (hard). M6a: a
 ## poison mark above the head while it is poisoned (EffectMarks, a code-drawn PLACEHOLDER). M9a: a taunt mark while the
-## paladin's taunt forces it.
+## paladin's taunt forces it. M9b: a stun mark while stunned (the hurt pose held: HereticSim.anim) and a slow mark while slowed.
 
 const SHEETS: Array[Texture2D] = [
 	preload("res://art/enemies/heretic_v02_walk.png"), preload("res://art/enemies/heretic_v02_idle.png"),
@@ -83,6 +83,10 @@ func show_sim(h: HereticSim) -> void:
 		kinds.append(EffectMarks.Kind.POISON)
 	if h.taunted():
 		kinds.append(EffectMarks.Kind.TAUNT)  # M9a: the paladin's taunt forces it
+	if h.stunned():
+		kinds.append(EffectMarks.Kind.STUN)  # M9b
+	if h.slowed():
+		kinds.append(EffectMarks.Kind.SLOW)  # M9b
 	marks.show_kinds(kinds)
 	if ratio != hp_ratio:
 		hp_ratio = ratio
