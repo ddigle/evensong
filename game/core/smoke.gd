@@ -93,6 +93,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_build(r)
 	_check_shop(r)
 	_check_skills(r)  # M9a
+	_check_prayer(r)  # M10a
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -751,6 +752,79 @@ static func _check_skills(r: Report) -> void:
 	arc.free()
 	r.fields.append("skills=%d/%d pick=%s taunt=%d slam=%.0f rock=%d/%d ward=%d mist=%d" % [Config.SKILLS.size(), named.size(), str(pick),
 		taunted, pushed, rock, stun_left, warded, mist])
+
+
+## M10a: the group prayer on the seed-1 surface: the nine lamp spots hold the altar picture's 81 flame pixels; a cleric with faith
+## taps in the circle with two others there (it starts), they tap to join, the nine turns go round (the cleric and the first ally
+## answer right, the second wrong), the end gives all three zeal (6 lamps, three: 21%) and spends the cost; a sword hit at that zeal;
+## a meditation's small zeal. Field `prayer=<lit>/<participants>/<zeal %> faith=<spent> zeal_hit=<sword damage> meditate=<zeal %>`.
+static func _check_prayer(r: Report) -> void:
+	var d: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var flames: Image = Altar.flame_image()
+	var in_spots: int = 0
+	for f: Vector2i in Config.PRAYER_LAMP_FLAMES:
+		for y: int in Altar.FLAME_SIZE.y:
+			for x: int in Altar.FLAME_SIZE.x:
+				if flames.get_pixelv(f + Vector2i(x, y)).a8 > 0:
+					in_spots += 1
+	r.expect_eq(in_spots, 81, "the lamp spots hold the 81 flame pixels")
+	var pr: Prayer = Prayer.new()
+	pr.setup(d, Config.DEFAULT_SEED)
+	var ps: Array[Player] = []
+	var classes: PackedStringArray = ["cleric", "paladin", "archer"]
+	for i: int in 3:
+		var p: Player = Player.new()
+		p.setup(d, classes[i], Arena.spawn_feet(Vector2i(62 + i, 49)))
+		p.skills_on = true
+		ps.append(p)
+	ps[0].skills.resource = 100
+	var none: Array[HereticSim] = []
+	var started: bool = pr.tap(ps[0], ps, none).ok() and pr.running()
+	var joined: bool = pr.tap(ps[1], ps, none).ok() and pr.tap(ps[2], ps, none).ok()
+	r.expect(started and joined and pr.members.size() == 3, "a cleric starts in the circle, two join")
+	var guard: int = 0
+	while pr.running() and guard < 3000:
+		var lamp: int = pr.current_lamp()
+		for p2: Player in ps:
+			var key: Vector2i = Vector2i.ZERO
+			if lamp >= 0 and pr.turn_ticks == 9 and pr.turn_owner == p2.get_instance_id():
+				key = Prayer.DIR_VECTORS[(pr.directions[lamp] + (2 if p2 == ps[2] else 0)) % 4]
+			p2.begin_tick()
+			p2.step_frame(NetProtocol.InputFrame.new(0, key), 1.0 / Config.NET_TICK_RATE)
+		pr.step(ps)
+		guard += 1
+	var res: Prayer.Result = pr.last
+	var lit: int = res.lit if res != null else -1
+	var count: int = res.participants if res != null else -1
+	r.expect(lit == 6 and count == 3, "nine turns round three: six lit")
+	var zeal: int = ps[1].skills.zeal_pct
+	r.expect(zeal == Prayer.zeal_pct(6, 3) and ps[0].skills.zealous() and ps[2].skills.zealous(), "every participant's zeal")
+	var spent: int = 100 - ps[0].skills.resource
+	r.expect_eq(spent, Config.PRAYER_FAITH_COST, "the faith spent")
+	var open: WorldData = WorldData.new(Vector2i(40, 30))
+	open.map_id = Config.MAP_DUNGEON
+	var a: Arena = Arena.new()
+	a.setup(open, 1)
+	a.spawning = false
+	ps[1].setup(open, "paladin", Vector2(200, 200))
+	ps[1].skills.add_zeal(zeal, 100)
+	var h: HereticSim = a.spawn_heretic(Vector2(218, 200))
+	a.player_attack(ps[1], &"sword", Combat.aim_code(Vector2.RIGHT))
+	var hit: int = Config.HERETIC_HP - h.hp
+	r.expect_eq(hit, Prayer.zeal_hit(Combat.attack_for(&"sword").damage, zeal), "a sword hit at that zeal")
+	var med: Player = Player.new()
+	med.setup(d, "miner", Arena.spawn_feet(Vector2i(63, 49)))
+	med.skills_on = true
+	var solo: Array[Player] = [med]
+	r.expect(pr.tap(med, solo, none).ok(), "anyone meditates")
+	for t: int in Config.MEDITATE_TICKS:
+		pr.step(solo)
+	var meditated: int = med.skills.zeal_pct
+	r.expect_eq(meditated, Config.MEDITATE_ZEAL_PCT, "a meditation's small zeal")
+	for p3: Player in ps:
+		p3.free()
+	med.free()
+	r.fields.append("prayer=%d/%d/%d faith=%d zeal_hit=%d meditate=%d" % [lit, count, zeal, spent, hit, meditated])
 
 
 static func _check_light(r: Report) -> void:

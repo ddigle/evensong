@@ -72,6 +72,8 @@ const WHY_NO_ARENA: String = "no arena"
 ## M9b: the held class weapon is broken while Gear.broken_unusable (Config.GEAR_BROKEN_UNUSABLE, off: a broken weapon works as its
 ## base, so its skill does too).
 const WHY_BROKEN: String = "broken"
+## M10a: the player prays at the altar (Player.prayer_role: its move keys are answers, nothing else starts; README "M10a F").
+const WHY_PRAYING: String = "praying"
 
 
 ## The skill in slot `slot` of class `class_id` (Config.SKILL_KITS; the weapon slot: the held class weapon's,
@@ -237,6 +239,8 @@ static func refusal(p: Player, slot: int, hotbar_slot: int = -1) -> String:
 		return WHY_DEAD
 	if p.carrying_altar:
 		return WHY_CARRYING
+	if p.prayer_role == Prayer.Role.PRAYING:
+		return WHY_PRAYING  # M10a
 	if p.ui_locked:
 		return WHY_PANEL
 	if busy(p):
@@ -374,8 +378,8 @@ static func throw_picks_ally(id: StringName) -> bool:
 ## The ally player `p`'s heal or buff would go to now with the mouse at `cursor` (the highlight under that ally), or null: the
 ## cleric's heal while it is ready, the herbalist's throw while a healing or buff potion is selected.
 static func aim_target(p: Player, party: Array[Player], cursor: Vector2) -> Player:
-	if not p.vitals.alive() or p.ui_locked or p.carrying_altar:
-		return null  # M9 review: a panel open or the altar carried refuses the key, so no ring
+	if not p.vitals.alive() or p.ui_locked or p.carrying_altar or p.prayer_role == Prayer.Role.PRAYING:
+		return null  # M9 review: a panel open or the altar carried refuses the key, so no ring (M10a: nor praying)
 	var id: StringName = kit_skill(p.class_id(), Slot.IDENTITY)
 	if id == HEAL and built(HEAL) and p.skills.cooldown(Slot.IDENTITY) == 0:
 		return pick_ally(party, p, cursor, num_f(HEAL, "range_px"))
@@ -492,6 +496,7 @@ class Landed:
 ## weapon_damage gives and wear the weapon once; a signature first spends its resource (spend_signature; too little now = it
 ## fizzles) and then wards, strikes or heals (_land_signature). `r.edits` = world edits for the caller (the shrine breaking).
 ## M9c: `owner_slot` = the caster's session slot (its shots' events name it; 255 offline).
+## M10a: every damaging skill's damage is raised by the caster's zeal (Prayer.zeal_damage: the arrow and the strikes keep it).
 static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], owner_slot: int = 255) -> Landed:
 	var r: Landed = Landed.new()
 	r.id = id
@@ -502,7 +507,7 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], 
 		TAUNT:
 			r.taunted = arena.taunt(p, num_f(TAUNT, "radius_px"), num_i(TAUNT, "taunt_ticks"))
 		PIERCING_ARROW:
-			r.shot = arena.skill_shot(p, PIERCING_ARROW, p.action_aim, num_i(PIERCING_ARROW, "damage"),
+			r.shot = arena.skill_shot(p, PIERCING_ARROW, p.action_aim, Prayer.zeal_damage(num_i(PIERCING_ARROW, "damage"), p),
 				num_f(PIERCING_ARROW, "reach_px"), num_f(PIERCING_ARROW, "speed"), true, owner_slot)
 		HEAL:
 			var t: Player = null
@@ -522,23 +527,23 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], 
 			arena.add_burst(Arena.BurstKind.HEAL, t.sim_position, Config.SKILL_HEAL_SHOW_RADIUS_PX, t.get_instance_id(),
 				p.get_instance_id())
 		GROUND_SLAM:
-			r.hits = arena.slam(p, num_f(GROUND_SLAM, "radius_px"), num_i(GROUND_SLAM, "damage"),
+			r.hits = arena.slam(p, num_f(GROUND_SLAM, "radius_px"), Prayer.zeal_damage(num_i(GROUND_SLAM, "damage"), p),
 				num_f(GROUND_SLAM, "push_px"))
 		CRUSHING_BLOW, HEAVY_STRIKE, SWEEP:
 			# M9b: a melee arc along the aim the action started with (the sword, the pickaxe, the sickle); never mines or harvests.
 			var kinds: Dictionary[StringName, int] = {CRUSHING_BLOW: Arena.BurstKind.CRUSH, HEAVY_STRIKE: Arena.BurstKind.HEAVY,
 				SWEEP: Arena.BurstKind.SWEEP}
-			r.damage = weapon_damage(p, num_i(id, "damage"))
+			r.damage = Prayer.zeal_damage(weapon_damage(p, num_i(id, "damage")), p)  # M10a: the zeal on top
 			r.hits = arena.melee_skill(p, p.action_aim, r.damage, num_f(id, "reach_px"), num_f(id, "arc_deg"),
 				num_i(id, "stun_ticks"), num_i(id, "slow_pct"), num_i(id, "slow_ticks"), kinds[id], r.edits)
 			r.wore = wear_weapon(p)
 		FAN_SHOT:
-			r.damage = weapon_damage(p, num_i(FAN_SHOT, "damage"))
+			r.damage = Prayer.zeal_damage(weapon_damage(p, num_i(FAN_SHOT, "damage")), p)
 			r.shots = arena.fan_shot(p, FAN_SHOT, p.action_aim, r.damage, num_i(FAN_SHOT, "arrows"),
 				num_i(FAN_SHOT, "spread_aim"), num_f(FAN_SHOT, "reach_px"), num_f(FAN_SHOT, "speed"), owner_slot)
 			r.wore = wear_weapon(p)
 		HOLY_BURST:
-			r.damage = weapon_damage(p, num_i(HOLY_BURST, "damage"))
+			r.damage = Prayer.zeal_damage(weapon_damage(p, num_i(HOLY_BURST, "damage")), p)
 			r.hits = arena.area_hit(p, p.action_target, num_f(HOLY_BURST, "radius_px"), r.damage, Arena.BurstKind.HOLY)
 			r.wore = wear_weapon(p)
 		GUARDIAN_OATH, ARROW_RAIN, BLESSING, ROCKFALL, HEALING_MIST:
@@ -576,11 +581,11 @@ static func _land_signature(p: Player, id: StringName, arena: Arena, party: Arra
 			arena.add_burst(Arena.BurstKind.OATH, p.sim_position, radius, pid, pid)
 			arena.note_ward(warded)  # M9c: a session's clients draw the shield over each of them
 		ARROW_RAIN:
-			r.damage = num_i(ARROW_RAIN, "damage") + r.spent * num_i(ARROW_RAIN, "damage_per_focus_pct") / 100
+			r.damage = Prayer.zeal_damage(num_i(ARROW_RAIN, "damage") + r.spent * num_i(ARROW_RAIN, "damage_per_focus_pct") / 100, p)
 			r.strike = arena.add_strike(Arena.StrikeKind.ARROWS, p.action_target, num_f(ARROW_RAIN, "radius_px"),
 				num_i(ARROW_RAIN, "delay_ticks"), r.damage, 0, pid)
 		ROCKFALL:
-			r.damage = num_i(ROCKFALL, "damage")
+			r.damage = Prayer.zeal_damage(num_i(ROCKFALL, "damage"), p)
 			r.strike = arena.add_strike(Arena.StrikeKind.ROCKS, p.action_target, num_f(ROCKFALL, "radius_px"),
 				num_i(ROCKFALL, "delay_ticks"), r.damage, num_i(ROCKFALL, "stun_ticks"), pid)
 		BLESSING:

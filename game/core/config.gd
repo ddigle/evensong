@@ -1015,7 +1015,9 @@ const PALADIN_CONVICTION_DECAY_TICKS: int = 30
 const ARCHER_FOCUS_GAIN_TICKS: int = 6
 const ARCHER_FOCUS_DRAIN_TICKS: int = 2
 ## PROVISIONAL (○ §2.2 "성직자: 신앙 (기도·성물·봉헌으로 쌓임)"; prayer is M10, relics and offerings are not in the slice): in M9a faith
-## grows with the HP the cleric's skills heal, this much per HP (the heal; M10 adds prayer). No fading.
+## grows with the HP the cleric's skills heal, this much per HP (the heal). No fading. M10a: the group prayer spends it
+## (Config.PRAYER_FAITH_COST, ● R45 "성직자의 신앙을 쓴다", game-concept §9.4 "기도에 소모") and adds none (○ gameplay-design §2.2 lists
+## prayer among what grows it: the two read differently, README "M10a 신앙" asks the human).
 const CLERIC_FAITH_PER_HP: int = 1
 ## PROVISIONAL (○ §2.2 "광부: 지구력 (채굴로 쌓임 → 전투에서 지형 스킬로 씀)"): endurance per block the miner breaks mining (a 3x3 swing that
 ## breaks nine gives nine times this). No fading.
@@ -1036,6 +1038,76 @@ const THREAT_HEAL_PCT: int = 50
 const THREAT_HEAL_REACH_PX: float = 96.0
 const TAUNT_THREAT_MARGIN: int = 1
 const THREAT_FORGOTTEN_WITH_TARGET: bool = true
+
+# --- PROVISIONAL, M10a (the group prayer at the altar, meditation, zeal; offline first) -----------------------------------
+# ● decided (R45, game-concept §9.3·§9.4, gameplay-design §3.6), followed as written: a cleric starts the prayer with F at the altar;
+# the players inside the circle round the altar join with one F (no holding); turns go round the participants and the one whose
+# turn it is enters the shown direction with W A S D in time (they do not move while praying); the turns are fixed whatever the
+# head count; one turn = one of the altar's 3x3 lamps (success lights it, failure flickers it out); the lamps lit at the end and
+# the head count (with a cap) set the effect, which never goes below a floor (no debuff, a failure never cancels); a participant
+# hit or quitting leaves alone, the cleric hit or quitting stops it all; no start in combat; the effect is timed and a death
+# removes it; no new prayer while the effect lasts; it costs the cleric's faith; the slice's one prayer is zeal (attack); with
+# no cleric or alone anyone meditates at the altar (short, no turns) for a small buff. Every number and open rule below is ○ or
+# not in the docs (README "임시값" M10a). Sessions refuse the prayer until M10b (protocol v11 unchanged).
+
+## PROVISIONAL (● R45 "제단 둘레 원 안의 사람"; its size is not in the docs): the prayer circle = feet within this many px of the
+## altar's centre (4 tiles: the 3x3 footprint's half and 2.5 tiles around; everyone who can aim at an altar tile stands in it).
+## Starting, joining and meditating need it.
+const PRAYER_CIRCLE_RADIUS_PX: float = 64.0
+## PROVISIONAL (● R45 "F로 시작 … F를 한 번 눌러 참여"; tap and hold are not in the docs, README "M10a F"): an F press released within
+## this many ticks that nothing else took (a pick up, the shop, a chest, a door, a way down, the paladin's channel) is a prayer tap:
+## it starts the prayer (a cleric with someone else in the circle), joins it (the gather), leaves it (a participant) or meditates.
+## Held longer it is no tap (holding F still lifts the altar after ALTAR_PICKUP_HOLD_TICKS, M5b).
+const PRAYER_TAP_MAX_TICKS: int = 20
+## PROVISIONAL (○ R45; when joining is open is not in the docs, README "M10a 모이기"): after the cleric starts, the gather lasts this
+## long; joining is open only then (the turns begin after it; no one joins mid-way).
+const PRAYER_GATHER_TICKS: int = 3 * 60
+## PROVISIONAL (● R45 "차례 수는 인원과 상관없이 고정이다 (○ 9 = 등잔 9개)"): the turns of a prayer, one per lamp.
+const PRAYER_TURNS: int = 9
+## PROVISIONAL (○ R45 "입력 시간 … 1.5초 안팎", the window an answer counts in) and the pause after it (not in the docs) before the next
+## turn opens: every turn lasts the same (window + gap), so the prayer lasts gather + 9 x 2 s = 21 s (○ R45 "15~30초").
+const PRAYER_ANSWER_WINDOW_TICKS: int = 90
+const PRAYER_TURN_GAP_TICKS: int = 30
+## PROVISIONAL (not in the docs, README "M10a 방향"): the nine directions are drawn at the start from a seeded generator (the world seed
+## and the prayers so far), no direction more than this many times in a row.
+const PRAYER_MAX_SAME_RUN: int = 2
+## PROVISIONAL (○ R45 "게임 시간 5분"): how long a prayer's zeal lasts (game ticks, down too; a death ends it).
+const PRAYER_ZEAL_TICKS: int = 5 * 60 * 60
+## PROVISIONAL (● R45 the answers move it above or below a base, the head count adds with a cap, never a debuff; the numbers are
+## ○, README "M10a 열정 크기"): zeal % = BASE + (lamps lit - PAR) x PER_LAMP + min((participants - 1) x PER_MEMBER, MEMBER_CAP), never
+## below FLOOR. 0 lamps alone = 5, par alone = 15, 9 lamps with 5 or more = 31.
+const PRAYER_ZEAL_BASE_PCT: int = 15
+const PRAYER_ZEAL_PAR_LAMPS: int = 5
+const PRAYER_ZEAL_PER_LAMP_PCT: int = 2
+const PRAYER_ZEAL_PER_MEMBER_PCT: int = 2
+const PRAYER_ZEAL_MEMBER_CAP_PCT: int = 8
+const PRAYER_ZEAL_FLOOR_PCT: int = 5
+## PROVISIONAL (● R45 "성직자의 신앙을 쓴다 (○ 양)"; when is not in the docs, README "M10a 신앙"): the faith a prayer costs. Checked at the
+## start, spent when it completes (a prayer stopped spends nothing, like M9's "끊기면 아무것도 쓰지 않음"); too little then = it gives
+## nothing.
+const PRAYER_FAITH_COST: int = 30
+## PROVISIONAL (● R45 "전투 중에는 시작할 수 없다"; what combat is is not in the docs, README "M10a 전투 중"): combat = the starter took
+## damage within COMBAT_HURT_TICKS, or a live heretic engaged with someone (a target, or watching the light's edge) stands within
+## COMBAT_REACH_PX of the altar's centre (the light's 7 tiles + 5). Meditation follows the same rule.
+const PRAYER_COMBAT_HURT_TICKS: int = 5 * 60
+const PRAYER_COMBAT_REACH_PX: float = 12.0 * TILE
+## PROVISIONAL (● R45 "효과가 남은 동안은 다시 기도할 수 없다"; who blocks is ○, README "M10a 효과가 남은 동안"): a cleric who still has
+## zeal may not start a prayer, a player who still has it may not join one or meditate.
+const PRAYER_ZEAL_BLOCKS: bool = true
+## PROVISIONAL (● R45 / gameplay-design §3.0 "누구나 제단에서 짧은 묵상 → 소형 버프"; the numbers are not in the docs, README "M10a 묵상"):
+## anyone's tap in the circle with no prayer under way (a cleric's when no other living player stands in the circle) meditates:
+## standing MEDITATE_TICKS (moving, a dash, an action or a hit breaks it, nothing given), then zeal MEDITATE_ZEAL_PCT for
+## MEDITATE_ZEAL_TICKS. No faith, no turns. A prayer starting at the altar breaks every meditation there.
+const MEDITATE_TICKS: int = 3 * 60
+const MEDITATE_ZEAL_PCT: int = 5
+const MEDITATE_ZEAL_TICKS: int = 2 * 60 * 60
+## PROVISIONAL (● R45 "참여자는 피해가 늘어난다"; which damage counts is ○, README "M10a 열정이 세는 피해"): zeal raises every hit a player's
+## weapon (basic attacks: melee arcs, arrows, holy light; on heretics and the heretic shrine) and damaging skill lands (the piercing
+## arrow, the ground slam, the crushing blow, the fan shot, the holy burst, the heavy strike, the sweep, the arrow rain, the
+## rockfall), set when it leaves the hand (a shot or a strike keeps it); a thrown poison's ticks do not count (an effect, not a
+## hit: ZEAL_COUNTS_POISON). A hit gains damage x zeal %, rounded, at least ZEAL_MIN_BONUS.
+const ZEAL_COUNTS_POISON: bool = false
+const ZEAL_MIN_BONUS: int = 1
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -1231,6 +1303,30 @@ const SKILL_STUN_FRAME: int = 1
 ## IMPL (M9c): the most steps a session client's own skill copy runs in one tick to catch up with the host's time as heard
 ## (SessionClient._run_skills_copy).
 const NET_SKILLS_COPY_STEPS: int = 8
+## IMPL (M10a, measured from art/env/altar_v04.png and altar_v04_unlit.png; tests/test_prayer.gd measures them again): the nine lamps'
+## flame columns, top-left of each 2 x 5 flame in the altar picture, in the turns' order (row by row from the top left: turn i
+## lights lamp i), and the box around a flame (relative to it) holding every pixel the lit and the unlit pictures differ in for
+## that lamp (its flame and the glow on the stone): a lamp is drawn lit or unlit by that box of either picture.
+const PRAYER_LAMP_FLAMES: Array[Vector2i] = [
+	Vector2i(10, 8), Vector2i(23, 8), Vector2i(36, 8), Vector2i(10, 18), Vector2i(23, 18), Vector2i(36, 18),
+	Vector2i(10, 28), Vector2i(23, 28), Vector2i(36, 28),
+]
+const PRAYER_LAMP_BOX: Rect2i = Rect2i(-4, -1, 9, 7)
+## IMPL (M10a, placeholder pictures drawn in code: world/prayer_view.gd, actors/prayer_mark.gd, world/altar.gd): a failed lamp flickers
+## this many ticks (on and off every PRAYER_FLICKER_STEP) before it goes out; the lamps of a prayer that ended (or stopped) stay
+## shown this long before the altar shows its own picture again; a participant who left shows the left mark this long, one who
+## joined the joined mark (both only for a while, so during the turns only the turn's arrow floats over the heads, many of them
+## in front of the altar's lamps).
+const PRAYER_FLICKER_TICKS: int = 60
+const PRAYER_FLICKER_STEP: int = 6
+const PRAYER_RESULT_SHOW_TICKS: int = 2 * 60
+const PRAYER_LEFT_MARK_TICKS: int = 2 * 60
+const PRAYER_JOINED_MARK_TICKS: int = 2 * 60
+## IMPL (M10a, test only: --test-pray): a scripted ally taps to join this many ticks into the gather (+ its index x the step) and
+## answers this many ticks into its turn's window (late = never).
+const PRAYER_TEST_JOIN_TICK: int = 20
+const PRAYER_TEST_JOIN_STEP: int = 10
+const PRAYER_TEST_ANSWER_TICK: int = 30
 
 
 static func safe_radius_px() -> float:

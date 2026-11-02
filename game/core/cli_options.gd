@@ -56,7 +56,8 @@ extends RefCounted
 ##   --test-at=<x>,<y>            put the local player on tile x,y of the start map (feet low in the tile)
 ##   --test-heretic=<x>,<y>[/<x>,<y>...]   heretics on those tiles of the start map at the start
 ##   --test-down                  the local player starts downed (0 HP)
-##   --test-ally=<class>[:down]   a second player (no input) beside the local one, downed with :down
+##   --test-ally=<class>[:down]   a second player (no input) beside the local one, downed with :down. M10a: several,
+##                                comma-separated (Main.ALLY_OFFSETS around the local player)
 ##   --test-shrine-hp=<n>         the dungeon shrine starts with n (1..Config.SHRINE_HP) hit points (with --start-map=dungeon)
 ## M4b (also in sessions: the host applies them to its arenas and members):
 ##   --test-heretic=...           a host puts them on the surface
@@ -85,6 +86,10 @@ extends RefCounted
 ## M9c (a host: its members):
 ##   --test-start-resource=<class>:<n>[,...]   that class's meter starts at n when it joins (0..100, cut to the cap): a session
 ##                                test can use a signature at once
+## M10a (offline screenshot / test flag):
+##   --test-pray=<letters>[,...]  one script per --test-ally in order: the ally joins every prayer's gather and answers its own
+##                                turns by the letters (c right, w wrong, l late = no answer, q quit as its turn opens; past
+##                                the end the last letter), so one process shows a prayer of several
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -136,6 +141,10 @@ var test_heretics: Array[Vector2i] = []
 var test_down: bool = false
 var test_ally: String = ""
 var test_ally_down: bool = false
+## M10a: every --test-ally in order, [class (String), down (bool)] (test_ally / test_ally_down = the first), and --test-pray's
+## script per ally in that order (letters c w l q).
+var test_allies: Array[Array] = []
+var test_pray: PackedStringArray = []
 var test_shrine_hp: int = 0
 ## M4b test flags: dungeon heretic tiles, spawns off, start HP by class (host).
 var test_dungeon_heretics: Array[Vector2i] = []
@@ -314,12 +323,38 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 			"test-down":
 				o.test_down = true
 			"test-ally":
-				var ally: PackedStringArray = value.split(":")
-				if not Config.CLASSES.has(ally[0]) or ally.size() > 2 or (ally.size() == 2 and ally[1] != "down"):
-					o.errors.append("%s: expected --test-ally=<%s>[:down]" % [raw, "|".join(Config.CLASSES)])
-				else:
-					o.test_ally = ally[0]
-					o.test_ally_down = ally.size() == 2
+				# M10a: several, comma-separated (at most Config.MAX_PLAYERS - 1 beside the local player).
+				o.test_allies.clear()
+				for part: String in value.split(",", false):
+					var ally: PackedStringArray = part.split(":")
+					if not Config.CLASSES.has(ally[0]) or ally.size() > 2 or (ally.size() == 2 and ally[1] != "down"):
+						o.errors.append("%s: expected --test-ally=<%s>[:down][,...]" % [raw, "|".join(Config.CLASSES)])
+						o.test_allies.clear()
+						break
+					o.test_allies.append([ally[0], ally.size() == 2])
+				if o.test_allies.size() >= Config.MAX_PLAYERS:
+					o.errors.append("%s: at most %d allies" % [raw, Config.MAX_PLAYERS - 1])
+					o.test_allies.clear()
+				elif value.split(",", false).is_empty():
+					o.errors.append("%s: expected --test-ally=<%s>[:down][,...]" % [raw, "|".join(Config.CLASSES)])
+				if not o.test_allies.is_empty():
+					var first: Array = o.test_allies[0]
+					o.test_ally = first[0]
+					o.test_ally_down = first[1]
+			"test-pray":
+				# M10a: one script per --test-ally (in order): a letter per turn of its own, c right, w wrong, l late, q quit.
+				o.test_pray.clear()
+				for script: String in value.split(",", false):
+					var ok: bool = not script.is_empty()
+					for ch: String in script:
+						ok = ok and "cwlq".contains(ch)
+					if not ok:
+						o.errors.append("%s: expected --test-pray=<letters c w l q>[,...]" % raw)
+						o.test_pray.clear()
+						break
+					o.test_pray.append(script)
+				if value.split(",", false).is_empty():
+					o.errors.append("%s: expected --test-pray=<letters c w l q>[,...]" % raw)
 			"test-shrine-hp":
 				# M4-fix: at most Config.SHRINE_HP (a client refuses an enemy batch with more: decode_enemies).
 				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > Config.SHRINE_HP:

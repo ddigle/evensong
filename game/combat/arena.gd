@@ -99,6 +99,9 @@ class Flask:
 	## M9a: the ally a healing or buff potion was thrown at (node instance id, 0 = none): while that ally is up on this map the
 	## bottle's landing point follows its body point (clamped to Config.THROW_RANGE_PX of the hand), so it lands on it.
 	var follow_id: int = 0
+	## M10a: the thrower's zeal when it left the hand (percent; 0 unless Config.ZEAL_COUNTS_POISON): a poison it splashes
+	## ticks that much harder.
+	var zeal_pct: int = 0
 
 	## 0..1 of the way (for the arc it is drawn on).
 	func progress() -> float:
@@ -924,6 +927,8 @@ func throw_potion(p: Player, item: StringName, grade: int, target: Vector2, owne
 		f.follow_id = follow.get_instance_id()
 		f.target = Potions.throw_target(f.origin, Combat.body_point(follow.sim_position))
 	f.owner_id = p.get_instance_id()
+	if Config.ZEAL_COUNTS_POISON and p.skills.zealous():
+		f.zeal_pct = p.skills.zeal_pct  # M10a: off (README "M10a 열정이 세는 피해")
 	f.owner_slot = owner_slot
 	f.born = now
 	flasks.append(f)
@@ -1035,7 +1040,8 @@ func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
 	if effect == Potions.Effect.POISON:
 		for h: HereticSim in heretics:
 			if h.alive() and in_splash(at, h.pos) \
-					and poison_heretic(h, Potions.poison_damage(f.grade), Potions.poison_ticks(f.grade), f.owner_id):
+					and poison_heretic(h, Prayer.zeal_hit(Potions.poison_damage(f.grade), f.zeal_pct), Potions.poison_ticks(f.grade),
+						f.owner_id):
 				s.heretics += 1
 	if effect != Potions.Effect.POISON or Config.FRIENDLY_FIRE:
 		for p: Player in players:
@@ -1080,6 +1086,7 @@ func heretic_at(point: Vector2) -> HereticSim:
 ## Player `p`'s weapon `item` lands (its hit frame) along aim code `aim`: a melee arc hits every heretic
 ## (and the standing shrine) in it, a bow or holy light lets a shot go. Returns world edits (the shrine
 ## breaking). `owner_slot` (M4b): the attacker's session slot, for the shot events.
+## M10a: a zealous player's damage is raised (Prayer.zeal_damage), its shot keeps the raised damage.
 func player_attack(p: Player, item: StringName, aim: int, players: Array[Player] = [], owner_slot: int = 255,
 		damage: int = -1) -> Array[EditLog.WorldEdit]:
 	var edits: Array[EditLog.WorldEdit] = []
@@ -1087,6 +1094,7 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	if a == null:
 		return edits
 	var dmg: int = a.damage if damage < 0 else damage  # M7a: offline Main passes a tier-1 weapon's (Gear.attack_damage)
+	dmg = Prayer.zeal_damage(dmg, p)  # M10a: the prayer's zeal on every hit it lands (README "M10a 열정이 세는 피해")
 	var dir: Vector2 = Combat.aim_vector(aim)
 	count("player_attacks")
 	if a.kind == Combat.Kind.MELEE:
