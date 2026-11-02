@@ -134,6 +134,18 @@ extends RefCounted
 ## clients draw: the skill shots' and the arena's bursts, strikes, zones, zone ends and wards as shot events (Arena.skill_events,
 ## at the end of the tick), the heretics' stun, slow and taunt as marks in the enemy batches; a late joiner and a map entry get
 ## what still shows (send_combat_snapshot). Each client gets its own cooldowns and meter in the skills message (_send_skills).
+##
+## M10b (the group prayer and meditation: M10a offline first, here the host decides): the host keeps the surface altar's one Prayer
+## (items/prayer.gd, `prayer`: answers by request, a lag allowance) and steps it every tick after the carriers (offline Main's
+## order: combat, carriers, prayer). PRAY (an F tap its machine saw untaken at the altar) pays the request budget and runs the
+## offline tap on the host's own state of the member (Prayer.tap: leave, quit, join, start or meditate, with every refusal: a
+## non-cleric's tap meditates, a tap outside the circle is refused, faith, combat, zeal, the gather, a full circle). ANSWER (a
+## participant's key on its turn) pays the budget and is taken by Prayer.submit (this prayer and turn, open, its own, once); the
+## step judges it within the window and Config.PRAYER_ANSWER_LAG_TICKS. A hit (Player.hurt) is the prayer's too (on_hurt). While a
+## member prays every other request of its is refused (Config.PRAYER_REFUSES_REQUESTS) and nobody lifts the altar while a prayer
+## or a meditation is under way (Prayer.blocks_lift). What happened goes out at the end of the tick as prayer events
+## (_send_prayer: to the surface's clients) and each player's zeal as it is given or ends early (to every client); a welcome and an
+## entry to the surface get the prayer under way since its start, the meditations and the zeals (send_prayer_snapshot).
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -225,6 +237,22 @@ var skills_landed: Dictionary[String, int] = {}
 var skills_fizzled: Dictionary[String, int] = {}
 var skills_msgs_sent: int = 0
 var skills_bytes_sent: int = 0
+## M10b: the surface altar's prayer; the events of this tick for the surface's clients; the prayer under way (or still shown)
+## since its START and the meditations under way (by slot), for a welcome or an entry (send_prayer_snapshot); the peers that got
+## the snapshot this tick (they have this tick's events in it); node instance id -> slot of every member seen (a leaving
+## member's events still name its slot); counters: tap and answer refusals by reason, prayer messages and bytes, every answer
+## taken with the window tick it came at (1 = the tick after its turn opened).
+var prayer: Prayer
+var _prayer_out: Array[NetProtocol.PrayerEvent] = []
+var _prayer_history: Array[NetProtocol.PrayerEvent] = []
+var _meditations: Dictionary[int, NetProtocol.PrayerEvent] = {}
+var _prayer_fresh: Dictionary[int, bool] = {}
+var _slot_by_id: Dictionary[int, int] = {}
+var prayer_refusals: Dictionary[String, int] = {}
+var prayer_msgs_sent: int = 0
+var prayer_bytes_sent: int = 0
+var answer_ticks: Array[int] = []
+var _answer_keys: Vector2i = Vector2i.ZERO
 
 
 func _init(p_session: NetSession) -> void:
@@ -244,6 +272,7 @@ func on_opened() -> void:
 	_setup_farms()
 	_setup_forests()  # M7c
 	_setup_shop()  # M8b: after the test pieces (the merchant's tile keeps off them)
+	_setup_prayer()  # M10b
 	s.active = true
 	_last_take_usec = Time.get_ticks_usec()
 	s.log_event("hosting", "port=%d slot=%d class=%s" % [s.options.port, slot, s.local.class_id])
@@ -388,6 +417,7 @@ func _welcome(st: Stream) -> void:
 	s.send_welcome(st.peer, NetProtocol.encode_welcome(_welcome_for(st)))
 	var catch_up: int = _catch_up(st)
 	send_combat_snapshot(st.peer, st.map)
+	send_prayer_snapshot(st.peer, st.map)  # M10b
 	_record_stream(st, catch_up)
 	s.log_event("welcomed", "peer=%d slot=%d chunks=%d bytes=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
 		st.peer, st.slot, st.snapshot.chunk_count(), st.snapshot.bytes.size(), st.ticks, st.edit_position, catch_up,
@@ -414,6 +444,7 @@ func _enter_map(st: Stream) -> void:
 	s.send_map_entry(st.peer, NetProtocol.encode_map_entry(e))
 	var catch_up: int = _catch_up(st)
 	send_combat_snapshot(st.peer, st.map)
+	send_prayer_snapshot(st.peer, st.map)  # M10b: the surface's prayer (another map: nothing, the zeals reach every client)
 	map_entries += 1
 	_record_stream(st, catch_up)
 	s.log_event("entered", "peer=%d slot=%d map=%s chunks=%d bytes=%d raw=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
@@ -490,6 +521,12 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_refuse_early(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
 	elif p.carrying_altar and _blocked_while_carrying(frame.op):
 		_refuse_early(m, frame, AltarMove.WHY_CARRYING)  # M5c: the carrier's click is the altar's (M5b)
+	elif Config.PRAYER_REFUSES_REQUESTS and p.prayer_role == Prayer.Role.PRAYING and _blocked_while_praying(frame.op):
+		_refuse_early(m, frame, Skills.WHY_PRAYING)  # M10b: praying, only its tap, its answer and Q / E (README "M10b 기도 중 요청")
+	elif frame.op == NetProtocol.Op.PRAY:
+		_pray(m, frame)  # M10b
+	elif frame.op == NetProtocol.Op.ANSWER:
+		_answer(m, frame)
 	elif frame.op == NetProtocol.Op.TRAVEL:
 		_travel(m, frame)
 	elif frame.op == NetProtocol.Op.CHANNEL:
@@ -1018,8 +1055,22 @@ func _local_frame(action: NetBot.Action) -> NetProtocol.InputFrame:
 	var f: NetProtocol.InputFrame = p.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
 		action.use_held, action.dash, action.interact, action.skill, action.skill_slot)  # M9c: the keys 2 3 R too
 	note_pick(s, f)  # M9 review
+	_attach_answer(p, f)  # M10b: praying, a key pressed in the window it shows is this player's ANSWER (as a client's)
 	attach_local_op(s, p, f, action)
 	return f
+
+
+## M10b: the host's own player's frame `f` while it prays: its move keys are no move (they are zeroed, it faces the altar) and a key
+## pressed from rest while its turn's window is open on this machine (Config.PRAYER_ANSWER_WINDOW_TICKS from the turn's opening, the
+## window its HUD shows) becomes the ANSWER request for that turn, like a client's (NetPrayer.attach).
+func _attach_answer(p: Player, f: NetProtocol.InputFrame) -> void:
+	var before: Vector2i = _answer_keys
+	_answer_keys = f.dir
+	if prayer == null:
+		return
+	var id: int = p.get_instance_id()
+	var open: bool = prayer.prompt_for(id) >= 0 and prayer.turn_ticks < Config.PRAYER_ANSWER_WINDOW_TICKS
+	NetPrayer.attach(p, f, before, open, prayer.number(), prayer.turn)
 
 
 ## Puts a request on frame `f` unless it already carries a use: the bot's request of this tick at
@@ -1079,6 +1130,10 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 		f.op = NetProtocol.Op.DOOR  # M7c: F on a door or its face opens or closes it (offline Main.pick_up's order)
 	if q.op == NetProtocol.Op.DROP and q.slot < 0:
 		f.slot = p.inventory.selected
+	if q.op == NetProtocol.Op.PRAY and p.data != null and p.data.altar_rect.has_area():
+		# M10b: a tap turns the player toward the altar on this frame (where the host's prayer has it face when it joins, starts or
+		# meditates), so the prediction's facing is the host's whatever the host decides (IMPL "M10b 기도 탭의 바라보기").
+		f.look = RigData.facing_toward(p.sim_position, p.data.altar_center_px())
 	if q.op == NetProtocol.Op.PICKUP and f.op == NetProtocol.Op.PICKUP and wants_channel(p, f.cell):
 		# M5c: F with nothing to pick up next to corruption is the paladin's channel (offline Main.pick_up's rule); the
 		# frame starts it at once in the client's prediction, and the host decides it again (_channel).
@@ -1160,6 +1215,9 @@ func tick(action: NetBot.Action, now: int) -> void:
 	for map: int in arenas:
 		arenas[map].now = s.tick
 		arenas[map].slots = ids
+	_slot_by_id.merge(ids, true)  # M10b: a member who leaves this tick is still named by its slot in the prayer's events
+	if prayer != null:
+		prayer.clock = s.tick - 1  # M10b: this tick's taps happen before its step (Prayer.Event.tick), the step makes it s.tick
 	for slot: int in s.slots():
 		s.members[slot].refill_ops()
 	_tick_skills()  # M9c: the skill clocks, before this tick's frames
@@ -1181,6 +1239,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 			_respawn(m)
 	_step_arenas()
 	_check_carriers()  # M5c: a carrier who went down this tick sets the altar down
+	_step_prayer()  # M10b: after the combat and the carriers (a hit this tick is the prayer's), like offline Main
 	_step_farms()  # M5c: after the players and the arenas, like offline (Main: players, combat, farms)
 	_step_forests()  # M7c: then the stumps grow back (offline Main: farms, forests)
 	_step_shop()  # M8b: then the shop's clock (offline Main: forests, shop)
@@ -1202,6 +1261,11 @@ func tick(action: NetBot.Action, now: int) -> void:
 		if ha != null:
 			var h: HereticSim = ha.spawn_heretic(Arena.spawn_feet(hc))
 			s.log_event("heretic", "map=%d id=%d at=%d,%d" % [s.local.map_id, h.id, hc.x, hc.y])
+	if action.hurt_slot >= 0:
+		# M10b, test only (bot "hurt"): a member takes a hit now (Player.take_hit: the prayer hears it like a heretic's).
+		var hit: NetMember = s.members.get(action.hurt_slot, null)
+		var landed: int = hit.player.take_hit(action.hurt_amount) if hit != null else 0
+		s.log_event("test_hurt", "slot=%d amount=%d landed=%s" % [action.hurt_slot, action.hurt_amount, landed != 0])
 	if not action.mark.is_empty():
 		s.bots.mark(action.mark)
 	if action.leave:
@@ -1215,6 +1279,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 		_send_states()
 	_send_enemies(batch_tick)
 	_send_shot_events()
+	_send_prayer()  # M10b
 	_send_inventories()
 	if batch_tick:
 		_send_skills()  # M9c
@@ -1360,6 +1425,9 @@ func _on_member_hurt(amount: int, downed: bool, m: NetMember) -> void:
 		m.inventory_dirty = true  # M7c: the worn armour took its part and wore (Player.take_hit): the owner sees its durability
 	s.log_event("hurt", "slot=%d map=%d amount=%d hp=%d%s" % [m.slot, m.map_id, amount, m.player.vitals.hp,
 		" DOWN" if downed else ""])
+	if prayer != null:
+		prayer.on_hurt(m.player)  # M10b: a participant hit leaves (the cleric: it stops), a meditation breaks, the combat clock
+		_harvest_prayer()
 
 
 func _on_member_revived(m: NetMember) -> void:
@@ -1837,6 +1905,9 @@ func _altar_lift(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		return
 	if m.altar_hold < Config.ALTAR_PICKUP_HOLD_TICKS:
 		_refuse_op(m, frame, AltarMove.WHY_HOLD)
+		return
+	if prayer != null and m.map_id == Config.MAP_SURFACE and prayer.blocks_lift():
+		_refuse_op(m, frame, Prayer.WHY_RUNNING)  # M10b: offline Main.step_altar_hold's rule (README "M10a F")
 		return
 	if p.action_anim >= 0 or p.channel_tick > 0:
 		_refuse_op(m, frame, WHY_BUSY)
@@ -2491,3 +2562,267 @@ func shop_result() -> Dictionary:
 	return {"buys": buys, "sales": sales, "restocks": restocks, "merchant_moves": merchant_moves,
 		"merchant": "%d,%d" % [at.x, at.y] if at != Walls.NO_CELL else "none", "stock": sh.describe() if sh != null else "none",
 		"refused": shop_refusals}
+
+
+# --- the group prayer and meditation (M10b) -------------------------------------------------------------------------------
+
+## The surface altar's prayer (items/prayer.gd, the offline rule): answers by request (Prayer.submit) with the lag allowance
+## (Config.PRAYER_ANSWER_LAG_TICKS); its clock is the host tick (tick: before the frames s.tick - 1, the step makes it s.tick).
+func _setup_prayer() -> void:
+	var w: GameWorld = s.world_of(Config.MAP_SURFACE)
+	if w == null or w.data == null:
+		return
+	prayer = Prayer.new()
+	prayer.setup(w.data, w.data.world_seed)
+	prayer.answers_from_keys = false
+	prayer.lag_ticks = Config.PRAYER_ANSWER_LAG_TICKS
+	prayer.join_lag_ticks = Config.PRAYER_JOIN_LAG_TICKS  # M10-fix: a join that saw the gather on its machine
+	prayer.clock = s.tick
+
+
+## M10b: what a praying member may not ask for (Config.PRAYER_REFUSES_REQUESTS): every request but its tap (it leaves), its answer
+## and Q / E (offline: the hotbar still selects while praying).
+static func _blocked_while_praying(op: int) -> bool:
+	return op != NetProtocol.Op.NONE and op != NetProtocol.Op.PRAY and op != NetProtocol.Op.ANSWER and op != NetProtocol.Op.SELECT
+
+
+## The live heretics' list of the surface's arena (the prayer's combat rule).
+func _surface_heretics() -> Array[HereticSim]:
+	var out: Array[HereticSim] = []
+	if arenas.has(Config.MAP_SURFACE):
+		out.append_array(arenas[Config.MAP_SURFACE].heretics)
+	return out
+
+
+## PRAY (an F tap its machine saw untaken in the altar's circle, or while it prays or meditates): the request budget ("rate"), the
+## surface, then the offline tap on the host's own state of the member (Prayer.tap with the surface's players and heretics: a
+## participant leaves (the cleric: it stops), a meditation stops, else join, start or meditate with their refusals). A non-cleric's
+## tap with no prayer under way meditates; a tap outside the circle is `outside the prayer circle`.
+func _pray(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	if not m.take_op():
+		_refuse_prayer(m, frame, "rate")
+		return
+	if prayer == null or m.map_id != Config.MAP_SURFACE:
+		_refuse_prayer(m, frame, Prayer.WHY_SURFACE)
+		return
+	var t: Prayer.Tapped = prayer.tap(m.player, players_on(Config.MAP_SURFACE), _surface_heretics())
+	_harvest_prayer()
+	if not t.ok():
+		_refuse_prayer(m, frame, t.why)
+		return
+	m.count_done("pray")
+	_changed = true
+	s.log_event("pray", "slot=%d %s" % [m.slot, t.what])
+
+
+## ANSWER (a participant's key on its turn, tagged with its prayer and turn): the request budget ("rate"), then Prayer.submit (in
+## the prayer, this prayer, this turn, open, its own, once); the step judges it this tick.
+func _answer(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	if not m.take_op():
+		_refuse_prayer(m, frame, "rate")
+		return
+	if prayer == null or m.map_id != Config.MAP_SURFACE:
+		_refuse_prayer(m, frame, Prayer.WHY_NOT_PRAYING)
+		return
+	var why: String = prayer.submit(m.player.get_instance_id(), frame.prayer_no, frame.turn, frame.answer)
+	if not why.is_empty():
+		_refuse_prayer(m, frame, why)
+		return
+	var at: int = prayer.turn_ticks + 1  # the window tick the step judges it at
+	answer_ticks.append(at)
+	m.count_done("answer")
+	s.log_event("answer", "slot=%d prayer=%d turn=%d dir=%s at=%d" % [m.slot, frame.prayer_no, frame.turn,
+		Prayer.DIR_KEYS[frame.answer] if frame.answer < Prayer.DIR_KEYS.size() else "several", at])
+
+
+## A refused PRAY / ANSWER: counted by reason (the results) and like any refused request (_refuse_op).
+func _refuse_prayer(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
+	var n: int = prayer_refusals.get(why, 0)
+	prayer_refusals[why] = n + 1
+	_refuse_op(m, frame, why)
+
+
+## One prayer tick after the combat and the carriers (the surface's players: the gone, down and dead leave; the meditations; the
+## gather, the turns, the end), its events harvested.
+func _step_prayer() -> void:
+	if prayer == null:
+		return
+	prayer.step(players_on(Config.MAP_SURFACE))
+	_harvest_prayer()
+
+
+## The prayer's events since the last call (a tap, a hit, the step) as wire events (this tick's message; the prayer's own kinds
+## into the history a snapshot sends, the meditations by slot), logged; the prayer's list cleared.
+func _harvest_prayer() -> void:
+	if prayer == null:
+		return
+	for e: Prayer.Event in prayer.events:
+		var slot: int = _slot_by_id.get(e.who, 0)
+		var ev: NetProtocol.PrayerEvent = wire_event(prayer, e, slot)
+		if ev == null:
+			continue
+		match ev.kind:
+			NetProtocol.PrayerEvent.Kind.START:
+				_prayer_history.clear()
+			NetProtocol.PrayerEvent.Kind.MEDITATE:
+				_meditations[ev.slot] = ev
+			NetProtocol.PrayerEvent.Kind.MEDITATED, NetProtocol.PrayerEvent.Kind.BROKEN:
+				_meditations.erase(ev.slot)
+		if ev.kind <= NetProtocol.PrayerEvent.Kind.END:
+			_prayer_history.append(ev)
+		_prayer_out.append(ev)
+		s.log_event("prayer", ev.describe() + (" directions=%s" % Prayer.keys_of(prayer.directions)
+			if ev.kind == NetProtocol.PrayerEvent.Kind.START else ""))
+	prayer.events.clear()
+
+
+## Prayer `pr`'s event `e` (its player at session slot `slot`) as the wire's (null for none it knows): its clock, the slot, and by
+## kind the prayer's number and the facing (start, join, meditate), the why's code (leave, stop, broken; Prayer.*_WHYS), the turn
+## and its direction or how it was decided, the result (end: pr.last). core/smoke.gd uses it too.
+static func wire_event(pr: Prayer, e: Prayer.Event, slot: int) -> NetProtocol.PrayerEvent:
+	var ev: NetProtocol.PrayerEvent = NetProtocol.PrayerEvent.new()
+	ev.tick = e.tick
+	ev.slot = slot
+	var who: Player = pr.person(e.who)
+	var face: int = who.prayer_face if who != null and is_instance_valid(who) else RigData.Dir.NORTH
+	match e.what:
+		"start":
+			ev.kind = NetProtocol.PrayerEvent.Kind.START
+			ev.number = pr.number()
+			ev.face = face
+		"join":
+			ev.kind = NetProtocol.PrayerEvent.Kind.JOIN
+			ev.face = face
+		"leave":
+			ev.kind = NetProtocol.PrayerEvent.Kind.LEAVE
+			ev.why = maxi(Prayer.LEAVE_WHYS.find(e.why), 0)
+		"stop":
+			ev.slot = 0
+			ev.kind = NetProtocol.PrayerEvent.Kind.STOP
+			ev.why = maxi(Prayer.STOP_WHYS.find(e.why), 0)
+		"turn":
+			ev.kind = NetProtocol.PrayerEvent.Kind.TURN
+			ev.turn = e.turn
+			ev.dir = e.dir
+		"answer":
+			ev.slot = 0
+			ev.kind = NetProtocol.PrayerEvent.Kind.RESULT
+			ev.turn = e.turn
+			ev.why = maxi(Prayer.ANSWER_WHYS.find(e.why), 0)
+		"end":
+			ev.slot = 0  # no slot on the wire (stop, result, end)
+			ev.kind = NetProtocol.PrayerEvent.Kind.END
+			ev.lit = pr.last.lit
+			ev.participants = pr.last.participants
+			ev.pct = pr.last.zeal_pct
+			ev.faith = pr.last.faith
+		"meditate":
+			ev.kind = NetProtocol.PrayerEvent.Kind.MEDITATE
+			ev.face = face
+		"meditated":
+			ev.kind = NetProtocol.PrayerEvent.Kind.MEDITATED
+		"broken":
+			ev.kind = NetProtocol.PrayerEvent.Kind.BROKEN
+			ev.why = maxi(Prayer.LEAVE_WHYS.find(e.why), 0)
+		_:
+			return null
+	return ev
+
+
+## Every member's zeal as a ZEAL event (to `out`) when it is not what its last one said: given or renewed (a prayer's end, a
+## meditation's), or ended early (a death); one that runs out on time sends nothing (the clients count it down alike).
+func _zeal_changes(out: Array[NetProtocol.PrayerEvent]) -> void:
+	for slot: int in s.slots():
+		var m: NetMember = s.members[slot]
+		var sk: SkillState = m.player.skills
+		var pct: int = sk.zeal_pct if sk.zealous() else 0
+		var until: int = s.tick + sk.zeal_ticks if pct > 0 else 0
+		var from_prayer: bool = pct > 0 and sk.zeal_from_prayer
+		if pct == m.zeal_sent_pct and until == m.zeal_sent_until and from_prayer == m.zeal_sent_prayer:
+			continue
+		var on_time: bool = pct == 0 and m.zeal_sent_until <= s.tick
+		m.zeal_sent_pct = pct
+		m.zeal_sent_until = until
+		m.zeal_sent_prayer = from_prayer
+		if not on_time:
+			out.append(zeal_event(slot, sk, s.tick))
+
+
+## A ZEAL event of slot `slot` whose skill state is `sk` at host tick `tick`.
+static func zeal_event(slot: int, sk: SkillState, tick: int) -> NetProtocol.PrayerEvent:
+	var ev: NetProtocol.PrayerEvent = NetProtocol.PrayerEvent.new()
+	ev.kind = NetProtocol.PrayerEvent.Kind.ZEAL
+	ev.tick = tick
+	ev.slot = slot
+	ev.pct = sk.zeal_pct if sk.zealous() else 0
+	ev.ticks = sk.zeal_ticks if ev.pct > 0 else 0
+	ev.prayer_zeal = ev.pct > 0 and sk.zeal_from_prayer  # M10-fix: whose zeal blocks a new prayer
+	return ev
+
+
+## End of the tick: this tick's prayer events to the clients on the surface (not to one that got the snapshot this tick: it has
+## them), the zeal changes to every client.
+func _send_prayer() -> void:
+	var zeal: Array[NetProtocol.PrayerEvent] = []
+	_zeal_changes(zeal)
+	if not _prayer_out.is_empty() or not zeal.is_empty():
+		var here: Array[NetProtocol.PrayerEvent] = []
+		here.append_array(_prayer_out)
+		here.append_array(zeal)
+		var surface: PackedByteArray = NetProtocol.encode_prayer(here)
+		var only_zeal: PackedByteArray = NetProtocol.encode_prayer(zeal)
+		var on_surface: Array[int] = peers_on(Config.MAP_SURFACE)
+		for peer: int in remote_peers():
+			var full: bool = on_surface.has(peer) and not _prayer_fresh.has(peer)
+			if not full and zeal.is_empty():
+				continue
+			var payload: PackedByteArray = surface if full else only_zeal
+			s.send_prayer(peer, payload)
+			prayer_msgs_sent += 1
+			prayer_bytes_sent += payload.size()
+	_prayer_out.clear()
+	_prayer_fresh.clear()
+
+
+## A member who just arrived on map `map` (welcome, map entry): on the surface, the prayer under way or still shown (its events
+## since its START with their own ticks), the meditations under way and every player's zeal (another map: nothing; the zeals reach
+## every client as they change). It has this tick's events in it (_send_prayer skips it this tick).
+func send_prayer_snapshot(peer: int, map: int) -> void:
+	if prayer == null or map != Config.MAP_SURFACE:
+		return
+	var evs: Array[NetProtocol.PrayerEvent] = []
+	if prayer.showing():
+		evs.append_array(_prayer_history)
+	for slot: int in _meditations:
+		evs.append(_meditations[slot])
+	for slot: int in s.slots():
+		var sk: SkillState = s.members[slot].player.skills
+		if sk.zealous():
+			evs.append(zeal_event(slot, sk, s.tick))
+	_prayer_fresh[peer] = true
+	if evs.is_empty():
+		return
+	var payload: PackedByteArray = NetProtocol.encode_prayer(evs)
+	s.send_prayer(peer, payload)
+	prayer_msgs_sent += 1
+	prayer_bytes_sent += payload.size()
+
+
+## M10b results: the prayer's counters, lamps, last result, refusals, the answers taken (their window ticks), the messages, each
+## member's zeal (% and the host tick it runs out).
+func prayer_result() -> Dictionary:
+	if prayer == null:
+		return {}
+	var zeal: Dictionary = {}
+	for slot: int in s.slots():
+		var sk: SkillState = s.members[slot].player.skills
+		if sk.zealous():
+			zeal[str(slot)] = [sk.zeal_pct, s.tick + sk.zeal_ticks]
+	var last: Dictionary = {}
+	if prayer.last != null:
+		last = {"stopped": prayer.last.stopped, "why": prayer.last.why, "lit": prayer.last.lit,
+			"participants": prayer.last.participants, "zeal": prayer.last.zeal_pct, "faith": prayer.last.faith,
+			"lamps": NetPrayer.lamps_word(prayer.last.lamps)}
+	return {"stats": prayer.stats, "prayers": prayer.prayers, "phase": Prayer.PHASE_NAMES[prayer.phase],
+		"lamps": NetPrayer.lamps_word(prayer.lamps), "last": last, "refused": prayer_refusals, "answers": answer_ticks,
+		"msgs": prayer_msgs_sent, "bytes": prayer_bytes_sent, "zeal": zeal, "tick": s.tick}

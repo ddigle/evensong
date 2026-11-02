@@ -279,6 +279,12 @@ func _run() -> void:
 			await _check_skills_fx2()  # M9b
 		if _want("skills_net"):
 			await _check_skills_net()  # M9c
+		if _want("prayer_lamps"):
+			await _check_prayer_lamps()  # M10a
+		if _want("prayer_marks"):
+			await _check_prayer_marks()
+		if _want("prayer_net"):
+			await _check_prayer_net()  # M10b
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -3993,3 +3999,430 @@ func _check_skills_fx2() -> void:
 		print("EVENSONG_RENDER skills_fx2 ok %s" % line2)
 	else:
 		_fail("skills_fx2", line2)
+
+
+## M10a: the altar's lamps during a prayer (rules written out here: each lamp's box from Config.PRAYER_LAMP_BOX round its flame,
+## Config.PRAYER_LAMP_FLAMES, the pictures read from the PNG files): evening off, the altar's own picture first; then the lamps lit,
+## lit, out (soot), lit, being answered (ember), unlit, unlit, lit, unlit: every lamp not lit shows its box of the unlit PNG, the
+## ember and the soot their pixels, nothing else changed; evening on, the lit lamps' flame pixels (the bright ones that differ from
+## the unlit PNG, Config.FLAME_MIN_LUMA), the ember and the soot keep their colours (unshaded); the altar's own picture again after.
+func _check_prayer_lamps() -> void:
+	world.lighting.set_evening(false)
+	var altar: Altar = world.altar
+	var origin: Vector2i = _look_at(Vector2i(world.data.altar_center_px().round()))
+	var bg: Image = await _capture()
+	var lit_look: int = Altar.Look.LIT
+	var looks: PackedInt32Array = PackedInt32Array([lit_look, lit_look, Altar.Look.SOOT, lit_look, Altar.Look.EMBER,
+		Altar.Look.UNLIT, Altar.Look.GUTTER, lit_look, Altar.Look.UNLIT])
+	altar.show_lamps(looks)
+	var got: Image = await _capture()
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	altar.show_lamps(PackedInt32Array())
+	var after: Image = await _capture()
+	var unlit: Image = Image.load_from_file(ProjectSettings.globalize_path("res://art/env/altar_v04_unlit.png"))
+	var lit: Image = Image.load_from_file(ProjectSettings.globalize_path("res://art/env/altar_v04.png"))
+	unlit.convert(Image.FORMAT_RGBA8)
+	lit.convert(Image.FORMAT_RGBA8)
+	var art: Vector2i = altar.art_origin() - origin
+	var ember: Color = Color8(0xdf, 0x90, 0x3f)
+	var soot: Color = Color8(0x1a, 0x17, 0x14)
+	var want: Dictionary[Vector2i, Color] = {}
+	var keep: Dictionary[Vector2i, Color] = {}  # unshaded pixels: the same with the evening on
+	# The lamps' flames (measured from the art, written out here: rows y 8, 18, 28 and columns x 10, 23, 36) and the box round each.
+	var spots: Array[Vector2i] = [Vector2i(10, 8), Vector2i(23, 8), Vector2i(36, 8), Vector2i(10, 18), Vector2i(23, 18),
+		Vector2i(36, 18), Vector2i(10, 28), Vector2i(23, 28), Vector2i(36, 28)]
+	for i: int in looks.size():
+		var f: Vector2i = spots[i]
+		var box: Rect2i = Rect2i(f + Vector2i(-4, -1), Vector2i(9, 7))
+		if looks[i] != lit_look:
+			for y: int in range(box.position.y, box.end.y):
+				for x: int in range(box.position.x, box.end.x):
+					want[art + Vector2i(x, y)] = unlit.get_pixel(x, y)
+		else:
+			for y2: int in 5:
+				for x2: int in 2:
+					var lc: Color = lit.get_pixel(f.x + x2, f.y + y2)
+					var luma: float = 0.299 * lc.r8 + 0.587 * lc.g8 + 0.114 * lc.b8
+					if lc != unlit.get_pixel(f.x + x2, f.y + y2) and luma >= Config.FLAME_MIN_LUMA:
+						keep[art + f + Vector2i(x2, y2)] = lc
+		if looks[i] == Altar.Look.EMBER:
+			for q: Vector2i in [Vector2i(0, 3), Vector2i(1, 3), Vector2i(0, 4), Vector2i(1, 4)]:
+				want[art + f + q] = ember
+				keep[art + f + q] = ember
+		if looks[i] == Altar.Look.SOOT:
+			for q2: Vector2i in [Vector2i(1, 0), Vector2i(0, 1)]:
+				want[art + f + q2] = soot
+				keep[art + f + q2] = soot
+		if looks[i] == Altar.Look.GUTTER:
+			# The guttering flame: copper base (row 4) under rust tips ((1, 2), (0, 3), (1, 3)).
+			for q3: Vector2i in [Vector2i(0, 4), Vector2i(1, 4), Vector2i(1, 2), Vector2i(0, 3), Vector2i(1, 3)]:
+				var gc: Color = Color8(0xc0, 0x6a, 0x2e) if q3.y == 4 else Color8(0xc4, 0x42, 0x1c)
+				want[art + f + q3] = gc
+				keep[art + f + q3] = gc
+	var bad: int = _count_wrong(got, want)
+	var others: int = 0
+	var changed: int = 0
+	for y3: int in got.get_height():
+		for x3: int in got.get_width():
+			var p: Vector2i = Vector2i(x3, y3)
+			var differs: bool = got.get_pixelv(p).to_rgba32() != bg.get_pixelv(p).to_rgba32()
+			if differs:
+				changed += 1
+			if not want.has(p) and differs:
+				others += 1
+	var eve_bad: int = _count_wrong(eve, keep)
+	var back: int = 0
+	for y4: int in after.get_height():
+		for x4: int in after.get_width():
+			if after.get_pixel(x4, y4).to_rgba32() != bg.get_pixel(x4, y4).to_rgba32():
+				back += 1
+	if bad > 0 or others > 0 or eve_bad > 0 or back > 0 or save_all:
+		_save(got, "prayer_lamps_got.png")
+		_save(eve, "prayer_lamps_eve.png")
+	var line: String = "pixels=%d changed=%d mismatches=%d other_changed=%d unshaded=%d evening_mismatches=%d own_picture_after=%d" % [
+		want.size(), changed, bad, others, keep.size(), eve_bad, back]
+	if bad == 0 and others == 0 and eve_bad == 0 and back == 0 and changed > 60 and keep.size() >= 4 * 9 + 4:
+		print("EVENSONG_RENDER prayer_lamps ok %s" % line)
+	else:
+		_fail("prayer_lamps", line)
+
+
+## M10a: the prayer's other pictures (rules written out here): evening off, the prayer circle (a dashed faith-gold ring on the radius
+## between ash-dark lines one px inside and outside, 24 of every 32 of 512 steps, shifted a step), over four players (figures hidden,
+## no effect marks: just above the head) the turn's arrow
+## (right), the joined spark, the left spark (iron) and the meditation's spark and bar (4 of 7 lit), the zeal mark over a fifth
+## and, on the HUD bound to it, the turn prompt (the arrow 3x at the top centre, the window bar's frame and its lit part: 20 of 40
+## for 45 ticks left), the zeal icon with its time bar and (M10-fix) the lamps' grid above the prompt (nine squares 7 px, 1 px
+## apart: a frame, base brown or the answered lamp's gold, round an ash inside holding the lamp's picture: lit, not yet, the ember,
+## out, guttering); nothing else changed (the HUD's bars as they were); evening on, the same.
+func _check_prayer_marks() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var players: Array[Player] = []
+	var spots: Array[Vector2i] = [Vector2i(250, 160), Vector2i(290, 160), Vector2i(330, 160), Vector2i(370, 160), Vector2i(410, 160)]
+	for s: Vector2i in spots:
+		var p: Player = Player.new()
+		p.local_input = false
+		world.entities.add_child(p)
+		p.setup(world.data, "archer", Vector2(origin + s))
+		p.character.visible = false
+		players.append(p)
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.bind_player(players[4])
+	var view: PrayerView = PrayerView.new()
+	world.add_child(view)
+	world.move_child(view, world.entities.get_index())
+	var bg: Image = await _capture()
+	var centre: Vector2 = Vector2(origin + Vector2i(110, 150))
+	view.show_circle(true, centre, 1)
+	players[0].prayer_mark.show_mark(PrayerMark.Kind.TURN, Prayer.Dir.RIGHT)
+	players[1].prayer_mark.show_mark(PrayerMark.Kind.JOINED)
+	players[2].prayer_mark.show_mark(PrayerMark.Kind.LEFT)
+	players[3].prayer_mark.show_mark(PrayerMark.Kind.MEDITATE, -1, 4)
+	players[4].skills.add_zeal(21, Config.PRAYER_ZEAL_TICKS / 2)
+	players[4].effect_marks.show_kinds([EffectMarks.Kind.ZEAL] as Array[int])
+	hud.show_prayer_prompt(Prayer.Dir.DOWN, 45)
+	var lamp_looks: PackedInt32Array = [Altar.Look.LIT, Altar.Look.UNLIT, Altar.Look.EMBER, Altar.Look.SOOT, Altar.Look.GUTTER,
+		Altar.Look.LIT, Altar.Look.LIT, Altar.Look.UNLIT, Altar.Look.SOOT]
+	hud.show_prayer_lamps(lamp_looks)
+	var got: Image = await _capture()
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var want: Dictionary[Vector2i, Color] = {}
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var ivory: Color = Color8(0xef, 0xe3, 0xc6)
+	var ash: Color = Color8(0x1a, 0x17, 0x14)
+	# The ring (shifted 1 step): 512 steps round it, 24 of every 32 drawn; ash-dark one px inside and outside the radius, then gold
+	# on the radius over them.
+	var dots: int = 0
+	var rad: float = 64.0  # the circle's radius, written out here
+	for pass_i: int in 2:
+		for k: int in 512:
+			if posmod(k + 1, 32) >= 24:
+				continue
+			var ang: float = TAU * k / 512
+			var dv: Vector2 = Vector2(cos(ang), sin(ang))
+			if pass_i == 0:
+				want[Vector2i((centre + dv * (rad - 1.0)).round()) - origin] = ash
+				want[Vector2i((centre + dv * (rad + 1.0)).round()) - origin] = ash
+			else:
+				want[Vector2i((centre + dv * rad).round()) - origin] = gold
+				dots += 1
+	var feet: Array[Vector2i] = []
+	for p2: Player in players:
+		feet.append(Vector2i(p2.sim_position.round()) - origin)
+	# The arrow (right) = the up map turned: right[y][x] = up[n - 1 - x][y].
+	var n: int = PrayerMark.ARROW_MAP.size()
+	var right: Image = Image.create_empty(n, n, false, Image.FORMAT_RGBA8)
+	for y: int in n:
+		for x: int in n:
+			var row: String = PrayerMark.ARROW_MAP[n - 1 - x]
+			var ch: String = row[y]
+			if ItemIcons.PALETTE.has(ch):
+				right.set_pixel(x, y, ItemIcons.PALETTE[ch])
+	_image_pixels(want, right, feet[0] + Vector2i(-4, -45))
+	# The spark (5 x 5, a gold plus in an ash outline: no ring): gold, the left one iron; its top-left 43 px over the feet; the bar 45 px
+	# over them.
+	var ring: Image = Image.create_empty(5, 5, false, Image.FORMAT_RGBA8)
+	var grey: Image = Image.create_empty(5, 5, false, Image.FORMAT_RGBA8)
+	for y2: int in 5:
+		var frow: String = PrayerMark.SPARK_MAP[y2]
+		for x2: int in 5:
+			var c: String = frow[x2]
+			if ItemIcons.PALETTE.has(c):
+				ring.set_pixel(x2, y2, ItemIcons.PALETTE[c])
+				grey.set_pixel(x2, y2, ItemIcons.PALETTE["m" if c == "g" else c])
+	_image_pixels(want, ring, feet[1] + Vector2i(-2, -43))
+	_image_pixels(want, grey, feet[2] + Vector2i(-2, -43))
+	_image_pixels(want, ring, feet[3] + Vector2i(-2, -43))
+	for bx: int in 7:
+		want[feet[3] + Vector2i(-3 + bx, -45)] = ivory if bx < 4 else ash
+	_image_pixels(want, EffectMarks.image(EffectMarks.Kind.ZEAL), feet[4] + Vector2i(-3, -44))
+	# The HUD: the prompt (the down arrow 3x) at the top centre, its bar's frame and lit part; the zeal icon and its bar.
+	var down: Image = Image.create_empty(n, n, false, Image.FORMAT_RGBA8)
+	for y6: int in n:
+		var drow: String = PrayerMark.ARROW_MAP[n - 1 - y6]
+		for x6: int in n:
+			if ItemIcons.PALETTE.has(drow[x6]):
+				down.set_pixel(x6, y6, ItemIcons.PALETTE[drow[x6]])
+	var top: Vector2i = Vector2i((Config.VIEW_SIZE.x - n * 3) / 2, 26)
+	for y3: int in n:
+		for x3: int in n:
+			var dc: Color = down.get_pixel(x3, y3)
+			if dc.a8 == 255:
+				for sy: int in 3:
+					for sx: int in 3:
+						want[top + Vector2i(x3 * 3 + sx, y3 * 3 + sy)] = dc
+	var bar: Vector2i = Vector2i((Config.VIEW_SIZE.x - 40) / 2, 26 + n * 3 + 4)
+	var hud_back: Dictionary[Vector2i, bool] = {}  # the bar's translucent back: not compared
+	for y4: int in range(-1, 3):
+		for x4: int in range(-1, 41):
+			var q: Vector2i = bar + Vector2i(x4, y4)
+			if y4 == -1 or y4 == 2 or x4 == -1 or x4 == 40:
+				want[q] = ash
+			elif x4 < 20:
+				want[q] = gold
+			else:
+				hud_back[q] = true
+	# M10-fix: the lamps' grid (written out here): 3 x 3 squares of 7 px, 1 px apart, centred, its top 1 px down; a frame (base brown
+	# 4a423a; the ember's faith gold) round 5 x 5 ash with the lamp's picture (g gold, s ivory, c copper, o copper dark, C copper
+	# light, u rust, m iron).
+	var lamp_pics: Dictionary[int, PackedStringArray] = {
+		Altar.Look.LIT: PackedStringArray(["..g..", ".ggg.", ".gsg.", ".ggg.", ".ccc."]),
+		Altar.Look.UNLIT: PackedStringArray([".....", ".....", ".....", ".....", ".ooo."]),
+		Altar.Look.EMBER: PackedStringArray([".....", ".....", ".....", "..C..", ".ooo."]),
+		Altar.Look.GUTTER: PackedStringArray([".....", ".....", "..u..", ".uCu.", ".ooo."]),
+		Altar.Look.SOOT: PackedStringArray(["...m.", "..m..", "...m.", ".....", ".ooo."]),
+	}
+	var lamp_colours: Dictionary[String, Color] = {"g": gold, "s": ivory, "c": Color8(0xc0, 0x6a, 0x2e), "o": Color8(0x8c, 0x4a, 0x22),
+		"C": Color8(0xdf, 0x90, 0x3f), "u": Color8(0xc4, 0x42, 0x1c), "m": Color8(0xa3, 0x9d, 0x92)}
+	var grid_x: int = (Config.VIEW_SIZE.x - 23) / 2
+	for li: int in 9:
+		var cell: Vector2i = Vector2i(grid_x + (li % 3) * 8, 1 + (li / 3) * 8)
+		var pic: PackedStringArray = lamp_pics[lamp_looks[li]]
+		for cy: int in 7:
+			for cx: int in 7:
+				var q2: Vector2i = cell + Vector2i(cx, cy)
+				if cx == 0 or cy == 0 or cx == 6 or cy == 6:
+					want[q2] = gold if lamp_looks[li] == Altar.Look.EMBER else Color8(0x4a, 0x42, 0x3a)
+				else:
+					var ch: String = pic[cy - 1][cx - 1]
+					want[q2] = lamp_colours[ch] if lamp_colours.has(ch) else ash
+	var icon: Vector2i = Hud.effect_icon_at(0)
+	_image_pixels(want, EffectMarks.image(EffectMarks.Kind.ZEAL), icon)
+	var zfill: int = clampi(ceili(float(Config.PRAYER_ZEAL_TICKS / 2) / Config.PRAYER_ZEAL_TICKS * 7), 1, 7)
+	for zx: int in 7:
+		want[icon + Vector2i(zx, 8)] = ivory if zx < zfill else ash
+	var bad: int = _count_wrong(got, want)
+	var bad_eve: int = _count_wrong(eve, want)
+	var others: int = 0
+	for y5: int in got.get_height():
+		for x5: int in got.get_width():
+			var pq: Vector2i = Vector2i(x5, y5)
+			if not want.has(pq) and not hud_back.has(pq) and got.get_pixelv(pq).to_rgba32() != bg.get_pixelv(pq).to_rgba32():
+				others += 1
+	if bad > 0 or bad_eve > 0 or others > 0 or save_all:
+		_save(got, "prayer_marks_got.png")
+	root.remove_child(hud)
+	hud.free()
+	world.remove_child(view)
+	view.free()
+	for p3: Player in players:
+		world.entities.remove_child(p3)
+		p3.free()
+	var line: String = "pixels=%d dots=%d mismatches=%d evening_mismatches=%d other_changed=%d" % [want.size(), dots, bad, bad_eve,
+		others]
+	if bad == 0 and bad_eve == 0 and others == 0 and want.size() > 600:
+		print("EVENSONG_RENDER prayer_marks ok %s" % line)
+	else:
+		_fail("prayer_marks", line)
+
+
+## M10b: a host's prayer drawn by a client from the wire is the host's picture to the pixel. Four pray round the altar (the host's
+## Prayer in session mode: answers submitted, the cleric right, the paladin wrong, the archer right 100 ticks into its turn (inside
+## the lag allowance), the miner hit at turn 3 tick 100); at three moments (turn 3 tick 110: the miner's left ring, its lamp
+## guttering; turn 4 tick 20: the ember, the turn's arrow over the cleric, the soot; after the end: the result's lamps and the
+## zeal marks of the three, the ZEAL events) the altar's lamps, the circle and the marks are drawn from the host's prayer and then
+## from a client's mirror fed the wire's events (NetPrayer: decoded, applied, its clock the host's) on the same players: no pixel
+## differs. Then the HUD's sent key (a client's dim arrow, Hud.show_prayer_sent) blends its colours over the scene as written here.
+func _check_prayer_net() -> void:
+	world.lighting.set_evening(false)
+	var centre: Vector2 = world.data.altar_center_px()
+	_look_at(Vector2i(centre.round()))
+	var bg: Image = await _capture()
+	var pr: Prayer = Prayer.new()
+	pr.setup(world.data, Config.DEFAULT_SEED)
+	pr.answers_from_keys = false
+	pr.lag_ticks = Config.PRAYER_ANSWER_LAG_TICKS
+	pr.clock = 5000
+	var classes: PackedStringArray = ["cleric", "paladin", "archer", "miner"]
+	var offsets: Array[Vector2] = [Vector2(-40, 12), Vector2(40, 12), Vector2(-26, 38), Vector2(26, 38)]
+	var ps: Array[Player] = []
+	var s: NetSession = NetSession.new()
+	var slots: Dictionary[int, int] = {}
+	for i: int in 4:
+		var p: Player = Player.new()
+		p.local_input = false
+		p.skills_on = true
+		p.setup(world.data, classes[i], centre + offsets[i])
+		world.entities.add_child(p)
+		ps.append(p)
+		var m: NetMember = NetMember.new()
+		m.slot = i
+		m.player = p
+		m.class_id = classes[i]
+		s.members[i] = m
+		slots[p.get_instance_id()] = i
+	s.local = s.members[2]  # the client drawing it is the archer's (no arrow over its own head)
+	ps[0].skills.resource = 100
+	var none: Array[HereticSim] = []
+	var wire: Array[NetProtocol.PrayerEvent] = []
+	for p2: Player in ps:
+		pr.tap(p2, ps, none)
+		Smoke._wire_prayer(pr, slots, wire)
+	var view: PrayerView = PrayerView.new()
+	world.add_child(view)
+	world.move_child(view, world.entities.get_index())
+	var np: NetPrayer = NetPrayer.new()
+	np.setup(world.data)
+	var at: PackedInt32Array = [20, 20, 100, 1000]  # the cleric, the paladin (wrong), the archer, the miner (never)
+	var moments: Array[Array] = [[3, 110], [4, 20], [-1, 0]]
+	var results: PackedStringArray = []
+	var bad: int = 0
+	var drawn_min: int = 1 << 30
+	var applied: int = 0
+	for mo: Array in moments:
+		var want_turn: int = mo[0]
+		var want_ticks: int = mo[1]
+		var guard: int = 0
+		while guard < 4000:
+			var done: bool = (want_turn >= 0 and pr.turn == want_turn and pr.turn_ticks == want_ticks) \
+				or (want_turn < 0 and not pr.running() and pr.last != null and pr.clock - pr.shown_until < -60)
+			if done:
+				break
+			var owner: int = slots.get(pr.turn_owner, -1)
+			if pr.current_lamp() >= 0 and owner >= 0 and pr.turn_ticks + 1 == at[owner]:
+				pr.submit(pr.turn_owner, pr.number(), pr.turn, pr.directions[pr.turn] if owner != 1 else (pr.directions[pr.turn] + 2) % 4)
+			pr.step(ps)
+			if pr.turn == 3 and pr.turn_ticks == 100 and pr.is_member(ps[3].get_instance_id()):
+				pr.on_hurt(ps[3])
+			Smoke._wire_prayer(pr, slots, wire)
+			guard += 1
+		for i2: int in 4:
+			var sk: SkillState = ps[i2].skills
+			if sk.zealous() and want_turn < 0:
+				wire.append(SessionHost.zeal_event(i2, sk, pr.clock))
+		for p7: Player in ps:
+			p7._sync_view()  # its zeal mark (the prayer gave it; nothing stepped it here)
+		# The host's picture.
+		Main.show_prayer_from(pr, true, world, view, ps, ps[2], null, -1, 0, -1)
+		var host_img: Image = await _capture()
+		var drawn: int = count_diff(host_img, bg)
+		drawn_min = mini(drawn_min, drawn)
+		# The client's: its mirror from the wire (only what came since), the same players with their zeal from the events.
+		var zeal_kept: Array[Vector2i] = []
+		for p3: Player in ps:
+			zeal_kept.append(Vector2i(p3.skills.zeal_pct, p3.skills.zeal_ticks))
+			p3.show_zeal(0, 0)
+		var msg: NetProtocol.PrayerEvents = NetProtocol.decode_prayer(NetProtocol.encode_prayer(wire))
+		np.apply(s, msg.events, 0, true)
+		applied += msg.events.size()
+		wire.clear()
+		np.tick(s, pr.clock)
+		for p4: Player in ps:
+			p4.prayer_mark.show_mark(PrayerMark.Kind.NONE)
+		Main.show_prayer_from(np.mirror, true, world, view, ps, ps[2], null, -1, 0, -1)
+		var client_img: Image = await _capture()
+		var n: int = count_diff(client_img, host_img)
+		bad += n
+		if n > 0 or save_all:
+			_save(host_img, "prayer_net_host_%d.png" % results.size())
+			_save(client_img, "prayer_net_client_%d.png" % results.size())
+		results.append("%s:%d/%d" % ["end" if want_turn < 0 else "t%d+%d" % [want_turn, want_ticks], n, drawn])
+		for i3: int in 4:
+			ps[i3].skills.zeal_pct = zeal_kept[i3].x
+			ps[i3].skills.zeal_ticks = zeal_kept[i3].y
+	var lamps: String = NetPrayer.lamps_word(pr.last.lamps) if pr.last != null else "?"
+	# The HUD's sent key: the down arrow drawn 3x at the prompt's place, its gold as ivory, at Hud.SENT_ALPHA over the scene.
+	world.altar.show_lamps(PackedInt32Array())
+	view.show_circle(false)
+	for p5: Player in ps:
+		p5.prayer_mark.show_mark(PrayerMark.Kind.NONE)
+		p5.show_zeal(0, 0)
+	var under: Image = await _capture()
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.show_prayer_sent(Prayer.Dir.DOWN)
+	hud.canvas.queue_redraw()
+	var sent_img: Image = await _capture()
+	var n2: int = PrayerMark.ARROW_MAP.size()
+	var top: Vector2i = Vector2i((Config.VIEW_SIZE.x - n2 * 3) / 2, 26)
+	var sent_bad: int = 0
+	var sent_px: int = 0
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var ivory: Color = Color8(0xef, 0xe3, 0xc6)
+	for y: int in n2:
+		var row: String = PrayerMark.ARROW_MAP[n2 - 1 - y]
+		for x: int in n2:
+			if not ItemIcons.PALETTE.has(row[x]):
+				continue
+			var c: Color = ItemIcons.PALETTE[row[x]]
+			var base: Color = ivory if c.to_rgba32() == gold.to_rgba32() else c
+			for sy: int in 3:
+				for sx: int in 3:
+					var q: Vector2i = top + Vector2i(x * 3 + sx, y * 3 + sy)
+					var u: Color = under.get_pixelv(q)
+					var want: Color = u.lerp(base, 0.6)
+					var got: Color = sent_img.get_pixelv(q)
+					sent_px += 1
+					if absi(got.r8 - want.r8) > 2 or absi(got.g8 - want.g8) > 2 or absi(got.b8 - want.b8) > 2:
+						sent_bad += 1
+	var outside: int = count_diff(sent_img, under) - (n2 * 3 * n2 * 3 - _same_count(sent_img, under, top, n2 * 3))
+	root.remove_child(hud)
+	hud.free()
+	world.remove_child(view)
+	view.free()
+	for p6: Player in ps:
+		world.entities.remove_child(p6)
+		p6.free()
+	s.free()
+	var line: String = "moments=%s lamps=%s events=%d mismatches=%d drawn_min=%d sent_px=%d sent_mismatches=%d other_changed=%d" % [
+		",".join(results), lamps, applied, bad, drawn_min, sent_px, sent_bad, outside]
+	if bad == 0 and drawn_min > 200 and lamps == "lololollo" and sent_bad == 0 and sent_px > 100 and outside == 0:
+		print("EVENSONG_RENDER prayer_net ok %s" % line)
+	else:
+		_fail("prayer_net", line)
+
+
+## The pixels of the `size` x `size` square at `top` that are the same in `a` and `b`.
+static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
+	var n: int = 0
+	for y: int in size:
+		for x: int in size:
+			if a.get_pixelv(top + Vector2i(x, y)) == b.get_pixelv(top + Vector2i(x, y)):
+				n += 1
+	return n

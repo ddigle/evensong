@@ -27,6 +27,12 @@ extends CanvasLayer
 ## yet (M9b) shows a dim diamond; a refused key's slot is framed red for Config.SKILL_REFUSED_SHOW_TICKS), and above it the class
 ## resource: a bar in the class's colour with an ivory tick where the signature's cost is, or (the herbalist, whose material is
 ## items) one pip per healing herb carried.
+## M10a (PLACEHOLDERS drawn in code): the zeal's icon (EffectMarks.Kind.ZEAL) and time-left bar after the other effects', and the
+## local player's turn prompt while its turn's window is open (Main: show_prayer_prompt): the arrow PrayerMark.ARROW_MAP drawn
+## PROMPT_SCALE times at the top centre and the window bar draining under it.
+## M10-fix (PLACEHOLDER drawn in code): the nine lamps of the altar as a 3 x 3 grid at the top centre above the prompt, while a
+## prayer's lamps show and the local player is at the altar (Main: show_prayer_lamps): participants south of the altar cover its
+## bottom lamp row, so everyone there reads the lamps here too.
 
 signal armor_clicked
 
@@ -91,6 +97,28 @@ const RESOURCE_COLOURS: Dictionary[String, Color] = {
 }
 ## The inner area a cooldown veil covers (inside the slot's two frames: 14 x 14 at (2, 2)).
 const SKILL_INNER: Rect2i = Rect2i(2, 2, 14, 14)
+## M10a (IMPL): the turn prompt at the top centre (the arrow PrayerMark.ARROW_MAP drawn PROMPT_SCALE times, its top PROMPT_TOP px
+## from the top) and its draining window bar (PROMPT_BAR, PROMPT_BAR_GAP under the arrow; faith gold over the HUD fill).
+const PROMPT_SCALE: int = 3
+const PROMPT_TOP: int = 26
+const PROMPT_BAR: Vector2i = Vector2i(40, 2)
+const PROMPT_BAR_GAP: int = 4
+const PROMPT_FILL: Color = Color8(0xf4, 0xc9, 0x5d)
+## M10b (IMPL): a session client's sent key (show_prayer_sent) is the prompt's arrow at this alpha, its gold as ivory.
+const SENT_ALPHA: float = 0.6
+## M10-fix (IMPL): the lamps' grid (show_prayer_lamps): its top, a lamp's square (a 1 px frame round 5 x 5) and the gap between, in
+## the altar's order (turn i = lamp i, row by row from the top left). Each square: an opaque ash-black inside with the picture of
+## its Altar.Look (LAMP_*_MAP, ItemIcons colours: lit = a gold flame with an ivory heart over a copper bowl; not yet = the dark
+## bowl; the ember of the lamp being answered, whose frame is faith gold; a guttering rust flame; out = a grey wisp over the dark
+## bowl); the frame base brown, the answered one's gold.
+const LAMPS_TOP: int = 1
+const LAMP_CELL: int = 7
+const LAMP_GAP: int = 1
+const LAMP_LIT_MAP: PackedStringArray = ["..g..", ".ggg.", ".gsg.", ".ggg.", ".ccc."]
+const LAMP_UNLIT_MAP: PackedStringArray = [".....", ".....", ".....", ".....", ".ooo."]
+const LAMP_EMBER_MAP: PackedStringArray = [".....", ".....", ".....", "..C..", ".ooo."]
+const LAMP_GUTTER_MAP: PackedStringArray = [".....", ".....", "..u..", ".uCu.", ".ooo."]
+const LAMP_SOOT_MAP: PackedStringArray = ["...m.", "..m..", "...m.", ".....", ".ooo."]
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
@@ -111,6 +139,14 @@ var crafting: CraftingPanel
 var chest: ChestPanel
 ## M8a: the shop panel (ui/shop_panel.gd).
 var shop: ShopPanel
+## M10a: the prayer's prompt for the local player (Main sets it every tick): the direction its open turn wants (Prayer.Dir, -1 =
+## none) and the window's ticks left.
+var prayer_dir: int = -1
+var prayer_left: int = 0
+## M10b (a session client): the key it sent for its turn, shown dim where the prompt was until the host's result (-1 = none).
+var prayer_sent: int = -1
+## M10-fix: the nine lamps as the altar shows them (Altar.Look each; empty = no grid).
+var prayer_lamps: PackedInt32Array = PackedInt32Array()
 var _shown: String = ""
 
 
@@ -164,10 +200,134 @@ func bind_player(p: Player) -> void:
 
 
 func _process(_delta: float) -> void:
-	var key: String = vitals_key() + "|" + skills_key()
+	var key: String = vitals_key() + "|" + skills_key() + "|" + prayer_key()
 	if key != _shown:
 		_shown = key
 		canvas.queue_redraw()
+
+
+## M10a: what the prayer's HUD shows now (redrawn when it changes): the zeal's time-left bar, the turn prompt and its bar.
+func prayer_key() -> String:
+	if player == null or not is_instance_valid(player):
+		return ""
+	return "%d/%d/%d/%d/%s" % [zeal_fill(player.skills.zeal_ticks), prayer_dir, prompt_fill(prayer_left), prayer_sent,
+		str(prayer_lamps)]
+
+
+## M10a: the local player's turn prompt (Main, every tick): direction `dir` (Prayer.Dir, -1 = none), `left` ticks of the window.
+func show_prayer_prompt(dir: int, left: int) -> void:
+	prayer_dir = dir
+	prayer_left = left if dir >= 0 else 0
+
+
+## M10-fix: the altar's nine lamps as `looks` (Altar.Look each, in its order; empty = none; Main every tick).
+func show_prayer_lamps(looks: PackedInt32Array) -> void:
+	if looks != prayer_lamps:
+		prayer_lamps = looks.duplicate()
+
+
+## M10-fix: the picture of a lamp of Altar.Look `look` in the grid (5 x 5 ItemIcons letters).
+static func lamp_map(look: int) -> PackedStringArray:
+	match look:
+		Altar.Look.LIT:
+			return LAMP_LIT_MAP
+		Altar.Look.EMBER:
+			return LAMP_EMBER_MAP
+		Altar.Look.GUTTER:
+			return LAMP_GUTTER_MAP
+		Altar.Look.SOOT:
+			return LAMP_SOOT_MAP
+	return LAMP_UNLIT_MAP
+
+
+## M10-fix: the top-left of lamp `i`'s square in the grid for a view of `view` px.
+static func lamp_cell_at(view: Vector2i, i: int) -> Vector2i:
+	var size: int = 3 * LAMP_CELL + 2 * LAMP_GAP
+	return Vector2i((view.x - size) / 2 + (i % 3) * (LAMP_CELL + LAMP_GAP), LAMPS_TOP + (i / 3) * (LAMP_CELL + LAMP_GAP))
+
+
+## M10-fix: the lamps' grid (see prayer_lamps).
+func _draw_prayer_lamps() -> void:
+	if prayer_lamps.is_empty():
+		return
+	var view: Vector2i = view_size()
+	for i: int in mini(prayer_lamps.size(), Config.PRAYER_TURNS):
+		var at: Vector2i = lamp_cell_at(view, i)
+		var look: int = prayer_lamps[i]
+		_frame(Rect2i(at, Vector2i(LAMP_CELL, LAMP_CELL)), SELECT if look == Altar.Look.EMBER else FRAME)
+		canvas.draw_rect(Rect2(Vector2(at + Vector2i.ONE), Vector2(LAMP_CELL - 2, LAMP_CELL - 2)), FRAME_DARK)
+		var rows: PackedStringArray = lamp_map(look)
+		for y: int in rows.size():
+			for x: int in rows[y].length():
+				var ch: String = rows[y][x]
+				if ItemIcons.PALETTE.has(ch):
+					canvas.draw_rect(Rect2(Vector2(at + Vector2i(1 + x, 1 + y)), Vector2.ONE), ItemIcons.PALETTE[ch])
+
+
+## M10b: the key a session client sent for its turn (Prayer.Dir, -1 = none; Main every tick): its arrow drawn dim where the prompt
+## was (SENT_TINT) until the host's result comes. What the client predicts of an answer: the key, not the lamp.
+func show_prayer_sent(dir: int) -> void:
+	prayer_sent = dir if dir >= 0 and dir < Prayer.DIR_KEYS.size() else -1
+
+
+## M10a: the zeal's time-left bar (px, as effect_fill) for `ticks` left of the longest zeal (a prayer's or a meditation's).
+static func zeal_fill(ticks: int) -> int:
+	return effect_fill(ticks, PackedInt32Array([Config.PRAYER_ZEAL_TICKS, Config.MEDITATE_ZEAL_TICKS]))
+
+
+## M10a: the window bar's lit px for `left` ticks of Config.PRAYER_ANSWER_WINDOW_TICKS (at least 1 while it is open).
+static func prompt_fill(left: int) -> int:
+	if left <= 0:
+		return 0
+	return clampi(ceili(float(left) / Config.PRAYER_ANSWER_WINDOW_TICKS * PROMPT_BAR.x), 1, PROMPT_BAR.x)
+
+
+## M10a: the effects the HUD shows for player `p` (EffectMarks.kinds_of its vitals, then its zeal).
+static func effect_kinds(p: Player) -> Array[int]:
+	var kinds: Array[int] = EffectMarks.kinds_of(p.vitals)
+	if p.skills.zealous():
+		kinds.append(EffectMarks.Kind.ZEAL)
+	return kinds
+
+
+## M10a: the top-left of the turn prompt's arrow for a view of `view` px.
+static func prompt_origin(view: Vector2i) -> Vector2i:
+	var size: int = PrayerMark.ARROW_MAP[0].length() * PROMPT_SCALE
+	return Vector2i((view.x - size) / 2, PROMPT_TOP)
+
+
+## M10a: the window bar's inside (its 1 px dark frame around it) under the prompt's arrow.
+static func prompt_bar_at(view: Vector2i) -> Vector2i:
+	var size: int = PrayerMark.ARROW_MAP.size() * PROMPT_SCALE
+	return Vector2i((view.x - PROMPT_BAR.x) / 2, PROMPT_TOP + size + PROMPT_BAR_GAP)
+
+
+## M10a: the turn prompt (see prayer_dir): the arrow drawn PROMPT_SCALE times and the window bar draining. M10b: or, after a session
+## client answered, the key it sent: that arrow dim (sent_colour), no bar.
+func _draw_prayer_prompt() -> void:
+	var d: int = prayer_dir if prayer_dir >= 0 else prayer_sent
+	if d < 0:
+		return
+	var view: Vector2i = view_size()
+	var o: Vector2i = prompt_origin(view)
+	var img: Image = PrayerMark.arrow_image(d)
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			var c: Color = img.get_pixel(x, y)
+			if c.a8 > 0:
+				var drawn: Color = c if prayer_dir >= 0 else sent_colour(c)
+				canvas.draw_rect(Rect2(Vector2(o + Vector2i(x, y) * PROMPT_SCALE), Vector2(PROMPT_SCALE, PROMPT_SCALE)), drawn)
+	if prayer_dir < 0:
+		return
+	var bar: Vector2i = prompt_bar_at(view)
+	_bar(bar, PROMPT_BAR, float(prompt_fill(prayer_left)) / PROMPT_BAR.x, PROMPT_FILL, FILL)
+
+
+## M10b: a sent key's arrow pixel of colour `c`: the faith gold fill as faith ivory at SENT_ALPHA (the outline stays ash black, at it
+## too), so it reads as "pressed, waiting" and not as a new prompt.
+static func sent_colour(c: Color) -> Color:
+	var base: Color = DIGIT if c.to_rgba32() == SELECT.to_rgba32() else c
+	return Color(base.r, base.g, base.b, SENT_ALPHA)
 
 
 ## M9a: what the skill row shows now (redrawn when it changes): per slot its veil height and refusal mark, the resource.
@@ -250,6 +410,8 @@ func view_size() -> Vector2i:
 func _draw_hud() -> void:
 	_draw_vitals()
 	_draw_skill_row()  # M9a
+	_draw_prayer_prompt()  # M10a
+	_draw_prayer_lamps()  # M10-fix
 	if inventory == null:
 		return
 	var view: Vector2i = view_size()
@@ -416,13 +578,15 @@ func _draw_vitals() -> void:
 	_bar(BAR_AT, HP_BAR, float(v.hp) / Config.PLAYER_HP_MAX, HP_FILL, HP_LOST)
 	var st_color: Color = STAMINA_FILL if v.stamina >= Config.DASH_STAMINA else STAMINA_LOW
 	_bar(BAR_AT + Vector2i(0, HP_BAR.y + 3), STAMINA_BAR, float(v.stamina) / Config.STAMINA_MAX, st_color, FILL)
-	# M6a: an icon per effect (EffectMarks), its time left as a 1 px bar under it.
-	var kinds: Array[int] = EffectMarks.kinds_of(v)
+	# M6a: an icon per effect (EffectMarks), its time left as a 1 px bar under it. M10a: the zeal after them.
+	var kinds: Array[int] = effect_kinds(player)
 	for i: int in kinds.size():
 		var at: Vector2i = effect_icon_at(i)
 		canvas.draw_texture(EffectMarks.texture(kinds[i]), Vector2(at))
 		var fill: int = effect_fill(v.buff_ticks, Config.BUFF_TICKS) if kinds[i] == EffectMarks.Kind.BUFF \
 			else effect_fill(v.poison_ticks, Config.POISON_TICKS)
+		if kinds[i] == EffectMarks.Kind.ZEAL:
+			fill = zeal_fill(player.skills.zeal_ticks)
 		canvas.draw_rect(Rect2(Vector2(at + Vector2i(0, EffectMarks.SIZE + 1)), Vector2(EffectMarks.SIZE, 1)), FRAME_DARK)
 		canvas.draw_rect(Rect2(Vector2(at + Vector2i(0, EffectMarks.SIZE + 1)), Vector2(fill, 1)), EFFECT_LEFT)
 	if v.life == Vitals.Life.DOWN:

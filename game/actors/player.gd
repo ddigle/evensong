@@ -80,6 +80,12 @@ extends Node2D
 ## as since M6b), which a session sends and its host resolves again from its own state (SessionHost._skill). The host's members
 ## keep `skills_on` with `skills_clock_external`: the host counts their skill clock once a host tick (SessionHost.tick), not once
 ## a frame. A client's own player has `skills_on` for its keys and HUD; its `skills` shows the host's (the skills message).
+## M10a (offline first; M10b: in sessions too, the host's prayer sets it, a client's from the host's events): `prayer_role` (Prayer.Role, the prayer at the altar sets it): while PRAYING the
+## frame's move keys are the prayer's answers (they ride in the frame as they are, Prayer.step reads them from last_input) and
+## step_frame does not move the player (it faces the altar, prayer_face); nothing else starts (no use, drink, throw, dash, channel;
+## a skill key is refused with the HUD's mark, Skills.WHY_PRAYING). While MEDITATING the frame is as usual (a move breaks the
+## meditation, Prayer). The zeal (SkillState.zeal_*) shows over the head (EffectMarks.Kind.ZEAL); the PrayerMark shows the turn's
+## arrow (not over this machine's own player: its HUD prompt), the joined / left ring and the meditation's ring and bar (Main sets it).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -110,6 +116,8 @@ signal gear_refused(what: String, why: String)
 ## started skill `id`'s action.
 signal skill_refused(slot: int, id: StringName, why: String)
 signal skill_started(slot: int, id: StringName)
+## M10a: a use, a drink, a throw or a dash pressed while praying (nothing starts; `what` for the log).
+signal prayer_refused(what: String)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -193,6 +201,11 @@ var skill_aim_target: Player
 ## M9 review: a press now would be refused on that ally (the cleric's heal on an ally at full HP: Skills.aim_refused); the ring
 ## shows dim then.
 var skill_aim_refused: bool = false
+## M10a: this player's part in the prayer at the altar (Prayer.Role: none, praying, meditating; the prayer sets it), the way it faces
+## while praying (toward the altar), and the marks over its head (Main shows them from the prayer).
+var prayer_role: int = 0
+var prayer_face: int = RigData.Dir.NORTH
+var prayer_mark: PrayerMark
 var _mouse_moved_msec: int = -1000000
 ## make_frame(): the mouse aimed or the use button was held (step_frame() adds "an action plays").
 var _aim_input: bool = false
@@ -220,6 +233,8 @@ func _init() -> void:
 	add_child(effect_marks)
 	altar_mark = AltarMark.new()
 	add_child(altar_mark)
+	prayer_mark = PrayerMark.new()
+	add_child(prayer_mark)
 
 
 func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = RigData.Dir.SOUTH) -> void:
@@ -243,6 +258,8 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	action_skill_target = 0
 	skill_aim_target = null
 	skill_aim_refused = false
+	prayer_role = Prayer.Role.NONE
+	prayer_mark.show_mark(PrayerMark.Kind.NONE)
 	_sync_view()
 
 
@@ -392,6 +409,18 @@ func show_ward(pct: int, ticks: int) -> void:
 	_sync_view()
 
 
+## M10b: a session client shows zeal of `pct` percent with `ticks` left on this player (the host's ZEAL events; 0 = none): the
+## mark over its head (redrawn when it comes or goes), the local HUD's icon and bar. M10-fix: `from_prayer` = a prayer's zeal, not
+## only a meditation's (the host's rule; kept should this client go on alone, Main._go_offline_combat).
+func show_zeal(pct: int, ticks: int, from_prayer: bool = true) -> void:
+	var was: bool = skills.zealous()
+	skills.zeal_pct = pct if ticks > 0 else 0
+	skills.zeal_ticks = ticks if pct > 0 else 0
+	skills.zeal_from_prayer = from_prayer and skills.zealous()
+	if was != skills.zealous():
+		_sync_view()
+
+
 ## M9a: restores up to `amount` HP (PlayerSim.heal: not past the maximum, only while up). Returns the HP gained.
 func heal_hp(amount: int) -> int:
 	var st: PlayerSim = to_sim()
@@ -443,6 +472,20 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 	var free: bool = vitals.alive() and not (action_anim >= 0 and action_tick + 1 < action_ticks(action_anim))
 	var selected: ItemStack = inventory.selected_stack()
 	var slot: int = skill_slot if skill_slot >= 0 else (Skills.Slot.IDENTITY if skill else -1)
+	if prayer_role == Prayer.Role.PRAYING:
+		# M10a: praying. The move keys are the answers (they stay in the frame; step_frame does not move); nothing else starts:
+		# a skill key is refused with its HUD mark, a click, a throw or Space says why in the log (PROVISIONAL README "M10a F").
+		f.dash = false
+		_channel_pending = false
+		skill_aim_target = null
+		skill_aim_refused = false
+		if skills_on and slot >= 0:
+			_refuse_skill(slot, Skills.kit_skill(class_id(), slot), Skills.WHY_PRAYING)
+		elif use_pressed or skill or dash:
+			prayer_refused.emit("use" if use_pressed else ("throw" if skill else "dash"))
+		_aim_input = false
+		f.look = -1
+		return f
 	if skills_on:
 		skill_aim_target = Skills.aim_target(self, party(), f.cursor)  # M9 review: none while a panel is open or carrying
 		skill_aim_refused = Skills.aim_refused(self, skill_aim_target)
@@ -544,8 +587,17 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 	var was_channel: bool = channel_tick > 0
 	var hp_before: int = vitals.hp
 	var st: PlayerSim = to_sim()
-	var events: int = st.step(data, frame.dir, frame.look, frame.anim, frame.cell, delta, frame.dash, frame.interact,
-		frame.aim, frame.channel)
+	var events: int = 0
+	if prayer_role == Prayer.Role.PRAYING:
+		# M10a: praying, the move keys are answers (last_input keeps them for Prayer.step): no move, no dash, no action, no channel;
+		# the player faces the altar.
+		events = st.step(data, Vector2i.ZERO, prayer_face, -1, frame.cell, delta, false, frame.interact, frame.aim, false)
+	else:
+		# M10a: a meditating player standing still faces the altar (a move breaks the meditation, Prayer).
+		var look: int = prayer_face if prayer_role == Prayer.Role.MEDITATING and frame.dir == Vector2i.ZERO and frame.look < 0 \
+			else frame.look
+		events = st.step(data, frame.dir, look, frame.anim, frame.cell, delta, frame.dash, frame.interact, frame.aim,
+			frame.channel)
 	load_sim(st)
 	if events & PlayerSim.STARTED:
 		action_item = frame.item
@@ -860,6 +912,8 @@ func _sync_view() -> void:
 	var kinds: Array[int] = EffectMarks.kinds_of(vitals)  # M6a
 	if skills_on and skills.warded() and vitals.life != Vitals.Life.DEAD:
 		kinds.append(EffectMarks.Kind.WARD)  # M9b: the paladin's oath wards this player
+	if skills.zealous() and vitals.life != Vitals.Life.DEAD:
+		kinds.append(EffectMarks.Kind.ZEAL)  # M10a: the prayer's zeal
 	effect_marks.show_kinds(kinds)
 	if vitals.life == Vitals.Life.DOWN:
 		character.show_action(RigData.Anim.DEATH, mini(vitals.life_ticks / Config.DEATH_FRAME_TICKS,

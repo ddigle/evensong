@@ -234,7 +234,7 @@ func put_room(r: Rig, door_open: bool) -> void:
 # --- the wire (protocol v8) --------------------------------------------------------------------------------------------
 
 func _check_m7_codec() -> void:
-	check_eq(NetProtocol.VERSION, 11, "protocol version 11 (M7c: 8; M7-rf: 9, the floor piece layer; M8b: 10, the shop; M9c: 11, the skills)")
+	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M7c: 8; M7-rf: 9, the floor piece layer; M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer)")
 	check_eq(NetProtocol.CODE_COUNT, 180, "the frame is still one byte (180 codes)")
 	var cases: Array[NetProtocol.InputFrame] = []
 	var d: NetProtocol.InputFrame = _op(NetProtocol.Op.DEMOLISH, Config.MAP_DUNGEON, Vector2i(-3, 700))

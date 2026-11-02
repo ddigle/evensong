@@ -70,6 +70,9 @@ class CaptureSession:
 	func send_skills(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "skills", payload])  # M9c
 
+	func send_prayer(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "prayer", payload])  # M10b
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -120,6 +123,8 @@ class Client:
 	var shot_events: Array[NetProtocol.ShotEvent] = []
 	## Every enemy batch delivered to it (decoded), oldest first.
 	var batches: Array[NetProtocol.EnemyBatch] = []
+	## M10b: every prayer event delivered to it, decoded.
+	var prayer_events: Array[NetProtocol.PrayerEvent] = []
 
 
 class Rig:
@@ -131,6 +136,8 @@ class Rig:
 	var clients: Array[Client] = []
 	## One-way delay in ticks (both ways).
 	var delay: int = 0
+	## M10-fix: extra ticks the host's prayer messages take on the way down (a lost reliable message's resend; order kept).
+	var prayer_extra: int = 0
 	## The host's own input this tick (idle when null).
 	var action: NetBot.Action
 	## Client -> host [due tick, peer, payload] and host -> client [due tick, peer, kind, payload].
@@ -336,7 +343,7 @@ func _tick(r: Rig, n: int = 1) -> void:
 				var kind: String = msg[1]
 				var seen: int = r.bytes_by_kind.get(kind, 0)
 				r.bytes_by_kind[kind] = seen + bytes.size()
-				r.down.append([next + r.delay, c.peer, kind, bytes])
+				r.down.append([next + r.delay + (r.prayer_extra if kind == "prayer" else 0), c.peer, kind, bytes])
 		var later: Array[Array] = []
 		for d: Array in r.down:
 			var due: int = d[0]
@@ -388,6 +395,9 @@ func _deliver(c: Client, kind: String, payload: PackedByteArray) -> void:
 			c.s.client.on_shots(payload)
 		"skills":
 			c.s.client.on_skills(payload)  # M9c
+		"prayer":
+			c.prayer_events.append_array(NetProtocol.decode_prayer(payload).events)
+			c.s.client.on_prayer(payload)  # M10b
 
 
 ## The fight spot on the surface.

@@ -54,7 +54,10 @@ func local_action() -> NetBot.Action:
 		bot.downed = downed_here()
 		bot.world = p.data if p != null else null  # M5c: waitfield
 		bot.others = others_here()  # M7c: waitat
+		_prayer_for_bot(p)  # M10b: answer, waitturn, waitprayer
 		a = bot.step(feet)
+		if a.f_tap:
+			s.bot_tap.emit()  # M10b: `pray` = F pressed and let go (Main: its pick up, then the prayer's tap: PRAY)
 		if a.tab or a.craft_row >= 0:
 			s.bot_ui.emit(a.tab, a.craft_row)
 		if a.store_slot >= 0 or a.take_slot >= 0 or a.unequip:
@@ -87,6 +90,31 @@ func local_action() -> NetBot.Action:
 		a.interact = false
 		a.skill = false
 	return a
+
+
+## M10b: the prayer as this machine has it, for the bot (answer:auto, waitturn, waitprayer): the host's own (its player's window is
+## the host's: the turn's window tick this frame is judged at), a client's mirror (its window runs from its turn's event's arrival:
+## the frame built this tick is that many ticks into it).
+func _prayer_for_bot(p: Player) -> void:
+	bot.prayer_phase = Prayer.Phase.IDLE
+	bot.prayer_member = false
+	bot.prayer_dir = -1
+	bot.prayer_window = 0
+	if p == null:
+		return
+	var id: int = p.get_instance_id()
+	if s.host != null and s.host.prayer != null:
+		var pr: Prayer = s.host.prayer
+		bot.prayer_phase = pr.phase
+		bot.prayer_member = pr.is_member(id)
+		bot.prayer_dir = pr.prompt_for(id) if pr.turn_ticks < Config.PRAYER_ANSWER_WINDOW_TICKS else -1
+		bot.prayer_window = pr.turn_ticks + 1 if bot.prayer_dir >= 0 else 0
+	elif s.client != null:
+		var np: NetPrayer = s.client.prayer_net
+		bot.prayer_phase = np.mirror.phase
+		bot.prayer_member = np.mirror.is_member(id)
+		bot.prayer_dir = np.mirror.directions[np.my_turn] if np.window_open(s.tick) else -1
+		bot.prayer_window = s.tick - np.seen_at if bot.prayer_dir >= 0 else 0
 
 
 ## M7c: the other players' feet on the local player's map, as this machine has them (bot "waitat").

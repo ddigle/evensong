@@ -54,6 +54,10 @@ extends RefCounted
 ##                         heal, NO_SLOT = none; M9 review: the host takes it within its lag allowance, Skills.pick_with_hint)
 ##                                                                                  M9c: the skill keys 1 2 3 R (the herbalist's
 ##                         key 1 stays THROW, below)
+##                 PRAY    u8 map                                              M10b: an F tap at the altar (start, join, leave,
+##                         meditate: the host runs the offline tap rule on its own state, Prayer.tap)
+##                 ANSWER  u8 map, u8 prayer (its number's low byte), u8 turn (0..8), u8 answer (Prayer.Dir 0..3, 4 = two keys at
+##                         once)                                                    M10b: a participant's W A S D on its turn
 ##               M9c (v11): THROW's s16 x, s16 y is the cursor too (v6-v10: the point the bottle lands on). The host works the
 ##               landing point out from where it has the thrower (poison: toward the cursor, Potions.throw_target) or, for a
 ##               healing or buff potion, throws at the ally nearest the cursor (● gameplay-design §2.1 R42, Skills.pick_ally).
@@ -147,6 +151,18 @@ extends RefCounted
 ##               the same copy and sends again only when the real state left it (a cooldown started, a hit, a heal, a mined
 ##               block, a signature spent, the player started or stopped moving, went down, died), at most once a state
 ##               batch tick (SessionHost._send_skills).
+## Prayer        host -> clients (M10b, reliable): u8 count, then per event u8 kind, u32 tick (the host's prayer clock it happened
+##               at: a tap's the tick before its step, a step's that tick), then by kind (PRAYER_EVENT_SIZES, with the kind and
+##               the tick): 0 START (u8 prayer number low byte, u8 cleric slot, u8 its facing: 8 B), 1 JOIN (u8 slot, u8 facing:
+##               7 B), 2 LEAVE (u8 slot, u8 why: Prayer.LEAVE_WHYS: 7 B), 3 STOP (u8 why: Prayer.STOP_WHYS: 6 B), 4 TURN (u8 turn,
+##               u8 owner slot, u8 direction: 8 B), 5 RESULT (u8 turn, u8 how: Prayer.ANSWER_WHYS, ok = lit: 7 B), 6 END (u8 lamps
+##               lit, u8 participants, u8 zeal %, u8 faith spent; 0 % and 0 faith = it gave nothing: 9 B), 7 MEDITATE (u8 slot, u8
+##               facing: 7 B), 8 MEDITATED (u8 slot: 6 B), 9 BROKEN (u8 slot, u8 why: Prayer.LEAVE_WHYS: 7 B), 10 ZEAL (u8 slot, u8
+##               zeal %, u16 ticks left at that tick, u8 1 = a prayer's / 0 = only a meditation's (M10-fix: only a prayer's
+##               blocks a new prayer); 0 / 0 = it ended early (a death): 10 B). The prayer's kinds go to the clients
+##               on the surface (the altar's map), ZEAL to every client; a welcome and an entry to the surface are followed by the
+##               prayer under way (or still shown) as its events since its START with their own ticks, the meditations under way
+##               and every player's zeal (SessionHost.send_prayer_snapshot).
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
 ## 3 (M2b): frames carry the look and requests, states the body action and held item, inventories,
@@ -180,7 +196,10 @@ extends RefCounted
 ## heretic: stunned, slowed, taunted), the skill events in the shot events message (kinds 4 to 9: a skill's shot, a burst, a
 ## strike, a zone, a zone ended, a ward) and the owner's skills message (cooldowns and the class meter, a new RPC). A version 10
 ## peer would read a skill frame as an unknown op and every enemy batch one byte short: refused with `version`.
-const VERSION: int = 11
+## 12 (M10b): the group prayer and meditation in sessions: the PRAY (1 B) and ANSWER (4 B) requests and the prayer message (a new
+## RPC: the prayer's events to the surface's clients, every player's zeal to every client). A version 11 peer would read both
+## requests as unknown ops and never hear of a prayer: refused with `version`. The world, the snapshot and the edits are unchanged.
+const VERSION: int = 12
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -195,14 +214,15 @@ const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "c
 ## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click). M7c: DEMOLISH
 ## (right-click), DOOR (F on a door), ARMOR (put the armour on / take it off), CHEST (store / take in the chest panel).
 ## M8b: BUY and SELL (the open shop panel's clicks). M9c: SKILL (the skill keys 1 2 3 R; the herbalist's key 1 is THROW).
+## M10b: PRAY (an F tap at the altar) and ANSWER (a participant's answer to its turn).
 enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE, DEMOLISH, DOOR, ARMOR,
-	CHEST, BUY, SELL, SKILL }
+	CHEST, BUY, SELL, SKILL, PRAY, ANSWER }
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
-	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill"]
+	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
 ## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9). M9c: SKILL 11.
-## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12).
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13]
+## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12). M10b: PRAY 1, ANSWER 4.
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4]
 ## M8b: a SELL request's whole byte.
 const SELL_ONE: int = 0
 const SELL_WHOLE: int = 1
@@ -253,6 +273,9 @@ const ZONE_SIZE: int = 23
 const ZONE_END_SIZE: int = 9
 const WARD_SIZE: int = 10
 const SKILLS_SIZE: int = 16
+## M10b: the prayer message's events by PrayerEvent.Kind (the kind byte and the tick included), and the most one message carries.
+const PRAYER_EVENT_SIZES: PackedInt32Array = [8, 7, 7, 6, 8, 7, 9, 7, 6, 7, 10]
+const PRAYER_EVENTS_MAX: int = 255
 ## M9c: a skills message's flags.
 const SKILLS_WAS_MOVING: int = 0x01
 const SKILLS_MOVING: int = 0x02
@@ -344,14 +367,22 @@ class InputFrame:
 	## M9 review: sent with a SKILL and a THROW: the session slot of the ally the sender's machine picked for a heal or buff
 	## (`skill_target` as a slot, SessionHost.pick_slot_of; NO_SLOT = none). The host takes it within its lag allowance.
 	var pick: int = 255
+	## M10b: an ANSWER's prayer (Prayer.number: the low byte), its turn and the answer (Prayer.Dir, Prayer.WIRE_SEVERAL).
+	var prayer_no: int = 0
+	var turn: int = 0
+	var answer: int = -1
 
 	func _init(p_seq: int = 0, p_dir: Vector2i = Vector2i.ZERO) -> void:
 		seq = p_seq
 		dir = p_dir
 
 	## The request part equals `o`'s (op and its fields). M9c: a THROW's and a SKILL's cursor (the wire's whole px of it), a
-	## SKILL's slot byte. M9 review: a SKILL's hotbar `slot` and both ops' picked ally.
+	## SKILL's slot byte. M9 review: a SKILL's hotbar `slot` and both ops' picked ally. M10b: PRAY's map, ANSWER's map and fields.
 	func same_request(o: InputFrame) -> bool:
+		if o != null and op == Op.PRAY:
+			return o.op == op and map == o.map
+		if o != null and op == Op.ANSWER:
+			return o.op == op and map == o.map and prayer_no == o.prayer_no and turn == o.turn and answer == o.answer
 		if o != null and op == Op.SKILL:
 			return o.op == op and cell == o.cell and map == o.map and skill_slot == o.skill_slot and slot == o.slot \
 				and pick == o.pick and NetProtocol.wire_point(cursor) == NetProtocol.wire_point(o.cursor)
@@ -385,6 +416,11 @@ class InputFrame:
 					roundi(cursor.y), pick]
 			Op.CRAFT:
 				return "craft map=%d recipe=%d" % [map, recipe]
+			Op.PRAY:
+				return "pray map=%d" % map
+			Op.ANSWER:
+				return "answer map=%d prayer=%d turn=%d dir=%s" % [map, prayer_no, turn, Prayer.DIR_KEYS[answer]
+					if answer >= 0 and answer < Prayer.DIR_KEYS.size() else ("several" if answer == Prayer.WIRE_SEVERAL else "?")]
 			Op.CHANNEL:
 				return "channel map=%d" % map
 			Op.ALTAR_LIFT:
@@ -602,6 +638,53 @@ class ShotEvents:
 	var events: Array[ShotEvent] = []
 
 
+## M10b: one event of the prayer message (see the class comment; the fields a kind does not carry stay as they are).
+class PrayerEvent:
+	extends RefCounted
+	enum Kind { START, JOIN, LEAVE, STOP, TURN, RESULT, END, MEDITATE, MEDITATED, BROKEN, ZEAL }
+	var kind: int = Kind.START
+	## The host's prayer clock it happened at.
+	var tick: int = 0
+	## The player it is about (a session slot): the cleric (START), who joined, left, owns the turn, meditates, has the zeal.
+	var slot: int = 0
+	## START: the prayer's number (low byte).
+	var number: int = 0
+	## START, JOIN, MEDITATE: the way the player faces while praying (RigData.Dir: toward the altar).
+	var face: int = 0
+	## LEAVE / BROKEN: Prayer.LEAVE_WHYS; STOP: Prayer.STOP_WHYS; RESULT: Prayer.ANSWER_WHYS (code).
+	var why: int = 0
+	## TURN / RESULT: the turn (= its lamp); TURN: the direction (Prayer.Dir).
+	var turn: int = 0
+	var dir: int = 0
+	## END: lamps lit, participants, the zeal % given and the faith spent (0 and 0: nothing given).
+	var lit: int = 0
+	var participants: int = 0
+	var pct: int = 0
+	var faith: int = 0
+	## ZEAL: the zeal % (pct) and its ticks left at `tick` (0 / 0: it ended early); M10-fix: a prayer's zeal (true) or only a
+	## meditation's (SkillState.zeal_from_prayer: whose zeal blocks a new prayer, kept should a client go on alone).
+	var ticks: int = 0
+	var prayer_zeal: bool = false
+
+	func describe() -> String:
+		return "%s tick=%d slot=%d n=%d face=%d why=%d turn=%d dir=%d lit=%d par=%d pct=%d faith=%d ticks=%d%s" % [
+			NetProtocol.PRAYER_KIND_NAMES[kind] if kind >= 0 and kind < NetProtocol.PRAYER_KIND_NAMES.size() else "?", tick, slot,
+			number, face, why, turn, dir, lit, participants, pct, faith, ticks,
+			(" from=%s" % ("prayer" if prayer_zeal else "meditation")) if kind == Kind.ZEAL and pct > 0 else ""]
+
+
+## M10b: a decoded prayer message (ok = false when malformed).
+class PrayerEvents:
+	extends RefCounted
+	var ok: bool = false
+	var events: Array[PrayerEvent] = []
+
+
+## M10b: PrayerEvent.Kind's names (logs, results).
+const PRAYER_KIND_NAMES: PackedStringArray = ["start", "join", "leave", "stop", "turn", "result", "end", "meditate", "meditated",
+	"broken", "zeal"]
+
+
 ## M9c: a player's own skill state as the host sends it to that player (the skills message): the host tick, its SkillState then
 ## (the meter, the cooldowns, the meter's rhythms; no ward: wards are events, no refusal mark: the client's own) and how the
 ## host has it moving and up then (the client's copy runs on with those, SkillState.tick).
@@ -642,11 +725,12 @@ static func dir_from_code(code: int) -> Vector2i:
 	return Vector2i(code % 3 - 1, code / 3 - 1)
 
 
-## Whether requests of kind `op` carry a map (they aim at a tile of it; M6b: a throw, a craft at a station of it).
+## Whether requests of kind `op` carry a map (they aim at a tile of it; M6b: a throw, a craft at a station of it; M10b: the prayer
+## at the surface's altar).
 static func op_has_map(op: int) -> bool:
 	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT \
 		or op == Op.CHANNEL or op == Op.ALTAR_LIFT or op == Op.ALTAR_PLACE or op == Op.DEMOLISH or op == Op.DOOR \
-		or op == Op.CHEST or op == Op.BUY or op == Op.SELL or op == Op.SKILL
+		or op == Op.CHEST or op == Op.BUY or op == Op.SELL or op == Op.SKILL or op == Op.PRAY or op == Op.ANSWER
 
 
 static func valid_map(map: int) -> bool:
@@ -779,6 +863,10 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_u8(at + 11, clampi(f.pick, 0, 255))  # M9 review: the ally the sender picked
 		Op.CRAFT:
 			out.encode_u8(at, clampi(f.recipe, 0, 255))
+		Op.ANSWER:
+			out.encode_u8(at, f.prayer_no & 0xFF)  # M10b
+			out.encode_u8(at + 1, clampi(f.turn, 0, 255))
+			out.encode_u8(at + 2, clampi(f.answer, 0, 255))
 
 
 ## The op's fields at `at` into `f`; false when a field is out of range (map, slots, item, grade).
@@ -862,6 +950,13 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 		Op.CRAFT:
 			f.recipe = bytes.decode_u8(at)
 			return f.recipe < Crafting.recipe_count()
+		Op.PRAY:
+			return true  # M10b: the map only (the host runs the tap rule on its own state)
+		Op.ANSWER:
+			f.prayer_no = bytes.decode_u8(at)
+			f.turn = bytes.decode_u8(at + 1)
+			f.answer = bytes.decode_u8(at + 2)
+			return f.turn < Config.PRAYER_TURNS and f.answer <= Prayer.WIRE_SEVERAL
 	return false
 
 
@@ -1764,6 +1859,128 @@ static func decode_skills(bytes: PackedByteArray) -> SkillsState:
 	k.alive = (flags & SKILLS_ALIVE) != 0
 	k.ok = true
 	return k
+
+
+# --- the prayer (M10b) ---------------------------------------------------------------------------------------------
+
+## The prayer message: at most PRAYER_EVENTS_MAX events, each PRAYER_EVENT_SIZES[kind] B (see the class comment). M10-fix: more is
+## an error (logged, the newest cut): a snapshot's history past it (some 8 players mashing F through a gather) would draw wrong.
+static func encode_prayer(events: Array[PrayerEvent]) -> PackedByteArray:
+	var n: int = mini(events.size(), PRAYER_EVENTS_MAX)
+	if events.size() > PRAYER_EVENTS_MAX:
+		push_error("EVENSONG_NET prayer message cut: %d events, %d sent" % [events.size(), PRAYER_EVENTS_MAX])
+	var out: PackedByteArray = PackedByteArray([n])
+	for i: int in n:
+		var e: PrayerEvent = events[i]
+		var at: int = out.size()
+		out.resize(at + PRAYER_EVENT_SIZES[e.kind])
+		out.encode_u8(at, e.kind)
+		out.encode_u32(at + 1, maxi(e.tick, 0))
+		at += 5
+		match e.kind:
+			PrayerEvent.Kind.START:
+				out.encode_u8(at, e.number & 0xFF)
+				out.encode_u8(at + 1, clampi(e.slot, 0, 255))
+				out.encode_u8(at + 2, clampi(e.face, 0, 255))
+			PrayerEvent.Kind.JOIN, PrayerEvent.Kind.MEDITATE:
+				out.encode_u8(at, clampi(e.slot, 0, 255))
+				out.encode_u8(at + 1, clampi(e.face, 0, 255))
+			PrayerEvent.Kind.LEAVE, PrayerEvent.Kind.BROKEN:
+				out.encode_u8(at, clampi(e.slot, 0, 255))
+				out.encode_u8(at + 1, clampi(e.why, 0, 255))
+			PrayerEvent.Kind.STOP:
+				out.encode_u8(at, clampi(e.why, 0, 255))
+			PrayerEvent.Kind.TURN:
+				out.encode_u8(at, clampi(e.turn, 0, 255))
+				out.encode_u8(at + 1, clampi(e.slot, 0, 255))
+				out.encode_u8(at + 2, clampi(e.dir, 0, 255))
+			PrayerEvent.Kind.RESULT:
+				out.encode_u8(at, clampi(e.turn, 0, 255))
+				out.encode_u8(at + 1, clampi(e.why, 0, 255))
+			PrayerEvent.Kind.END:
+				out.encode_u8(at, clampi(e.lit, 0, 255))
+				out.encode_u8(at + 1, clampi(e.participants, 0, 255))
+				out.encode_u8(at + 2, clampi(e.pct, 0, 255))
+				out.encode_u8(at + 3, clampi(e.faith, 0, 255))
+			PrayerEvent.Kind.MEDITATED:
+				out.encode_u8(at, clampi(e.slot, 0, 255))
+			PrayerEvent.Kind.ZEAL:
+				out.encode_u8(at, clampi(e.slot, 0, 255))
+				out.encode_u8(at + 1, clampi(e.pct, 0, 255))
+				out.encode_u16(at + 2, clampi(e.ticks, 0, 65535))
+				out.encode_u8(at + 4, 1 if e.prayer_zeal and e.pct > 0 else 0)
+	return out
+
+
+## The prayer message, or ok = false (its size, a kind, a slot that is no player's, a facing, a why, a turn or direction out of
+## range, an end past its rule's numbers, a zeal past the longest or with only one of its % and its time).
+static func decode_prayer(bytes: PackedByteArray) -> PrayerEvents:
+	var r: PrayerEvents = PrayerEvents.new()
+	if bytes.is_empty():
+		return r
+	var count: int = bytes.decode_u8(0)
+	var at: int = 1
+	var max_zeal: int = maxi(Config.PRAYER_ZEAL_TICKS, Config.MEDITATE_ZEAL_TICKS)
+	for i: int in count:
+		if at + 5 > bytes.size():
+			return r
+		var e: PrayerEvent = PrayerEvent.new()
+		e.kind = bytes.decode_u8(at)
+		if e.kind >= PRAYER_EVENT_SIZES.size() or at + PRAYER_EVENT_SIZES[e.kind] > bytes.size():
+			return r
+		e.tick = bytes.decode_u32(at + 1)
+		var f: int = at + 5
+		var good: bool = true
+		match e.kind:
+			PrayerEvent.Kind.START:
+				e.number = bytes.decode_u8(f)
+				e.slot = bytes.decode_u8(f + 1)
+				e.face = bytes.decode_u8(f + 2)
+				good = e.slot < Config.MAX_PLAYERS and e.face < 4
+			PrayerEvent.Kind.JOIN, PrayerEvent.Kind.MEDITATE:
+				e.slot = bytes.decode_u8(f)
+				e.face = bytes.decode_u8(f + 1)
+				good = e.slot < Config.MAX_PLAYERS and e.face < 4
+			PrayerEvent.Kind.LEAVE, PrayerEvent.Kind.BROKEN:
+				e.slot = bytes.decode_u8(f)
+				e.why = bytes.decode_u8(f + 1)
+				good = e.slot < Config.MAX_PLAYERS and e.why < Prayer.LEAVE_WHYS.size()
+			PrayerEvent.Kind.STOP:
+				e.why = bytes.decode_u8(f)
+				good = e.why < Prayer.STOP_WHYS.size()
+			PrayerEvent.Kind.TURN:
+				e.turn = bytes.decode_u8(f)
+				e.slot = bytes.decode_u8(f + 1)
+				e.dir = bytes.decode_u8(f + 2)
+				good = e.turn < Config.PRAYER_TURNS and e.slot < Config.MAX_PLAYERS and e.dir < 4
+			PrayerEvent.Kind.RESULT:
+				e.turn = bytes.decode_u8(f)
+				e.why = bytes.decode_u8(f + 1)
+				good = e.turn < Config.PRAYER_TURNS and e.why < Prayer.ANSWER_WHYS.size()
+			PrayerEvent.Kind.END:
+				e.lit = bytes.decode_u8(f)
+				e.participants = bytes.decode_u8(f + 1)
+				e.pct = bytes.decode_u8(f + 2)
+				e.faith = bytes.decode_u8(f + 3)
+				good = e.lit <= Config.PRAYER_TURNS and e.participants >= 1 and e.participants <= Config.MAX_PLAYERS \
+					and e.pct <= 100 and e.faith <= Skills.max_resource()
+			PrayerEvent.Kind.MEDITATED:
+				e.slot = bytes.decode_u8(f)
+				good = e.slot < Config.MAX_PLAYERS
+			PrayerEvent.Kind.ZEAL:
+				e.slot = bytes.decode_u8(f)
+				e.pct = bytes.decode_u8(f + 1)
+				e.ticks = bytes.decode_u16(f + 2)
+				var from: int = bytes.decode_u8(f + 4)
+				e.prayer_zeal = from == 1
+				good = e.slot < Config.MAX_PLAYERS and e.pct <= 100 and e.ticks <= max_zeal and (e.pct == 0) == (e.ticks == 0) \
+					and from <= 1 and (from == 0 or e.pct > 0)
+		if not good:
+			return r
+		r.events.append(e)
+		at += PRAYER_EVENT_SIZES[e.kind]
+	r.ok = at == bytes.size()
+	return r
 
 
 ## M6b: the potion at item index `index` (&"" when it is no potion).

@@ -78,12 +78,26 @@ extends RefCounted
 ##                                (default 1800 ticks)
 ## M9a (offline: the skill kit is Main's player's; in a session the keys do what they did before M9a, M9c):
 ##   skill:<1|2|3|r>              press that skill key this tick (1 = identity, 2 = weapon, 3 = choice, r = signature) toward the aim
+## M10a (offline: Main handles them; the prayer as this machine has it, `prayer_*`, set by Main before each step):
+##   pray                         press F this tick and let go (a tap: pick_up first, then, untaken, the prayer's: start, join,
+##                                leave or meditate at the altar)
+##   answer:<w|a|s|d>            press that move key this tick (and let go): a prayer answer
+##   answer:auto[,<ticks>]        answer every turn of this player right, <ticks> into its window (default
+##                                Config.PRAYER_TEST_ANSWER_TICK), until it is out of the prayer
+##   waitturn[:<ticks>]           stand until this player's turn opens (default 1800 ticks)
+##   waitprayer:<idle|gather|turns>[,<ticks>]   stand until the prayer is in that phase (default 1800 ticks)
+## M10b (sessions: `pray` is the F tap Main sends as PRAY; the prayer as this machine has it: the host's, a client's mirror, its own
+## turn's window from when its event arrived there):
+##   answer:wrong[,<ticks>]       answer every turn of this player with the opposite key, <ticks> into its window, until it is out
+##   hurt:<slot>,<amount>         test only, the host: member slot <slot> takes a hit of <amount> now (Player.take_hit: a
+##                                participant hit leaves the prayer, the cleric stops it; nothing reaches a praying player inside
+##                                the light in the slice)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -152,6 +166,11 @@ class Action:
 	var sell_all: bool = false
 	## M9a: a skill key 2 / 3 / R this tick (Skills.Slot, -1 = none; key 1 is `skill`, as M6a's throw).
 	var skill_slot: int = -1
+	## M10a: F pressed and let go this tick (a tap: Main.pick_up, then the prayer's).
+	var f_tap: bool = false
+	## M10b (test only, the host): member slot `hurt_slot` takes a hit of `hurt_amount` this tick (-1 = none).
+	var hurt_slot: int = -1
+	var hurt_amount: int = 0
 
 
 var commands: Array[Command] = []
@@ -166,6 +185,12 @@ var downed: Array[Vector2] = []
 var world: WorldData
 ## M7c: the other players' feet on the local player's map as this machine has them (waitat).
 var others: Array[Vector2] = []
+## M10a: the prayer as this machine has it (Main sets it before each step): its phase (Prayer.Phase), whether the local player
+## is in it, the direction its open turn wants (-1 = none) and the window tick this step's keys are judged at.
+var prayer_phase: int = 0
+var prayer_member: bool = false
+var prayer_dir: int = -1
+var prayer_window: int = 0
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -289,9 +314,35 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimfoe":
 			if args.size() != 0:
 				return "aimfoe takes no arguments"
-		"tab", "throw", "unequip", "wreck":
+		"tab", "throw", "unequip", "wreck", "pray":
 			if args.size() != 0:
 				return "%s takes no arguments" % c.op
+		"answer":
+			# M10a: a key (count = Prayer.Dir) or auto (count -1, ticks = how far into each window).
+			if args.size() == 1 and Prayer.DIR_KEYS.has(args[0].to_lower()):
+				c.count = Prayer.DIR_KEYS.find(args[0].to_lower())
+			elif args.size() >= 1 and args.size() <= 2 and (args[0] == "auto" or args[0] == "wrong") \
+					and (args.size() == 1 or (_whole(args[1], 1) and args[1].to_int() <= Config.PRAYER_ANSWER_WINDOW_TICKS)):
+				c.count = -1 if args[0] == "auto" else -2  # M10b: wrong = the opposite key
+				c.ticks = args[1].to_int() if args.size() == 2 else Config.PRAYER_TEST_ANSWER_TICK
+			else:
+				return "expected answer:<w|a|s|d> or answer:<auto|wrong>[,<1..%d>]" % Config.PRAYER_ANSWER_WINDOW_TICKS
+		"hurt":
+			if args.size() != 2 or not _whole(args[0], 0) or args[0].to_int() >= Config.MAX_PLAYERS or not _whole(args[1], 1) \
+					or args[1].to_int() > Config.PLAYER_HP_MAX:
+				return "expected hurt:<slot 0..%d>,<1..%d>" % [Config.MAX_PLAYERS - 1, Config.PLAYER_HP_MAX]
+			c.slot = args[0].to_int()
+			c.count = args[1].to_int()
+		"waitturn":
+			if args.size() > 1 or (args.size() == 1 and not _whole(args[0], 1)):
+				return "expected waitturn[:<ticks>]"
+			c.ticks = args[0].to_int() if args.size() == 1 else WAITMAP_LIMIT_TICKS
+		"waitprayer":
+			if args.size() < 1 or args.size() > 2 or not Prayer.PHASE_NAMES.has(args[0]) \
+					or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitprayer:<%s>[,<ticks>]" % "|".join(Prayer.PHASE_NAMES)
+			c.count = Prayer.PHASE_NAMES.find(args[0])
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
 		"store", "take":
 			if args.size() != 1 or not _whole(args[0], 1):
 				return "expected %s:<slot>" % c.op
@@ -516,6 +567,34 @@ func _advance(a: Action, feet: Vector2) -> void:
 			"tab":
 				a.tab = true
 				_next()
+				return
+			"pray":
+				a.f_tap = true  # M10a
+				_next()
+				return
+			"answer":
+				if c.count >= 0:
+					a.dir = Prayer.DIR_VECTORS[c.count]  # M10a: one tick, then let go
+					_next()
+					return
+				if not prayer_member:
+					_next()  # out of the prayer (or never in it): done, the next command this tick
+				else:
+					if prayer_dir >= 0 and prayer_window >= c.ticks:
+						a.dir = Prayer.DIR_VECTORS[prayer_dir if c.count == -1 else (prayer_dir + 2) % 4]  # M10b: -2 = wrong
+					return
+			"hurt":
+				a.hurt_slot = c.slot  # M10b, test only (the host)
+				a.hurt_amount = c.count
+				_next()
+				return
+			"waitturn", "waitprayer":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				var met: bool = prayer_dir >= 0 if c.op == "waitturn" else prayer_phase == c.count
+				if met or _left <= 0:
+					_next()
 				return
 			"craft":
 				a.craft_row = c.count

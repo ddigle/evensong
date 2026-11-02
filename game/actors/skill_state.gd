@@ -11,11 +11,13 @@ extends RefCounted
 ## Resources (Config "M9a 자원"): the paladin's conviction grows with the damage he takes (no block exists in the slice: the
 ## right-click secondary action, gameplay-design §1 ○ "방패 들기", is not built) and fades slowly once he has taken none for a
 ## while; the archer's focus grows while he stands still and drains while he moves (○ §2.5); the cleric's faith grows with the
-## HP his skills heal (prayer is M10); the miner's endurance grows with every block he breaks; the herbalist has no meter: his
+## HP his skills heal (M10a: the prayer spends it, adds none); the miner's endurance grows with every block he breaks; the herbalist has no meter: his
 ## material is the healing herbs in his inventory (Skills.resource_of reads them). Every meter stops at its cap and is lost on
 ## death (Config.SKILL_RESOURCE_LOST_ON_DEATH).
 ##
 ## M9b: the ward a paladin's guardian oath gives (ward_pct off every hit for ward_ticks: Player.take_hit applies it, Skills.after_ward).
+## M10a: the zeal a group prayer or a meditation gives (zeal_pct more on every hit the player lands for zeal_ticks: Prayer.zeal_damage).
+## Not in the M9c skills message (same_clock / take_clock): M10b sends each player's zeal as prayer events (SessionHost._zeal_changes).
 
 ## The four slots (● R42: identity, weapon, choice, signature; keys 1 2 3 R, ○ §1).
 const SLOT_COUNT: int = 4
@@ -38,6 +40,13 @@ var refused_why: String = ""
 ## (Skills.after_ward, Player.take_hit; Config.SKILL_WARD_MIN_DAMAGE).
 var ward_pct: int = 0
 var ward_ticks: int = 0
+## M10a: zeal (the group prayer's effect, or a meditation's: items/prayer.gd): percent more damage on every hit the player lands
+## (Prayer.zeal_damage), ticks left on the game clock (down too); a death ends it (● R45 "죽으면 사라진다").
+var zeal_pct: int = 0
+var zeal_ticks: int = 0
+## M10-fix: the zeal came from a group prayer (true) or only a meditation (false). Only a prayer's blocks a new prayer
+## (Prayer.zeal_blocks, Config.MEDITATION_ZEAL_BLOCKS_PRAYER); any zeal blocks a meditation.
+var zeal_from_prayer: bool = false
 
 
 func copy() -> SkillState:
@@ -53,14 +62,17 @@ func copy() -> SkillState:
 	c.refused_why = refused_why
 	c.ward_pct = ward_pct
 	c.ward_ticks = ward_ticks
+	c.zeal_pct = zeal_pct
+	c.zeal_ticks = zeal_ticks
+	c.zeal_from_prayer = zeal_from_prayer
 	return c
 
 
-## The same simulation state (the refusal mark is display only and not compared).
+## The same simulation state (the refusal mark is display only and not compared). M10a: the zeal too.
 func same_as(o: SkillState) -> bool:
 	return o != null and cooldowns == o.cooldowns and resource == o.resource and since_hurt == o.since_hurt \
 		and decay_tick == o.decay_tick and focus_tick == o.focus_tick and was_moving == o.was_moving \
-		and ward_pct == o.ward_pct and ward_ticks == o.ward_ticks
+		and ward_pct == o.ward_pct and ward_ticks == o.ward_ticks and zeal_pct == o.zeal_pct and zeal_ticks == o.zeal_ticks 		and zeal_from_prayer == o.zeal_from_prayer
 
 
 ## Ticks left before slot `slot` may be used again (0 = ready).
@@ -116,6 +128,11 @@ func tick(class_id: String, moving: bool, alive: bool) -> void:
 		ward_ticks -= 1  # M9b: the oath's ward runs out (on the game clock, down too)
 		if ward_ticks == 0:
 			ward_pct = 0
+	if zeal_ticks > 0:
+		zeal_ticks -= 1  # M10a: the prayer's zeal runs out (on the game clock, down too)
+		if zeal_ticks == 0:
+			zeal_pct = 0
+			zeal_from_prayer = false
 	if not alive:
 		return
 	match class_id:
@@ -194,6 +211,9 @@ func on_death() -> void:
 	was_moving = false
 	ward_pct = 0
 	ward_ticks = 0
+	zeal_pct = 0  # M10a: ● R45 "죽으면 사라진다"
+	zeal_ticks = 0
+	zeal_from_prayer = false
 
 
 ## M9b: a ward of `pct` percent for `ticks` (the guardian oath). A running one keeps the stronger percent and the longer time
@@ -215,5 +235,29 @@ func warded() -> bool:
 	return ward_ticks > 0 and ward_pct > 0
 
 
+## M10a: zeal of `pct` percent for `ticks` (a prayer's end: `from_prayer`, a meditation's). A running one keeps the stronger percent
+## and the longer time (Config.EFFECT_REFRESH_KEEPS_STRONGER, else the new one replaces it). M10-fix: a prayer's zeal over a
+## meditation's makes it a prayer's (a meditation is refused while any zeal lasts, so never the other way). False when it gives
+## nothing.
+func add_zeal(pct: int, ticks: int, from_prayer: bool = false) -> bool:
+	if pct <= 0 or ticks <= 0:
+		return false
+	if zeal_ticks > 0 and Config.EFFECT_REFRESH_KEEPS_STRONGER:
+		zeal_pct = maxi(zeal_pct, pct)
+		zeal_ticks = maxi(zeal_ticks, ticks)
+		zeal_from_prayer = zeal_from_prayer or from_prayer
+	else:
+		zeal_pct = pct
+		zeal_ticks = ticks
+		zeal_from_prayer = from_prayer
+	return true
+
+
+## M10a: zeal runs now.
+func zealous() -> bool:
+	return zeal_ticks > 0 and zeal_pct > 0
+
+
 func describe() -> String:
-	return "cd=%s res=%d ward=%d/%d" % [cooldowns, resource, ward_pct, ward_ticks]
+	var text: String = "cd=%s res=%d ward=%d/%d" % [cooldowns, resource, ward_pct, ward_ticks]
+	return text + (" zeal=%d/%d" % [zeal_pct, zeal_ticks] if zealous() else "")

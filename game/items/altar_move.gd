@@ -277,9 +277,12 @@ static func set_down_fallback(data: WorldData, feet: Vector2, home: Rect2i, bodi
 ## session client's SessionHost.hold_altar, the host's own count NetMember.altar_hold): up, not carrying it, no body
 ## action playing, no purification channel running (the host refuses a lift while one runs, M5c), and no downed player
 ## among `players` (the players on its map) within Config.REVIVE_REACH_PX of its feet (F held there revives,
-## Arena.reviver_for: PROVISIONAL README "M5b 키"). The aim (an altar tile in reach) is the caller's.
+## Arena.reviver_for: PROVISIONAL README "M5b 키"). The aim (an altar tile in reach) is the caller's. M10a: nor while it prays or
+## meditates (its F is the prayer's; a prayer under way or a meditation at the altar blocks the lift for everyone too:
+## Prayer.blocks_lift, Main.step_altar_hold, PROVISIONAL README "M10a F").
 static func hold_counts(p: Player, players: Array[Player]) -> bool:
-	if not p.vitals.alive() or p.carrying_altar or p.action_anim >= 0 or p.channel_tick > 0:
+	if not p.vitals.alive() or p.carrying_altar or p.action_anim >= 0 or p.channel_tick > 0 \
+			or p.prayer_role != Prayer.Role.NONE:
 		return false
 	for q: Player in players:
 		if q != p and q.vitals.life == Vitals.Life.DOWN and q.sim_position.distance_to(p.sim_position) <= Config.REVIVE_REACH_PX:

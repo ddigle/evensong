@@ -7,8 +7,10 @@ extends Node2D
 ## the feet; the icons are centred in a row MARK_Y px above them. Layout values are IMPL. M9a: a taunted heretic's mark (the
 ## paladin's taunt, Arena.taunt): a faith-gold "!" (a PLACEHOLDER like the others). M9b (PLACEHOLDERS too): a warded player's
 ## faith-gold shield (the paladin's oath), a stunned heretic's gold star, a slowed heretic's iron arrow down.
+## M10a (a PLACEHOLDER too): a zealous player's sword (an iron blade, a gold guard: the group prayer's zeal = attack, or a
+## meditation's). Not a flame: a player standing just south of the altar has it over the altar's lamps.
 
-enum Kind { BUFF, POISON, TAUNT, WARD, STUN, SLOW }
+enum Kind { BUFF, POISON, TAUNT, WARD, STUN, SLOW, ZEAL }
 
 const SIZE: int = 7
 const GAP: int = 1
@@ -21,6 +23,7 @@ const MAPS: Array[Array] = [
 	["kkkkkkk", "kgggggk", "kggsggk", "kgsssgk", ".kgsgk.", "..kgk..", "...k..."],
 	["...k...", "..kgk..", "kkkgkkk", "kgggggk", ".kgsgk.", "kgk.kgk", "kk...kk"],
 	["..kkk..", "..khk..", "..khk..", "kkkhkkk", ".khhhk.", "..khk..", "...k..."],
+	["...k...", "..khk..", "..khk..", ".kkhkk.", "kgggggk", ".kkakk.", "...k..."],
 ]
 
 static var _textures: Array[ImageTexture] = []

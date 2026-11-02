@@ -73,6 +73,9 @@ class CaptureSession:
 	func send_skills(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "skills", payload])  # M9c
 
+	func send_prayer(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "prayer", payload])  # M10b
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -175,7 +178,7 @@ func _check_map_entry_codec() -> void:
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "more chunks than packed bytes: refused")
 	e.chunk_count = 0
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "no chunks: refused")
-	check_eq(NetProtocol.VERSION, 11, "protocol version 11 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11)")
+	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12)")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 1
 	info.state.map = Config.MAP_DUNGEON
@@ -389,6 +392,8 @@ func _deliver(r: HostRig, c: ClientRig) -> void:
 				c.s.client.on_shots(payload)
 			"skills":
 				c.s.client.on_skills(payload)  # M9c
+			"prayer":
+				c.s.client.on_prayer(payload)  # M10b
 
 
 ## One host tick with the host's own player idle: frames, streams, a state batch every 3rd tick.
