@@ -158,7 +158,8 @@ extends RefCounted
 ##               u8 owner slot, u8 direction: 8 B), 5 RESULT (u8 turn, u8 how: Prayer.ANSWER_WHYS, ok = lit: 7 B), 6 END (u8 lamps
 ##               lit, u8 participants, u8 zeal %, u8 faith spent; 0 % and 0 faith = it gave nothing: 9 B), 7 MEDITATE (u8 slot, u8
 ##               facing: 7 B), 8 MEDITATED (u8 slot: 6 B), 9 BROKEN (u8 slot, u8 why: Prayer.LEAVE_WHYS: 7 B), 10 ZEAL (u8 slot, u8
-##               zeal %, u16 ticks left at that tick; 0 / 0 = it ended early (a death): 9 B). The prayer's kinds go to the clients
+##               zeal %, u16 ticks left at that tick, u8 1 = a prayer's / 0 = only a meditation's (M10-fix: only a prayer's
+##               blocks a new prayer); 0 / 0 = it ended early (a death): 10 B). The prayer's kinds go to the clients
 ##               on the surface (the altar's map), ZEAL to every client; a welcome and an entry to the surface are followed by the
 ##               prayer under way (or still shown) as its events since its START with their own ticks, the meditations under way
 ##               and every player's zeal (SessionHost.send_prayer_snapshot).
@@ -273,7 +274,7 @@ const ZONE_END_SIZE: int = 9
 const WARD_SIZE: int = 10
 const SKILLS_SIZE: int = 16
 ## M10b: the prayer message's events by PrayerEvent.Kind (the kind byte and the tick included), and the most one message carries.
-const PRAYER_EVENT_SIZES: PackedInt32Array = [8, 7, 7, 6, 8, 7, 9, 7, 6, 7, 9]
+const PRAYER_EVENT_SIZES: PackedInt32Array = [8, 7, 7, 6, 8, 7, 9, 7, 6, 7, 10]
 const PRAYER_EVENTS_MAX: int = 255
 ## M9c: a skills message's flags.
 const SKILLS_WAS_MOVING: int = 0x01
@@ -660,13 +661,16 @@ class PrayerEvent:
 	var participants: int = 0
 	var pct: int = 0
 	var faith: int = 0
-	## ZEAL: the zeal % (pct) and its ticks left at `tick` (0 / 0: it ended early).
+	## ZEAL: the zeal % (pct) and its ticks left at `tick` (0 / 0: it ended early); M10-fix: a prayer's zeal (true) or only a
+	## meditation's (SkillState.zeal_from_prayer: whose zeal blocks a new prayer, kept should a client go on alone).
 	var ticks: int = 0
+	var prayer_zeal: bool = false
 
 	func describe() -> String:
-		return "%s tick=%d slot=%d n=%d face=%d why=%d turn=%d dir=%d lit=%d par=%d pct=%d faith=%d ticks=%d" % [
+		return "%s tick=%d slot=%d n=%d face=%d why=%d turn=%d dir=%d lit=%d par=%d pct=%d faith=%d ticks=%d%s" % [
 			NetProtocol.PRAYER_KIND_NAMES[kind] if kind >= 0 and kind < NetProtocol.PRAYER_KIND_NAMES.size() else "?", tick, slot,
-			number, face, why, turn, dir, lit, participants, pct, faith, ticks]
+			number, face, why, turn, dir, lit, participants, pct, faith, ticks,
+			(" from=%s" % ("prayer" if prayer_zeal else "meditation")) if kind == Kind.ZEAL and pct > 0 else ""]
 
 
 ## M10b: a decoded prayer message (ok = false when malformed).
@@ -1859,9 +1863,12 @@ static func decode_skills(bytes: PackedByteArray) -> SkillsState:
 
 # --- the prayer (M10b) ---------------------------------------------------------------------------------------------
 
-## The prayer message: at most PRAYER_EVENTS_MAX events, each PRAYER_EVENT_SIZES[kind] B (see the class comment).
+## The prayer message: at most PRAYER_EVENTS_MAX events, each PRAYER_EVENT_SIZES[kind] B (see the class comment). M10-fix: more is
+## an error (logged, the newest cut): a snapshot's history past it (some 8 players mashing F through a gather) would draw wrong.
 static func encode_prayer(events: Array[PrayerEvent]) -> PackedByteArray:
 	var n: int = mini(events.size(), PRAYER_EVENTS_MAX)
+	if events.size() > PRAYER_EVENTS_MAX:
+		push_error("EVENSONG_NET prayer message cut: %d events, %d sent" % [events.size(), PRAYER_EVENTS_MAX])
 	var out: PackedByteArray = PackedByteArray([n])
 	for i: int in n:
 		var e: PrayerEvent = events[i]
@@ -1901,6 +1908,7 @@ static func encode_prayer(events: Array[PrayerEvent]) -> PackedByteArray:
 				out.encode_u8(at, clampi(e.slot, 0, 255))
 				out.encode_u8(at + 1, clampi(e.pct, 0, 255))
 				out.encode_u16(at + 2, clampi(e.ticks, 0, 65535))
+				out.encode_u8(at + 4, 1 if e.prayer_zeal and e.pct > 0 else 0)
 	return out
 
 
@@ -1963,7 +1971,10 @@ static func decode_prayer(bytes: PackedByteArray) -> PrayerEvents:
 				e.slot = bytes.decode_u8(f)
 				e.pct = bytes.decode_u8(f + 1)
 				e.ticks = bytes.decode_u16(f + 2)
-				good = e.slot < Config.MAX_PLAYERS and e.pct <= 100 and e.ticks <= max_zeal and (e.pct == 0) == (e.ticks == 0)
+				var from: int = bytes.decode_u8(f + 4)
+				e.prayer_zeal = from == 1
+				good = e.slot < Config.MAX_PLAYERS and e.pct <= 100 and e.ticks <= max_zeal and (e.pct == 0) == (e.ticks == 0) \
+					and from <= 1 and (from == 0 or e.pct > 0)
 		if not good:
 			return r
 		r.events.append(e)

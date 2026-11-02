@@ -15,6 +15,10 @@ extends "res://tests/test_net_skills.gd"
 ##     host draws (lamps, circle, marks); answers late in a client's window over a 4-tick delay are taken (the lag allowance), one
 ##     past it is refused as over; meditation in a session; the zeal's damage in a session fight and a death taking it on every
 ##     machine; the prayer's traffic; a version 11 hello is refused
+##   - M10-fix (the review): a client cleric (start, quit, a full prayer: its faith on the host and its own meter); the host's own
+##     key counts only in the window its HUD shows; ten PRAYs in a tick; a late joiner gets a meditation under way; a joiner reusing
+##     the slot of a participant who left is not that participant; a gather that ends with the cleric alone (it stops, he
+##     meditates); a join just after the gather inside the host's allowance; a meditation's zeal is one on every machine
 
 const HERBALIST: String = "herbalist"
 
@@ -32,6 +36,12 @@ func run() -> Array[String]:
 	await _check_meditation_net()
 	await _check_zeal_fight()
 	await _check_v11_refused()
+	await _check_client_cleric()
+	await _check_host_window()
+	await _check_meditation_late()
+	await _check_slot_reuse()
+	await _check_alone_net()
+	await _check_late_join_net()
 	return failures
 
 
@@ -40,6 +50,12 @@ func run() -> Array[String]:
 ## The int under `key` in `d` (0 when none).
 static func _n(d: Dictionary, key: Variant) -> int:
 	var v: int = d.get(key, 0)
+	return v
+
+
+## M10-fix: whether slot `slot`'s zeal is a prayer's on mirror `np` (`default` when it has none).
+static func _zp(np: NetPrayer, slot: int, default: bool) -> bool:
+	var v: bool = np.zeal_prayer.get(slot, default)
 	return v
 
 
@@ -166,7 +182,7 @@ func _run_prayer(r: Rig, scripts: Dictionary, at: int = Config.PRAYER_TEST_ANSWE
 	r.action = null
 	for c: Client in r.clients:
 		c.action = null
-	_tick(r, 2 * r.delay + 4)
+	_tick(r, 2 * r.delay + r.prayer_extra + 4)
 
 
 ## The lamps word, result and zeals every client has against the host's (`label` in the messages).
@@ -292,7 +308,13 @@ func _check_events_codec() -> void:
 	e10.slot = 6
 	e10.pct = 29
 	e10.ticks = Config.PRAYER_ZEAL_TICKS
+	e10.prayer_zeal = true
 	all.append(e10)
+	var e12: NetProtocol.PrayerEvent = _event(NetProtocol.PrayerEvent.Kind.ZEAL)
+	e12.slot = 5
+	e12.pct = Config.MEDITATE_ZEAL_PCT
+	e12.ticks = Config.MEDITATE_ZEAL_TICKS
+	all.append(e12)
 	var e11: NetProtocol.PrayerEvent = _event(NetProtocol.PrayerEvent.Kind.ZEAL)
 	e11.slot = 6
 	all.append(e11)
@@ -306,8 +328,9 @@ func _check_events_codec() -> void:
 	for e: NetProtocol.PrayerEvent in all:
 		want_size += NetProtocol.PRAYER_EVENT_SIZES[e.kind]
 	check_eq(bytes.size(), want_size, "the message is its count and its events' sizes")
-	check_eq(NetProtocol.PRAYER_EVENT_SIZES, PackedInt32Array([8, 7, 7, 6, 8, 7, 9, 7, 6, 7, 9]),
-		"event sizes: start 8, join 7, leave 7, stop 6, turn 8, result 7, end 9, meditate 7, meditated 6, broken 7, zeal 9 (B)")
+	check_eq(NetProtocol.PRAYER_EVENT_SIZES, PackedInt32Array([8, 7, 7, 6, 8, 7, 9, 7, 6, 7, 10]),
+		"event sizes: start 8, join 7, leave 7, stop 6, turn 8, result 7, end 9, meditate 7, meditated 6, broken 7, zeal 10 (B; " +
+		"M10-fix: whose zeal, a prayer's or a meditation's)")
 	var cuts: int = 0
 	for cut: int in range(0, bytes.size()):
 		if not NetProtocol.decode_prayer(bytes.slice(0, cut)).ok:
@@ -328,7 +351,8 @@ func _check_events_codec() -> void:
 		[e6, 1, Config.MAX_PLAYERS + 1, "an END with ten"], [e6, 2, 101, "an END's 101 %"], [e6, 3, Skills.max_resource() + 1,
 		"an END spending past the largest meter"], [e7, 0, Config.MAX_PLAYERS, "a MEDITATE's slot 9"],
 		[e8, 0, 255, "a MEDITATED's slot 255"], [e9, 1, 255, "a BROKEN's why 255"], [e10, 1, 101, "a ZEAL's 101 %"],
-		[e10, 1, 0, "a ZEAL of 0 % with time left"]]
+		[e10, 1, 0, "a ZEAL of 0 % with time left"], [e10, 4, 2, "a ZEAL's whose-zeal byte 2"],
+		[e11, 4, 1, "an ended ZEAL (0 %) saying a prayer's"]]
 	for row: Array in bad:
 		var ev: NetProtocol.PrayerEvent = row[0]
 		var at: int = row[1]
@@ -346,6 +370,18 @@ func _check_events_codec() -> void:
 	var unknown: PackedByteArray = PackedByteArray([1, NetProtocol.PRAYER_EVENT_SIZES.size(), 0, 0, 0, 0, 0, 0, 0, 0])
 	check(not NetProtocol.decode_prayer(unknown).ok, "an unknown kind is refused")
 	check(K.size() == 1 and NetProtocol.PRAYER_KIND_NAMES.size() == NetProtocol.PRAYER_EVENT_SIZES.size(), "a name per kind")
+	# M10-fix: a mirror off the surface skips the prayer's events (counted), keeps the zeal; the local window's edges (1..90 ticks
+	# after its turn's event came).
+	var np: NetPrayer = NetPrayer.new()
+	np.setup(SurfaceGen.generate(Config.DEFAULT_SEED))
+	np.apply(null, [e0, e1, e10] as Array[NetProtocol.PrayerEvent], 0, false)
+	check(not np.mirror.running() and np.off_map == 2 and np.zeal.has(6), "off the surface: the start and the join skipped, the zeal kept")
+	np.my_turn = 0
+	np.seen_at = 100
+	check(not np.window_open(100) and np.window_open(101) and np.window_open(100 + Config.PRAYER_ANSWER_WINDOW_TICKS)
+		and not np.window_open(101 + Config.PRAYER_ANSWER_WINDOW_TICKS), "the local window: from the tick after its event, 90 ticks")
+	np.sent_dir = Prayer.Dir.UP
+	check(not np.window_open(101), "answered: closed")
 
 
 # --- the host against a malicious client --------------------------------------------------------------------
@@ -373,6 +409,17 @@ func _check_malicious_prayer() -> void:
 	_full(r)
 	r.host.run_frame(ma, _pray_frame())
 	check(not pr.is_meditating(ma.player.get_instance_id()), "its second tap stops the meditation")
+	# M10-fix: ten PRAYs in one tick: the request budget takes NET_OP_BURST of them (a meditation, its stop, ...), the rest `rate`.
+	var rate_p: int = _n(r.host.prayer_refusals, "rate")
+	ma.op_budget = NetMember.OP_BUDGET_MAX
+	for i: int in 10:
+		r.host.run_frame(ma, _pray_frame())
+	check_eq(_n(r.host.prayer_refusals, "rate") - rate_p, 10 - Config.NET_OP_BURST, "ten PRAYs in one tick: %d over the budget (`rate`)" %
+		(10 - Config.NET_OP_BURST))
+	check_eq(pr.is_meditating(ma.player.get_instance_id()), Config.NET_OP_BURST % 2 == 1, "the ones taken toggled the meditation")
+	if pr.is_meditating(ma.player.get_instance_id()):
+		pr.break_meditation(ma.player.get_instance_id(), "test")
+	_full(r)
 	# Outside the circle: refused, nothing changes.
 	r.host.run_frame(mf, _pray_frame())
 	check_eq(_n(r.host.prayer_refusals, Prayer.WHY_OUTSIDE), 1, "a tap outside the circle is refused (%s)" %
@@ -726,11 +773,17 @@ func _check_late_and_entry() -> void:
 ## Over a 4-tick and a 12-tick delay each way: a client answering 88 ticks into the window its machine shows is taken by the host
 ## (the lag allowance: it arrives past the host's own 90; at 12 ticks, 24 past it, inside the allowance's 30), and the lamp lights
 ## on every machine. Over a 20-tick delay (a round trip past the allowance) the same answer comes after the host gave the turn up
-## (late): `that turn is over`.
+## (late): `that turn is over`. M10-fix: a turn's event that comes a resend late (a lost reliable message: ENet sends it again
+## about a round trip and a margin later) shifts that client's window by it: over a 4-tick delay with every prayer message 18 ticks
+## more on the way down (a resend at a ~130 ms round trip) the answers still come inside the allowance (at 114 of 120); 26 more
+## (two round trips' worth) and they come past it (122): the allowance holds a round trip plus one resend only on a short link
+## (README "M10b 답 판정").
 func _check_lag_window() -> void:
-	for delay: int in [4, 12, 20]:
+	for pair: Vector2i in [Vector2i(4, 0), Vector2i(12, 0), Vector2i(20, 0), Vector2i(4, 18), Vector2i(4, 26)]:
+		var delay: int = pair.x
 		var r: Rig = _rig(CLERIC)
 		r.delay = delay
+		r.prayer_extra = pair.y
 		r.s.local.player.skills.resource = 60
 		await await_frames(1)
 		_join(r, 131, PALADIN)
@@ -750,15 +803,16 @@ func _check_lag_window() -> void:
 		for at: int in r.host.answer_ticks:
 			if at > Config.PRAYER_ANSWER_WINDOW_TICKS:
 				late_taken += 1
-		if delay < 20:
+		var label: String = "delay %d%s" % [delay, " + resend %d" % pair.y if pair.y > 0 else ""]
+		if 2 * delay + pair.y + Config.PRAYER_ANSWER_WINDOW_TICKS - 2 <= Config.PRAYER_ANSWER_WINDOW_TICKS + Config.PRAYER_ANSWER_LAG_TICKS:
 			check(ok == 4 and late_taken == 4 and pr.last.lit == 9,
-				"delay %d: the client's four answers at tick 88 of its window are taken (at host window ticks %s), nine lit" %
-				[delay, r.host.answer_ticks])
+				"%s: the client's four answers at tick 88 of its window are taken (at host window ticks %s), nine lit" %
+				[label, r.host.answer_ticks])
 		else:
 			check(ok == 0 and over == 4 and _n(c.s.client.prayer_net.my_results, "late") == 4 and pr.last.lit == 5,
-				"delay 20: its answers come after the turn was given up: refused as over (%d), its four lamps out (late)" % over)
-		_check_agree(r, "delay %d" % delay)
-		check_prediction("lag %d" % delay, c)
+				"%s: its answers come after the turn was given up: refused as over (%d), its four lamps out (late)" % [label, over])
+		_check_agree(r, label)
+		check_prediction("lag %s" % label, c)
 		_free_rig(r)
 
 
@@ -792,6 +846,10 @@ func _check_meditation_net() -> void:
 	check(a.s.local.player.skills.zeal_pct == Config.MEDITATE_ZEAL_PCT and hm(r, a).player.skills.zealous()
 		and not hm(r, m).player.skills.zealous(), "the archer's meditation gave its zeal (%d%%), the miner's broke (it walked)" %
 		Config.MEDITATE_ZEAL_PCT)
+	var aslot: int = a.s.local.slot
+	check(not hm(r, a).player.skills.zeal_from_prayer and not a.s.local.player.skills.zeal_from_prayer
+		and not _zp(a.s.client.prayer_net, aslot, true) and not m.s.members[aslot].player.skills.zeal_from_prayer,
+		"M10-fix: a meditation's zeal on every machine (it does not block a prayer)")
 	_check_agree(r, "meditation")
 	for c2: Client in r.clients:
 		check(c2.s.client.prayer_net.meditating.is_empty(), "c%d: no meditation left" % c2.s.local.slot)
@@ -812,6 +870,9 @@ func _check_zeal_fight() -> void:
 	_tick(r, 2 * r.delay + 4)
 	check(late.s.client.prayer_net.zeal.size() == 4, "the late joiner got the four zeals in its welcome (%s)" %
 		late.s.client.prayer_net.zeal)
+	for slot0: int in 4:
+		check(_zp(late.s.client.prayer_net, slot0, false) and late.s.members[slot0].player.skills.zeal_from_prayer,
+			"M10-fix: player %d's zeal there is a prayer's (it blocks a new prayer)" % slot0)
 	var pal: NetMember = r.s.members[1]
 	var a: Arena = r.host.arenas[Config.MAP_SURFACE]
 	var h: HereticSim = a.spawn_heretic(pal.player.sim_position + Vector2(18, 0))
@@ -843,7 +904,245 @@ func _check_zeal_fight() -> void:
 	for c: Client in r.clients:
 		check(not c.s.client.prayer_net.zeal.has(2) and c.s.client.prayer_net.zeal.has(1),
 			"c%d: the archer's zeal gone, the paladin's kept" % c.s.local.slot)
+	# M10-fix: a client shows no zeal on a dead player even with a zeal still listed for it (the host's 0 event not come yet).
+	var np0: NetPrayer = ac.s.client.prayer_net
+	var dead: Player = ac.s.local.player
+	np0.zeal[2] = Vector2i(20, r.s.tick + 1000)
+	np0.tick(ac.s, r.s.tick)
+	check(dead.vitals.life == Vitals.Life.DEAD and not dead.skills.zealous(),
+		"a dead player shows no zeal on a client (its own machine: life %d)" % dead.vitals.life)
+	np0.zeal.erase(2)
 	a.heretics.clear()
+	_free_rig(r)
+
+
+# --- M10-fix (the review) --------------------------------------------------------------------------------------
+
+## The host and clients tap in turn: the host (`host_taps`), then each client of `who`, a tick apart.
+func _taps(r: Rig, host_taps: bool, who: Array[Client]) -> void:
+	if host_taps:
+		r.action = _pray_action()
+		_tick(r)
+		r.action = null
+	for c: Client in who:
+		c.action = _pray_action()
+		_tick(r)
+		c.action = null
+
+
+## A client is the cleric: its tap starts the host's prayer; it quits after two turns: it stops everywhere, no faith spent (on the
+## host and its own meter); a second prayer it leads to the end spends its faith there and on its meter; every machine agrees.
+func _check_client_cleric() -> void:
+	var r: Rig = _rig(PALADIN)
+	r.delay = 2
+	await await_frames(1)
+	var cl: Client = _join(r, 181, CLERIC)
+	var ar: Client = _join(r, 182, ARCHER)
+	_settle(r)
+	var mc: NetMember = hm(r, cl)
+	mc.player.skills.resource = 60
+	_tick(r, 2 * r.delay + 6)
+	check_eq(cl.s.local.player.skills.resource, 60, "client cleric: its meter on its machine")
+	var pr: Prayer = r.host.prayer
+	_taps(r, false, [cl] as Array[Client])
+	_tick(r, 2 * r.delay + 2)
+	check(pr.running() and pr.cleric_id == mc.player.get_instance_id(), "a client cleric's tap starts the host's prayer")
+	_taps(r, true, [ar] as Array[Client])
+	_tick_until(r, func() -> bool: return pr.phase == Prayer.Phase.TURNS or not pr.running(), Config.PRAYER_GATHER_TICKS + 60)
+	check_eq(pr.members.size(), 3, "client cleric: three pray")
+	var counted: Dictionary = {}
+	var scripts: Dictionary = {0: "c", 1: "c", 2: "c"}
+	while pr.running() and pr.turn < 2:
+		_set_answers(r, scripts, Config.PRAYER_TEST_ANSWER_TICK, counted)
+		_tick(r)
+	r.action = null
+	for c: Client in r.clients:
+		c.action = null
+	_taps(r, false, [cl] as Array[Client])
+	_tick(r, 2 * r.delay + 4)
+	check(not pr.running() and pr.last != null and pr.last.stopped and pr.last.why == "the cleric: quit",
+		"the client cleric taps again: it stops (%s)" % (pr.last.why if pr.last != null else "?"))
+	check(mc.player.skills.resource == 60 and cl.s.local.player.skills.resource == 60, "no faith spent (host %d, its meter %d)" % [
+		mc.player.skills.resource, cl.s.local.player.skills.resource])
+	_check_agree(r, "client cleric quit")
+	for c2: Client in r.clients:
+		check(not c2.s.client.prayer_net.mirror.running() and c2.s.local.player.prayer_role == Prayer.Role.NONE,
+			"c%d: stopped there, free" % c2.s.local.slot)
+	_tick(r, Config.PRAYER_RESULT_SHOW_TICKS)
+	_taps(r, false, [cl] as Array[Client])
+	_tick(r, 2 * r.delay + 2)
+	_taps(r, true, [ar] as Array[Client])
+	_run_prayer(r, scripts)
+	check(pr.last != null and not pr.last.stopped and pr.last.lit == 9 and pr.last.participants == 3
+		and pr.last.faith == Config.PRAYER_FAITH_COST, "the client cleric's second prayer: nine lit, three, faith spent")
+	_tick(r, 2 * r.delay + 6)
+	check(mc.player.skills.resource == 60 - Config.PRAYER_FAITH_COST and cl.s.local.player.skills.resource
+		== 60 - Config.PRAYER_FAITH_COST, "its faith %d on the host and on its own meter (%d)" % [mc.player.skills.resource,
+		cl.s.local.player.skills.resource])
+	_check_agree(r, "client cleric")
+	check_prediction("client cleric", cl)
+	_free_rig(r)
+
+
+## The host's own player answers only in the window its HUD shows (PRAYER_ANSWER_WINDOW_TICKS: the lag allowance after it is the
+## remote clients'): its key on the window's last tick is taken, five ticks later it is no answer (its lamps go out late).
+func _check_host_window() -> void:
+	for at: int in [Config.PRAYER_ANSWER_WINDOW_TICKS, Config.PRAYER_ANSWER_WINDOW_TICKS + 5]:
+		var r: Rig = _rig(CLERIC)
+		r.s.local.player.skills.resource = 60
+		await await_frames(1)
+		_join(r, 191, PALADIN)
+		_settle(r)
+		_taps(r, true, r.clients)
+		_run_prayer(r, {0: "c", 1: "l"}, at)
+		var pr: Prayer = r.host.prayer
+		var lit: int = 0
+		for t: int in [0, 2, 4, 6, 8]:
+			if pr.last != null and pr.last.lamps[t] == Prayer.Lamp.LIT:
+				lit += 1
+		if at <= Config.PRAYER_ANSWER_WINDOW_TICKS:
+			check(lit == 5 and r.host.answer_ticks.size() == 5, "the host's key %d ticks into its turns: taken (%d lit, at %s)" % [at, lit,
+				r.host.answer_ticks])
+		else:
+			check(lit == 0 and r.host.answer_ticks.is_empty(), "the host's key %d ticks into its turns (past its HUD's window): " % at +
+				"no answer, its five lamps out (%d lit, at %s)" % [lit, r.host.answer_ticks])
+		_free_rig(r)
+
+
+## A meditation under way reaches a late joiner (send_prayer_snapshot's meditations): its spark and bar as the host draws them.
+func _check_meditation_late() -> void:
+	var r: Rig = _rig(PALADIN)
+	await await_frames(1)
+	var a: Client = _join(r, 201, ARCHER)
+	_settle(r)
+	_taps(r, false, [a] as Array[Client])
+	_tick(r, 40)
+	var aslot: int = a.s.local.slot
+	check(r.host.prayer.is_meditating(hm(r, a).player.get_instance_id()), "the archer meditates")
+	var late: Client = _join(r, 202, MINER, null, false)
+	var np: NetPrayer = late.s.client.prayer_net
+	check(np.meditating.has(aslot), "the late joiner has the archer's meditation under way")
+	var hv: PrayerView = PrayerView.new()
+	add_node(hv)
+	var cv: PrayerView = PrayerView.new()
+	add_node(cv)
+	_tick(r)
+	np.tick(late.s, r.s.tick)
+	var skip: Array[int] = [r.s.local.slot, late.s.local.slot]
+	var host_pic: String = _drawn(r, null, hv, skip)
+	var client_pic: String = _drawn(r, late, cv, skip)
+	check(host_pic.contains("%d:%d/" % [aslot, PrayerMark.Kind.MEDITATE]), "the host draws the archer meditating (%s)" % host_pic)
+	check_eq(client_pic, host_pic, "the late joiner draws its spark and bar as the host does")
+	hv.queue_free()
+	cv.queue_free()
+	_free_rig(r)
+
+
+## A joiner gets the slot of a participant who left the session mid-prayer: on its machine the snapshot's events of that slot from
+## before its welcome are the former player's (no left mark over the newcomer, no turn or result of its), the members, the lamps and
+## every mark as the host draws them.
+func _check_slot_reuse() -> void:
+	var r: Rig = _rig(CLERIC)
+	r.s.local.player.skills.resource = 60
+	await await_frames(1)
+	_join(r, 211, PALADIN)
+	var ac: Client = _join(r, 212, ARCHER)
+	_settle(r)
+	_taps(r, true, r.clients)
+	var pr: Prayer = r.host.prayer
+	var counted: Dictionary = {}
+	var scripts: Dictionary = {0: "c", 1: "c", 2: "c"}
+	while pr.running() and (pr.turn < 2 or pr.turn_ticks < 5):
+		_set_answers(r, scripts, Config.PRAYER_TEST_ANSWER_TICK, counted)
+		_tick(r)
+	r.action = null
+	for c: Client in r.clients:
+		c.action = null
+	var slot: int = ac.s.local.slot
+	var old_id: int = hm(r, ac).player.get_instance_id()
+	r.host.on_peer_disconnected(ac.peer)
+	ac.s.over = true
+	_tick(r, 2)
+	check(pr.running() and not pr.is_member(old_id) and pr.left_at.has(old_id), "the archer left the session: gone from the prayer")
+	var late: Client = _join(r, 213, HERBALIST, null, false)
+	check_eq(late.s.local.slot, slot, "the newcomer gets its slot (%d)" % slot)
+	var np: NetPrayer = late.s.client.prayer_net
+	var hv: PrayerView = PrayerView.new()
+	add_node(hv)
+	var cv: PrayerView = PrayerView.new()
+	add_node(cv)
+	_tick(r)
+	np.tick(late.s, r.s.tick)
+	var me: int = late.s.local.player.get_instance_id()
+	check(not np.mirror.left_at.has(me) and not np.mirror.is_member(me) and np.my_turn < 0 and np.my_results.is_empty(),
+		"the newcomer is not the one who left: no left mark, no turn, no result of its")
+	check(np.mirror.members.size() == pr.members.size() and NetPrayer.lamps_word(np.mirror.lamps) == NetPrayer.lamps_word(pr.lamps),
+		"the members and the lamps = the host's (%s)" % NetPrayer.lamps_word(np.mirror.lamps))
+	var skip: Array[int] = [r.s.local.slot]
+	check_eq(_drawn(r, late, cv, skip), _drawn(r, null, hv, skip), "it draws every mark as the host does (its own: none)")
+	hv.queue_free()
+	cv.queue_free()
+	_free_rig(r)
+
+
+## A session gather that ends with the cleric alone (a paladin beside him never joins): it stops (`nobody joined`) on every machine,
+## no faith spent, and the cleric meditates instead; its zeal is a meditation's on every machine.
+func _check_alone_net() -> void:
+	var r: Rig = _rig(CLERIC)
+	r.delay = 2
+	r.s.local.player.skills.resource = 60
+	await await_frames(1)
+	var c: Client = _join(r, 221, PALADIN)
+	_settle(r)
+	_taps(r, true, [] as Array[Client])
+	var pr: Prayer = r.host.prayer
+	check(pr.running(), "alone: the cleric starts (the paladin in the circle is company)")
+	_tick_until(r, func() -> bool: return not pr.running(), Config.PRAYER_GATHER_TICKS + 10)
+	_tick(r, 2 * r.delay + 4)
+	var hid: int = r.s.local.player.get_instance_id()
+	check(pr.last != null and pr.last.stopped and pr.last.why == Prayer.WHY_NOBODY and r.s.local.player.skills.resource == 60,
+		"nobody joined: it stops at the gather's end, no faith spent")
+	check(pr.is_meditating(hid), "the cleric meditates instead")
+	var np: NetPrayer = c.s.client.prayer_net
+	check(np.mirror.last != null and np.mirror.last.why == Prayer.WHY_NOBODY and np.meditating.has(r.s.local.slot),
+		"the paladin's machine: stopped (nobody joined), the cleric meditating")
+	_tick(r, Config.MEDITATE_TICKS + 2 * r.delay + 4)
+	var sk: SkillState = r.s.local.player.skills
+	check(sk.zeal_pct == Config.MEDITATE_ZEAL_PCT and not sk.zeal_from_prayer, "his meditation's zeal (%d%%)" % sk.zeal_pct)
+	check(not _zp(np, r.s.local.slot, true) and c.s.members[r.s.local.slot].player.skills.zealous()
+		and not c.s.members[r.s.local.slot].player.skills.zeal_from_prayer, "a meditation's zeal on the paladin's machine too")
+	_check_agree(r, "alone")
+	_free_rig(r)
+
+
+## A join that reaches the host just after the gather (inside PRAYER_JOIN_LAG_TICKS of turn 0: its machine still showed the gather)
+## is taken and goes last in the turn order; one that comes past it is refused (`the turns have begun`); every machine agrees.
+func _check_late_join_net() -> void:
+	var r: Rig = _rig(CLERIC)
+	r.delay = 8
+	r.s.local.player.skills.resource = 60
+	await await_frames(1)
+	var a: Client = _join(r, 231, PALADIN)
+	var b: Client = _join(r, 232, ARCHER)
+	var m: Client = _join(r, 233, MINER)
+	_settle(r)
+	_taps(r, true, [a] as Array[Client])
+	var pr: Prayer = r.host.prayer
+	_tick_until(r, func() -> bool: return pr.phase_ticks >= Config.PRAYER_GATHER_TICKS - 1 or not pr.running(),
+		Config.PRAYER_GATHER_TICKS + 10)
+	check(b.s.client.prayer_net.mirror.phase == Prayer.Phase.GATHER, "the archer's machine still shows the gather")
+	_taps(r, false, [b] as Array[Client])
+	_tick_until(r, func() -> bool: return pr.turn_ticks >= Config.PRAYER_JOIN_LAG_TICKS - r.delay + 2, 120)
+	var bid: int = hm(r, b).player.get_instance_id()
+	check(pr.is_member(bid) and pr.order[pr.order.size() - 1] == bid and pr.turn == 0,
+		"its tap came %d ticks into turn 0 (its window: %d): it joins, last in the order" % [r.delay, Config.PRAYER_JOIN_LAG_TICKS])
+	_taps(r, false, [m] as Array[Client])
+	_tick(r, r.delay + 2)
+	check(not pr.is_member(hm(r, m).player.get_instance_id()) and _n(r.host.prayer_refusals, Prayer.WHY_CLOSED) == 1,
+		"the miner's, past it: the turns have begun")
+	_run_prayer(r, {0: "c", 1: "c", 2: "c"})
+	check(pr.last != null and pr.last.participants == 3 and hm(r, b).player.skills.zealous(), "three to the end, the archer's zeal")
+	_check_agree(r, "late join")
 	_free_rig(r)
 
 

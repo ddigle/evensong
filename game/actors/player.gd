@@ -410,11 +410,13 @@ func show_ward(pct: int, ticks: int) -> void:
 
 
 ## M10b: a session client shows zeal of `pct` percent with `ticks` left on this player (the host's ZEAL events; 0 = none): the
-## mark over its head (redrawn when it comes or goes), the local HUD's icon and bar.
-func show_zeal(pct: int, ticks: int) -> void:
+## mark over its head (redrawn when it comes or goes), the local HUD's icon and bar. M10-fix: `from_prayer` = a prayer's zeal, not
+## only a meditation's (the host's rule; kept should this client go on alone, Main._go_offline_combat).
+func show_zeal(pct: int, ticks: int, from_prayer: bool = true) -> void:
 	var was: bool = skills.zealous()
 	skills.zeal_pct = pct if ticks > 0 else 0
 	skills.zeal_ticks = ticks if pct > 0 else 0
+	skills.zeal_from_prayer = from_prayer and skills.zealous()
 	if was != skills.zealous():
 		_sync_view()
 

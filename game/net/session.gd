@@ -79,7 +79,7 @@ extends Node
 ##
 ## M10b (the group prayer and meditation): an F tap at the altar is a PRAY request, a participant's W A S D on its turn an ANSWER
 ## tagged with its prayer and turn; the host keeps the one Prayer of the surface's altar (items/prayer.gd: the offline rule, its
-## turns, directions, judging with a lag allowance, lamps, zeal, faith) and says what happened as prayer events (_rpc_prayer: to the
+## turns, directions, judging with a lag allowance, lamps, zeal, faith) and says what happened as prayer events (_rpc_vespers: to the
 ## surface's clients; every player's zeal to every client). A client mirrors it (net/net_prayer.gd) and draws the circle, the lamps
 ## and the marks from it; its own prompt runs from when its turn's event came; it predicts nothing but the key it pressed.
 ##
@@ -507,9 +507,12 @@ func _rpc_skills(payload: PackedByteArray) -> void:
 		client.on_skills(payload)
 
 
-## Client (M10b): prayer events (the surface's prayer and meditations, every player's zeal).
+## Client (M10b): prayer events (the surface's prayer and meditations, every player's zeal). Named "vespers", not "prayer", on
+## purpose: Godot numbers a node's RPCs by their sorted names, and a version refusal only reaches an older or newer build when
+## `_rpc_hello` and `_rpc_refused` keep their numbers (6 and 13 since v9; a new RPC must sort after `_rpc_refused`; tests/test_net.gd
+## RPC_STABLE). "_rpc_prayer" sorted before `_rpc_refused` and a v11 client was never told `refused: version`.
 @rpc("authority", "call_remote", "reliable", 0)
-func _rpc_prayer(payload: PackedByteArray) -> void:
+func _rpc_vespers(payload: PackedByteArray) -> void:
 	if role == Role.CLIENT:
 		client.on_prayer(payload)
 
@@ -603,7 +606,7 @@ func send_skills(peer: int, payload: PackedByteArray) -> void:
 
 
 func send_prayer(peer: int, payload: PackedByteArray) -> void:
-	_rpc_prayer.rpc_id(peer, payload)
+	_rpc_vespers.rpc_id(peer, payload)
 
 
 func send_go(peer: int) -> void:

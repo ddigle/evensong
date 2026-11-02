@@ -4092,9 +4092,11 @@ func _check_prayer_lamps() -> void:
 ## M10a: the prayer's other pictures (rules written out here): evening off, the prayer circle (a dashed faith-gold ring on the radius
 ## between ash-dark lines one px inside and outside, 24 of every 32 of 512 steps, shifted a step), over four players (figures hidden,
 ## no effect marks: just above the head) the turn's arrow
-## (right), the joined ring, the left ring (iron) and the meditation's ring and bar (4 of 7 lit), the zeal mark over a fifth
+## (right), the joined spark, the left spark (iron) and the meditation's spark and bar (4 of 7 lit), the zeal mark over a fifth
 ## and, on the HUD bound to it, the turn prompt (the arrow 3x at the top centre, the window bar's frame and its lit part: 20 of 40
-## for 45 ticks left) and the zeal icon with its time bar; nothing else changed (the HUD's bars as they were); evening on, the same.
+## for 45 ticks left), the zeal icon with its time bar and (M10-fix) the lamps' grid above the prompt (nine squares 7 px, 1 px
+## apart: a frame, base brown or the answered lamp's gold, round an ash inside holding the lamp's picture: lit, not yet, the ember,
+## out, guttering); nothing else changed (the HUD's bars as they were); evening on, the same.
 func _check_prayer_marks() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
@@ -4123,6 +4125,9 @@ func _check_prayer_marks() -> void:
 	players[4].skills.add_zeal(21, Config.PRAYER_ZEAL_TICKS / 2)
 	players[4].effect_marks.show_kinds([EffectMarks.Kind.ZEAL] as Array[int])
 	hud.show_prayer_prompt(Prayer.Dir.DOWN, 45)
+	var lamp_looks: PackedInt32Array = [Altar.Look.LIT, Altar.Look.UNLIT, Altar.Look.EMBER, Altar.Look.SOOT, Altar.Look.GUTTER,
+		Altar.Look.LIT, Altar.Look.LIT, Altar.Look.UNLIT, Altar.Look.SOOT]
+	hud.show_prayer_lamps(lamp_looks)
 	var got: Image = await _capture()
 	world.lighting.set_evening(true)
 	var eve: Image = await _capture()
@@ -4160,11 +4165,12 @@ func _check_prayer_marks() -> void:
 			if ItemIcons.PALETTE.has(ch):
 				right.set_pixel(x, y, ItemIcons.PALETTE[ch])
 	_image_pixels(want, right, feet[0] + Vector2i(-4, -45))
-	# The ring (5 x 5, open in the middle): gold, the left one iron; its top-left 43 px over the feet; the bar 45 px over them.
+	# The spark (5 x 5, a gold plus in an ash outline: no ring): gold, the left one iron; its top-left 43 px over the feet; the bar 45 px
+	# over them.
 	var ring: Image = Image.create_empty(5, 5, false, Image.FORMAT_RGBA8)
 	var grey: Image = Image.create_empty(5, 5, false, Image.FORMAT_RGBA8)
 	for y2: int in 5:
-		var frow: String = PrayerMark.RING_MAP[y2]
+		var frow: String = PrayerMark.SPARK_MAP[y2]
 		for x2: int in 5:
 			var c: String = frow[x2]
 			if ItemIcons.PALETTE.has(c):
@@ -4202,6 +4208,30 @@ func _check_prayer_marks() -> void:
 				want[q] = gold
 			else:
 				hud_back[q] = true
+	# M10-fix: the lamps' grid (written out here): 3 x 3 squares of 7 px, 1 px apart, centred, its top 1 px down; a frame (base brown
+	# 4a423a; the ember's faith gold) round 5 x 5 ash with the lamp's picture (g gold, s ivory, c copper, o copper dark, C copper
+	# light, u rust, m iron).
+	var lamp_pics: Dictionary[int, PackedStringArray] = {
+		Altar.Look.LIT: PackedStringArray(["..g..", ".ggg.", ".gsg.", ".ggg.", ".ccc."]),
+		Altar.Look.UNLIT: PackedStringArray([".....", ".....", ".....", ".....", ".ooo."]),
+		Altar.Look.EMBER: PackedStringArray([".....", ".....", ".....", "..C..", ".ooo."]),
+		Altar.Look.GUTTER: PackedStringArray([".....", ".....", "..u..", ".uCu.", ".ooo."]),
+		Altar.Look.SOOT: PackedStringArray(["...m.", "..m..", "...m.", ".....", ".ooo."]),
+	}
+	var lamp_colours: Dictionary[String, Color] = {"g": gold, "s": ivory, "c": Color8(0xc0, 0x6a, 0x2e), "o": Color8(0x8c, 0x4a, 0x22),
+		"C": Color8(0xdf, 0x90, 0x3f), "u": Color8(0xc4, 0x42, 0x1c), "m": Color8(0xa3, 0x9d, 0x92)}
+	var grid_x: int = (Config.VIEW_SIZE.x - 23) / 2
+	for li: int in 9:
+		var cell: Vector2i = Vector2i(grid_x + (li % 3) * 8, 1 + (li / 3) * 8)
+		var pic: PackedStringArray = lamp_pics[lamp_looks[li]]
+		for cy: int in 7:
+			for cx: int in 7:
+				var q2: Vector2i = cell + Vector2i(cx, cy)
+				if cx == 0 or cy == 0 or cx == 6 or cy == 6:
+					want[q2] = gold if lamp_looks[li] == Altar.Look.EMBER else Color8(0x4a, 0x42, 0x3a)
+				else:
+					var ch: String = pic[cy - 1][cx - 1]
+					want[q2] = lamp_colours[ch] if lamp_colours.has(ch) else ash
 	var icon: Vector2i = Hud.effect_icon_at(0)
 	_image_pixels(want, EffectMarks.image(EffectMarks.Kind.ZEAL), icon)
 	var zfill: int = clampi(ceili(float(Config.PRAYER_ZEAL_TICKS / 2) / Config.PRAYER_ZEAL_TICKS * 7), 1, 7)

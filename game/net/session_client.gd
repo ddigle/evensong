@@ -246,6 +246,7 @@ func on_welcome(payload: PackedByteArray) -> void:
 			prediction.base.vit = info.state.vitals.copy()
 	_combat_on(Config.MAP_SURFACE, s.world)
 	prayer_net.setup(data)  # M10b: the prayer's snapshot follows the welcome
+	prayer_net.welcomed_at = w.tick  # M10-fix: older events of this slot are its former player's
 	clock.observe(w.tick, Interpolation.RemoteClock.now_ticks())
 	_last_state_tick = w.tick
 	skills_copy_tick = w.tick  # M9c: the own skill state's copy starts at the welcome's host tick

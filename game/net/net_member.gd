@@ -62,6 +62,8 @@ var skills_msgs: int = 0
 ## given, renewed or ended early (a death) goes out once and one running out on time sends nothing.
 var zeal_sent_pct: int = 0
 var zeal_sent_until: int = 0
+## M10-fix: and whether it said a prayer's zeal (not only a meditation's).
+var zeal_sent_prayer: bool = false
 var _last_action: int = -1
 var _last_action_start: float = -1.0
 

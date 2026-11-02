@@ -164,4 +164,6 @@ func _session_litany() -> void:
 		var c2pr: Dictionary = c2.result.get("prayer", {})
 		var cz: Dictionary = c2pr.get("zeal", {})
 		check(not cz.has(str(s3)), "litany/%s: c3 has no zeal" % c2.name)
-	note("litany: c1's answers at host window ticks %s; prayer messages %s (%s B)" % [c1_at, hp.get("msgs"), hp.get("bytes")])
+	var c1link: Dictionary = cs[0].result.get("link", {})
+	note("litany: c1's answers at host window ticks %s; prayer messages %s (%s B); c1's link resent %s reliable messages, held one back %s ms (M10-fix)" % [
+		c1_at, hp.get("msgs"), hp.get("bytes"), c1link.get("resent", "?"), c1link.get("held_max_ms", "?")])

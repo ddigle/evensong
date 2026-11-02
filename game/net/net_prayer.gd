@@ -27,6 +27,13 @@ var zeal: Dictionary[int, Vector2i] = {}
 var meditating: Dictionary[int, int] = {}
 ## The node id each slot's player had when the mirror met it (a player who left the session is still named by its slot).
 var ids: Dictionary[int, int] = {}
+## M10-fix: whether each slot's zeal is a prayer's (not only a meditation's: whose zeal blocks a new prayer; kept on the skill state
+## should this client go on alone).
+var zeal_prayer: Dictionary[int, bool] = {}
+## M10-fix: the host tick of this client's welcome. A slot is reused: an event naming this client's own slot from then or before
+## is its former player's (a participant who left the session), so the mirror keeps it under GHOST_ID - slot, never this player.
+var welcomed_at: int = -1
+const GHOST_ID: int = -100
 ## The tick the prayer's phase began (the gather: its START's; the turns: turn 0's) and the turn under way's (its TURN's).
 var phase_tick: int = 0
 var turn_tick: int = 0
@@ -102,8 +109,10 @@ func apply(s: NetSession, events: Array[NetProtocol.PrayerEvent], local_tick: in
 		if e.kind == NetProtocol.PrayerEvent.Kind.ZEAL:
 			if e.pct > 0:
 				zeal[e.slot] = Vector2i(e.pct, e.tick + e.ticks)
+				zeal_prayer[e.slot] = e.prayer_zeal
 			else:
 				zeal.erase(e.slot)
+				zeal_prayer.erase(e.slot)
 			taken += 1
 			continue
 		if not on_surface:
@@ -115,9 +124,11 @@ func apply(s: NetSession, events: Array[NetProtocol.PrayerEvent], local_tick: in
 
 func _apply_one(s: NetSession, e: NetProtocol.PrayerEvent, local_tick: int) -> void:
 	var m: Prayer = mirror
-	var p: Player = _player(s, e.slot)
-	var id: int = _id_of(p, e.slot)
-	var local: bool = s.local != null and e.slot == s.local.slot
+	# M10-fix: an event of this client's slot from its welcome or before is its former player's (the snapshot of a prayer under way).
+	var ghost: bool = s.local != null and e.slot == s.local.slot and welcomed_at >= 0 and e.tick <= welcomed_at
+	var p: Player = null if ghost else _player(s, e.slot)
+	var id: int = GHOST_ID - e.slot if ghost else _id_of(p, e.slot)
+	var local: bool = not ghost and s.local != null and e.slot == s.local.slot
 	match e.kind:
 		NetProtocol.PrayerEvent.Kind.START:
 			_release_all(s)
@@ -227,6 +238,7 @@ func _release_all(s: NetSession) -> void:
 ## A player left the session: its zeal, meditation and part go with it (offline the host's events say it left the prayer too).
 func forget(slot: int) -> void:
 	zeal.erase(slot)
+	zeal_prayer.erase(slot)
 	meditating.erase(slot)
 
 
@@ -250,7 +262,8 @@ func tick(s: NetSession, host_now: int) -> void:
 		if left <= 0 or q.vitals.life == Vitals.Life.DEAD:
 			q.show_zeal(0, 0)
 		else:
-			q.show_zeal(z.x, left)
+			var from_prayer: bool = zeal_prayer.get(slot, true)
+			q.show_zeal(z.x, left, from_prayer)
 
 
 ## The local player's turn's window is open for the frame built at client tick `local_tick` (1..window ticks after its event came,

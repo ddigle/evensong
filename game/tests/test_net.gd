@@ -20,8 +20,12 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_input": NetProtocol.CH_INPUT, "_rpc_state": NetProtocol.CH_STATE,
 	"_rpc_enemies": NetProtocol.CH_ENEMY, "_rpc_enemy_keyframe": NetProtocol.CH_CONTROL, "_rpc_shots": NetProtocol.CH_CONTROL,
 	"_rpc_skills": NetProtocol.CH_CONTROL,  # M9c: the owner's skill state
-	"_rpc_prayer": NetProtocol.CH_CONTROL,  # M10b: the prayer events (the surface), the zeals (everyone)
+	"_rpc_vespers": NetProtocol.CH_CONTROL,  # M10b: the prayer events (the surface), the zeals (everyone)
 }
+## M10-fix: the RPCs a version refusal needs, at the numbers every build since v9 gives them (Godot numbers a node's RPCs by their
+## sorted names): an older or newer client's hello must reach the host's `_rpc_hello` and the host's refusal its `_rpc_refused`, so a
+## new RPC must sort after "_rpc_refused" (M10b's "_rpc_prayer" sorted before it: a v11 client got no `refused: version`).
+const RPC_STABLE: Dictionary[String, int] = {"_rpc_hello": 6, "_rpc_refused": 13}
 ## Only these may be called by clients; everything else only by the host (authority).
 const CLIENT_CALLABLE: PackedStringArray = ["_rpc_hello", "_rpc_input", "_rpc_done"]
 const UNRELIABLE: PackedStringArray = ["_rpc_input", "_rpc_state", "_rpc_enemies"]
@@ -47,6 +51,7 @@ func run() -> Array[String]:
 	_check_bot()
 	_check_cli()
 	_check_rpc_table()
+	_check_link_sim()
 	await _check_transports()
 	return failures
 
@@ -1490,6 +1495,53 @@ func _check_rpc_table() -> void:
 			else MultiplayerPeer.TRANSFER_MODE_RELIABLE, "%s: reliability" % method)
 		check_eq(channel, RPC_CHANNELS[method], "%s: channel" % method)
 		check(not call_local, "%s: not called locally" % method)
+	# M10-fix: the sorted numbers the hello and the refusal keep across versions (see RPC_STABLE).
+	var names: Array = table.keys()
+	names.sort_custom(func(a: Variant, b: Variant) -> bool: return str(a) < str(b))
+	for method: String in RPC_STABLE:
+		check_eq(names.find(method), RPC_STABLE[method], "%s keeps its RPC number across versions (sorted names)" % method)
+
+
+## M10-fix: the link simulation's reliable path (LinkSim.delay, the prayer messages): late by half the round trip; with the loss
+## chance sent again a round trip and RESEND_MARGIN_MS later (doubling), in order, never lost (at most RESEND_MAX resends); the
+## unreliable path's drops do not depend on it (its own generator).
+func _check_link_sim() -> void:
+	var got: Array[int] = []
+	var plain: LinkSim = LinkSim.new()
+	plain.delay(func() -> void: got.append(1), 0)
+	check_eq(got, [1] as Array[int], "an inactive link: at once")
+	var lossless: LinkSim = LinkSim.new(120, 0.0, 3)
+	lossless.delay(func() -> void: got.append(2), 1000)
+	lossless.poll(1059)
+	check_eq(got.size(), 1, "120 ms round trip: not before 60 ms")
+	lossless.poll(1060)
+	check_eq(got, [1, 2] as Array[int], "then it comes")
+	var lossy: LinkSim = LinkSim.new(120, 30.0, 5)
+	var order: Array[int] = []
+	for i: int in 200:
+		var k: int = i
+		lossy.delay(func() -> void: order.append(k), i * 16)
+	lossy.poll(1 << 30)
+	var in_order: bool = order.size() == 200
+	for j: int in order.size():
+		in_order = in_order and order[j] == j
+	check(in_order, "30 % loss: all 200 reliable messages arrive, in order")
+	check(lossy.resent > 30 and lossy.held_max_ms >= 120 + LinkSim.RESEND_MARGIN_MS,
+		"30 %% loss: %d resent, one held back %d ms (a resend: a round trip and the margin)" % [lossy.resent, lossy.held_max_ms])
+	var a: LinkSim = LinkSim.new(120, 30.0, 9)
+	var b: LinkSim = LinkSim.new(120, 30.0, 9)
+	for i2: int in 50:
+		a.delay(func() -> void: pass, 0)
+	for i3: int in 100:
+		a.pass_through(func() -> void: pass, 0)
+		b.pass_through(func() -> void: pass, 0)
+	check_eq(a.dropped, b.dropped, "the unreliable drops are the same with or without reliable messages (%d)" % b.dropped)
+	var arrived: Array[bool] = [false]
+	var full: LinkSim = LinkSim.new(100, 100.0, 1)
+	full.delay(func() -> void: arrived[0] = true, 0)
+	full.poll(1 << 30)
+	check(arrived[0] and full.resent == LinkSim.RESEND_MAX, "100 %% loss: it still arrives after %d resends" % LinkSim.RESEND_MAX)
+	check_eq(full.to_dict().get("resent", -1), LinkSim.RESEND_MAX, "the results say so")
 
 
 # --- transports ----------------------------------------------------------------------------------

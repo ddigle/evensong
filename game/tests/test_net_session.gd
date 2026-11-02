@@ -70,6 +70,9 @@ const Runner := preload("res://tests/run_all.gd")
 const PREDICTION_BOUND_PX: float = 0.5
 ## Share of frames drawing a walking player past its newest state (100 ms buffer, localhost).
 const INTERP_STARVED_MAX: float = 0.1
+## M10-fix: the same bound for a client on a lossy link (--net-loss > 0: lost state batches starve it by design; M10b's litany c1
+## at 120 ms / 5 % measured 12 of 102 frames). A looser bound, not none (the "lag" session keeps its own exemption).
+const INTERP_STARVED_MAX_LOSSY: float = 0.2
 const READY_WAIT_SEC: float = 20.0
 const STEP_WAIT_SEC: float = 40.0
 const REAP_WAIT_SEC: float = 15.0
@@ -1014,10 +1017,12 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		var samples: float = _num(r, "interp_samples")
 		var starved: float = _num(r, "interp_starved")
 		var link: Dictionary = r.get("link", {})
-		if label != "lag" and _num(link, "loss_percent", 0.0) <= 0.0:  # M10b: a lossy client (--net-loss) starves by design
-			check(starved <= INTERP_STARVED_MAX * samples,
-				"%s/%s: other players drawn from the buffer (%d of %d frames past the newest state)" % [label, c.name,
-				starved, samples])
+		var lossy: bool = _num(link, "loss_percent", 0.0) > 0.0
+		if label != "lag":  # M10-fix: a lossy client (--net-loss) has the looser bound (M10b skipped it)
+			var bound: float = INTERP_STARVED_MAX_LOSSY if lossy else INTERP_STARVED_MAX
+			check(starved <= bound * samples,
+				"%s/%s: other players drawn from the buffer (%d of %d frames past the newest state, bound %d%%)" % [label, c.name,
+				starved, samples, roundi(bound * 100.0)])
 	check(_num(h, "snapshots_sent") >= float(clients.size()), "%s: the host sent a snapshot to every joiner (%s)" % [
 		label, h.get("snapshots_sent")])
 	var gates: Dictionary = h.get("gates", {})

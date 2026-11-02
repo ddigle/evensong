@@ -9,6 +9,9 @@ extends "res://tests/base_test.gd"
 ## meditation (anyone, the cleric alone, broken by moving, a dash, an action, a hit, a prayer starting), zeal on every damage
 ## path chosen (basic attacks: melee, arrow, bolt, the shrine, a tier-1 weapon; the nine damaging skills; not a thrown poison),
 ## a praying player's frames (no move, the refusals) and the drawn pieces' rules. main.tscn's side is tests/test_prayer_main.gd.
+## M10-fix (the review): whose zeal blocks (a prayer's, not a meditation's), "alone" (company that could join), a gather that ends
+## with the cleric alone (no prayer: it stops, he meditates), joining in the host's lag allowance, the HUD's lamps for who is at
+## the altar.
 
 const TICK: float = 1.0 / 60.0
 ## The window tick the scripted answers press on.
@@ -39,6 +42,7 @@ func run() -> Array[String]:
 	_check_zeal_skills()
 	_check_views()
 	_check_determinism()
+	_check_review_rules()  # M10-fix
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -370,8 +374,8 @@ func _check_start_refusals() -> void:
 		EditLog.apply_to_data(_world, e2)
 	check_eq(_world.altar_rect, home, "the altar back")
 	# Zeal still on; a prayer under way; down, dead, a panel, mid-action, a downed player in revive reach.
-	cleric.skills.add_zeal(10, 100)
-	check_eq(pr.start_refusal(cleric, ps, none), Prayer.WHY_ZEAL, "his zeal still lasts")
+	cleric.skills.add_zeal(10, 100, true)
+	check_eq(pr.start_refusal(cleric, ps, none), Prayer.WHY_ZEAL, "his zeal (a prayer's) still lasts")
 	cleric.skills.zeal_pct = 0
 	cleric.skills.zeal_ticks = 0
 	var other: Player = player(_world, "cleric", spot(5))
@@ -445,8 +449,8 @@ func _check_join_rules() -> void:
 	check_eq(pr.join_refusal(ps[1], ps), "", "in the gather: may join")
 	pr.join(ps[1])
 	check_eq(pr.join_refusal(ps[1], ps), Prayer.WHY_JOINED, "already in")
-	ps[2].skills.add_zeal(5, 10)
-	check_eq(pr.join_refusal(ps[2], ps), Prayer.WHY_ZEAL, "zeal still on: no join")
+	ps[2].skills.add_zeal(5, 10, true)
+	check_eq(pr.join_refusal(ps[2], ps), Prayer.WHY_ZEAL, "a prayer's zeal still on: no join")
 	ps[2].skills.zeal_ticks = 0
 	ps[2].skills.zeal_pct = 0
 	var away: Player = player(_world, "archer", _world.altar_center_px() + Vector2(90, 0))
@@ -468,7 +472,7 @@ func _check_join_rules() -> void:
 # --- the turns ------------------------------------------------------------------------------------------------------
 
 func _check_rotation() -> void:
-	for n: int in [1, 2, 3, 9]:
+	for n: int in [2, 3, 9]:  # M10-fix: one alone is no prayer (Config.PRAYER_MIN_PARTICIPANTS; _check_review_rules)
 		var pr: Prayer = prayer_on(_world)
 		var ps: Array[Player] = party(n)
 		gather(pr, ps)
@@ -770,10 +774,13 @@ func _check_end_and_faith() -> void:
 		check_eq(q.prayer_role, Prayer.Role.NONE, "%s: free again" % q.name)
 	check_eq(pr.phase, Prayer.Phase.IDLE, "over")
 	check_eq(pr.stat("completed"), 1, "counted")
-	# All wrong: the floor, never a debuff, the faith still spent (it completed).
+	# All wrong: the floor, never a debuff, the faith still spent (it completed). M10-fix: the cleric alone only once the other
+	# left during the turns (a gather that ends with him alone is no prayer); the prayer goes on (● R45).
 	var pr2: Prayer = prayer_on(_world)
-	var ps2: Array[Player] = party(1)
-	pr2.start(ps2[0])
+	var ps2: Array[Player] = party(2)
+	gather(pr2, ps2)
+	to_turns(pr2, ps2)
+	pr2.leave(ps2[1].get_instance_id(), "quit")
 	run_out(pr2, ps2, "wwwwwwwww")
 	check_eq(pr2.last.lit, 0, "nothing lit")
 	check_eq(ps2[0].skills.zeal_pct, Config.PRAYER_ZEAL_FLOOR_PCT, "0 lamps alone: the floor, still a buff")
@@ -830,16 +837,141 @@ func _check_zeal_time() -> void:
 	var ps: Array[Player] = party(3)
 	var none: Array[HereticSim] = []
 	for q: Player in ps:
-		q.skills.add_zeal(10, 3)
+		q.skills.add_zeal(10, 3, true)
 	check_eq(pr.start_refusal(ps[0], ps, none), Prayer.WHY_ZEAL, "start blocked")
 	check_eq(pr.meditate_refusal(ps[1], ps, none), Prayer.WHY_ZEAL, "meditation blocked")
 	ticks(pr, ps, 3)
 	check_eq(pr.start_refusal(ps[0], ps, none), "", "over: may start")
 	pr.start(ps[0])
-	ps[1].skills.add_zeal(10, 3)
+	ps[1].skills.add_zeal(10, 3, true)
 	check_eq(pr.join_refusal(ps[1], ps), Prayer.WHY_ZEAL, "join blocked while it lasts")
 	check_eq(pr.join_refusal(ps[2], ps), "", "the other may join")
 	check_eq(SkillState.new().describe(), "cd=[0, 0, 0, 0] res=0 ward=0/0", "describe unchanged without zeal")
+
+
+# --- M10-fix: the review's rules --------------------------------------------------------------------------------
+
+func _check_review_rules() -> void:
+	var none: Array[HereticSim] = []
+	# The zeal's source: a meditation's, a prayer's; a prayer's over a meditation's makes it a prayer's; death and running out clear it.
+	var sk: SkillState = SkillState.new()
+	sk.add_zeal(Config.MEDITATE_ZEAL_PCT, 50)
+	check(sk.zealous() and not sk.zeal_from_prayer, "a meditation's zeal")
+	sk.add_zeal(Prayer.zeal_pct(5, 2), Config.PRAYER_ZEAL_TICKS, true)
+	check(sk.zeal_from_prayer and sk.zeal_pct == Prayer.zeal_pct(5, 2) and sk.zeal_ticks == Config.PRAYER_ZEAL_TICKS,
+		"a prayer's over it: a prayer's, its % and time")
+	check(sk.copy().zeal_from_prayer and sk.copy().same_as(sk), "copied and compared")
+	var other: SkillState = sk.copy()
+	other.zeal_from_prayer = false
+	check(not other.same_as(sk), "the source is part of the state")
+	sk.on_death()
+	check(not sk.zealous() and not sk.zeal_from_prayer, "death clears it")
+	sk.add_zeal(10, 1, true)
+	sk.tick("paladin", false, true)
+	check(not sk.zealous() and not sk.zeal_from_prayer, "run out: cleared")
+	# Whose zeal blocks: a meditation's blocks a meditation, not a prayer (start or join); a prayer's blocks all three.
+	var pr: Prayer = prayer_on(_world)
+	var ps: Array[Player] = party(3)
+	ps[0].skills.add_zeal(Config.MEDITATE_ZEAL_PCT, 500)
+	ps[1].skills.add_zeal(Config.MEDITATE_ZEAL_PCT, 500)
+	check_eq(pr.meditate_refusal(ps[1], ps, none), Prayer.WHY_ZEAL, "a meditation's zeal: no new meditation")
+	check_eq(pr.start_refusal(ps[0], ps, none), "", "a cleric with a meditation's zeal may start a prayer")
+	var t: Prayer.Tapped = pr.tap(ps[0], ps, none)
+	check(t.ok() and t.what == "start", "and does (the others are company)")
+	check_eq(pr.join_refusal(ps[1], ps), "", "a meditation's zeal does not keep one from joining")
+	pr.join(ps[1])
+	pr.join(ps[2])
+	run_out(pr, ps)
+	for q: Player in ps:
+		check(q.skills.zeal_from_prayer and q.skills.zeal_pct == Prayer.zeal_pct(9, 3) and q.skills.zeal_ticks
+			== Config.PRAYER_ZEAL_TICKS, "%s: the prayer's zeal replaced the meditation's (%d%%)" % [q.name, q.skills.zeal_pct])
+	check_eq(pr.meditate_refusal(ps[2], ps, none), Prayer.WHY_ZEAL, "a prayer's zeal: no meditation")
+	# Walking (the host's view of a client mid-step, no key this tick): no meditation.
+	ps[2].skills.zeal_pct = 0
+	ps[2].skills.zeal_ticks = 0
+	ps[2].walking = true
+	check_eq(pr.meditate_refusal(ps[2], ps, none), Prayer.WHY_MOVING, "walking: no meditation")
+	ps[2].walking = false
+	# Alone: only company that could join counts (up, in the circle, no prayer's zeal).
+	var pr2: Prayer = prayer_on(_world)
+	var ps2: Array[Player] = party(3)
+	ps2[1].skills.add_zeal(20, 500, true)
+	ps2[2].skills.add_zeal(20, 500, true)
+	check(pr2.alone(ps2[0], ps2), "two in the circle with a prayer's zeal: the cleric is alone (they may not join)")
+	t = pr2.tap(ps2[0], ps2, none)
+	check(t.ok() and t.what == "meditate" and not pr2.running(), "so his tap meditates, no prayer for nobody (%s)" % t.what)
+	check_eq(ps2[0].skills.resource, 100, "no faith spent")
+	pr2.break_meditation(ps2[0].get_instance_id(), "test")
+	ps2[2].skills.zeal_from_prayer = false  # a meditation's zeal: it may join, so it is company
+	check(not pr2.alone(ps2[0], ps2), "one with a meditation's zeal is company")
+	ps2[2].skills.zeal_pct = 0
+	ps2[2].skills.zeal_ticks = 0
+	ps2[2].take_hit(Config.PLAYER_HP_MAX)
+	check(pr2.alone(ps2[0], ps2), "a downed one is no company (M10a)")
+	# A gather that ends with the cleric alone: no prayer; it stops (nobody joined), no faith spent, and he meditates instead.
+	var pr3: Prayer = prayer_on(_world)
+	var ps3: Array[Player] = party(2)
+	t = pr3.tap(ps3[0], ps3, none)
+	check(t.ok() and t.what == "start", "a cleric with one beside him starts")
+	var stopped: Array[String] = []
+	var meditated: int = 0
+	for i: int in Config.PRAYER_GATHER_TICKS + 1:
+		tick(pr3, ps3)
+		for e: Prayer.Event in pr3.events:
+			if e.what == "stop":
+				stopped.append(e.why)
+			elif e.what == "meditate":
+				meditated += 1
+	check_eq(stopped, [Prayer.WHY_NOBODY] as Array[String], "nobody joined: the gather's end stops it")
+	check(pr3.last.stopped and pr3.last.why == Prayer.WHY_NOBODY and pr3.last.participants == 1, "its result: stopped, alone")
+	check(not pr3.running() and pr3.turn == -1, "no turns")
+	check_eq(ps3[0].skills.resource, 100, "no faith spent")
+	check(meditated == 1 and pr3.is_meditating(ps3[0].get_instance_id()) and ps3[0].prayer_role == Prayer.Role.MEDITATING,
+		"the cleric meditates instead")
+	ticks(pr3, ps3, Config.MEDITATE_TICKS)
+	check(ps3[0].skills.zeal_pct == Config.MEDITATE_ZEAL_PCT and not ps3[0].skills.zeal_from_prayer,
+		"a meditation's small zeal (%d%%), not the prayer's" % ps3[0].skills.zeal_pct)
+	check(not ps3[1].skills.zealous(), "the one who did not join: nothing")
+	# One who joined and left in the gather: the same; a cleric pressing a move key at the gather's end only stops.
+	var pr4: Prayer = prayer_on(_world)
+	var ps4: Array[Player] = party(2)
+	gather(pr4, ps4)
+	pr4.tap(ps4[1], ps4, none)
+	check(not pr4.is_member(ps4[1].get_instance_id()), "the other left in the gather")
+	var keys: Dictionary[Player, Vector2i] = {ps4[0]: Vector2i(1, 0)}
+	for i2: int in Config.PRAYER_GATHER_TICKS:
+		tick(pr4, ps4, keys)
+	check(pr4.last != null and pr4.last.why == Prayer.WHY_NOBODY and not pr4.is_meditating(ps4[0].get_instance_id()),
+		"alone again at the gather's end, a key held: it stops, no meditation (moving)")
+	check(ps4[0].sim_position.distance_to(spot(0)) < 0.01, "the cleric did not move while praying")
+	# Two at the gather's end: the turns (the prayer goes on even if the other leaves later: ● R45).
+	var pr5: Prayer = prayer_on(_world)
+	var ps5: Array[Player] = party(2)
+	gather(pr5, ps5)
+	to_turns(pr5, ps5)
+	check_eq(pr5.phase, Prayer.Phase.TURNS, "two: the turns")
+	# Joining in the host's lag allowance (offline: never).
+	var pr6: Prayer = prayer_on(_world)
+	var ps6: Array[Player] = party(4)
+	gather(pr6, [ps6[0], ps6[1]] as Array[Player])
+	to_turns(pr6, ps6)
+	check_eq(pr6.join_refusal(ps6[2], ps6), Prayer.WHY_CLOSED, "offline: the turns have begun at once (no allowance)")
+	pr6.join_lag_ticks = Config.PRAYER_JOIN_LAG_TICKS
+	check_eq(pr6.join_refusal(ps6[2], ps6), "", "the host: turn 0 just opened, inside its allowance")
+	pr6.join(ps6[2])
+	check_eq(pr6.order[pr6.order.size() - 1], ps6[2].get_instance_id(), "the late joiner goes last in the order")
+	check_eq(pr6.turn_owner, ps6[0].get_instance_id(), "turn 0 stays the cleric's")
+	pr6.leave(ps6[2].get_instance_id(), "quit")
+	check_eq(pr6.join_refusal(ps6[2], ps6), Prayer.WHY_CLOSED, "one who left this prayer may not come back in it")
+	for i3: int in Config.PRAYER_JOIN_LAG_TICKS:
+		tick(pr6, ps6)
+	check_eq(pr6.join_refusal(ps6[3], ps6), Prayer.WHY_CLOSED, "past the allowance: the turns have begun")
+	# The HUD's lamps: for who prays or meditates there or stands near the altar.
+	var pr7: Prayer = prayer_on(_world)
+	var near: Player = player(_world, "miner", _world.altar_center_px() + Vector2(0, Config.PRAYER_HUD_LAMPS_REACH_PX - 1))
+	var far: Player = player(_world, "miner", _world.altar_center_px() + Vector2(0, Config.PRAYER_HUD_LAMPS_REACH_PX + 1))
+	check(Main.at_altar(pr7, _world, near) and not Main.at_altar(pr7, _world, far), "the lamps' grid within PRAYER_HUD_LAMPS_REACH_PX")
+	check(not Main.at_altar(pr7, _world, null), "none for no player")
 
 
 # --- meditation -------------------------------------------------------------------------------------------------
@@ -1106,11 +1238,12 @@ func _check_views() -> void:
 	check_eq(turned, 0, "down = up flipped, left = up transposed, right = left mirrored")
 	check(up.get_pixel(4, 0).a8 > 0 and up.get_pixel(4, 8).a8 > 0 and up.get_pixel(0, 0).a8 == 0, "up points up")
 	check(left.get_pixel(0, 4).a8 > 0 and right.get_pixel(8, 4).a8 > 0, "left and right point that way")
-	var ring_img: Image = PrayerMark.ring_image(false)
-	var gone: Image = PrayerMark.ring_image(true)
-	check(ring_img.get_pixel(2, 1) == ItemIcons.PALETTE["g"] and gone.get_pixel(2, 1) == ItemIcons.PALETTE["m"]
-			and ring_img.get_pixel(2, 2).a8 == 0,
-		"the joined ring gold (open in the middle), the left one iron grey")
+	var spark_img: Image = PrayerMark.spark_image(false)
+	var gone: Image = PrayerMark.spark_image(true)
+	check(spark_img.get_pixel(2, 2) == ItemIcons.PALETTE["g"] and gone.get_pixel(2, 2) == ItemIcons.PALETTE["m"]
+			and spark_img.get_pixel(2, 1) == ItemIcons.PALETTE["g"] and spark_img.get_pixel(0, 0).a8 == 0
+			and spark_img.get_pixel(1, 1) == ItemIcons.PALETTE["k"],
+		"the joined spark gold (filled in the middle: no ring, the cleric's halo is one), the left one iron grey")
 	check_eq(PrayerMark.bar_fill(0), 0, "no meditation: no bar")
 	check_eq(PrayerMark.bar_fill(1), 1, "begun: one px")
 	check_eq(PrayerMark.bar_fill(Config.MEDITATE_TICKS / 2), 4, "half: 4 of 7")
@@ -1123,10 +1256,10 @@ func _check_views() -> void:
 	check(not mark.visible, "none: hidden")
 	# Low: in the effect marks' rows just above the head (the head's top is Config.HEAD_ROOM_PX up); raised: above those marks.
 	check(PrayerMark.arrow_at().y + 9 <= -Config.HEAD_ROOM_PX - 8, "the arrow clear of the head (and the cleric's halo)")
-	check(PrayerMark.ring_at().y + 5 <= -Config.HEAD_ROOM_PX - 8, "the ring too")
-	check(PrayerMark.bar_at().y < PrayerMark.ring_at().y, "the meditation bar over the ring")
+	check(PrayerMark.spark_at().y + 5 <= -Config.HEAD_ROOM_PX - 8, "the spark too")
+	check(PrayerMark.bar_at().y < PrayerMark.spark_at().y, "the meditation bar over the spark")
 	check(PrayerMark.arrow_at(true).y + 9 <= EffectMarks.MARK_Y, "raised: the arrow above the effect marks")
-	check(PrayerMark.ring_at(true).y + 5 <= EffectMarks.MARK_Y, "raised: the ring above them")
+	check(PrayerMark.spark_at(true).y + 5 <= EffectMarks.MARK_Y, "raised: the spark above them")
 	mark.show_mark(PrayerMark.Kind.JOINED, -1, 0, true)
 	check(mark.raised and mark.visible, "a raised mark")
 	# The circle: a dashed gold ring at the radius between two dark lines.

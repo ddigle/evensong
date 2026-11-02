@@ -1092,10 +1092,12 @@ const PRAYER_FAITH_COST: int = 30
 const PRAYER_COMBAT_HURT_TICKS: int = 5 * 60
 const PRAYER_COMBAT_REACH_PX: float = 12.0 * TILE
 ## PROVISIONAL (● R45 "효과가 남은 동안은 다시 기도할 수 없다"; who blocks is ○, README "M10a 효과가 남은 동안"): a cleric who still has
-## zeal may not start a prayer, a player who still has it may not join one or meditate.
+## zeal may not start a prayer, a player who still has it may not join one or meditate. M10-fix: a meditation's zeal blocks only a
+## new meditation, not a prayer (MEDITATION_ZEAL_BLOCKS_PRAYER).
 const PRAYER_ZEAL_BLOCKS: bool = true
 ## PROVISIONAL (● R45 / gameplay-design §3.0 "누구나 제단에서 짧은 묵상 → 소형 버프"; the numbers are not in the docs, README "M10a 묵상"):
-## anyone's tap in the circle with no prayer under way (a cleric's when no other living player stands in the circle) meditates:
+## anyone's tap in the circle with no prayer under way (a cleric's when no other living player stands in the circle; M10-fix: no
+## other who could join, PRAYER_COMPANY_MUST_BE_ABLE_TO_JOIN; and a cleric whose gather ends alone, PRAYER_MIN_PARTICIPANTS) meditates:
 ## standing MEDITATE_TICKS (moving, a dash, an action or a hit breaks it, nothing given), then zeal MEDITATE_ZEAL_PCT for
 ## MEDITATE_ZEAL_TICKS. No faith, no turns. A prayer starting at the altar breaks every meditation there.
 const MEDITATE_TICKS: int = 3 * 60
@@ -1114,14 +1116,34 @@ const ZEAL_MIN_BONUS: int = 1
 ## README "M10b 답 판정"): the host takes a participant's ANSWER (tagged with its prayer and turn) up to this many ticks after the
 ## window (PRAYER_ANSWER_WINDOW_TICKS) closed on the host's clock, so an answer pressed at the end of the window its machine shows
 ## (from the moment the turn's event arrived there) survives the turn's way down and the answer's way up (0.5 s: a 120 ms round
-## trip with 5 % loss measured 8 to 16 ticks, README "측정" M10b). Every turn of a session's prayer lasts that much longer (window
-## + this + PRAYER_TURN_GAP_TICKS = 2.5 s, the prayer 25.5 s: ○ R45 "15~30초"). An answer to a turn whose result went out, to a
+## trip with 5 % loss measured 9 ticks past the window, README "측정" M10b. M10-fix: a turn's event lost once comes again an ENet
+## resend later (about a round trip and a margin), which the client's window starts late by: the 30 ticks hold a round trip of
+## about 450 ms with nothing lost on the way down, about 200 ms with one resend; README "M10b 답 판정"). Every turn of a session's
+## prayer lasts that much longer (window + this + PRAYER_TURN_GAP_TICKS = 2.5 s, the prayer 25.5 s: ○ R45 "15~30초"). An answer to a turn whose result went out, to a
 ## turn not open yet or to another's turn is refused. Offline it is 0 (no lag).
 const PRAYER_ANSWER_LAG_TICKS: int = 30
 ## PROVISIONAL (not in the docs; offline M10a's "기도 중 거부" brought to the host, README "M10b 기도 중 요청"): while a member prays the
 ## host refuses every request of its but PRAY (it leaves), ANSWER and SELECT (`praying`): a use, a throw, a skill, a pick up, a
 ## trade, a craft, a way down, the altar. The frame still does not move it (Player.step_frame).
 const PRAYER_REFUSES_REQUESTS: bool = true
+
+# --- PROVISIONAL, M10-fix (the review of M10a/b: who is alone, whose zeal blocks, joining under lag) -------------------------
+## PROVISIONAL (● R45 "성직자가 없거나 혼자일 때 … 묵상"; what "alone" is is ○, README "M10 검토 혼자"): a cleric's tap starts a prayer only
+## when another player who could join stands up in the circle; one whose prayer's zeal still lasts (it may not join) is no company,
+## so with only such players around the cleric meditates. False = anyone up in the circle is company (M10a).
+const PRAYER_COMPANY_MUST_BE_ABLE_TO_JOIN: bool = true
+## PROVISIONAL (● R45 "혼자일 때 → 묵상"; not in the docs, README "M10 검토 혼자 남은 모이기"): a gather that ends with fewer participants
+## than this (the cleric alone: nobody joined, or all who did left) is no prayer: it stops (`nobody joined`: nothing given, no faith
+## spent) and the cleric meditates instead (when he may). A prayer that loses its others during the turns goes on (● R45).
+const PRAYER_MIN_PARTICIPANTS: int = 2
+## PROVISIONAL (● R45 "효과가 남은 동안은 다시 기도할 수 없다"; whose zeal blocks is ○, README "M10 검토 묵상의 열정"): false = a meditation's
+## small zeal does not block starting or joining a group prayer (only a prayer's zeal does, PRAYER_ZEAL_BLOCKS), so the fallback never
+## locks the main rite out; any zeal still blocks a new meditation; a prayer's zeal ending over a meditation's makes it a prayer's.
+const MEDITATION_ZEAL_BLOCKS_PRAYER: bool = false
+## PROVISIONAL (not in the docs; the joining side of "M10b 답 판정", README "M10 검토 늦은 참여"): the host still takes a join that arrives
+## within this many ticks of the turns' start (turn 0 open; not one who left this prayer): a client sees the gather end one way late
+## and its tap arrives one way later. Offline 0 (no lag). The joiner goes to the end of the turn order (turn 0 is the cleric's).
+const PRAYER_JOIN_LAG_TICKS: int = 30
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -1344,6 +1366,9 @@ const PRAYER_TEST_ANSWER_TICK: int = 30
 ## IMPL (M10b, a session client): the key it pressed for its turn shows dim on its HUD (where the prompt was) until the host's
 ## result arrives, at most this many ticks (the window and the host's lag allowance).
 const PRAYER_SENT_SHOW_TICKS: int = PRAYER_ANSWER_WINDOW_TICKS + PRAYER_ANSWER_LAG_TICKS
+## IMPL (M10-fix: participants south of the altar cover its bottom lamp row): while a prayer's lamps show, the HUD of a player who
+## prays, meditates or stands this close to the altar's centre also draws the nine lamps as a small grid (Hud.show_prayer_lamps).
+const PRAYER_HUD_LAMPS_REACH_PX: float = 2.0 * PRAYER_CIRCLE_RADIUS_PX
 
 
 static func safe_radius_px() -> float:

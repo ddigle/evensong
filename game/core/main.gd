@@ -2009,15 +2009,16 @@ func _show_prayer() -> void:
 
 ## Draws prayer `pr` (`on`: it is world `w`'s): the lamps on its altar while it is shown, the circle (`view`) while it runs, the marks
 ## over the heads of `everyone` (none of the turn's arrow over `local`, this machine's own player), and on `hud` the local player's
-## prompt `prompt` (Prayer.Dir, -1 = none) with `left` ticks of its window and the key it sent `sent` (-1 = none). Main every tick;
-## tools/check_render.gd draws a host's prayer and a client's mirror of it with it.
+## prompt `prompt` (Prayer.Dir, -1 = none) with `left` ticks of its window and the key it sent `sent` (-1 = none). M10-fix: and the
+## lamps' grid while `local` is at the altar (it prays, meditates, or stands within Config.PRAYER_HUD_LAMPS_REACH_PX). Main every
+## tick; tools/check_render.gd draws a host's prayer and a client's mirror of it with it.
 static func show_prayer_from(pr: Prayer, on: bool, w: GameWorld, view: PrayerView, everyone: Array[Player], local: Player, h: Hud,
 		prompt: int, left: int, sent: int) -> void:
+	var looks: PackedInt32Array = PackedInt32Array()
+	if on and pr.showing():
+		for i: int in Config.PRAYER_TURNS:
+			looks.append(Altar.lamp_look(pr.lamps[i], pr.clock - pr.lamp_ticks[i], i == pr.current_lamp()))
 	if w.altar != null:
-		var looks: PackedInt32Array = PackedInt32Array()
-		if on and pr.showing():
-			for i: int in Config.PRAYER_TURNS:
-				looks.append(Altar.lamp_look(pr.lamps[i], pr.clock - pr.lamp_ticks[i], i == pr.current_lamp()))
 		w.altar.show_lamps(looks)
 	var circle: bool = on and pr.running() and w.data.altar_rect.has_area()
 	view.show_circle(circle, w.data.altar_center_px() if circle else Vector2.ZERO, PrayerView.shift_for(pr.phase, pr.phase_ticks))
@@ -2027,6 +2028,18 @@ static func show_prayer_from(pr: Prayer, on: bool, w: GameWorld, view: PrayerVie
 	if h != null:
 		h.show_prayer_prompt(prompt if on else -1, left)
 		h.show_prayer_sent(sent if on else -1)
+		h.show_prayer_lamps(looks if at_altar(pr, w.data, local) else PackedInt32Array())
+
+
+## M10-fix: whether this machine's own player `local` is at prayer `pr`'s altar on map data `d` (the HUD's lamps grid): it prays or
+## meditates there, or its feet are within Config.PRAYER_HUD_LAMPS_REACH_PX of the altar's centre.
+static func at_altar(pr: Prayer, d: WorldData, local: Player) -> bool:
+	if local == null or not is_instance_valid(local) or d == null or not d.altar_rect.has_area():
+		return false
+	var id: int = local.get_instance_id()
+	if pr.is_member(id) or pr.is_meditating(id):
+		return true
+	return local.data == d and local.sim_position.distance_to(d.altar_center_px()) <= Config.PRAYER_HUD_LAMPS_REACH_PX
 
 
 ## Player `q`'s mark over its head: its turn's arrow (not over this machine's own player `local`: its HUD shows the larger prompt,

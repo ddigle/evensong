@@ -136,6 +136,8 @@ class Rig:
 	var clients: Array[Client] = []
 	## One-way delay in ticks (both ways).
 	var delay: int = 0
+	## M10-fix: extra ticks the host's prayer messages take on the way down (a lost reliable message's resend; order kept).
+	var prayer_extra: int = 0
 	## The host's own input this tick (idle when null).
 	var action: NetBot.Action
 	## Client -> host [due tick, peer, payload] and host -> client [due tick, peer, kind, payload].
@@ -341,7 +343,7 @@ func _tick(r: Rig, n: int = 1) -> void:
 				var kind: String = msg[1]
 				var seen: int = r.bytes_by_kind.get(kind, 0)
 				r.bytes_by_kind[kind] = seen + bytes.size()
-				r.down.append([next + r.delay, c.peer, kind, bytes])
+				r.down.append([next + r.delay + (r.prayer_extra if kind == "prayer" else 0), c.peer, kind, bytes])
 		var later: Array[Array] = []
 		for d: Array in r.down:
 			var due: int = d[0]

@@ -30,6 +30,9 @@ extends CanvasLayer
 ## M10a (PLACEHOLDERS drawn in code): the zeal's icon (EffectMarks.Kind.ZEAL) and time-left bar after the other effects', and the
 ## local player's turn prompt while its turn's window is open (Main: show_prayer_prompt): the arrow PrayerMark.ARROW_MAP drawn
 ## PROMPT_SCALE times at the top centre and the window bar draining under it.
+## M10-fix (PLACEHOLDER drawn in code): the nine lamps of the altar as a 3 x 3 grid at the top centre above the prompt, while a
+## prayer's lamps show and the local player is at the altar (Main: show_prayer_lamps): participants south of the altar cover its
+## bottom lamp row, so everyone there reads the lamps here too.
 
 signal armor_clicked
 
@@ -103,6 +106,19 @@ const PROMPT_BAR_GAP: int = 4
 const PROMPT_FILL: Color = Color8(0xf4, 0xc9, 0x5d)
 ## M10b (IMPL): a session client's sent key (show_prayer_sent) is the prompt's arrow at this alpha, its gold as ivory.
 const SENT_ALPHA: float = 0.6
+## M10-fix (IMPL): the lamps' grid (show_prayer_lamps): its top, a lamp's square (a 1 px frame round 5 x 5) and the gap between, in
+## the altar's order (turn i = lamp i, row by row from the top left). Each square: an opaque ash-black inside with the picture of
+## its Altar.Look (LAMP_*_MAP, ItemIcons colours: lit = a gold flame with an ivory heart over a copper bowl; not yet = the dark
+## bowl; the ember of the lamp being answered, whose frame is faith gold; a guttering rust flame; out = a grey wisp over the dark
+## bowl); the frame base brown, the answered one's gold.
+const LAMPS_TOP: int = 1
+const LAMP_CELL: int = 7
+const LAMP_GAP: int = 1
+const LAMP_LIT_MAP: PackedStringArray = ["..g..", ".ggg.", ".gsg.", ".ggg.", ".ccc."]
+const LAMP_UNLIT_MAP: PackedStringArray = [".....", ".....", ".....", ".....", ".ooo."]
+const LAMP_EMBER_MAP: PackedStringArray = [".....", ".....", ".....", "..C..", ".ooo."]
+const LAMP_GUTTER_MAP: PackedStringArray = [".....", ".....", "..u..", ".uCu.", ".ooo."]
+const LAMP_SOOT_MAP: PackedStringArray = ["...m.", "..m..", "...m.", ".....", ".ooo."]
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
@@ -129,6 +145,8 @@ var prayer_dir: int = -1
 var prayer_left: int = 0
 ## M10b (a session client): the key it sent for its turn, shown dim where the prompt was until the host's result (-1 = none).
 var prayer_sent: int = -1
+## M10-fix: the nine lamps as the altar shows them (Altar.Look each; empty = no grid).
+var prayer_lamps: PackedInt32Array = PackedInt32Array()
 var _shown: String = ""
 
 
@@ -192,13 +210,58 @@ func _process(_delta: float) -> void:
 func prayer_key() -> String:
 	if player == null or not is_instance_valid(player):
 		return ""
-	return "%d/%d/%d/%d" % [zeal_fill(player.skills.zeal_ticks), prayer_dir, prompt_fill(prayer_left), prayer_sent]
+	return "%d/%d/%d/%d/%s" % [zeal_fill(player.skills.zeal_ticks), prayer_dir, prompt_fill(prayer_left), prayer_sent,
+		str(prayer_lamps)]
 
 
 ## M10a: the local player's turn prompt (Main, every tick): direction `dir` (Prayer.Dir, -1 = none), `left` ticks of the window.
 func show_prayer_prompt(dir: int, left: int) -> void:
 	prayer_dir = dir
 	prayer_left = left if dir >= 0 else 0
+
+
+## M10-fix: the altar's nine lamps as `looks` (Altar.Look each, in its order; empty = none; Main every tick).
+func show_prayer_lamps(looks: PackedInt32Array) -> void:
+	if looks != prayer_lamps:
+		prayer_lamps = looks.duplicate()
+
+
+## M10-fix: the picture of a lamp of Altar.Look `look` in the grid (5 x 5 ItemIcons letters).
+static func lamp_map(look: int) -> PackedStringArray:
+	match look:
+		Altar.Look.LIT:
+			return LAMP_LIT_MAP
+		Altar.Look.EMBER:
+			return LAMP_EMBER_MAP
+		Altar.Look.GUTTER:
+			return LAMP_GUTTER_MAP
+		Altar.Look.SOOT:
+			return LAMP_SOOT_MAP
+	return LAMP_UNLIT_MAP
+
+
+## M10-fix: the top-left of lamp `i`'s square in the grid for a view of `view` px.
+static func lamp_cell_at(view: Vector2i, i: int) -> Vector2i:
+	var size: int = 3 * LAMP_CELL + 2 * LAMP_GAP
+	return Vector2i((view.x - size) / 2 + (i % 3) * (LAMP_CELL + LAMP_GAP), LAMPS_TOP + (i / 3) * (LAMP_CELL + LAMP_GAP))
+
+
+## M10-fix: the lamps' grid (see prayer_lamps).
+func _draw_prayer_lamps() -> void:
+	if prayer_lamps.is_empty():
+		return
+	var view: Vector2i = view_size()
+	for i: int in mini(prayer_lamps.size(), Config.PRAYER_TURNS):
+		var at: Vector2i = lamp_cell_at(view, i)
+		var look: int = prayer_lamps[i]
+		_frame(Rect2i(at, Vector2i(LAMP_CELL, LAMP_CELL)), SELECT if look == Altar.Look.EMBER else FRAME)
+		canvas.draw_rect(Rect2(Vector2(at + Vector2i.ONE), Vector2(LAMP_CELL - 2, LAMP_CELL - 2)), FRAME_DARK)
+		var rows: PackedStringArray = lamp_map(look)
+		for y: int in rows.size():
+			for x: int in rows[y].length():
+				var ch: String = rows[y][x]
+				if ItemIcons.PALETTE.has(ch):
+					canvas.draw_rect(Rect2(Vector2(at + Vector2i(1 + x, 1 + y)), Vector2.ONE), ItemIcons.PALETTE[ch])
 
 
 ## M10b: the key a session client sent for its turn (Prayer.Dir, -1 = none; Main every tick): its arrow drawn dim where the prompt
@@ -348,6 +411,7 @@ func _draw_hud() -> void:
 	_draw_vitals()
 	_draw_skill_row()  # M9a
 	_draw_prayer_prompt()  # M10a
+	_draw_prayer_lamps()  # M10-fix
 	if inventory == null:
 		return
 	var view: Vector2i = view_size()

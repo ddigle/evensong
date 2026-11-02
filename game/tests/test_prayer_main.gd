@@ -7,6 +7,9 @@ extends "res://tests/base_test.gd"
 ## the bot's pray and answer:auto drive the local cleric, the pictures follow (the lamps, the circle, the marks, the HUD prompt,
 ## the zeal marks), a death takes the zeal off, the zeal raises Main's own attack, a session refuses the tap (M10b), and the new
 ## flags and bot commands parse (and refuse bad values).
+## M10-fix: the merchant's F from inside the circle takes the press (no tap tried); in a session (a client) F aimed from inside the
+## circle at the merchant, a drop or a door is the PICKUP request only (no PRAY), F held past PRAYER_TAP_MAX_TICKS (the session
+## reads the key itself) sends no PRAY, a short press exactly one; the HUD's lamps grid shows the altar's lamps while praying.
 
 const TICK: float = 1.0 / 60.0
 
@@ -130,6 +133,7 @@ func _check_main() -> void:
 	_check_conflicts(main, south)
 	_check_prayer_of_four(main, south)
 	_check_session_refusal(main, south)
+	_check_session_f(main, south)
 	_check_zeal_in_main(main)
 
 
@@ -176,14 +180,38 @@ func _check_tap_and_hold(main: Main, r: Rect2i, south: Vector2i) -> void:
 	check(main.world.data.altar_rect.has_area(), "the altar stands again")
 
 
+## M10-fix: a tile next to `target` (8 around it, nearest the altar first) whose feet stand inside the prayer circle and that is
+## free to stand on; NO_CELL when none.
+static func beside_in_circle(d: WorldData, target: Vector2i) -> Vector2i:
+	var best: Vector2i = Walls.NO_CELL
+	var best_d: float = INF
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			var c: Vector2i = target + Vector2i(dx, dy)
+			var feet: Vector2 = Arena.spawn_feet(c)
+			if c == target or d.altar_rect.has_point(c) or not Movement.can_stand(d, feet):
+				continue
+			var dist: float = feet.distance_to(d.altar_center_px())
+			if Prayer.in_circle(d, feet) and dist < best_d:
+				best = c
+				best_d = dist
+	return best
+
+
 func _check_conflicts(main: Main, _south: Vector2i) -> void:
-	# The merchant's F takes the press: his shop opens, no prayer.
+	# The merchant's F takes the press: his shop opens, no prayer. M10-fix: from a tile inside the circle (M10a stood outside it, so
+	# "no prayer" held whatever F did): the press is taken (pick_up said so) and no tap is even tried.
 	var m: Vector2i = Merchant.tile_of(main.world.data)
-	var p: Player = place(main, "paladin", m + Vector2i(0, 1), 0)
+	var stand: Vector2i = beside_in_circle(main.world.data, m)
+	check(stand != Walls.NO_CELL, "a tile next to the merchant inside the circle (%s)" % stand)
+	var p: Player = place(main, "paladin", stand, 0)
+	check(Prayer.in_circle(main.world.data, p.sim_position), "the paladin stands in the circle, beside the merchant")
 	set_bot(main, "aimat:%d,%d;wait:1;pray" % [m.x, m.y])
 	step_main(main, 3)
 	check(main.shop_open(), "F at the merchant: his shop")
-	check(main.prayer.meditators.is_empty() and not main.prayer.running(), "no prayer tap")
+	check(main._f_consumed, "the merchant took the press (no tap)")
+	check(main.prayer.meditators.is_empty() and not main.prayer.running() and main.prayer.stat("refused_meditate") == 0,
+		"no prayer tap tried (none refused either)")
 	main.close_shop()
 	# A drop on the tile next to the altar, in the circle: the first F picks it up, the second (nothing left) meditates.
 	var r: Rect2i = main.world.data.altar_rect
@@ -251,6 +279,7 @@ func _check_prayer_of_four(main: Main, south: Vector2i) -> void:
 	check_eq(p.prayer_mark.kind, PrayerMark.Kind.NONE, "no arrow over this machine's own player: its HUD prompt instead (the others see it)")
 	check_eq(allies[0].prayer_mark.kind, PrayerMark.Kind.NONE, "the others show nothing then (their joined flames were for a while)")
 	check_eq(main.world.altar.looks[0], Altar.Look.EMBER, "lamp 0 being answered: the ember")
+	check_eq(main.hud.prayer_lamps, main.world.altar.looks, "M10-fix: the HUD's lamps grid shows the altar's lamps (the cleric prays)")
 	check(step_until(main, func() -> bool: return pr.answered, Config.PRAYER_ANSWER_WINDOW_TICKS), "answered")
 	check_eq(pr.lamps[0], Prayer.Lamp.LIT, "the bot's answer:auto: right")
 	check_eq(main.hud.prayer_dir, -1, "the prompt gone once answered")
@@ -297,8 +326,10 @@ func _check_prayer_of_four(main: Main, south: Vector2i) -> void:
 	for s: int in pr.last.lamps:
 		shown.append(Altar.Look.LIT if s == Prayer.Lamp.LIT else Altar.Look.SOOT)
 	check_eq(main.world.altar.looks, shown, "the lamps show the result a while (lit, out)")
+	check_eq(main.hud.prayer_lamps, shown, "M10-fix: the HUD's grid shows the result too (the cleric still at the altar)")
 	step_main(main, Config.PRAYER_RESULT_SHOW_TICKS)
 	check(main.world.altar.looks.is_empty() and main.world.altar.flames.visible, "then the altar's own picture (○ R45)")
+	check(main.hud.prayer_lamps.is_empty(), "M10-fix: and no grid")
 	check(p.effect_marks.shown.has(EffectMarks.Kind.ZEAL) and allies[0].effect_marks.shown.has(EffectMarks.Kind.ZEAL),
 		"the zeal marks over the buffed")
 	# A second prayer is refused while the cleric's zeal lasts; meditation too.
@@ -326,6 +357,75 @@ func _check_session_refusal(main: Main, south: Vector2i) -> void:
 	main.net.role = role
 	check(t == null and not main.prayer.running() and sent.size() == 1 and sent[0].op == NetProtocol.Op.PRAY,
 		"in a session the tap is the host's (M10b): one PRAY request, nothing starts here")
+
+
+## M10-fix: F aimed at `target` by the local player `p` as a session client, held `held` ticks (Input's F: the session reads the
+## key, not the frame) and let go; returns the requests it queued.
+static func session_press(main: Main, p: Player, target: Vector2i, held: int) -> Array[int]:
+	var centre: Vector2 = Vector2(target * Config.TILE) + Vector2.ONE * (Config.TILE / 2.0)
+	p.aim_sector = Aim.sector(centre - p.sim_position, p.aim_sector)
+	main.net.local_ops.clear()
+	main._f_press()
+	Input.action_press(&"interact")
+	for i: int in held:
+		main._track_f_tap()
+	Input.action_release(&"interact")
+	main._track_f_tap()
+	var ops: Array[int] = []
+	for f: NetProtocol.InputFrame in main.net.local_ops:
+		ops.append(f.op)
+	main.net.local_ops.clear()
+	return ops
+
+
+## M10-fix (M10b's session F, as a client): the PICKUP goes as before; a PRAY only for a tap nothing on this machine took.
+func _check_session_f(main: Main, south: Vector2i) -> void:
+	var d: WorldData = main.world.data
+	var role: int = main.net.role
+	var pickup: int = NetProtocol.Op.PICKUP
+	var pray: int = NetProtocol.Op.PRAY
+	# The merchant, from inside the circle.
+	var m: Vector2i = Merchant.tile_of(d)
+	var p: Player = place(main, "paladin", beside_in_circle(d, m), 0)
+	main.net.role = NetSession.Role.CLIENT
+	check_eq(Aim.target_cell(p.sim_position, Aim.sector(Vector2(m * Config.TILE) + Vector2.ONE * 8.0 - p.sim_position)), m,
+		"session: it aims at the merchant")
+	check_eq(session_press(main, p, m, 3), [pickup] as Array[int], "session: F tapped at the merchant inside the circle: PICKUP, no PRAY")
+	# A drop on the tile next to the altar.
+	main.net.role = role
+	var r: Rect2i = d.altar_rect
+	var at: Vector2i = Vector2i(r.position.x + 1, r.end.y + 1)
+	p = place(main, "archer", at, 0)
+	p.inventory.add(&"stone_a", 3)
+	for i: int in p.inventory.size():
+		if p.inventory.stack_at(i) != null and p.inventory.stack_at(i).id == &"stone_a":
+			p.inventory.select(i)
+	var drop_at: Vector2i = at + Vector2i(1, 0)
+	set_bot(main, "aimat:%d,%d;drop" % [drop_at.x, drop_at.y])
+	step_main(main, 3)
+	check_eq(d.drops_at(drop_at).size(), 1, "session: a drop next to the altar, in the circle")
+	main.bot = null
+	main.net.role = NetSession.Role.CLIENT
+	check_eq(session_press(main, p, drop_at, 3), [pickup] as Array[int], "session: F tapped at the drop: PICKUP, no PRAY")
+	# Nothing there: the tap is the prayer's (one PRAY after the PICKUP).
+	var empty: Vector2i = at + Vector2i(0, 1)
+	check_eq(session_press(main, p, empty, 3), [pickup, pray] as Array[int], "session: F tapped at nothing in the circle: PICKUP, PRAY")
+	# Held past PRAYER_TAP_MAX_TICKS (to lift the altar, revive, give up): no PRAY, on release either.
+	check_eq(session_press(main, p, empty, Config.PRAYER_TAP_MAX_TICKS + 1), [pickup] as Array[int],
+		"session: F held %d ticks: no PRAY" % (Config.PRAYER_TAP_MAX_TICKS + 1))
+	check_eq(session_press(main, p, empty, Config.PRAYER_TAP_MAX_TICKS), [pickup, pray] as Array[int],
+		"session: F held %d ticks: a tap, one PRAY" % Config.PRAYER_TAP_MAX_TICKS)
+	# A door next to it.
+	main.net.role = role
+	var door: Vector2i = south + Vector2i(1, 1)
+	p = place(main, "miner", south + Vector2i(0, 1), 0)
+	main.world.apply_edit(Building.edit_for(Building.DOOR, door))
+	check(Building.door_cell(d, door) != Walls.NO_CELL and Prayer.in_circle(d, p.sim_position), "session: a door beside a miner in the circle")
+	main.net.role = NetSession.Role.CLIENT
+	check_eq(session_press(main, p, door, 3), [pickup] as Array[int], "session: F tapped at the door: PICKUP, no PRAY")
+	main.net.role = role
+	main.world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.WALL, door, 0))
+	check_eq(Building.door_cell(d, door), Walls.NO_CELL, "the door taken away again")
 
 
 func _check_zeal_in_main(main: Main) -> void:

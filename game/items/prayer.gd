@@ -37,6 +37,12 @@ extends RefCounted
 ## past the window (window_end: the way of the turn's event down and of the answer up), and every turn lasts that much longer
 ## (turn_ticks_total). Every Event carries the clock it happened at (a tap's: the clock before this tick's step; a step's: after),
 ## so the host stamps the wire's events with it and a client's mirror ages them like the host (net/net_prayer.gd).
+##
+## M10-fix (review, PROVISIONAL rows "M10 검토 …"): "alone" counts only company that could join (up, in the circle, no prayer's
+## zeal: Config.PRAYER_COMPANY_MUST_BE_ABLE_TO_JOIN); a gather that ends with the cleric alone (Config.PRAYER_MIN_PARTICIPANTS) is
+## no prayer: it stops (`nobody joined`: nothing given, no faith spent) and the cleric meditates instead; a meditation's zeal does
+## not block a prayer (SkillState.zeal_from_prayer, Config.MEDITATION_ZEAL_BLOCKS_PRAYER); on the host a join that arrives within
+## `join_lag_ticks` (Config.PRAYER_JOIN_LAG_TICKS) of the turns' start is still taken (its machine saw the gather when it tapped).
 
 enum Phase { IDLE, GATHER, TURNS }
 enum Lamp { UNLIT, LIT, OUT }
@@ -77,6 +83,8 @@ const WHY_ZEAL: String = "zeal still lasts"
 const WHY_FAITH: String = "not enough faith"
 const WHY_COMBAT: String = "in combat"
 const WHY_MEDITATING: String = "meditating"
+## M10-fix: why a prayer stopped at the gather's end (the cleric alone: Config.PRAYER_MIN_PARTICIPANTS).
+const WHY_NOBODY: String = "nobody joined"
 ## M10b: why the host refused an ANSWER (submit): the sender is in no prayer, it names another prayer, a turn not open yet, a turn
 ## whose result went out (decided late or by a leave), another participant's turn, a second answer to one turn.
 const WHY_NOT_PRAYING: String = "not praying"
@@ -93,7 +101,7 @@ const WIRE_SEVERAL: int = 4
 ## how a turn was decided. Index = code.
 const LEAVE_WHYS: PackedStringArray = ["quit", "hit", "down", "dead", "gone", "moved", "a prayer began"]
 const STOP_WHYS: PackedStringArray = ["the cleric: quit", "the cleric: hit", "the cleric: down", "the cleric: dead", "the cleric: gone",
-	"the altar is gone"]
+	"the altar is gone", WHY_NOBODY]
 const ANSWER_WHYS: PackedStringArray = ["ok", "wrong", "late", "left"]
 
 
@@ -177,6 +185,8 @@ var events: Array[Event] = []
 ## WIRE_SEVERAL); `by_answer` = the turn under way was decided by an answer (not late, not left).
 var answers_from_keys: bool = true
 var lag_ticks: int = 0
+## M10-fix (the host; offline 0): a join arriving within this many ticks of the turns' start (turn 0 still on) is still taken.
+var join_lag_ticks: int = 0
 var _sub_owner: int = 0
 var _sub_turn: int = -1
 var _sub_dir: int = -1
@@ -251,15 +261,27 @@ func in_combat(p: Player, heretics: Array[HereticSim]) -> bool:
 	return false
 
 
-## Whether no player of `players` other than `p` stands up in the circle (a cleric's tap then meditates).
+## Whether no player of `players` other than `p` who could join stands up in the circle (a cleric's tap then meditates). M10-fix
+## (Config.PRAYER_COMPANY_MUST_BE_ABLE_TO_JOIN): one whose prayer's zeal still lasts may not join and is no company.
 func alone(p: Player, players: Array[Player]) -> bool:
 	for q: Player in players:
-		if q != p and q.vitals.alive() and q.data == data and in_circle(data, q.sim_position):
-			return false
+		if q == p or not q.vitals.alive() or q.data != data or not in_circle(data, q.sim_position):
+			continue
+		if Config.PRAYER_COMPANY_MUST_BE_ABLE_TO_JOIN and zeal_blocks(q):
+			continue
+		return false
 	return true
 
 
+## Whether `p`'s zeal keeps it from a new prayer (starting, joining; Config.PRAYER_ZEAL_BLOCKS). M10-fix: only a prayer's zeal, not
+## a meditation's (Config.MEDITATION_ZEAL_BLOCKS_PRAYER).
 static func zeal_blocks(p: Player) -> bool:
+	return Config.PRAYER_ZEAL_BLOCKS and p.skills.zealous() \
+		and (p.skills.zeal_from_prayer or Config.MEDITATION_ZEAL_BLOCKS_PRAYER)
+
+
+## Whether `p`'s zeal keeps it from a meditation (Config.PRAYER_ZEAL_BLOCKS): any zeal, a prayer's or a meditation's.
+static func zeal_blocks_meditation(p: Player) -> bool:
 	return Config.PRAYER_ZEAL_BLOCKS and p.skills.zealous()
 
 
@@ -282,8 +304,8 @@ func start_refusal(p: Player, players: Array[Player], heretics: Array[HereticSim
 	return ""
 
 
-## Why `p` may not join now ("" = it may): the tap's refusals, no prayer, already in, the gather over, its zeal still lasting,
-## the circle full (Config.MAX_PLAYERS).
+## Why `p` may not join now ("" = it may): the tap's refusals, no prayer, already in, the gather over (M10-fix, the host: but for
+## its lag allowance, late_join_ok), its prayer's zeal still lasting, the circle full (Config.MAX_PLAYERS).
 func join_refusal(p: Player, players: Array[Player]) -> String:
 	var why: String = tap_refusal(data, p, players)
 	if not why.is_empty():
@@ -292,7 +314,7 @@ func join_refusal(p: Player, players: Array[Player]) -> String:
 		return WHY_NO_PRAYER
 	if is_member(p.get_instance_id()):
 		return WHY_JOINED
-	if phase != Phase.GATHER:
+	if phase != Phase.GATHER and not late_join_ok(p.get_instance_id()):
 		return WHY_CLOSED
 	if zeal_blocks(p):
 		return WHY_ZEAL
@@ -301,8 +323,8 @@ func join_refusal(p: Player, players: Array[Player]) -> String:
 	return ""
 
 
-## Why `p` may not meditate now ("" = it may): the tap's refusals, moving, a prayer under way, meditating already, its zeal still
-## lasting, combat.
+## Why `p` may not meditate now ("" = it may): the tap's refusals, moving, a prayer under way, meditating already, any zeal still
+## lasting (a prayer's or a meditation's), combat.
 func meditate_refusal(p: Player, players: Array[Player], heretics: Array[HereticSim]) -> String:
 	var why: String = tap_refusal(data, p, players)
 	if not why.is_empty():
@@ -313,11 +335,18 @@ func meditate_refusal(p: Player, players: Array[Player], heretics: Array[Heretic
 		return WHY_RUNNING
 	if is_meditating(p.get_instance_id()):
 		return WHY_MEDITATING
-	if zeal_blocks(p):
+	if zeal_blocks_meditation(p):
 		return WHY_ZEAL
 	if in_combat(p, heretics):
 		return WHY_COMBAT
 	return ""
+
+
+## M10-fix (the host, Config.PRAYER_JOIN_LAG_TICKS): a join `id` sends that arrives just after the gather (turn 0 open for fewer than
+## join_lag_ticks) is still taken: its machine saw the gather when it tapped (the TURN's way down and the PRAY's way up), as an
+## answer gets its lag allowance. Not for one who left this prayer. Offline join_lag_ticks is 0 (never).
+func late_join_ok(id: int) -> bool:
+	return join_lag_ticks > 0 and phase == Phase.TURNS and turn == 0 and turn_ticks < join_lag_ticks and not left_at.has(id)
 
 
 # --- the zeal ------------------------------------------------------------------------------------------------
@@ -490,7 +519,8 @@ static func _face(p_data: WorldData, p: Player) -> int:
 
 ## Player `p` tapped F (Config.PRAYER_TAP_MAX_TICKS, Main) with `players` on its map and the map's `heretics`: a participant leaves
 ## (the cleric: the prayer stops); a meditating player stops; else (the tap's refusals first) during a prayer it joins, with none a
-## cleric with someone else in the circle starts one, anyone else (and a cleric alone) meditates.
+## cleric with someone else in the circle who could join (alone) starts one, anyone else (and a cleric alone) meditates. A
+## non-cleric meditates even with a cleric beside it (● R45 "누구나"; README "M10 검토 묵상 범위").
 func tap(p: Player, players: Array[Player], heretics: Array[HereticSim]) -> Tapped:
 	events.clear()
 	var t: Tapped = Tapped.new()
@@ -695,7 +725,7 @@ func _step_meditations(players: Array[Player]) -> void:
 		if meditators[id] >= Config.MEDITATE_TICKS:
 			meditators.erase(id)
 			p.prayer_role = Role.NONE
-			p.skills.add_zeal(Config.MEDITATE_ZEAL_PCT, Config.MEDITATE_ZEAL_TICKS)
+			p.skills.add_zeal(Config.MEDITATE_ZEAL_PCT, Config.MEDITATE_ZEAL_TICKS, false)
 			count("meditated")
 			_event("meditated", id)
 
@@ -732,9 +762,12 @@ func step(players: Array[Player]) -> Array[Event]:
 	if phase == Phase.GATHER:
 		phase_ticks += 1
 		if phase_ticks >= Config.PRAYER_GATHER_TICKS:
-			phase = Phase.TURNS
-			phase_ticks = 0
-			_open_turn(0)
+			if members.size() < Config.PRAYER_MIN_PARTICIPANTS:
+				_gathered_alone(players)
+			else:
+				phase = Phase.TURNS
+				phase_ticks = 0
+				_open_turn(0)
 	elif phase == Phase.TURNS:
 		phase_ticks += 1
 		turn_ticks += 1
@@ -763,6 +796,17 @@ func step(players: Array[Player]) -> Array[Event]:
 		if q != null:
 			prev_dirs[id] = q.last_input
 	return events
+
+
+## M10-fix (Config.PRAYER_MIN_PARTICIPANTS, ● R45 "혼자일 때 → 묵상"): the gather ended with the cleric alone (nobody joined, or all who
+## did left): no prayer. It stops (`nobody joined`: nothing given, no faith spent) and the cleric meditates instead, when he may (up
+## in the circle, no zeal, not pressing a move key; the combat was checked at the start and a hit would have stopped it).
+func _gathered_alone(players: Array[Player]) -> void:
+	var cleric: Player = _find(players, cleric_id)
+	stop(WHY_NOBODY)
+	if cleric != null and tap_refusal(data, cleric, players).is_empty() and not zeal_blocks_meditation(cleric) \
+			and cleric.last_input == Vector2i.ZERO and not cleric.walking:
+		meditate(cleric)
 
 
 ## Turn `i` opens: its owner is the next participant still in after the last owner in join order (turn 0: the first still in).
@@ -807,7 +851,7 @@ func _end() -> void:
 		for id: int in members:
 			var p: Player = person(id)
 			if p != null and is_instance_valid(p):
-				p.skills.add_zeal(r.zeal_pct, Config.PRAYER_ZEAL_TICKS)
+				p.skills.add_zeal(r.zeal_pct, Config.PRAYER_ZEAL_TICKS, true)
 		count("completed")
 	else:
 		r.why = WHY_FAITH

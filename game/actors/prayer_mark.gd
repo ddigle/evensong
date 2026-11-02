@@ -5,10 +5,11 @@ extends Node2D
 ## (items/prayer.gd):
 ##   TURN      the direction the player must enter now (its turn's window open): a faith-gold arrow over the head, seen by the
 ##             others (the player itself sees the larger one on its HUD, Hud.show_prayer_prompt)
-##   JOINED    a participant who just joined: a small gold ring (the prayer circle's), for Config.PRAYER_JOINED_MARK_TICKS
-##   LEFT      a participant who left (hit, quit): the same ring in iron grey, for Config.PRAYER_LEFT_MARK_TICKS
-##   MEDITATE  meditating: the gold ring and a progress bar over it (ivory over ash black)
-## Rings and arrows, not flames: a player standing just south of the altar has them over the altar's lamps. Unshaded so they read
+##   JOINED    a participant who just joined: a small gold spark (a plus in an ash outline), for Config.PRAYER_JOINED_MARK_TICKS
+##   LEFT      a participant who left (hit, quit): the same spark in iron grey, for Config.PRAYER_LEFT_MARK_TICKS
+##   MEDITATE  meditating: the gold spark and a progress bar over it (ivory over ash black)
+## Sparks and arrows, not flames: a player standing just south of the altar has them over the altar's lamps. M10-fix: not rings
+## either (M10a drew a 5 x 5 gold ring, which read as the cleric's halo: the cleric seemed to wear a joined mark). Unshaded so they read
 ## in the evening. The node is a child of the Player (on the feet); the marks sit just above the head, in the effect marks' rows
 ## (EffectMarks.MARK_Y), and RAISE higher while the player shows effect marks. Layout values are IMPL.
 
@@ -26,28 +27,28 @@ const ARROW_MAP: PackedStringArray = [
 	"..kgggk..",
 	"..kkkkk..",
 ]
-const RING_MAP: PackedStringArray = [
-	".kkk.",
+const SPARK_MAP: PackedStringArray = [
+	"..k..",
+	".kgk.",
 	"kgggk",
-	"kg.gk",
-	"kgggk",
-	".kkk.",
+	".kgk.",
+	"..k..",
 ]
-## Top of the arrow and of the ring above the feet (the effect marks' rows, EffectMarks.MARK_Y: just above the head); the meditation
-## bar's row (over the ring); the bar's width; how much higher all of it goes while the player shows effect marks (above them).
+## Top of the arrow and of the spark above the feet (the effect marks' rows, EffectMarks.MARK_Y: just above the head); the meditation
+## bar's row (over the spark); the bar's width; how much higher all of it goes while the player shows effect marks (above them).
 const ARROW_Y: int = -45
-const RING_Y: int = -43
+const SPARK_Y: int = -43
 const BAR_Y: int = -45
 const RAISE: int = 14
 const BAR_W: int = 7
 const BAR_BACK: Color = Color8(0x1a, 0x17, 0x14)
 const BAR_FILL: Color = Color8(0xef, 0xe3, 0xc6)
-## The left ring's colour in place of gold (iron).
+## The left spark's colour in place of gold (iron).
 const LEFT_SWAP: Dictionary[String, String] = {"g": "m"}
 
 static var _arrows: Array[ImageTexture] = []
-static var _ring: ImageTexture
-static var _left_ring: ImageTexture
+static var _spark: ImageTexture
+static var _left_spark: ImageTexture
 
 ## What is shown (tests read it): the kind, the arrow's direction (Prayer.Dir), the bar's lit px (0..BAR_W), raised.
 var kind: int = Kind.NONE
@@ -101,26 +102,26 @@ static func arrow_texture(d: int) -> ImageTexture:
 	return _arrows[clampi(d, 0, 3)]
 
 
-static func ring_image(left: bool) -> Image:
+static func spark_image(left: bool) -> Image:
 	if left:
-		return _image(RING_MAP, LEFT_SWAP)
-	return _image(RING_MAP)
+		return _image(SPARK_MAP, LEFT_SWAP)
+	return _image(SPARK_MAP)
 
 
-static func ring_texture(left: bool) -> ImageTexture:
-	if _ring == null:
-		_ring = ImageTexture.create_from_image(ring_image(false))
-		_left_ring = ImageTexture.create_from_image(ring_image(true))
-	return _left_ring if left else _ring
+static func spark_texture(left: bool) -> ImageTexture:
+	if _spark == null:
+		_spark = ImageTexture.create_from_image(spark_image(false))
+		_left_spark = ImageTexture.create_from_image(spark_image(true))
+	return _left_spark if left else _spark
 
 
-## Top-left (relative to the feet) of the arrow / the ring; the bar's left end; `raised_up`: above the effect marks.
+## Top-left (relative to the feet) of the arrow / the spark; the bar's left end; `raised_up`: above the effect marks.
 static func arrow_at(raised_up: bool = false) -> Vector2i:
 	return Vector2i(-ARROW_MAP[0].length() / 2, ARROW_Y - (RAISE if raised_up else 0))
 
 
-static func ring_at(raised_up: bool = false) -> Vector2i:
-	return Vector2i(-RING_MAP[0].length() / 2, RING_Y - (RAISE if raised_up else 0))
+static func spark_at(raised_up: bool = false) -> Vector2i:
+	return Vector2i(-SPARK_MAP[0].length() / 2, SPARK_Y - (RAISE if raised_up else 0))
 
 
 static func bar_at(raised_up: bool = false) -> Vector2i:
@@ -151,9 +152,9 @@ func _draw() -> void:
 		Kind.TURN:
 			draw_texture(arrow_texture(dir), Vector2(arrow_at(raised)))
 		Kind.JOINED, Kind.LEFT:
-			draw_texture(ring_texture(kind == Kind.LEFT), Vector2(ring_at(raised)))
+			draw_texture(spark_texture(kind == Kind.LEFT), Vector2(spark_at(raised)))
 		Kind.MEDITATE:
-			draw_texture(ring_texture(false), Vector2(ring_at(raised)))
+			draw_texture(spark_texture(false), Vector2(spark_at(raised)))
 			var at: Vector2i = bar_at(raised)
 			draw_rect(Rect2(Vector2(at), Vector2(BAR_W, 1)), BAR_BACK)
 			if fill > 0:

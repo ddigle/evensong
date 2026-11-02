@@ -2576,6 +2576,7 @@ func _setup_prayer() -> void:
 	prayer.setup(w.data, w.data.world_seed)
 	prayer.answers_from_keys = false
 	prayer.lag_ticks = Config.PRAYER_ANSWER_LAG_TICKS
+	prayer.join_lag_ticks = Config.PRAYER_JOIN_LAG_TICKS  # M10-fix: a join that saw the gather on its machine
 	prayer.clock = s.tick
 
 
@@ -2736,11 +2737,13 @@ func _zeal_changes(out: Array[NetProtocol.PrayerEvent]) -> void:
 		var sk: SkillState = m.player.skills
 		var pct: int = sk.zeal_pct if sk.zealous() else 0
 		var until: int = s.tick + sk.zeal_ticks if pct > 0 else 0
-		if pct == m.zeal_sent_pct and until == m.zeal_sent_until:
+		var from_prayer: bool = pct > 0 and sk.zeal_from_prayer
+		if pct == m.zeal_sent_pct and until == m.zeal_sent_until and from_prayer == m.zeal_sent_prayer:
 			continue
 		var on_time: bool = pct == 0 and m.zeal_sent_until <= s.tick
 		m.zeal_sent_pct = pct
 		m.zeal_sent_until = until
+		m.zeal_sent_prayer = from_prayer
 		if not on_time:
 			out.append(zeal_event(slot, sk, s.tick))
 
@@ -2753,6 +2756,7 @@ static func zeal_event(slot: int, sk: SkillState, tick: int) -> NetProtocol.Pray
 	ev.slot = slot
 	ev.pct = sk.zeal_pct if sk.zealous() else 0
 	ev.ticks = sk.zeal_ticks if ev.pct > 0 else 0
+	ev.prayer_zeal = ev.pct > 0 and sk.zeal_from_prayer  # M10-fix: whose zeal blocks a new prayer
 	return ev
 
 
