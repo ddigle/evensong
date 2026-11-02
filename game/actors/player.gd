@@ -80,7 +80,7 @@ extends Node2D
 ## as since M6b), which a session sends and its host resolves again from its own state (SessionHost._skill). The host's members
 ## keep `skills_on` with `skills_clock_external`: the host counts their skill clock once a host tick (SessionHost.tick), not once
 ## a frame. A client's own player has `skills_on` for its keys and HUD; its `skills` shows the host's (the skills message).
-## M10a (offline; sessions refuse the prayer until M10b): `prayer_role` (Prayer.Role, the prayer at the altar sets it): while PRAYING the
+## M10a (offline first; M10b: in sessions too, the host's prayer sets it, a client's from the host's events): `prayer_role` (Prayer.Role, the prayer at the altar sets it): while PRAYING the
 ## frame's move keys are the prayer's answers (they ride in the frame as they are, Prayer.step reads them from last_input) and
 ## step_frame does not move the player (it faces the altar, prayer_face); nothing else starts (no use, drink, throw, dash, channel;
 ## a skill key is refused with the HUD's mark, Skills.WHY_PRAYING). While MEDITATING the frame is as usual (a move breaks the
@@ -407,6 +407,16 @@ func show_ward(pct: int, ticks: int) -> void:
 	skills.ward_pct = pct
 	skills.ward_ticks = ticks
 	_sync_view()
+
+
+## M10b: a session client shows zeal of `pct` percent with `ticks` left on this player (the host's ZEAL events; 0 = none): the
+## mark over its head (redrawn when it comes or goes), the local HUD's icon and bar.
+func show_zeal(pct: int, ticks: int) -> void:
+	var was: bool = skills.zealous()
+	skills.zeal_pct = pct if ticks > 0 else 0
+	skills.zeal_ticks = ticks if pct > 0 else 0
+	if was != skills.zealous():
+		_sync_view()
 
 
 ## M9a: restores up to `amount` HP (PlayerSim.heal: not past the maximum, only while up). Returns the HP gained.

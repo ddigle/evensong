@@ -74,6 +74,12 @@ extends RefCounted
 ## come in the skills message (on_skills) and count down here between messages; the herbalist's herbs with the inventory. The
 ## skills' shots, bursts, strikes, zones and wards come as shot events, the heretics' stun, slow and taunt as marks in the batches
 ## (net/net_combat.gd); a ward is drawn over the warded player's head.
+##
+## M10b (the group prayer and meditation): an F tap at the altar goes as a PRAY request (Main), a participant's key on its turn as
+## an ANSWER (NetPrayer.attach_local, before the other requests: its turn's window runs from its event's arrival here); the host's
+## prayer events (on_prayer, through the link simulation's delay like a late reliable message) feed the mirror Main draws
+## (`prayer_net`: the circle, the lamps, the marks, the local prompt, every player's zeal). While the mirror says this player
+## prays its frames do not move it. Nothing the prayer decides is predicted.
 
 var s: NetSession
 var prediction: Prediction
@@ -130,6 +136,10 @@ var skills_alive: bool = true
 var skills_copy_tick: int = 0
 var heard_tick: int = -1
 var heard_at: int = 0
+## M10b: the host's prayer as this client has it (NetPrayer), prayer messages taken and malformed ones.
+var prayer_net: NetPrayer = NetPrayer.new()
+var prayer_msgs: int = 0
+var bad_prayer: int = 0
 
 var _last_state_tick: int = -1
 
@@ -235,6 +245,7 @@ func on_welcome(payload: PackedByteArray) -> void:
 			prediction.sim.vit = info.state.vitals.copy()
 			prediction.base.vit = info.state.vitals.copy()
 	_combat_on(Config.MAP_SURFACE, s.world)
+	prayer_net.setup(data)  # M10b: the prayer's snapshot follows the welcome
 	clock.observe(w.tick, Interpolation.RemoteClock.now_ticks())
 	_last_state_tick = w.tick
 	skills_copy_tick = w.tick  # M9c: the own skill state's copy starts at the welcome's host tick
@@ -309,6 +320,9 @@ func on_map_entry(payload: PackedByteArray) -> void:
 	_show_predicted(false)
 	_show_others()
 	_combat_on(e.map, w)
+	prayer_net.clear(s)  # M10b: the surface's prayer is shown again from its snapshot (after an entry to the surface)
+	if e.map == Config.MAP_SURFACE:
+		prayer_net.setup(data)
 	map_entries += 1
 	var ms: float = (Time.get_ticks_usec() - t0) / 1000.0
 	last_entry = {"map": e.map, "bytes": e.packed_size, "raw": e.raw_size, "chunks": e.chunk_count,
@@ -402,6 +416,7 @@ func on_left(payload: PackedByteArray) -> void:
 	s.remove_member(payload[0])
 	if combat != null:
 		combat.forget_player(payload[0])  # M9 review: its ward and what followed it go with it
+	prayer_net.forget(payload[0])  # M10b: its zeal and its meditation
 	s.log_event("left", "slot=%d players=%d" % [payload[0], s.members.size()])
 
 
@@ -529,9 +544,11 @@ func tick(action: NetBot.Action) -> void:
 	# M9c: the own skill state as the host last sent it, run on here by its rule up to the host's time as heard (the host runs the
 	# same copy, _send_skills).
 	_run_skills_copy(me)
+	prayer_net.tick(s, host_now())  # M10b: the prayer's ages, the meditations, every player's zeal
 	var f: NetProtocol.InputFrame = me.make_frame(action.dir, action.mouse, action.aiming, action.use_pressed,
 		action.use_held, action.dash, action.interact, action.skill, action.skill_slot)  # M9c: the keys 2 3 R too
 	SessionHost.note_pick(s, f)  # M9 review: the ally this machine's ring showed goes with a SKILL / THROW
+	prayer_net.attach_local(me, f, s.tick)  # M10b: praying, no move; a key in its window = the ANSWER
 	SessionHost.attach_local_op(s, me, f, action)
 	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
 	_show_predicted(true)
@@ -693,6 +710,50 @@ func on_skills(payload: PackedByteArray) -> void:
 	skills_alive = k.alive
 	skills_copy_tick = k.tick
 	_heard(k.tick)
+
+
+## M10b: the host's prayer events (through the link simulation's delay: never lost, late like a reliable message on a bad link).
+func on_prayer(payload: PackedByteArray) -> void:
+	if not s.active or s.over:
+		return
+	s.link.delay(_apply_prayer.bind(payload), Time.get_ticks_msec())
+
+
+func _apply_prayer(payload: PackedByteArray) -> void:
+	if not s.active or s.over or s.local == null:
+		return
+	var p: NetProtocol.PrayerEvents = NetProtocol.decode_prayer(payload)
+	if not p.ok:
+		bad_prayer += 1
+		s.bad_messages += 1
+		return
+	prayer_msgs += 1
+	var newest: int = -1
+	for e: NetProtocol.PrayerEvent in p.events:
+		newest = maxi(newest, e.tick)
+	if newest >= 0:
+		_heard(newest)
+	prayer_net.apply(s, p.events, s.tick, s.local_map() == Config.MAP_SURFACE)
+	var kinds: PackedStringArray = []
+	for e2: NetProtocol.PrayerEvent in p.events:
+		kinds.append(NetProtocol.PRAYER_KIND_NAMES[e2.kind])
+	var m: Prayer = prayer_net.mirror
+	s.log_event("prayer", "events=%s phase=%s members=%d turn=%d lamps=%s zeal=%d" % [",".join(kinds), Prayer.PHASE_NAMES[m.phase],
+		m.members.size(), m.turn, NetPrayer.lamps_word(m.lamps), prayer_net.zeal.size()])
+
+
+## M10b: the host tick as this client knows it now (the newest heard plus this client's ticks since).
+func host_now() -> int:
+	return heard_tick + (s.tick - heard_at) if heard_tick >= 0 else skills_copy_tick
+
+
+## M10b results: the prayer as this client has it.
+func prayer_result() -> Dictionary:
+	var out: Dictionary = prayer_net.to_dict()
+	out["msgs"] = prayer_msgs
+	out["bad"] = bad_prayer
+	out["host_now"] = host_now()
+	return out
 
 
 ## M9c: a message from host tick `host_tick` came now (the newest one sets the time the skill copy runs to).

@@ -930,6 +930,7 @@ static func _check_net(r: Report) -> void:
 	_check_net_builds(r)
 	_check_net_shop(r)
 	_check_net_skills(r)  # M9c
+	_check_net_prayer(r)  # M10b
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
 
 
@@ -1312,6 +1313,83 @@ static func _check_net_skills(r: Report) -> void:
 		p.free()
 	r.fields.append("skills_wire=%dB/%dB/%dB/%dB landed=%d events=%d" % [NetProtocol.OP_SIZES[NetProtocol.Op.SKILL] + 2, msg.size(),
 		NetProtocol.ENEMY_SIZE, events.size() - 2, landed, se.events.size()])
+
+
+## M10b: the prayer on the wire (protocol v12): PRAY and ANSWER round trip; a host's prayer of three on the seed-1 surface (answers
+## by request, SessionHost's mode: the cleric right 30 ticks into each of its turns, the paladin right 100 ticks into them (past the
+## 90-tick window, inside the lag allowance), the archer wrong), whose wire events round trip; an answer to a past turn is refused.
+## Field `prayer_wire=<PRAY>B/<ANSWER>B/<one prayer's events>B/<a turn's events>B lit=<lamps> lag=<allowance ticks>`.
+static func _check_net_prayer(r: Report) -> void:
+	var pray: NetProtocol.InputFrame = NetProtocol.InputFrame.new(80, Vector2i.ZERO)
+	pray.op = NetProtocol.Op.PRAY
+	var ans: NetProtocol.InputFrame = NetProtocol.InputFrame.new(81, Vector2i.ZERO)
+	ans.op = NetProtocol.Op.ANSWER
+	ans.prayer_no = 3
+	ans.turn = 4
+	ans.answer = Prayer.Dir.DOWN
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([pray, ans] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 2 and up.frames[0].same_request(pray) and up.frames[1].same_request(ans),
+		"PRAY and ANSWER round trip (M10b)")
+	var d: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var pr: Prayer = Prayer.new()
+	pr.setup(d, Config.DEFAULT_SEED)
+	pr.answers_from_keys = false
+	pr.lag_ticks = Config.PRAYER_ANSWER_LAG_TICKS
+	var ps: Array[Player] = []
+	var slots: Dictionary[int, int] = {}
+	var classes: PackedStringArray = ["cleric", "paladin", "archer"]
+	for i: int in 3:
+		var p: Player = Player.new()
+		p.setup(d, classes[i], Arena.spawn_feet(Vector2i(62 + i, 49)))
+		p.skills_on = true
+		ps.append(p)
+		slots[p.get_instance_id()] = i
+	ps[0].skills.resource = 100
+	var none: Array[HereticSim] = []
+	var wire: Array[NetProtocol.PrayerEvent] = []
+	var answer_at: PackedInt32Array = [30, 100, 30]
+	var past_refused: String = ""
+	for i2: int in 3:
+		pr.tap(ps[i2], ps, none)
+		_wire_prayer(pr, slots, wire)
+	var guard: int = 0
+	while pr.running() and guard < 4000:
+		var owner: int = slots.get(pr.turn_owner, -1)
+		if pr.current_lamp() >= 0 and owner >= 0 and pr.turn_ticks + 1 == answer_at[owner]:
+			var dir: int = pr.directions[pr.turn] if owner != 2 else (pr.directions[pr.turn] + 2) % 4
+			pr.submit(pr.turn_owner, pr.number(), pr.turn, dir)
+		if pr.turn == 3 and pr.turn_ticks == 1 and past_refused.is_empty():
+			past_refused = pr.submit(ps[0].get_instance_id(), pr.number(), 0, Prayer.Dir.UP)
+		pr.step(ps)
+		_wire_prayer(pr, slots, wire)
+		guard += 1
+	var lit: int = pr.last.lit if pr.last != null else -1
+	r.expect(lit == 6 and pr.last.zeal_pct == Prayer.zeal_pct(6, 3) and past_refused == Prayer.WHY_TURN_OVER,
+		"a host's prayer of three: the paladin's answers 100 ticks in are taken (lag allowance), the archer's wrong: 6 lit; an answer " +
+		"to a past turn refused (%s)" % past_refused)
+	var bytes: PackedByteArray = NetProtocol.encode_prayer(wire)
+	var back: NetProtocol.PrayerEvents = NetProtocol.decode_prayer(bytes)
+	var same: bool = back.ok and back.events.size() == wire.size()
+	for i3: int in mini(back.events.size(), wire.size()):
+		same = same and back.events[i3].describe() == wire[i3].describe()
+	r.expect(same and wire.size() == 1 + 2 + 2 * Config.PRAYER_TURNS + 1, "its %d events round trip (start, two joins, nine turns " % [
+		wire.size()] + "and results, the end; M10b)")
+	for p2: Player in ps:
+		p2.free()
+	var turn_bytes: int = NetProtocol.PRAYER_EVENT_SIZES[NetProtocol.PrayerEvent.Kind.TURN] \
+		+ NetProtocol.PRAYER_EVENT_SIZES[NetProtocol.PrayerEvent.Kind.RESULT]
+	r.fields.append("prayer_wire=%dB/%dB/%dB/%dB lit=%d lag=%d" % [NetProtocol.OP_SIZES[NetProtocol.Op.PRAY] + 2,
+		NetProtocol.OP_SIZES[NetProtocol.Op.ANSWER] + 2, bytes.size() - 1, turn_bytes, lit, Config.PRAYER_ANSWER_LAG_TICKS])
+
+
+## M10b: prayer `pr`'s events since the last call as the host's wire events (its players' slots `slots`) into `out`; cleared.
+static func _wire_prayer(pr: Prayer, slots: Dictionary[int, int], out: Array[NetProtocol.PrayerEvent]) -> void:
+	for e: Prayer.Event in pr.events:
+		var slot: int = slots.get(e.who, 0)
+		var ev: NetProtocol.PrayerEvent = SessionHost.wire_event(pr, e, slot)
+		if ev != null:
+			out.append(ev)
+	pr.events.clear()
 
 
 ## Applies `edits` to `data` and returns them.

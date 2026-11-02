@@ -45,6 +45,19 @@ func pass_through(call: Callable, now_ms: int) -> void:
 	_queue.append(d)
 
 
+## M10b: runs `call` after half the round trip, never dropped (a reliable message is late on a bad link, never lost; the prayer
+## messages go this way so a test's round trip has both halves: the turn's event down, the answer up). Pass-through when inactive.
+func delay(call: Callable, now_ms: int) -> void:
+	sent += 1
+	if lag_ms <= 0:
+		call.call()
+		return
+	var d: Delayed = Delayed.new()
+	d.due_ms = now_ms + lag_ms / 2
+	d.call = call
+	_queue.append(d)
+
+
 ## Runs everything that is due, in order.
 func poll(now_ms: int) -> void:
 	while not _queue.is_empty() and _queue[0].due_ms <= now_ms:

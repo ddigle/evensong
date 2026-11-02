@@ -1048,7 +1048,7 @@ const THREAT_FORGOTTEN_WITH_TARGET: bool = true
 # hit or quitting leaves alone, the cleric hit or quitting stops it all; no start in combat; the effect is timed and a death
 # removes it; no new prayer while the effect lasts; it costs the cleric's faith; the slice's one prayer is zeal (attack); with
 # no cleric or alone anyone meditates at the altar (short, no turns) for a small buff. Every number and open rule below is ○ or
-# not in the docs (README "임시값" M10a). Sessions refuse the prayer until M10b (protocol v11 unchanged).
+# not in the docs (README "임시값" M10a). M10b brings it to sessions (the host decides; protocol v12, the M10b block below).
 
 ## PROVISIONAL (● R45 "제단 둘레 원 안의 사람"; its size is not in the docs): the prayer circle = feet within this many px of the
 ## altar's centre (4 tiles: the 3x3 footprint's half and 2.5 tiles around; everyone who can aim at an altar tile stands in it).
@@ -1108,6 +1108,20 @@ const MEDITATE_ZEAL_TICKS: int = 2 * 60 * 60
 ## hit: ZEAL_COUNTS_POISON). A hit gains damage x zeal %, rounded, at least ZEAL_MIN_BONUS.
 const ZEAL_COUNTS_POISON: bool = false
 const ZEAL_MIN_BONUS: int = 1
+
+# --- PROVISIONAL, M10b (the prayer in sessions: the host decides) ---------------------------------------------------------
+## PROVISIONAL (● R45 "입력 시간은 호스트 왕복을 견딜 만큼 넉넉하게 … 반응 속도가 아니라 주의를 본다"; how the host judges is not in the docs,
+## README "M10b 답 판정"): the host takes a participant's ANSWER (tagged with its prayer and turn) up to this many ticks after the
+## window (PRAYER_ANSWER_WINDOW_TICKS) closed on the host's clock, so an answer pressed at the end of the window its machine shows
+## (from the moment the turn's event arrived there) survives the turn's way down and the answer's way up (0.5 s: a 120 ms round
+## trip with 5 % loss measured 8 to 16 ticks, README "측정" M10b). Every turn of a session's prayer lasts that much longer (window
+## + this + PRAYER_TURN_GAP_TICKS = 2.5 s, the prayer 25.5 s: ○ R45 "15~30초"). An answer to a turn whose result went out, to a
+## turn not open yet or to another's turn is refused. Offline it is 0 (no lag).
+const PRAYER_ANSWER_LAG_TICKS: int = 30
+## PROVISIONAL (not in the docs; offline M10a's "기도 중 거부" brought to the host, README "M10b 기도 중 요청"): while a member prays the
+## host refuses every request of its but PRAY (it leaves), ANSWER and SELECT (`praying`): a use, a throw, a skill, a pick up, a
+## trade, a craft, a way down, the altar. The frame still does not move it (Player.step_frame).
+const PRAYER_REFUSES_REQUESTS: bool = true
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -1327,6 +1341,9 @@ const PRAYER_JOINED_MARK_TICKS: int = 2 * 60
 const PRAYER_TEST_JOIN_TICK: int = 20
 const PRAYER_TEST_JOIN_STEP: int = 10
 const PRAYER_TEST_ANSWER_TICK: int = 30
+## IMPL (M10b, a session client): the key it pressed for its turn shows dim on its HUD (where the prompt was) until the host's
+## result arrives, at most this many ticks (the window and the host's lag allowance).
+const PRAYER_SENT_SHOW_TICKS: int = PRAYER_ANSWER_WINDOW_TICKS + PRAYER_ANSWER_LAG_TICKS
 
 
 static func safe_radius_px() -> float:

@@ -20,6 +20,7 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_input": NetProtocol.CH_INPUT, "_rpc_state": NetProtocol.CH_STATE,
 	"_rpc_enemies": NetProtocol.CH_ENEMY, "_rpc_enemy_keyframe": NetProtocol.CH_CONTROL, "_rpc_shots": NetProtocol.CH_CONTROL,
 	"_rpc_skills": NetProtocol.CH_CONTROL,  # M9c: the owner's skill state
+	"_rpc_prayer": NetProtocol.CH_CONTROL,  # M10b: the prayer events (the surface), the zeals (everyone)
 }
 ## Only these may be called by clients; everything else only by the host (authority).
 const CLIENT_CALLABLE: PackedStringArray = ["_rpc_hello", "_rpc_input", "_rpc_done"]

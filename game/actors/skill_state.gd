@@ -17,7 +17,7 @@ extends RefCounted
 ##
 ## M9b: the ward a paladin's guardian oath gives (ward_pct off every hit for ward_ticks: Player.take_hit applies it, Skills.after_ward).
 ## M10a: the zeal a group prayer or a meditation gives (zeal_pct more on every hit the player lands for zeal_ticks: Prayer.zeal_damage).
-## Not in the M9c skills message (same_clock / take_clock): sessions have no prayer until M10b.
+## Not in the M9c skills message (same_clock / take_clock): M10b sends each player's zeal as prayer events (SessionHost._zeal_changes).
 
 ## The four slots (● R42: identity, weapon, choice, signature; keys 1 2 3 R, ○ §1).
 const SLOT_COUNT: int = 4

@@ -70,6 +70,9 @@ class CaptureSession:
 	func send_skills(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "skills", payload])  # M9c
 
+	func send_prayer(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "prayer", payload])  # M10b
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -120,6 +123,8 @@ class Client:
 	var shot_events: Array[NetProtocol.ShotEvent] = []
 	## Every enemy batch delivered to it (decoded), oldest first.
 	var batches: Array[NetProtocol.EnemyBatch] = []
+	## M10b: every prayer event delivered to it, decoded.
+	var prayer_events: Array[NetProtocol.PrayerEvent] = []
 
 
 class Rig:
@@ -388,6 +393,9 @@ func _deliver(c: Client, kind: String, payload: PackedByteArray) -> void:
 			c.s.client.on_shots(payload)
 		"skills":
 			c.s.client.on_skills(payload)  # M9c
+		"prayer":
+			c.prayer_events.append_array(NetProtocol.decode_prayer(payload).events)
+			c.s.client.on_prayer(payload)  # M10b
 
 
 ## The fight spot on the surface.

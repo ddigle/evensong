@@ -319,9 +319,13 @@ func _check_session_refusal(main: Main, south: Vector2i) -> void:
 	main.add_ally("paladin", false)
 	var role: int = main.net.role
 	main.net.role = NetSession.Role.CLIENT
+	main.net.local_ops.clear()
 	var t: Prayer.Tapped = main.prayer_tap(p)
+	var sent: Array[NetProtocol.InputFrame] = main.net.local_ops.duplicate()
+	main.net.local_ops.clear()
 	main.net.role = role
-	check(t == null and not main.prayer.running(), "in a session the tap is refused (M10b), nothing starts")
+	check(t == null and not main.prayer.running() and sent.size() == 1 and sent[0].op == NetProtocol.Op.PRAY,
+		"in a session the tap is the host's (M10b): one PRAY request, nothing starts here")
 
 
 func _check_zeal_in_main(main: Main) -> void:

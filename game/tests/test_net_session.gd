@@ -1013,7 +1013,8 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 		check(_flag(r, "bot_finished"), "%s/%s: bot finished" % [label, c.name])
 		var samples: float = _num(r, "interp_samples")
 		var starved: float = _num(r, "interp_starved")
-		if label != "lag":
+		var link: Dictionary = r.get("link", {})
+		if label != "lag" and _num(link, "loss_percent", 0.0) <= 0.0:  # M10b: a lossy client (--net-loss) starves by design
 			check(starved <= INTERP_STARVED_MAX * samples,
 				"%s/%s: other players drawn from the buffer (%d of %d frames past the newest state)" % [label, c.name,
 				starved, samples])

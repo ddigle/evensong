@@ -101,6 +101,8 @@ const PROMPT_TOP: int = 26
 const PROMPT_BAR: Vector2i = Vector2i(40, 2)
 const PROMPT_BAR_GAP: int = 4
 const PROMPT_FILL: Color = Color8(0xf4, 0xc9, 0x5d)
+## M10b (IMPL): a session client's sent key (show_prayer_sent) is the prompt's arrow at this alpha, its gold as ivory.
+const SENT_ALPHA: float = 0.6
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
@@ -125,6 +127,8 @@ var shop: ShopPanel
 ## none) and the window's ticks left.
 var prayer_dir: int = -1
 var prayer_left: int = 0
+## M10b (a session client): the key it sent for its turn, shown dim where the prompt was until the host's result (-1 = none).
+var prayer_sent: int = -1
 var _shown: String = ""
 
 
@@ -188,13 +192,19 @@ func _process(_delta: float) -> void:
 func prayer_key() -> String:
 	if player == null or not is_instance_valid(player):
 		return ""
-	return "%d/%d/%d" % [zeal_fill(player.skills.zeal_ticks), prayer_dir, prompt_fill(prayer_left)]
+	return "%d/%d/%d/%d" % [zeal_fill(player.skills.zeal_ticks), prayer_dir, prompt_fill(prayer_left), prayer_sent]
 
 
 ## M10a: the local player's turn prompt (Main, every tick): direction `dir` (Prayer.Dir, -1 = none), `left` ticks of the window.
 func show_prayer_prompt(dir: int, left: int) -> void:
 	prayer_dir = dir
 	prayer_left = left if dir >= 0 else 0
+
+
+## M10b: the key a session client sent for its turn (Prayer.Dir, -1 = none; Main every tick): its arrow drawn dim where the prompt
+## was (SENT_TINT) until the host's result comes. What the client predicts of an answer: the key, not the lamp.
+func show_prayer_sent(dir: int) -> void:
+	prayer_sent = dir if dir >= 0 and dir < Prayer.DIR_KEYS.size() else -1
 
 
 ## M10a: the zeal's time-left bar (px, as effect_fill) for `ticks` left of the longest zeal (a prayer's or a meditation's).
@@ -229,20 +239,32 @@ static func prompt_bar_at(view: Vector2i) -> Vector2i:
 	return Vector2i((view.x - PROMPT_BAR.x) / 2, PROMPT_TOP + size + PROMPT_BAR_GAP)
 
 
-## M10a: the turn prompt (see prayer_dir): the arrow drawn PROMPT_SCALE times and the window bar draining.
+## M10a: the turn prompt (see prayer_dir): the arrow drawn PROMPT_SCALE times and the window bar draining. M10b: or, after a session
+## client answered, the key it sent: that arrow dim (sent_colour), no bar.
 func _draw_prayer_prompt() -> void:
-	if prayer_dir < 0:
+	var d: int = prayer_dir if prayer_dir >= 0 else prayer_sent
+	if d < 0:
 		return
 	var view: Vector2i = view_size()
 	var o: Vector2i = prompt_origin(view)
-	var img: Image = PrayerMark.arrow_image(prayer_dir)
+	var img: Image = PrayerMark.arrow_image(d)
 	for y: int in img.get_height():
 		for x: int in img.get_width():
 			var c: Color = img.get_pixel(x, y)
 			if c.a8 > 0:
-				canvas.draw_rect(Rect2(Vector2(o + Vector2i(x, y) * PROMPT_SCALE), Vector2(PROMPT_SCALE, PROMPT_SCALE)), c)
+				var drawn: Color = c if prayer_dir >= 0 else sent_colour(c)
+				canvas.draw_rect(Rect2(Vector2(o + Vector2i(x, y) * PROMPT_SCALE), Vector2(PROMPT_SCALE, PROMPT_SCALE)), drawn)
+	if prayer_dir < 0:
+		return
 	var bar: Vector2i = prompt_bar_at(view)
 	_bar(bar, PROMPT_BAR, float(prompt_fill(prayer_left)) / PROMPT_BAR.x, PROMPT_FILL, FILL)
+
+
+## M10b: a sent key's arrow pixel of colour `c`: the faith gold fill as faith ivory at SENT_ALPHA (the outline stays ash black, at it
+## too), so it reads as "pressed, waiting" and not as a new prompt.
+static func sent_colour(c: Color) -> Color:
+	var base: Color = DIGIT if c.to_rgba32() == SELECT.to_rgba32() else c
+	return Color(base.r, base.g, base.b, SENT_ALPHA)
 
 
 ## M9a: what the skill row shows now (redrawn when it changes): per slot its veil height and refusal mark, the resource.

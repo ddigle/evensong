@@ -205,6 +205,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["builds"] = s.host.builds_result()  # M7c
 		out["shop"] = s.host.shop_result()  # M8b
 		out["skills"] = s.host.skills_result()  # M9c
+		out["prayer"] = s.host.prayer_result()  # M10b
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
@@ -229,6 +230,7 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["effects_on_welcome"] = c.effects_on_welcome
 		out["purify_flashes"] = c.purify_flashes  # M5c
 		out["skills"] = c.skills_result()  # M9c
+		out["prayer"] = c.prayer_result()  # M10b
 	return out
 
 

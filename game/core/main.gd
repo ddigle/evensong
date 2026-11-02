@@ -117,7 +117,7 @@ extends Node2D
 ## M9b (offline too): the weapon skills (key 2) and the signatures (key R) land through skill_impact the same way; a melee weapon
 ## skill's shrine edits go into the world, the strikes and zones they start live in the map's arena (stepped in step_combat).
 ## --test-resource fills the local player's meter (screenshots).
-## M10a (offline first; a session refuses the prayer until M10b, everything else as before): the group prayer at the surface altar
+## M10a (offline first; M10b below brings it to sessions): the group prayer at the surface altar
 ## and meditation (items/prayer.gd, one Prayer for the surface, stepped every physics tick after the combat). An F press that
 ## nothing else took (pick_up: a way down, the merchant, a chest, a door, something to pick up, the paladin's channel) and that is
 ## let go within Config.PRAYER_TAP_MAX_TICKS is a tap (prayer_tap): in the circle it starts, joins, leaves or meditates (Prayer.tap);
@@ -127,6 +127,10 @@ extends Node2D
 ## (Altar.show_lamps), the marks over the heads (PrayerMark) and the local player's turn prompt on the HUD. --test-ally takes
 ## several classes and --test-pray scripts them (join, then answer each of their turns right, wrong, late or quit): one process
 ## shows a prayer of several.
+## M10b (sessions): the same F; an untaken tap (session_f_taken: this machine's world) in the circle, or while praying or
+## meditating, is a PRAY request (prayer_tap), a participant's key on its turn an ANSWER (NetPrayer.attach, before the frame's
+## other requests). The host's prayer (a client: its mirror, NetPrayer) is drawn by the same code (shown_prayer, show_prayer_from);
+## a bot's `pray` comes through NetSession.bot_tap.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -229,6 +233,7 @@ func _ready() -> void:
 		net.bot_gear.connect(_on_bot_gear)  # M7c: a bot's chest panel / armour slot clicks
 		net.shop_wanted.connect(open_shop)  # M8b: F at the merchant opens his shop panel here
 		net.bot_shop.connect(_on_bot_shop)  # M8b: a bot's shop panel clicks
+		net.bot_tap.connect(_f_press)  # M10b: a bot's `pray` (F pressed and let go: a tap once it is let go)
 		_connect_shop_panel()
 		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
@@ -241,7 +246,7 @@ func _ready() -> void:
 	setup_farming()
 	setup_forests()  # M7b
 	purify_on = true  # M5b (offline; M5c: a session's is the host's)
-	setup_prayer()  # M10a (offline; a session refuses it until M10b)
+	setup_prayer()  # M10a (offline; M10b: a session's is the host's, shown_prayer)
 	_apply_test_options(options)
 	setup_shop()  # M8a. M8 review: after the test options, as a host does (the merchant's tile keeps off their pieces and bodies)
 	if not options.bot.is_empty():
@@ -341,7 +346,8 @@ func _physics_process(delta: float) -> void:
 		_redraw_shop()  # M8b: the host's shop stock edits change an open panel
 		_show_merchant()  # M8b (M8: and which way he looks)
 		ally_mark.show_for(_aim_ring_target(), player.skill_aim_refused)  # M9c: as this machine sees the players
-		_track_f_tap()  # M10a: a tap at the altar only says the prayer is offline only (M10b)
+		_track_f_tap()  # M10a. M10b: a tap at the altar is a PRAY request (the host decides)
+		_show_prayer()  # M10b: the host's prayer (a client: its mirror)
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -609,7 +615,7 @@ func pick_up() -> bool:
 		return false
 	if _in_session():
 		net.queue_op(request(NetProtocol.Op.PICKUP))
-		return false
+		return session_f_taken(player, Aim.target_cell(player.sim_position, player.aim_sector))  # M10b: as this machine sees it
 	var cell: Vector2i = Aim.target_cell(player.sim_position, player.aim_sector)
 	var data: WorldData = current_world().data
 	var to: int = WorldItems.travel(data, player.sim_position, cell)
@@ -638,6 +644,20 @@ func pick_up() -> bool:
 	if o.ok() and o.gathered and farming_on:
 		seed_from_wild(player.inventory, o.item)
 	return o.why != WorldItems.WHY_NOTHING  # M10a: something lay there (taken, or refused: a full inventory): no prayer tap
+
+
+## M10b: whether F aimed at tile `c` is taken by something else in a session, as this machine's world has it (what the PICKUP becomes
+## or does there: SessionHost.attach_local_op's order: a way to another map, the merchant, a chest, a door, something to pick up
+## (or a full inventory's refusal), the paladin's channel). An untaken press let go soon is the prayer's tap (PRAY); the host decides
+## both again.
+static func session_f_taken(p: Player, c: Vector2i) -> bool:
+	var d: WorldData = p.data
+	if d == null:
+		return false
+	if WorldItems.is_portal(d, c) or (d.shop != null and Merchant.at(d, p.sim_position, c)) \
+			or Storage.chest_for(d, p.sim_position, c).has_area() or Building.door_cell(d, c) != Walls.NO_CELL:
+		return true
+	return SessionHost.wants_channel(p, c) or WorldItems.pickup_check(d, p.sim_position, c) != WorldItems.WHY_NOTHING
 
 
 ## M5a (offline): a wild herb picked where it grew gives Config.SEEDS_PER_WILD_HERB seeds of its crop (PROVISIONAL: the
@@ -971,7 +991,9 @@ func _go_offline_combat() -> void:
 	# M9a: and the skill kit. M9c: the meter and the cooldowns go on from the host's last skills message (offline from now on).
 	player.skills_clock_external = false
 	_connect_skills(player)
-	# M10a: and the prayer at the altar (offline from now on).
+	# M10a: and the prayer at the altar (offline from now on). M10b: the host's prayer went with it (a part in it ends here; the zeal
+	# the host's last event gave runs on from where it is).
+	player.prayer_role = Prayer.Role.NONE
 	setup_prayer()
 
 
@@ -1812,9 +1834,9 @@ func _on_skill_started(slot: int, id: StringName) -> void:
 	print("EVENSONG_SKILL start key=%s skill=%s" % [Skills.SLOT_KEYS[clampi(slot, 0, 3)], id])
 
 
-# --- M10a: the group prayer and meditation (offline; a session refuses them until M10b) ----------------------------------
+# --- M10a: the group prayer and meditation (offline; M10b: a session sends the tap to the host and draws its prayer) ------------
 
-## The surface altar's prayer (offline; M10b brings it to sessions), (re)made when the surface world got other data (tests swap
+## The surface altar's prayer (offline; M10b: a session's is SessionHost.prayer), (re)made when the surface world got other data (tests swap
 ## worlds).
 func setup_prayer() -> void:
 	prayer_on = true
@@ -1851,14 +1873,16 @@ func _track_f_tap() -> void:
 
 
 ## Player `p` tapped F (PROVISIONAL README "M10a F"): at the surface altar's circle (or praying, meditating) it is the prayer's
-## (Prayer.tap: start, join, leave, meditate; refusals logged). Elsewhere, down or dead it is nothing. In a session it is refused
-## (M10b). Returns what the tap did (null: no prayer tap).
+## (Prayer.tap: start, join, leave, meditate; refusals logged). Elsewhere, down or dead it is nothing. M10b: in a session the local
+## player's tap goes to the host as a PRAY request when this machine sees it praying, meditating or in the circle (the host runs
+## Prayer.tap on its own state; its events come back). Returns what the tap did (null: no prayer tap, or a session's).
 func prayer_tap(p: Player) -> Prayer.Tapped:
 	if p == null or not is_instance_valid(p) or not p.vitals.alive():
 		return null
 	if _in_session():
-		if Prayer.in_circle(p.data, p.sim_position):
-			print("EVENSONG_PRAYER refused who=%s: %s" % [p.name, Prayer.WHY_SESSION])
+		if p == player and (p.prayer_role != Prayer.Role.NONE or Prayer.in_circle(p.data, p.sim_position)):
+			net.queue_op(request(NetProtocol.Op.PRAY))
+			print("EVENSONG_PRAYER tap who=%s (to the host)" % p.name)
 		return null
 	if not prayer_on or prayer == null or p.data != prayer.data:
 		return null
@@ -1941,47 +1965,85 @@ func _drive_test_allies() -> void:
 			prayer_tap(a)
 
 
-## The prayer's pictures (offline): the lamps on the altar while it is shown, the circle while it runs, every player's mark and the
-## local player's turn prompt on the HUD.
+## The prayer this machine shows: offline its own (M10a), a host its session's (M10b: SessionHost.prayer), a client the mirror of
+## the host's (NetPrayer.mirror); null before there is one.
+func shown_prayer() -> Prayer:
+	if net != null and net.role == NetSession.Role.HOST and net.host != null:
+		return net.host.prayer
+	if net != null and net.role == NetSession.Role.CLIENT and net.client != null:
+		return net.client.prayer_net.mirror
+	return prayer if prayer_on else null
+
+
+## The prayer's pictures (offline; M10b: a host's and a client's too, show_prayer_from): the lamps on the altar while it is shown,
+## the circle while it runs, every player's mark and the local player's turn prompt on the HUD (a client: its own window, from when
+## its turn's event came, and the key it sent until the host's result).
 func _show_prayer() -> void:
-	if prayer == null or world == null or world.data == null:
+	var pr: Prayer = shown_prayer()
+	if pr == null or world == null or world.data == null:
 		return
-	var on: bool = prayer_on and prayer.data == world.data
-	if world.altar != null:
-		var looks: PackedInt32Array = PackedInt32Array()
-		if on and prayer.showing():
-			for i: int in Config.PRAYER_TURNS:
-				looks.append(Altar.lamp_look(prayer.lamps[i], prayer.clock - prayer.lamp_ticks[i], i == prayer.current_lamp()))
-		world.altar.show_lamps(looks)
-	var circle: bool = on and prayer.running() and world.data.altar_rect.has_area()
-	prayer_view.show_circle(circle, world.data.altar_center_px() if circle else Vector2.ZERO,
-		PrayerView.shift_for(prayer.phase, prayer.phase_ticks))
+	var on: bool = pr.data == world.data
+	var prompt: int = -1
+	var left: int = 0
+	var sent: int = -1
 	var everyone: Array[Player] = []
 	if player != null and is_instance_valid(player):
 		everyone.append(player)
-	everyone.append_array(allies)
+		if net.role == NetSession.Role.CLIENT and net.client != null:
+			var np: NetPrayer = net.client.prayer_net
+			prompt = np.prompt(net.tick)
+			left = np.window_left(net.tick)
+			sent = np.sent(net.tick)
+		elif pr.window_left() > 0:
+			prompt = pr.prompt_for(player.get_instance_id())  # the host's own window (its lag allowance is the remote clients')
+			left = pr.window_left()
+	if _in_session():
+		for slot: int in net.slots():
+			var q: Player = net.members[slot].player
+			if q != player and q != null and is_instance_valid(q):
+				everyone.append(q)
+	else:
+		everyone.append_array(allies)
+	show_prayer_from(pr, on, world, prayer_view, everyone, player, hud, prompt, left, sent)
+
+
+## Draws prayer `pr` (`on`: it is world `w`'s): the lamps on its altar while it is shown, the circle (`view`) while it runs, the marks
+## over the heads of `everyone` (none of the turn's arrow over `local`, this machine's own player), and on `hud` the local player's
+## prompt `prompt` (Prayer.Dir, -1 = none) with `left` ticks of its window and the key it sent `sent` (-1 = none). Main every tick;
+## tools/check_render.gd draws a host's prayer and a client's mirror of it with it.
+static func show_prayer_from(pr: Prayer, on: bool, w: GameWorld, view: PrayerView, everyone: Array[Player], local: Player, h: Hud,
+		prompt: int, left: int, sent: int) -> void:
+	if w.altar != null:
+		var looks: PackedInt32Array = PackedInt32Array()
+		if on and pr.showing():
+			for i: int in Config.PRAYER_TURNS:
+				looks.append(Altar.lamp_look(pr.lamps[i], pr.clock - pr.lamp_ticks[i], i == pr.current_lamp()))
+		w.altar.show_lamps(looks)
+	var circle: bool = on and pr.running() and w.data.altar_rect.has_area()
+	view.show_circle(circle, w.data.altar_center_px() if circle else Vector2.ZERO, PrayerView.shift_for(pr.phase, pr.phase_ticks))
 	for q: Player in everyone:
 		if is_instance_valid(q):
-			_show_prayer_mark(q, on)
-	if player != null and is_instance_valid(player):
-		hud.show_prayer_prompt(prayer.prompt_for(player.get_instance_id()) if on else -1, prayer.window_left())
+			show_prayer_mark(pr, q, on, local)
+	if h != null:
+		h.show_prayer_prompt(prompt if on else -1, left)
+		h.show_prayer_sent(sent if on else -1)
 
 
-## Player `q`'s mark over its head: its turn's arrow (not over this machine's own player: its HUD shows the larger prompt, and the
-## arrow over its head would cover the altar's lamp being answered when it stands south of it; the others see it there), the
-## joined ring for a while after it joined, the meditation's ring and bar, the left ring for a while after it left, else none.
-func _show_prayer_mark(q: Player, on: bool) -> void:
+## Player `q`'s mark over its head: its turn's arrow (not over this machine's own player `local`: its HUD shows the larger prompt,
+## and the arrow over its head would cover the altar's lamp being answered when it stands south of it; the others see it there),
+## the joined ring for a while after it joined, the meditation's ring and bar, the left ring for a while after it left, else none.
+static func show_prayer_mark(pr: Prayer, q: Player, on: bool, local: Player) -> void:
 	var id: int = q.get_instance_id()
-	var d: int = prayer.prompt_for(id) if on and q != player else -1
+	var d: int = pr.prompt_for(id) if on and q != local else -1
 	var up: bool = not q.effect_marks.shown.is_empty()  # above the effect marks when it shows some
-	var joined: int = prayer.joined_at.get(id, -Config.PRAYER_JOINED_MARK_TICKS)
+	var joined: int = pr.joined_at.get(id, -Config.PRAYER_JOINED_MARK_TICKS)
 	if d >= 0:
 		q.prayer_mark.show_mark(PrayerMark.Kind.TURN, d, 0, up)
-	elif on and prayer.is_member(id) and prayer.clock - joined < Config.PRAYER_JOINED_MARK_TICKS:
+	elif on and pr.is_member(id) and pr.clock - joined < Config.PRAYER_JOINED_MARK_TICKS:
 		q.prayer_mark.show_mark(PrayerMark.Kind.JOINED, -1, 0, up)
-	elif on and prayer.is_meditating(id):
-		q.prayer_mark.show_mark(PrayerMark.Kind.MEDITATE, -1, PrayerMark.bar_fill(prayer.meditation_ticks(id)), up)
-	elif on and prayer.left_at.has(id) and prayer.clock - prayer.left_at[id] < Config.PRAYER_LEFT_MARK_TICKS:
+	elif on and pr.is_meditating(id):
+		q.prayer_mark.show_mark(PrayerMark.Kind.MEDITATE, -1, PrayerMark.bar_fill(pr.meditation_ticks(id)), up)
+	elif on and pr.left_at.has(id) and pr.clock - pr.left_at[id] < Config.PRAYER_LEFT_MARK_TICKS:
 		q.prayer_mark.show_mark(PrayerMark.Kind.LEFT, -1, 0, up)
 	else:
 		q.prayer_mark.show_mark(PrayerMark.Kind.NONE)
@@ -2001,7 +2063,7 @@ func _on_prayer_refused(what: String) -> void:
 
 ## The name of the player with node instance id `id` the prayer met (for the logs).
 func _prayer_name(id: int) -> String:
-	var p: Player = prayer.people.get(id, null) if prayer != null else null
+	var p: Player = prayer.person(id) if prayer != null else null
 	return str(p.name) if p != null and is_instance_valid(p) else str(id)
 
 

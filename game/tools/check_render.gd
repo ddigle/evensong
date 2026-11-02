@@ -283,6 +283,8 @@ func _run() -> void:
 			await _check_prayer_lamps()  # M10a
 		if _want("prayer_marks"):
 			await _check_prayer_marks()
+		if _want("prayer_net"):
+			await _check_prayer_net()  # M10b
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -4228,3 +4230,169 @@ func _check_prayer_marks() -> void:
 		print("EVENSONG_RENDER prayer_marks ok %s" % line)
 	else:
 		_fail("prayer_marks", line)
+
+
+## M10b: a host's prayer drawn by a client from the wire is the host's picture to the pixel. Four pray round the altar (the host's
+## Prayer in session mode: answers submitted, the cleric right, the paladin wrong, the archer right 100 ticks into its turn (inside
+## the lag allowance), the miner hit at turn 3 tick 100); at three moments (turn 3 tick 110: the miner's left ring, its lamp
+## guttering; turn 4 tick 20: the ember, the turn's arrow over the cleric, the soot; after the end: the result's lamps and the
+## zeal marks of the three, the ZEAL events) the altar's lamps, the circle and the marks are drawn from the host's prayer and then
+## from a client's mirror fed the wire's events (NetPrayer: decoded, applied, its clock the host's) on the same players: no pixel
+## differs. Then the HUD's sent key (a client's dim arrow, Hud.show_prayer_sent) blends its colours over the scene as written here.
+func _check_prayer_net() -> void:
+	world.lighting.set_evening(false)
+	var centre: Vector2 = world.data.altar_center_px()
+	_look_at(Vector2i(centre.round()))
+	var bg: Image = await _capture()
+	var pr: Prayer = Prayer.new()
+	pr.setup(world.data, Config.DEFAULT_SEED)
+	pr.answers_from_keys = false
+	pr.lag_ticks = Config.PRAYER_ANSWER_LAG_TICKS
+	pr.clock = 5000
+	var classes: PackedStringArray = ["cleric", "paladin", "archer", "miner"]
+	var offsets: Array[Vector2] = [Vector2(-40, 12), Vector2(40, 12), Vector2(-26, 38), Vector2(26, 38)]
+	var ps: Array[Player] = []
+	var s: NetSession = NetSession.new()
+	var slots: Dictionary[int, int] = {}
+	for i: int in 4:
+		var p: Player = Player.new()
+		p.local_input = false
+		p.skills_on = true
+		p.setup(world.data, classes[i], centre + offsets[i])
+		world.entities.add_child(p)
+		ps.append(p)
+		var m: NetMember = NetMember.new()
+		m.slot = i
+		m.player = p
+		m.class_id = classes[i]
+		s.members[i] = m
+		slots[p.get_instance_id()] = i
+	s.local = s.members[2]  # the client drawing it is the archer's (no arrow over its own head)
+	ps[0].skills.resource = 100
+	var none: Array[HereticSim] = []
+	var wire: Array[NetProtocol.PrayerEvent] = []
+	for p2: Player in ps:
+		pr.tap(p2, ps, none)
+		Smoke._wire_prayer(pr, slots, wire)
+	var view: PrayerView = PrayerView.new()
+	world.add_child(view)
+	world.move_child(view, world.entities.get_index())
+	var np: NetPrayer = NetPrayer.new()
+	np.setup(world.data)
+	var at: PackedInt32Array = [20, 20, 100, 1000]  # the cleric, the paladin (wrong), the archer, the miner (never)
+	var moments: Array[Array] = [[3, 110], [4, 20], [-1, 0]]
+	var results: PackedStringArray = []
+	var bad: int = 0
+	var drawn_min: int = 1 << 30
+	var applied: int = 0
+	for mo: Array in moments:
+		var want_turn: int = mo[0]
+		var want_ticks: int = mo[1]
+		var guard: int = 0
+		while guard < 4000:
+			var done: bool = (want_turn >= 0 and pr.turn == want_turn and pr.turn_ticks == want_ticks) \
+				or (want_turn < 0 and not pr.running() and pr.last != null and pr.clock - pr.shown_until < -60)
+			if done:
+				break
+			var owner: int = slots.get(pr.turn_owner, -1)
+			if pr.current_lamp() >= 0 and owner >= 0 and pr.turn_ticks + 1 == at[owner]:
+				pr.submit(pr.turn_owner, pr.number(), pr.turn, pr.directions[pr.turn] if owner != 1 else (pr.directions[pr.turn] + 2) % 4)
+			pr.step(ps)
+			if pr.turn == 3 and pr.turn_ticks == 100 and pr.is_member(ps[3].get_instance_id()):
+				pr.on_hurt(ps[3])
+			Smoke._wire_prayer(pr, slots, wire)
+			guard += 1
+		for i2: int in 4:
+			var sk: SkillState = ps[i2].skills
+			if sk.zealous() and want_turn < 0:
+				wire.append(SessionHost.zeal_event(i2, sk, pr.clock))
+		for p7: Player in ps:
+			p7._sync_view()  # its zeal mark (the prayer gave it; nothing stepped it here)
+		# The host's picture.
+		Main.show_prayer_from(pr, true, world, view, ps, ps[2], null, -1, 0, -1)
+		var host_img: Image = await _capture()
+		var drawn: int = count_diff(host_img, bg)
+		drawn_min = mini(drawn_min, drawn)
+		# The client's: its mirror from the wire (only what came since), the same players with their zeal from the events.
+		var zeal_kept: Array[Vector2i] = []
+		for p3: Player in ps:
+			zeal_kept.append(Vector2i(p3.skills.zeal_pct, p3.skills.zeal_ticks))
+			p3.show_zeal(0, 0)
+		var msg: NetProtocol.PrayerEvents = NetProtocol.decode_prayer(NetProtocol.encode_prayer(wire))
+		np.apply(s, msg.events, 0, true)
+		applied += msg.events.size()
+		wire.clear()
+		np.tick(s, pr.clock)
+		for p4: Player in ps:
+			p4.prayer_mark.show_mark(PrayerMark.Kind.NONE)
+		Main.show_prayer_from(np.mirror, true, world, view, ps, ps[2], null, -1, 0, -1)
+		var client_img: Image = await _capture()
+		var n: int = count_diff(client_img, host_img)
+		bad += n
+		if n > 0 or save_all:
+			_save(host_img, "prayer_net_host_%d.png" % results.size())
+			_save(client_img, "prayer_net_client_%d.png" % results.size())
+		results.append("%s:%d/%d" % ["end" if want_turn < 0 else "t%d+%d" % [want_turn, want_ticks], n, drawn])
+		for i3: int in 4:
+			ps[i3].skills.zeal_pct = zeal_kept[i3].x
+			ps[i3].skills.zeal_ticks = zeal_kept[i3].y
+	var lamps: String = NetPrayer.lamps_word(pr.last.lamps) if pr.last != null else "?"
+	# The HUD's sent key: the down arrow drawn 3x at the prompt's place, its gold as ivory, at Hud.SENT_ALPHA over the scene.
+	world.altar.show_lamps(PackedInt32Array())
+	view.show_circle(false)
+	for p5: Player in ps:
+		p5.prayer_mark.show_mark(PrayerMark.Kind.NONE)
+		p5.show_zeal(0, 0)
+	var under: Image = await _capture()
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.show_prayer_sent(Prayer.Dir.DOWN)
+	hud.canvas.queue_redraw()
+	var sent_img: Image = await _capture()
+	var n2: int = PrayerMark.ARROW_MAP.size()
+	var top: Vector2i = Vector2i((Config.VIEW_SIZE.x - n2 * 3) / 2, 26)
+	var sent_bad: int = 0
+	var sent_px: int = 0
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var ivory: Color = Color8(0xef, 0xe3, 0xc6)
+	for y: int in n2:
+		var row: String = PrayerMark.ARROW_MAP[n2 - 1 - y]
+		for x: int in n2:
+			if not ItemIcons.PALETTE.has(row[x]):
+				continue
+			var c: Color = ItemIcons.PALETTE[row[x]]
+			var base: Color = ivory if c.to_rgba32() == gold.to_rgba32() else c
+			for sy: int in 3:
+				for sx: int in 3:
+					var q: Vector2i = top + Vector2i(x * 3 + sx, y * 3 + sy)
+					var u: Color = under.get_pixelv(q)
+					var want: Color = u.lerp(base, 0.6)
+					var got: Color = sent_img.get_pixelv(q)
+					sent_px += 1
+					if absi(got.r8 - want.r8) > 2 or absi(got.g8 - want.g8) > 2 or absi(got.b8 - want.b8) > 2:
+						sent_bad += 1
+	var outside: int = count_diff(sent_img, under) - (n2 * 3 * n2 * 3 - _same_count(sent_img, under, top, n2 * 3))
+	root.remove_child(hud)
+	hud.free()
+	world.remove_child(view)
+	view.free()
+	for p6: Player in ps:
+		world.entities.remove_child(p6)
+		p6.free()
+	s.free()
+	var line: String = "moments=%s lamps=%s events=%d mismatches=%d drawn_min=%d sent_px=%d sent_mismatches=%d other_changed=%d" % [
+		",".join(results), lamps, applied, bad, drawn_min, sent_px, sent_bad, outside]
+	if bad == 0 and drawn_min > 200 and lamps == "lololollo" and sent_bad == 0 and sent_px > 100 and outside == 0:
+		print("EVENSONG_RENDER prayer_net ok %s" % line)
+	else:
+		_fail("prayer_net", line)
+
+
+## The pixels of the `size` x `size` square at `top` that are the same in `a` and `b`.
+static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
+	var n: int = 0
+	for y: int in size:
+		for x: int in size:
+			if a.get_pixelv(top + Vector2i(x, y)) == b.get_pixelv(top + Vector2i(x, y)):
+				n += 1
+	return n

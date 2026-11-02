@@ -1,6 +1,6 @@
 class_name Prayer
 extends RefCounted
-## M10a: the group prayer at the altar and meditation (offline first, like M5a-M9a; sessions refuse it until M10b). One per surface
+## M10a: the group prayer at the altar and meditation (offline first, like M5a-M9a; M10b: the session host runs it too). One per surface
 ## world: the offline game (core/main.gd) keeps one and steps it every game tick after the combat; tests drive it directly. Rules
 ## on Player nodes like the arena's (keyed by node instance id), deterministic (the directions come from a seeded generator, the
 ## turns from the join order, no clock but its own game ticks).
@@ -30,6 +30,13 @@ extends RefCounted
 ## count; two at once = wrong), times out at the window's end, and the next turn opens after the gap; after the last one the
 ## prayer ends (zeal for everyone still in, the cleric's faith spent). The keys each participant held this tick are kept to tell
 ## the next tick's press.
+##
+## M10b (sessions, the host runs this model; `answers_from_keys` off): an answer is no move key on the owner's frame but the ANSWER
+## request its machine sent, tagged with the prayer and the turn it answers (submit(): this prayer, this turn, open, the sender's,
+## not answered yet; the step judges it where it judges a key). The host takes it up to `lag_ticks` (Config.PRAYER_ANSWER_LAG_TICKS)
+## past the window (window_end: the way of the turn's event down and of the answer up), and every turn lasts that much longer
+## (turn_ticks_total). Every Event carries the clock it happened at (a tap's: the clock before this tick's step; a step's: after),
+## so the host stamps the wire's events with it and a client's mirror ages them like the host (net/net_prayer.gd).
 
 enum Phase { IDLE, GATHER, TURNS }
 enum Lamp { UNLIT, LIT, OUT }
@@ -70,7 +77,24 @@ const WHY_ZEAL: String = "zeal still lasts"
 const WHY_FAITH: String = "not enough faith"
 const WHY_COMBAT: String = "in combat"
 const WHY_MEDITATING: String = "meditating"
-const WHY_SESSION: String = "prayer offline only (M10b)"
+## M10b: why the host refused an ANSWER (submit): the sender is in no prayer, it names another prayer, a turn not open yet, a turn
+## whose result went out (decided late or by a leave), another participant's turn, a second answer to one turn.
+const WHY_NOT_PRAYING: String = "not praying"
+const WHY_OTHER_PRAYER: String = "another prayer"
+const WHY_NOT_YET: String = "not this turn yet"
+const WHY_TURN_OVER: String = "that turn is over"
+const WHY_NOT_YOURS: String = "not your turn"
+const WHY_ANSWERED: String = "already answered"
+## M10b: an answer naming no direction (a malformed ANSWER; the wire decoder refuses it first).
+const WHY_BAD_ANSWER: String = "bad answer"
+## M10b: the wire's answer for two move keys at once (a wrong answer, answer_of's SEVERAL), after the four Dir.
+const WIRE_SEVERAL: int = 4
+## M10b: the wire's codes (net/protocol.gd prayer events) of why a participant left or a meditation broke, why a prayer stopped,
+## how a turn was decided. Index = code.
+const LEAVE_WHYS: PackedStringArray = ["quit", "hit", "down", "dead", "gone", "moved", "a prayer began"]
+const STOP_WHYS: PackedStringArray = ["the cleric: quit", "the cleric: hit", "the cleric: down", "the cleric: dead", "the cleric: gone",
+	"the altar is gone"]
+const ANSWER_WHYS: PackedStringArray = ["ok", "wrong", "late", "left"]
 
 
 ## Something that happened in a step or a tap (Main logs it).
@@ -83,6 +107,8 @@ class Event:
 	var dir: int = -1
 	## answer: "ok", "wrong", "late"; leave / stop / broken: why.
 	var why: String = ""
+	## M10b: the prayer's clock when it happened (a tap's: before this tick's step; a step's: after it).
+	var tick: int = 0
 
 
 ## A prayer that ended or stopped (logs, tests).
@@ -146,6 +172,15 @@ var last: Result
 var stats: Dictionary[String, int] = {}
 ## The events of the last step / tap (Main logs them; cleared by each).
 var events: Array[Event] = []
+## M10b: offline the owner's move keys answer (true); the host takes the ANSWER requests instead (false, submit), up to `lag_ticks`
+## past the window. The answer submitted to the turn under way waits here for the step (its owner, its turn, its Dir or
+## WIRE_SEVERAL); `by_answer` = the turn under way was decided by an answer (not late, not left).
+var answers_from_keys: bool = true
+var lag_ticks: int = 0
+var _sub_owner: int = 0
+var _sub_turn: int = -1
+var _sub_dir: int = -1
+var by_answer: bool = false
 
 
 func setup(p_data: WorldData, p_seed: int) -> void:
@@ -367,6 +402,15 @@ func running() -> bool:
 	return phase != Phase.IDLE
 
 
+## M10b: the player met under node id `id`, or null (never met, or freed: a session member who left the session mid-prayer).
+func person(id: int) -> Player:
+	var v: Variant = people.get(id, null)
+	if v == null or not is_instance_valid(v):
+		return null
+	var p: Player = v
+	return p
+
+
 func is_member(id: int) -> bool:
 	return members.has(id)
 
@@ -394,9 +438,24 @@ func prompt_for(id: int) -> int:
 	return -1
 
 
-## Ticks left in the open window (0 when none).
+## Ticks left in the open window (0 when none). M10b: the window its owner's machine shows (the host's lag allowance is not in it).
 func window_left() -> int:
 	return maxi(Config.PRAYER_ANSWER_WINDOW_TICKS - turn_ticks, 0) if current_lamp() >= 0 else 0
+
+
+## M10b: the last turn tick an answer counts at (the window, and on the host the lag allowance after it).
+func window_end() -> int:
+	return Config.PRAYER_ANSWER_WINDOW_TICKS + lag_ticks
+
+
+## M10b: how long every turn lasts (its window, the allowance, the gap).
+func turn_ticks_total() -> int:
+	return window_end() + Config.PRAYER_TURN_GAP_TICKS
+
+
+## M10b: the prayer number the wire carries (its low byte: an answer names the prayer it was for).
+func number() -> int:
+	return prayers & 0xFF
 
 
 func lit_count() -> int:
@@ -418,6 +477,7 @@ func _event(what: String, who: int, why: String = "") -> Event:
 	e.who = who
 	e.why = why
 	e.turn = turn
+	e.tick = clock
 	events.append(e)
 	return e
 
@@ -485,6 +545,8 @@ func start(p: Player) -> void:
 	turn_owner = 0
 	turn_ticks = 0
 	answered = false
+	by_answer = false
+	_sub_turn = -1
 	shown_until = 0
 	_enter(p)
 	_event("start", id)
@@ -550,9 +612,36 @@ func stop(why: String) -> void:
 
 
 func _release(id: int) -> void:
-	var p: Player = people.get(id, null)
+	var p: Player = person(id)
 	if p != null and is_instance_valid(p) and p.prayer_role == Role.PRAYING:
 		p.prayer_role = Role.NONE
+
+
+## M10b (the host): participant `id`'s machine answers turn `t` of prayer `n` (number(): the wire's low byte) with `dir` (a Dir, or
+## WIRE_SEVERAL for two keys at once). Taken ("") when it is in this prayer, the turn is the one under way, open and its own, and not
+## answered yet: the step judges it (in the window and its lag allowance, window_end; first come first judged). Else why not: a turn
+## not open yet (`not this turn yet`), one whose result went out late or because its owner left (`that turn is over`), another's,
+## a second answer.
+func submit(id: int, n: int, t: int, dir: int) -> String:
+	if dir < 0 or dir > WIRE_SEVERAL:
+		return WHY_BAD_ANSWER
+	if not is_member(id):
+		return WHY_NOT_PRAYING
+	if n != number():
+		return WHY_OTHER_PRAYER
+	if phase != Phase.TURNS or t > turn:
+		return WHY_NOT_YET
+	if t < turn or (answered and not by_answer):
+		return WHY_TURN_OVER
+	if turn_owner != id:
+		return WHY_NOT_YOURS
+	if answered or _sub_turn == turn:
+		return WHY_ANSWERED
+	_sub_owner = id
+	_sub_turn = turn
+	_sub_dir = dir
+	count("answers_taken")
+	return ""
 
 
 ## Player `p` took damage (a hit that landed, a poison tick): its combat clock starts over; a participant leaves (the cleric: it
@@ -582,7 +671,7 @@ func break_meditation(id: int, why: String) -> void:
 	if not meditators.has(id):
 		return
 	meditators.erase(id)
-	var p: Player = people.get(id, null)
+	var p: Player = person(id)
 	if p != null and is_instance_valid(p) and p.prayer_role == Role.MEDITATING:
 		p.prayer_role = Role.NONE
 	count("meditations_broken")
@@ -649,16 +738,22 @@ func step(players: Array[Player]) -> Array[Event]:
 	elif phase == Phase.TURNS:
 		phase_ticks += 1
 		turn_ticks += 1
-		if not answered and turn_ticks <= Config.PRAYER_ANSWER_WINDOW_TICKS:
-			var owner: Player = _find(players, turn_owner)
-			if owner != null:
-				var before: Vector2i = prev_dirs.get(turn_owner, Vector2i.ZERO)
-				var ans: int = answer_of(owner.last_input, before)
-				if ans != NO_PRESS:
-					_decide(ans == directions[turn], "ok" if ans == directions[turn] else "wrong")
-		if not answered and turn_ticks >= Config.PRAYER_ANSWER_WINDOW_TICKS:
+		if not answered and turn_ticks <= window_end():
+			var ans: int = NO_PRESS
+			if not answers_from_keys:
+				# M10b: the ANSWER this turn's owner's machine sent (submit), judged here like a key.
+				if _sub_turn == turn and _sub_owner == turn_owner:
+					ans = SEVERAL if _sub_dir == WIRE_SEVERAL else _sub_dir
+			else:
+				var owner: Player = _find(players, turn_owner)
+				if owner != null:
+					var before: Vector2i = prev_dirs.get(turn_owner, Vector2i.ZERO)
+					ans = answer_of(owner.last_input, before)
+			if ans != NO_PRESS:
+				_decide(ans == directions[turn], "ok" if ans == directions[turn] else "wrong")
+		if not answered and turn_ticks >= window_end():
 			_decide(false, "late")
-		if turn_ticks >= Config.PRAYER_ANSWER_WINDOW_TICKS + Config.PRAYER_TURN_GAP_TICKS:
+		if turn_ticks >= turn_ticks_total():
 			if turn + 1 < Config.PRAYER_TURNS:
 				_open_turn(turn + 1)
 			else:
@@ -681,6 +776,8 @@ func _open_turn(i: int) -> void:
 	turn = i
 	turn_ticks = 0
 	answered = false
+	by_answer = false
+	_sub_turn = -1
 	var e: Event = _event("turn", turn_owner)
 	e.dir = directions[i]
 
@@ -688,6 +785,7 @@ func _open_turn(i: int) -> void:
 ## The turn under way is decided: its lamp lit (`ok`) or out (`why`: wrong, late, left).
 func _decide(ok: bool, why: String) -> void:
 	answered = true
+	by_answer = why == "ok" or why == "wrong"
 	lamps[turn] = Lamp.LIT if ok else Lamp.OUT
 	lamp_ticks[turn] = clock
 	count("lamps_lit" if ok else "lamps_out")
@@ -702,12 +800,12 @@ func _end() -> void:
 	r.lit = lit_count()
 	r.participants = members.size()
 	r.lamps = lamps.duplicate()
-	var cleric: Player = people.get(cleric_id, null)
+	var cleric: Player = person(cleric_id)
 	if cleric != null and is_instance_valid(cleric) and cleric.skills.spend(Config.PRAYER_FAITH_COST):
 		r.faith = Config.PRAYER_FAITH_COST
 		r.zeal_pct = zeal_pct(r.lit, r.participants)
 		for id: int in members:
-			var p: Player = people.get(id, null)
+			var p: Player = person(id)
 			if p != null and is_instance_valid(p):
 				p.skills.add_zeal(r.zeal_pct, Config.PRAYER_ZEAL_TICKS)
 		count("completed")

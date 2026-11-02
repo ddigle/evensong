@@ -183,7 +183,7 @@ static func fields(data: WorldData) -> Dictionary:
 # --- the wire (protocol v7) ------------------------------------------------------------------------------
 
 func _check_fields_codec() -> void:
-	check_eq(NetProtocol.VERSION, 11, "protocol version 11 (M5c: 7, M7c: 8, M7-rf: 9, M8b: 10, M9c: 11)")
+	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M5c: 7, M7c: 8, M7-rf: 9, M8b: 10, M9c: 11, M10b: 12)")
 	check_eq(NetProtocol.CODE_COUNT, 180, "a frame is still one byte (the channel is a request, not a frame bit)")
 	check(NetProtocol.op_has_map(NetProtocol.Op.CHANNEL) and NetProtocol.op_has_map(NetProtocol.Op.ALTAR_LIFT)
 		and NetProtocol.op_has_map(NetProtocol.Op.ALTAR_PLACE), "the three new requests carry the map")
