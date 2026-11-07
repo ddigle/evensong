@@ -19,6 +19,8 @@ extends SceneTree
 ##            hidden), pixel for pixel.
 ##   items    (M2b) the gatherables and a drop on screen, evening off: the screen equals the screen
 ##            without them plus each one's art (world picture / icon) on its tile, pixel for pixel.
+##   wild_net (M11c) a host's creatures, the rare zone and the collection panel drawn by a client from the wire: the host's picture to the
+##            pixel (a batch, a snapshot, a collection message).
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -300,6 +302,8 @@ func _run() -> void:
 			await _check_capture_marks()
 		if _want("collection_panel"):
 			await _check_collection_panel()
+		if _want("wild_net"):
+			await _check_wild_net()  # M11c
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -4571,6 +4575,127 @@ static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
 			if a.get_pixelv(top + Vector2i(x, y)) == b.get_pixelv(top + Vector2i(x, y)):
 				n += 1
 	return n
+
+
+# --- M11c ---------------------------------------------------------------------------------------------------------------
+
+## M11c: what a client draws from the wire is the host's picture to the pixel. The creatures: one of every kind, walking and standing,
+## hurt, flashing, poisoned, stunned, slowed, refused, a corpse, one a snare holds with its rope and one a snare could take with its glow,
+## drawn by a CombatView from the host's herd, then by another from a NetCombat mirror fed the encoded batch and sampled at that tick. The
+## rare zone: from a surface snapshot decoded (RareZoneView on the data that came). The collection panel: on a copy fed the message.
+func _check_wild_net() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var tick: int = 7777
+	var herd: Creatures = Creatures.mirror(data)
+	var arena: Arena = Arena.mirror(data)
+	arena.herd = herd
+	var keys: Array = Config.CREATURES.keys()
+	var holder: Vector2 = Vector2(origin + Vector2i(60, 70))
+	for i: int in 12:
+		var kind: StringName = keys[i % keys.size()]
+		var c: CreatureSim = herd.spawn(kind, Vector2(origin + Vector2i(60 + 62 * (i % 6), 100 + 90 * (i / 6))))
+		c.facing = [RigData.Dir.SOUTH, RigData.Dir.EAST, RigData.Dir.NORTH, RigData.Dir.WEST][i % 4]
+		c.clock = tick
+		c.walking = i % 3 == 1
+		match i:
+			1:
+				c.flash_ticks = 3
+			2:
+				c.hp = c.hp_max() * Config.CAPTURE_HP_PCT / 100
+			3:
+				c.hp = c.hp_max() / 2
+				c.poison_ticks = 9
+				c.poison_damage = 1
+			4:
+				c.stun_ticks = 9
+			5:
+				c.slow_pct = 30
+				c.slow_ticks = 9
+			6:
+				c.refused_ticks = 3
+			7:
+				c.hp = 0
+				c.state = CreatureSim.State.DEAD
+				c.walking = false
+			8:
+				c.hp = c.hp_max() * Config.CAPTURE_HP_PCT / 100
+				c.hold_ticks = 9
+				c.held_from = Combat.body_point(holder)
+				c.held_by = 1
+	var states: Array[NetProtocol.CreatureState] = []
+	for c2: CreatureSim in herd.list:
+		states.append(NetProtocol.creature_of(c2, 0 if c2.held_by != 0 else NetProtocol.NO_SLOT))
+	var view: CombatView = CombatView.new()
+	world.add_child(view)
+	view.setup(arena, world.entities)
+	view.sync_creatures()
+	var host_img: Image = await _capture()
+	var drawn: int = count_diff(host_img, bg)
+	view.clear()
+	world.remove_child(view)
+	view.free()
+	# The client's: the batch off the wire into its mirror, sampled at that tick.
+	var payload: PackedByteArray = NetProtocol.encode_creatures(tick, states)
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, data)
+	var b: NetProtocol.CreatureBatch = NetProtocol.decode_creatures(payload)
+	nc.on_creatures(b, true)
+	var slots_drawn: Dictionary[int, Vector2] = {0: holder}
+	nc.sample(float(tick), 0.0, slots_drawn)
+	var mirror: CombatView = CombatView.new()
+	world.add_child(mirror)
+	mirror.setup(nc.arena, world.entities)
+	mirror.sync_creatures()
+	var client_img: Image = await _capture()
+	var creature_bad: int = count_diff(client_img, host_img)
+	if creature_bad > 0 or save_all:
+		_save(host_img, "wild_net_host.png")
+		_save(client_img, "wild_net_client.png")
+	mirror.clear()
+	world.remove_child(mirror)
+	mirror.free()
+	# The rare zone from a snapshot.
+	var z: RareZone = RareZone.place(data, data.world_seed)
+	data.rare_zone = z
+	world.show_rare_zone()
+	var hidden: Array[CanvasItem] = _hide_entities()
+	_look_at(Vector2i(z.center_px()))
+	var zone_host: Image = await _capture()
+	var came: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(data))
+	var same_zone: bool = came != null and came.rare_zone != null
+	var zone_bad: int = -1
+	if same_zone:
+		world.rare_view.setup(came)
+		var zone_client: Image = await _capture()
+		zone_bad = count_diff(zone_client, zone_host)
+	world.rare_view.setup(data)
+	for item: CanvasItem in hidden:
+		item.visible = true
+	# The panel on the message's copy.
+	var col: Collection = Collection.new()
+	col.put_test(5, 7)
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.collection.open_for(col)
+	var panel_host: Image = await _capture()
+	hud.collection.close()
+	var msg: NetProtocol.CollectionState = NetProtocol.decode_collection(NetProtocol.encode_collection(col))
+	var copy: Collection = Collection.new()
+	copy.take_state(msg.bits, msg.kills)
+	hud.collection.open_for(copy)
+	var panel_client: Image = await _capture()
+	var panel_bad: int = count_diff(panel_client, panel_host)
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "creatures=%d drawn=%d mismatches=%d bytes=%d zone_mismatches=%d panel_mismatches=%d" % [states.size(), drawn, creature_bad, payload.size(),
+		zone_bad, panel_bad]
+	if creature_bad == 0 and drawn > 800 and b.ok and states.size() == 12 and zone_bad == 0 and panel_bad == 0:
+		print("EVENSONG_RENDER wild_net ok %s" % line)
+	else:
+		_fail("wild_net", line)
 
 
 # --- M11b ---------------------------------------------------------------------------------------------------------------

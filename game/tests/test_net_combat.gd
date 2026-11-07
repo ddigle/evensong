@@ -73,6 +73,15 @@ class CaptureSession:
 	func send_prayer(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "prayer", payload])  # M10b
 
+	func send_wild(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "wild", payload])  # M11c
+
+	func send_wild_keyframe(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "wild_key", payload])
+
+	func send_tally(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "tally", payload])
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -186,7 +195,7 @@ func _world(map: int, generate: bool) -> GameWorld:
 
 ## A host (its own player: `host_class` on spawn slot 0) with both maps; spawns off unless `spawns`;
 ## `start_hp` = --test-start-hp.
-func _rig(host_class: String = "paladin", spawns: bool = false, start_hp: Dictionary[String, int] = {}) -> Rig:
+func _rig(host_class: String = "paladin", spawns: bool = false, start_hp: Dictionary[String, int] = {}, creatures: bool = false) -> Rig:
 	var r: Rig = Rig.new()
 	r.surface = _world(Config.MAP_SURFACE, true)
 	r.dungeon = _world(Config.MAP_DUNGEON, true)
@@ -201,6 +210,7 @@ func _rig(host_class: String = "paladin", spawns: bool = false, start_hp: Dictio
 	r.s.options = CliOptions.new()
 	r.s.options.class_id = host_class
 	r.s.options.test_no_spawns = not spawns
+	r.s.options.test_no_creatures = not creatures  # M11c: these are the fights' checks; tests/test_net_wild.gd turns the herd on
 	r.s.options.test_start_hp = start_hp
 	r.s.role = NetSession.Role.HOST
 	r.s.give_allowed = true
@@ -398,6 +408,10 @@ func _deliver(c: Client, kind: String, payload: PackedByteArray) -> void:
 		"prayer":
 			c.prayer_events.append_array(NetProtocol.decode_prayer(payload).events)
 			c.s.client.on_prayer(payload)  # M10b
+		"wild", "wild_key":
+			c.s.client._apply_wild(payload, kind == "wild_key")  # M11c
+		"tally":
+			c.s.client.on_tally(payload)
 
 
 ## The fight spot on the surface.
@@ -597,7 +611,9 @@ func _check_two_fight_one() -> void:
 	var r: Rig = _rig("paladin")
 	await await_frames(1)
 	var f: Vector2 = spot(r)
-	check_eq(r.host.arenas[Config.MAP_SURFACE].herd, null, "M11a: a session's arena has no creatures until M11c")
+	check(r.host.arenas[Config.MAP_SURFACE].herd != null and r.host.arenas[Config.MAP_SURFACE].herd.list.is_empty(),
+		"M11c: a session's surface arena holds the herd (here with --test-no-creatures: empty)")
+	check(r.host.arenas[Config.MAP_DUNGEON].herd == null, "M11c: the dungeon's has none")
 	var h: HereticSim = r.host.arenas[Config.MAP_SURFACE].spawn_heretic(f)
 	r.s.local.player.teleport(f + Vector2(-18, 0))
 	var c: Client = _join(r, 101, "archer", f + Vector2(72, 0))

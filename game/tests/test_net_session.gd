@@ -986,9 +986,14 @@ func _check_agreement(label: String, host: Instance, clients: Array[Instance], p
 				mr.get("shop", ""), mr.get("merchant", "")])
 		check_eq(r.get("bad_messages", -1), 0, "%s/%s: no malformed messages" % [label, inst.name])
 		check_eq(r.get("unknown_senders", -1), 0, "%s/%s: no input from strangers" % [label, inst.name])
+	var host_hunt: Dictionary = h.get("hunt", {})
 	for c: Instance in clients:
 		var r: Dictionary = c.result
 		check_eq(r.get("ended", ""), "finished", "%s/%s: finished" % [label, c.name])
+		# M11c: the world's collection and the rare zone, on every machine (a client on any map).
+		var client_hunt: Dictionary = r.get("hunt", {})
+		check_eq(client_hunt.get("collection", ""), host_hunt.get("collection", "?"), "%s/%s: the host's collection" % [label, c.name])
+		check_eq(client_hunt.get("zone", ""), host_hunt.get("zone", "?"), "%s/%s: the host's rare zone" % [label, c.name])
 		check_eq(r.get("positions_hash", ""), h.get("positions_hash", "?"), "%s/%s: positions = host (%s vs %s)" % [
 			label, c.name, JSON.stringify(r.get("players", [])), JSON.stringify(h.get("players", []))])
 		var map_key: String = str(roundi(_num(r, "map")))
@@ -1349,10 +1354,13 @@ func _port() -> int:
 ## A test instance: result and markers in `dir`, quits by itself after `timeout_sec`.
 ## M4b: every instance runs without heretic spawns unless `spawns` (the M2b / M3b sessions test what they
 ## always tested; the combat sessions place their heretics with --test-heretic, or turn spawns on).
-func _launch(dir: String, name: String, flags: Array, timeout_sec: int = INSTANCE_TIMEOUT_SEC, spawns: bool = false) -> Instance:
+func _launch(dir: String, name: String, flags: Array, timeout_sec: int = INSTANCE_TIMEOUT_SEC, spawns: bool = false,
+		creatures: bool = false) -> Instance:
 	var test_flags: Array = ["--net-out=" + dir, "--net-name=" + name, "--net-timeout=%d" % timeout_sec]
 	if not spawns:
 		test_flags.append("--test-no-spawns")
+	if not creatures:
+		test_flags.append("--test-no-creatures")  # M11c: the host's natural herd stays out of what these sessions check
 	return _launch_plain(dir, name, [], test_flags + flags)
 
 

@@ -13,6 +13,7 @@ extends RefCounted
 ##   CH_INPUT   1 unreliable ordered  client -> host input frames (and the requests riding on them)
 ##   CH_STATE   2 unreliable ordered  host -> clients player-state batches
 ##   CH_ENEMY   3 unreliable ordered  host -> the clients on one map: that map's enemy batches (M4b)
+##   CH_CREATURE 4 unreliable ordered host -> one client on the surface: the creatures in its view (M11c)
 ##
 ## Input packet  u32 first_seq, u8 count, count x u8 frame code (frames first_seq, first_seq+1, ...),
 ##               then, only when some of those frames carry a request (M2b): u8 op count, and per op
@@ -58,6 +59,8 @@ extends RefCounted
 ##                         meditate: the host runs the offline tap rule on its own state, Prayer.tap)
 ##                 ANSWER  u8 map, u8 prayer (its number's low byte), u8 turn (0..8), u8 answer (Prayer.Dir 0..3, 4 = two keys at
 ##                         once)                                                    M10b: a participant's W A S D on its turn
+##                 CAPTURE u8 map, u8 hotbar slot, s16 x, s16 y (target tile: the facing, like a USE's), u8 aim, u16 creature id
+##                                                                                  M11c: a click with the snare at a creature
 ##               M9c (v11): THROW's s16 x, s16 y is the cursor too (v6-v10: the point the bottle lands on). The host works the
 ##               landing point out from where it has the thrower (poison: toward the cursor, Potions.throw_target) or, for a
 ##               healing or buff potion, throws at the ally nearest the cursor (● gameplay-design §2.1 R42, Skills.pick_ally).
@@ -163,6 +166,15 @@ extends RefCounted
 ##               on the surface (the altar's map), ZEAL to every client; a welcome and an entry to the surface are followed by the
 ##               prayer under way (or still shown) as its events since its START with their own ticks, the meditations under way
 ##               and every player's zeal (SessionHost.send_prayer_snapshot).
+## Creature batch host -> one client on the surface (M11c), unreliable on CH_CREATURE on a state batch tick while what it can see
+##               changed, then once reliable (keyframe), and reliable right after a welcome / an entry to the surface: u32 host tick,
+##               u8 count, count x creature (10 B, CREATURE_SIZE): u16 id, u16 x, u16 y (feet, quarter px: the host's numbers are
+##               the host's, a client only draws these), u8 flags (bits 0-1 facing, bit 2 walking, bits 3-5 CreatureSim.State), u8 bits
+##               0-2 kind (its index in Config.CREATURES) + marks (bit 3 poisoned, 4 stunned, 5 slowed, 7 refused), u8 hp, u8 hit flash
+##               ticks left (bits 0-3) + who holds it with a snare (bits 4-7: slot + 1, 0 = nobody). Only the creatures within
+##               Config.NET_CREATURE_VIEW_PX of that client's player; one missing from a batch is gone (or out of its view).
+## Collection    host -> every client (M11c, reliable): u16 the entries registered (bit i = Config.COLLECTION_ENTRIES row i), u32 kills
+##               (COLLECTION_SIZE: 6 B), absolute, on every change and right after a welcome or a map entry.
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
 ## 3 (M2b): frames carry the look and requests, states the body action and held item, inventories,
@@ -199,12 +211,17 @@ extends RefCounted
 ## 12 (M10b): the group prayer and meditation in sessions: the PRAY (1 B) and ANSWER (4 B) requests and the prayer message (a new
 ## RPC: the prayer's events to the surface's clients, every player's zeal to every client). A version 11 peer would read both
 ## requests as unknown ops and never hear of a prayer: refused with `version`. The world, the snapshot and the edits are unchanged.
-const VERSION: int = 12
+## 13 (M11c): hunting, capture and the collection in sessions: the CAPTURE request (9 B), the creature batches (new RPCs `_rpc_wild`
+## on CH_CREATURE and `_rpc_wild_keyframe`), the collection message (new RPC `_rpc_tally`), the shot stop "creature", the rare zone and
+## the collection in the world snapshot (net/world_snapshot.gd) and the surface's content hash. The new RPCs sort after `_rpc_refused`, so
+## a version 12 peer on either side still hears `refused: version` (M10-fix, tests/test_net.gd RPC_STABLE).
+const VERSION: int = 13
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
 const CH_STATE: int = 2
 const CH_ENEMY: int = 3
+const CH_CREATURE: int = 4
 
 ## Why the host refused a hello. Names are what the logs and test results print.
 enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO }
@@ -214,15 +231,15 @@ const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "c
 ## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click). M7c: DEMOLISH
 ## (right-click), DOOR (F on a door), ARMOR (put the armour on / take it off), CHEST (store / take in the chest panel).
 ## M8b: BUY and SELL (the open shop panel's clicks). M9c: SKILL (the skill keys 1 2 3 R; the herbalist's key 1 is THROW).
-## M10b: PRAY (an F tap at the altar) and ANSWER (a participant's answer to its turn).
+## M10b: PRAY (an F tap at the altar) and ANSWER (a participant's answer to its turn). M11c: CAPTURE (a click with the snare).
 enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE, DEMOLISH, DOOR, ARMOR,
-	CHEST, BUY, SELL, SKILL, PRAY, ANSWER }
+	CHEST, BUY, SELL, SKILL, PRAY, ANSWER, CAPTURE }
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
-	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer"]
+	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer", "capture"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
 ## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9). M9c: SKILL 11.
-## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12). M10b: PRAY 1, ANSWER 4.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4]
+## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12). M10b: PRAY 1, ANSWER 4. M11c: CAPTURE 9.
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4, 9]
 ## M8b: a SELL request's whole byte.
 const SELL_ONE: int = 0
 const SELL_WHOLE: int = 1
@@ -284,12 +301,27 @@ const SKILLS_ALIVE: int = 0x04
 const SKILLS_COOLDOWN_SLOTS: PackedInt32Array = [0, 1, 3]
 ## M9c: a slot byte that names no player (a burst that follows nobody, an offline owner).
 const NO_SLOT: int = 255
+## M11c: a creature batch: the header, a creature, the most one carries (the caps add up to 13 alive; a test flag may pass that), the px a
+## position's unit stands for, and the marks in the kind byte. A creature id wraps at CREATURE_ID_MAX (Creatures.spawn).
+const CREATURE_HEADER: int = 4 + 1
+const CREATURE_SIZE: int = 10
+const CREATURE_BATCH_MAX: int = 64
+const CREATURE_POS_UNITS: float = 4.0
+const CREATURE_ID_MAX: int = 65535
+const CREATURE_KIND_MASK: int = 0x07
+const CREATURE_POISONED: int = 0x08
+const CREATURE_STUNNED: int = 0x10
+const CREATURE_SLOWED: int = 0x20
+const CREATURE_REFUSED: int = 0x80
+const CREATURE_MARKS: int = CREATURE_POISONED | CREATURE_STUNNED | CREATURE_SLOWED | CREATURE_REFUSED
+## M11c: a collection message.
+const COLLECTION_SIZE: int = 6
 ## IMPL (named in M6-fix): a thrown event whose landing point is farther than Config.THROW_RANGE_PX + this (px) from
 ## where it left the hand is refused (the host clamps it to the range; the slack takes float rounding).
 const FLASK_RANGE_SLACK_PX: float = 1.0
 const SHOT_EVENTS_MAX: int = 255
-## Why a shot stopped (Arena.Shot.stopped_by), by wire index.
-const SHOT_STOPS: PackedStringArray = ["spent", "wall", "heretic", "shrine", "player"]
+## Why a shot stopped (Arena.Shot.stopped_by), by wire index. M11c: "creature".
+const SHOT_STOPS: PackedStringArray = ["spent", "wall", "heretic", "shrine", "player", "creature"]
 ## M6b: why a thrown potion broke (Arena.Flask.stopped_by), by wire index.
 const FLASK_STOPS: PackedStringArray = ["landed", "wall"]
 const HELLO_SIZE: int = 3
@@ -361,7 +393,7 @@ class InputFrame:
 	var skill: StringName = &""
 	var skill_slot: int = -1
 	var skill_target: int = 0
-	## M11b, resolved, not sent (offline; M11c names it on the wire): the creature a snare's USE is thrown at (Creatures.by_id).
+	## M11b: the creature a snare is thrown at (Creatures.by_id). M11c: sent with a CAPTURE; the host looks it up itself.
 	var capture_id: int = 0
 	## M9c: the mouse in world px when the frame was made (Player.make_frame), sent with a SKILL and a THROW in whole px: the
 	## one thing about a skill the host cannot know (the near-cursor ally, ● R42; a point skill's point).
@@ -385,6 +417,8 @@ class InputFrame:
 			return o.op == op and map == o.map
 		if o != null and op == Op.ANSWER:
 			return o.op == op and map == o.map and prayer_no == o.prayer_no and turn == o.turn and answer == o.answer
+		if o != null and op == Op.CAPTURE:
+			return o.op == op and map == o.map and slot == o.slot and cell == o.cell and capture_id == o.capture_id
 		if o != null and op == Op.SKILL:
 			return o.op == op and cell == o.cell and map == o.map and skill_slot == o.skill_slot and slot == o.slot \
 				and pick == o.pick and NetProtocol.wire_point(cursor) == NetProtocol.wire_point(o.cursor)
@@ -423,6 +457,8 @@ class InputFrame:
 			Op.ANSWER:
 				return "answer map=%d prayer=%d turn=%d dir=%s" % [map, prayer_no, turn, Prayer.DIR_KEYS[answer]
 					if answer >= 0 and answer < Prayer.DIR_KEYS.size() else ("several" if answer == Prayer.WIRE_SEVERAL else "?")]
+			Op.CAPTURE:
+				return "capture map=%d slot=%d at=%d,%d creature=%d" % [map, slot, cell.x, cell.y, capture_id]
 			Op.CHANNEL:
 				return "channel map=%d" % map
 			Op.ALTAR_LIFT:
@@ -682,6 +718,46 @@ class PrayerEvents:
 	var events: Array[PrayerEvent] = []
 
 
+## M11c: one creature as the host sends it (CreatureSim's drawn part). `holder` = the slot of the archer whose snare holds it (NO_SLOT =
+## nobody).
+class CreatureState:
+	extends RefCounted
+	var id: int = 0
+	var kind: StringName = &""
+	var pos: Vector2 = Vector2.ZERO
+	var facing: int = RigData.Dir.SOUTH
+	var walking: bool = false
+	var state: int = CreatureSim.State.IDLE
+	var hp: int = 0
+	var flash: int = 0
+	var poisoned: bool = false
+	var stunned: bool = false
+	var slowed: bool = false
+	var refused: bool = false
+	var holder: int = NetProtocol.NO_SLOT
+
+	func same_as(o: CreatureState) -> bool:
+		return o != null and id == o.id and kind == o.kind and pos == o.pos and facing == o.facing and walking == o.walking \
+			and state == o.state and hp == o.hp and flash == o.flash and poisoned == o.poisoned and stunned == o.stunned \
+			and slowed == o.slowed and refused == o.refused and holder == o.holder
+
+
+## M11c: the creatures one client can see at a host tick.
+class CreatureBatch:
+	extends RefCounted
+	var ok: bool = false
+	var tick: int = 0
+	var creatures: Array[CreatureState] = []
+
+
+## M11c: the world's collection as the host has it (a collection message).
+class CollectionState:
+	extends RefCounted
+	var ok: bool = false
+	var bits: int = 0
+	var kills: int = 0
+
+
 ## M10b: PrayerEvent.Kind's names (logs, results).
 const PRAYER_KIND_NAMES: PackedStringArray = ["start", "join", "leave", "stop", "turn", "result", "end", "meditate", "meditated",
 	"broken", "zeal"]
@@ -732,7 +808,8 @@ static func dir_from_code(code: int) -> Vector2i:
 static func op_has_map(op: int) -> bool:
 	return op == Op.USE or op == Op.PICKUP or op == Op.DROP or op == Op.TRAVEL or op == Op.THROW or op == Op.CRAFT \
 		or op == Op.CHANNEL or op == Op.ALTAR_LIFT or op == Op.ALTAR_PLACE or op == Op.DEMOLISH or op == Op.DOOR \
-		or op == Op.CHEST or op == Op.BUY or op == Op.SELL or op == Op.SKILL or op == Op.PRAY or op == Op.ANSWER
+		or op == Op.CHEST or op == Op.BUY or op == Op.SELL or op == Op.SKILL or op == Op.PRAY or op == Op.ANSWER \
+		or op == Op.CAPTURE
 
 
 static func valid_map(map: int) -> bool:
@@ -869,6 +946,12 @@ static func _put_op(out: PackedByteArray, at: int, f: InputFrame) -> void:
 			out.encode_u8(at, f.prayer_no & 0xFF)  # M10b
 			out.encode_u8(at + 1, clampi(f.turn, 0, 255))
 			out.encode_u8(at + 2, clampi(f.answer, 0, 255))
+		Op.CAPTURE:
+			out.encode_u8(at, f.slot)  # M11c
+			out.encode_s16(at + 1, f.cell.x)
+			out.encode_s16(at + 3, f.cell.y)
+			out.encode_u8(at + 5, clampi(f.aim, 0, Combat.AIM_STEPS - 1))
+			out.encode_u16(at + 6, f.capture_id & 0xFFFF)
 
 
 ## The op's fields at `at` into `f`; false when a field is out of range (map, slots, item, grade).
@@ -959,6 +1042,12 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.turn = bytes.decode_u8(at + 1)
 			f.answer = bytes.decode_u8(at + 2)
 			return f.turn < Config.PRAYER_TURNS and f.answer <= Prayer.WIRE_SEVERAL
+		Op.CAPTURE:
+			f.slot = bytes.decode_u8(at)
+			f.cell = Vector2i(bytes.decode_s16(at + 1), bytes.decode_s16(at + 3))
+			f.aim = bytes.decode_u8(at + 5)
+			f.capture_id = bytes.decode_u16(at + 6)
+			return f.slot < Config.HOTBAR_SLOTS and f.capture_id != 0  # ids count from 1; a stale one is the host's to refuse
 	return false
 
 
@@ -1983,6 +2072,124 @@ static func decode_prayer(bytes: PackedByteArray) -> PrayerEvents:
 		at += PRAYER_EVENT_SIZES[e.kind]
 	r.ok = at == bytes.size()
 	return r
+
+
+# --- the creatures and the collection (M11c) -----------------------------------------------------------------------------------------
+
+## Creature kinds in table order: a creature's kind on the wire is its index here.
+static func creature_kind_at(index: int) -> StringName:
+	var kinds: Array = Config.CREATURES.keys()
+	if index < 0 or index >= kinds.size():
+		return &""
+	var k: StringName = kinds[index]
+	return k
+
+
+static func creature_kind_index(kind: StringName) -> int:
+	return Config.CREATURES.keys().find(kind)
+
+
+## Creature `c` as it goes out; `holder` = the slot of the archer whose snare holds it (NO_SLOT = nobody).
+static func creature_of(c: CreatureSim, holder: int) -> CreatureState:
+	var e: CreatureState = CreatureState.new()
+	e.id = c.id
+	e.kind = c.kind
+	e.pos = c.pos
+	e.facing = c.facing
+	e.walking = c.walking
+	e.state = c.state
+	e.hp = c.hp
+	e.flash = c.flash_ticks
+	e.poisoned = c.poisoned()
+	e.stunned = c.stunned()
+	e.slowed = c.slowed()
+	e.refused = c.alive() and c.refused_ticks > 0
+	e.holder = holder if c.held() else NO_SLOT
+	return e
+
+
+## A batch of `creatures` (at most CREATURE_BATCH_MAX, the first ones) at host tick `tick`.
+static func encode_creatures(tick: int, creatures: Array[CreatureState]) -> PackedByteArray:
+	var n: int = mini(creatures.size(), CREATURE_BATCH_MAX)
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(CREATURE_HEADER + CREATURE_SIZE * n)
+	out.encode_u32(0, tick)
+	out.encode_u8(4, n)
+	for i: int in n:
+		var e: CreatureState = creatures[i]
+		var at: int = CREATURE_HEADER + CREATURE_SIZE * i
+		out.encode_u16(at, e.id & 0xFFFF)
+		out.encode_u16(at + 2, clampi(roundi(e.pos.x * CREATURE_POS_UNITS), 0, 65535))
+		out.encode_u16(at + 4, clampi(roundi(e.pos.y * CREATURE_POS_UNITS), 0, 65535))
+		out.encode_u8(at + 6, (e.facing & 3) | (4 if e.walking else 0) | ((e.state & 7) << 3))
+		out.encode_u8(at + 7, (creature_kind_index(e.kind) & CREATURE_KIND_MASK) | (CREATURE_POISONED if e.poisoned else 0) \
+			| (CREATURE_STUNNED if e.stunned else 0) | (CREATURE_SLOWED if e.slowed else 0) | (CREATURE_REFUSED if e.refused else 0))
+		out.encode_u8(at + 8, clampi(e.hp, 0, 255))
+		out.encode_u8(at + 9, clampi(e.flash, 0, 15) | (((e.holder + 1) & 15) << 4 if e.holder != NO_SLOT else 0))
+	return out
+
+
+## The batch, or ok = false (size, count, a kind, a state, a flag or an id out of range, HP past its kind's, ids twice, a mark on a corpse).
+static func decode_creatures(bytes: PackedByteArray) -> CreatureBatch:
+	var b: CreatureBatch = CreatureBatch.new()
+	if bytes.size() < CREATURE_HEADER:
+		return b
+	var count: int = bytes.decode_u8(4)
+	if count > CREATURE_BATCH_MAX or bytes.size() != CREATURE_HEADER + CREATURE_SIZE * count:
+		return b
+	b.tick = bytes.decode_u32(0)
+	var ids: Dictionary[int, bool] = {}
+	for i: int in count:
+		var at: int = CREATURE_HEADER + CREATURE_SIZE * i
+		var e: CreatureState = CreatureState.new()
+		e.id = bytes.decode_u16(at)
+		e.pos = Vector2(bytes.decode_u16(at + 2), bytes.decode_u16(at + 4)) / CREATURE_POS_UNITS
+		var flags: int = bytes.decode_u8(at + 6)
+		e.facing = flags & 3
+		e.walking = (flags & 4) != 0
+		e.state = (flags >> 3) & 7
+		var bits: int = bytes.decode_u8(at + 7)
+		e.kind = creature_kind_at(bits & CREATURE_KIND_MASK)
+		e.poisoned = (bits & CREATURE_POISONED) != 0
+		e.stunned = (bits & CREATURE_STUNNED) != 0
+		e.slowed = (bits & CREATURE_SLOWED) != 0
+		e.refused = (bits & CREATURE_REFUSED) != 0
+		e.hp = bytes.decode_u8(at + 8)
+		var last: int = bytes.decode_u8(at + 9)
+		e.flash = last & 15
+		var who: int = last >> 4
+		e.holder = who - 1 if who > 0 else NO_SLOT
+		if e.id == 0 or ids.has(e.id) or (flags & 0xC0) != 0 or (bits & ~(CREATURE_KIND_MASK | CREATURE_MARKS)) != 0 or e.kind.is_empty() \
+				or e.state >= CreatureSim.STATE_NAMES.size() or e.flash > Config.HIT_FLASH_TICKS or who > Config.MAX_PLAYERS:
+			return b
+		var full: int = Config.CREATURES[e.kind]["hp"]
+		var dead: bool = e.state == CreatureSim.State.DEAD
+		if e.hp > full or dead != (e.hp == 0) or (dead and ((bits & CREATURE_MARKS) != 0 or e.walking or e.holder != NO_SLOT)):
+			return b
+		ids[e.id] = true
+		b.creatures.append(e)
+	b.ok = true
+	return b
+
+
+## The collection message for `col`.
+static func encode_collection(col: Collection) -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(COLLECTION_SIZE)
+	out.encode_u16(0, col.bits())
+	out.encode_u32(2, col.kills)
+	return out
+
+
+## The collection message, or ok = false (its size, an entry the table does not have).
+static func decode_collection(bytes: PackedByteArray) -> CollectionState:
+	var c: CollectionState = CollectionState.new()
+	if bytes.size() != COLLECTION_SIZE:
+		return c
+	c.bits = bytes.decode_u16(0)
+	c.kills = bytes.decode_u32(2)
+	c.ok = c.bits < (1 << Collection.total())
+	return c
 
 
 ## M6b: the potion at item index `index` (&"" when it is no potion).

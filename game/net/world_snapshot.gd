@@ -13,6 +13,9 @@ extends RefCounted
 ##          WorldData.chests_bytes()'s form (u16 x, u16 y of its footprint's top-left tile, Config.CHEST_SLOTS
 ##          slots of EditLog.STACK_BYTES), row by row + (M8b, protocol v10) the shop: u8 offer count (0 = the world has
 ##          no shop, WorldData.shop null; else Shop.offers().size()), then one u8 per offer, its count left (Shop.stock_bytes)
+##          + (M11c, protocol v13) the rare zone: u8 1 + u16 x, u16 y (its middle tile), u8 radius, or u8 0 (none: another map, or no
+##          site) + the world's collection: u8 1 + u16 entries (bit per Config.COLLECTION_ENTRIES row), u32 kills, or u8 0 (only the
+##          surface's snapshot carries it: the object is one per world, a map entry's snapshot of another map has none)
 ##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (WorldData.LAYER_COUNT: 7),
 ##          u8 map id (M3b: which map this is; not in the content hash)
 ## M3b: the same path sends a map to a player who enters it (net/session_host.gd: a stream per entry,
@@ -41,8 +44,11 @@ const MAX_SIDE: int = 512
 ## in one light; the altar moves, so more over a long game). One chest = CHEST_BYTES.
 const MAX_CHESTS: int = 1024
 const CHEST_BYTES: int = 4 + EditLog.STACK_BYTES * Config.CHEST_SLOTS
+## M11c: the rare zone's and the collection's bytes after their flags.
+const ZONE_BYTES: int = 5
+const COLLECTION_BYTES: int = NetProtocol.COLLECTION_SIZE
 const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE + 2 + WorldData.DROP_BYTES * Config.MAX_DROPS \
-	+ 2 + CHEST_BYTES * MAX_CHESTS + 1 + 255
+	+ 2 + CHEST_BYTES * MAX_CHESTS + 1 + 255 + 1 + ZONE_BYTES + 1 + COLLECTION_BYTES
 ## zstd never grows data by more than a small fraction; a receiver refuses more than this.
 const MAX_PACKED: int = MAX_RAW + MAX_RAW / 64 + 1024
 
@@ -182,6 +188,20 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 	var stock: PackedByteArray = data.shop.stock_bytes() if data.shop != null else PackedByteArray()
 	out.append(stock.size())
 	out.append_array(stock)
+	# M11c: the rare zone and the collection (the surface's).
+	var zone: PackedByteArray = PackedByteArray([0])
+	if data.rare_zone != null:
+		zone.resize(1 + ZONE_BYTES)
+		zone.encode_u8(0, 1)
+		zone.encode_u16(1, data.rare_zone.center.x)
+		zone.encode_u16(3, data.rare_zone.center.y)
+		zone.encode_u8(5, data.rare_zone.radius)
+	out.append_array(zone)
+	if data.collection != null and data.map_id == Config.MAP_SURFACE:
+		out.append(1)
+		out.append_array(NetProtocol.encode_collection(data.collection))
+	else:
+		out.append(0)
 	return out
 
 
@@ -189,7 +209,8 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 ## count, a known map id, altar inside the map, floor values that are terrains, M7-rf: floor piece values that are floor
 ## pieces, drops: at most
 ## Config.MAX_DROPS, each a valid item stack inside the map, ids unique; M7c: the chests; M8b: the shop, none or every offer
-## with a count within its cap, nothing after it).
+## with a count within its cap, M11c: the rare zone on the surface with its whole disc on the map, the collection on the surface with
+## entries its table has, nothing after them).
 static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < HEADER_SIZE:
 		return null
@@ -210,9 +231,17 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 	var shop_at: int = chests_at + 2 + CHEST_BYTES * chest_count
 	if chest_count > MAX_CHESTS or raw.size() < shop_at + 1:
 		return null
-	# M8b: the shop: none (0) or every offer's count left, nothing after it.
+	# M8b: the shop: none (0) or every offer's count left. M11c: then the zone and the collection, nothing after them.
 	var offers: int = raw.decode_u8(shop_at)
-	if (offers != 0 and offers != Shop.offers().size()) or raw.size() != shop_at + 1 + offers:
+	var zone_at: int = shop_at + 1 + offers
+	if (offers != 0 and offers != Shop.offers().size()) or raw.size() < zone_at + 2:
+		return null
+	var has_zone: int = raw.decode_u8(zone_at)
+	var collection_at: int = zone_at + 1 + (ZONE_BYTES if has_zone == 1 else 0)
+	if has_zone > 1 or raw.size() < collection_at + 1:
+		return null
+	var has_collection: int = raw.decode_u8(collection_at)
+	if has_collection > 1 or raw.size() != collection_at + 1 + (COLLECTION_BYTES if has_collection == 1 else 0):
 		return null
 	var altar: Rect2i = Rect2i(raw.decode_u16(12), raw.decode_u16(14), raw.decode_u16(16), raw.decode_u16(18))
 	if altar.has_area() and not Rect2i(Vector2i.ZERO, size).encloses(altar):
@@ -262,6 +291,18 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 		data.shop = Shop.from_bytes(raw.slice(shop_at + 1, shop_at + 1 + offers))
 		if data.shop == null:
 			return null  # a count above its offer's cap
+	if has_zone == 1:
+		var z: RareZone = RareZone.new(Vector2i(raw.decode_u16(zone_at + 1), raw.decode_u16(zone_at + 3)), raw.decode_u8(zone_at + 5))
+		if data.map_id != Config.MAP_SURFACE or z.radius < 1 or z.center.x < z.radius or z.center.y < z.radius \
+				or z.center.x >= size.x - z.radius or z.center.y >= size.y - z.radius:
+			return null
+		data.rare_zone = z
+	if has_collection == 1:
+		var c: NetProtocol.CollectionState = NetProtocol.decode_collection(raw.slice(collection_at + 1))
+		if not c.ok or data.map_id != Config.MAP_SURFACE:
+			return null
+		data.collection = Collection.new()
+		data.collection.take_state(c.bits, c.kills)
 	return data
 
 

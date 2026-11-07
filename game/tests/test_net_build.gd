@@ -234,7 +234,7 @@ func put_room(r: Rig, door_open: bool) -> void:
 # --- the wire (protocol v8) --------------------------------------------------------------------------------------------
 
 func _check_m7_codec() -> void:
-	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M7c: 8; M7-rf: 9, the floor piece layer; M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer)")
+	check_eq(NetProtocol.VERSION, 13, "protocol version 13 (M7c: 8; M7-rf: 9, the floor piece layer; M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer; M11c: 13, the creatures)")
 	check_eq(NetProtocol.CODE_COUNT, 180, "the frame is still one byte (180 codes)")
 	var cases: Array[NetProtocol.InputFrame] = []
 	var d: NetProtocol.InputFrame = _op(NetProtocol.Op.DEMOLISH, Config.MAP_DUNGEON, Vector2i(-3, 700))
@@ -402,8 +402,8 @@ func _check_snapshot_chests() -> void:
 	data.chest_at(Vector2i(60, 52))
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
 	var cells: int = data.size.x * data.size.y
-	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * cells + 2 + 2 + 2 * WorldSnapshot.CHEST_BYTES + 1,
-		"the raw snapshot carries the two chests that hold something (%d B each; M8b: + the shop byte, 0 = none)" % WorldSnapshot.CHEST_BYTES)
+	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * cells + 2 + 2 + 2 * WorldSnapshot.CHEST_BYTES + 1 + 1 + 1,
+		"the raw snapshot carries the two chests that hold something (%d B each; M8b: + the shop byte, 0 = none; M11c: + no zone, no collection)" % WorldSnapshot.CHEST_BYTES)
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	check(back != null and back.content_hash() == data.content_hash(), "round trip: the same world hash (contents, durability)")
 	if back != null:

@@ -97,8 +97,10 @@ extends RefCounted
 ##   hunt:<ticks>[,<n>[,<px>]]    hold the use button aimed at the nearest live creature while more than n (default 0) are there, at
 ##                                most that many ticks; with px, walk toward it while it is farther than px (melee, or to get in range)
 ##   waitprey:<n>[,<ticks>]       stand until at most n live creatures are there (default 1800 ticks)
-##   creature:<kind>,<x>,<y>      test only, offline: a creature of that kind on tile x,y of the surface now
-## M11b (offline: the rare creatures as Main has them, `rare`, `rare_ready`):
+##   waitseen:<n>[,<ticks>]       M11c: stand until at least n live creatures are there (default 1800 ticks; a client: in its view)
+##   creature:<kind>,<x>,<y>[,<pct>]   test only, offline and (M11c) the host: a creature of that kind on tile x,y of the surface now; with
+##                                pct, out of breath at that percent of its HP (it stands until its rest is over or a hit)
+## M11b (offline: the rare creatures as Main has them, `rare`, `rare_ready`; M11c: in a session too, as this machine has them):
 ##   huntrare:<ticks>[,<px>]      shoot (one press every RARE_SHOT_TICKS: an arrow in the air would kill what is nearly caught) at the
 ##                                nearest live rare creature until a snare could take it, at most that long; with px, walk to it while
 ##                                it is farther than that
@@ -114,7 +116,7 @@ const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall"
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
 	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt",
-	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection"]
+	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -191,6 +193,7 @@ class Action:
 	## M11a (test only, offline): a creature of this kind goes down on this tile this tick (&"" = none).
 	var creature: StringName = &""
 	var creature_cell: Vector2i = Vector2i.ZERO
+	var creature_pct: int = 0
 	## M11b: K pressed this tick (Main.toggle_collection).
 	var collection: bool = false
 
@@ -351,16 +354,18 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 			c.ticks = args[0].to_int()
 			c.count = args[1].to_int() if args.size() > 1 else 0
 			c.offset = Vector2(args[2].to_float() if args.size() > 2 else 0.0, 0.0)
-		"waitprey":
+		"waitprey", "waitseen":
 			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 0) or (args.size() == 2 and not _whole(args[1], 1)):
-				return "expected waitprey:<n>[,<ticks>]"
+				return "expected %s:<n>[,<ticks>]" % c.op
 			c.count = args[0].to_int()
 			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
 		"creature":
-			if args.size() != 3 or not Config.CREATURES.has(StringName(args[0])) or not _whole(args[1], 0) or not _whole(args[2], 0):
-				return "expected creature:<%s>,<x>,<y>" % "|".join(Config.CREATURES.keys())
+			if args.size() < 3 or args.size() > 4 or not Config.CREATURES.has(StringName(args[0])) or not _whole(args[1], 0) \
+					or not _whole(args[2], 0) or (args.size() == 4 and not (_whole(args[3], 1) and args[3].to_int() <= 100)):
+				return "expected creature:<%s>,<x>,<y>[,<pct>]" % "|".join(Config.CREATURES.keys())
 			c.item = StringName(args[0])
 			c.cell = Vector2i(args[1].to_int(), args[2].to_int())
+			c.count = args[3].to_int() if args.size() == 4 else 0
 		"huntrare":
 			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() == 2 and not _whole(args[1], 1)):
 				return "expected huntrare:<ticks>[,<px>]"
@@ -803,16 +808,17 @@ func _advance(a: Action, feet: Vector2) -> void:
 					else:
 						a.use_held = true
 					return
-			"waitprey":
+			"waitprey", "waitseen":
 				if _left < 0:
 					_left = c.ticks
 				_left -= 1
-				if prey.size() <= c.count or _left <= 0:
+				if (prey.size() <= c.count if c.op == "waitprey" else prey.size() >= c.count) or _left <= 0:
 					_next()
 				return
 			"creature":
 				a.creature = c.item
 				a.creature_cell = c.cell
+				a.creature_pct = c.count
 				_next()
 				return
 			"fight":

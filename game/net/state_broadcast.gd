@@ -36,6 +36,12 @@ func decide(tick: int, states: Array[NetProtocol.PlayerState]) -> Send:
 	return decide_encoded(tick, NetProtocol.encode_states(tick, states))
 
 
+## M11c: `encoded` just went out by another way (a reliable message after a player arrived): nothing to repeat until it changes.
+func sent(encoded: PackedByteArray) -> void:
+	_last_body = encoded.slice(4)
+	dirty = false
+
+
 ## The same decision for any batch whose first 4 bytes are its host tick (M4b: a map's enemy batch,
 ## NetProtocol.encode_enemies, one StateBroadcast per map).
 func decide_encoded(tick: int, encoded: PackedByteArray) -> Send:

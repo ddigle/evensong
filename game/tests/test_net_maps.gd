@@ -76,6 +76,15 @@ class CaptureSession:
 	func send_prayer(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "prayer", payload])  # M10b
 
+	func send_wild(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "wild", payload])  # M11c
+
+	func send_wild_keyframe(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "wild_key", payload])
+
+	func send_tally(peer: int, payload: PackedByteArray) -> void:
+		wire.append([peer, "tally", payload])
+
 	func send_go(peer: int) -> void:
 		wire.append([peer, "go", PackedByteArray()])
 
@@ -178,7 +187,7 @@ func _check_map_entry_codec() -> void:
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "more chunks than packed bytes: refused")
 	e.chunk_count = 0
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "no chunks: refused")
-	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12)")
+	check_eq(NetProtocol.VERSION, 13, "protocol version 13 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12; M11c: 13)")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 1
 	info.state.map = Config.MAP_DUNGEON
@@ -301,6 +310,7 @@ func _host_rig() -> HostRig:
 	r.s.worlds = {Config.MAP_SURFACE: r.surface, Config.MAP_DUNGEON: r.dungeon}
 	r.s.options = CliOptions.new()
 	r.s.options.test_no_spawns = true  # M4b: these are M3b's map checks; no heretic walks in
+	r.s.options.test_no_creatures = true  # M11c: and no creature
 	r.s.role = NetSession.Role.HOST
 	r.s.give_allowed = true
 	r.s.transport = OpenTransport.new()
@@ -457,10 +467,10 @@ func _check_travel_requests() -> void:
 	var kinds: PackedStringArray = []
 	for m: Array in msgs:
 		kinds.append(str(m[1]))
-	# M4b: after the map entry come that map's enemies (a keyframe) and nothing else of another kind.
+	# M4b: after the map entry come that map's enemies (a keyframe) and nothing else of another kind. M11c: and the world's collection.
 	var entry_at: int = kinds.find("map")
-	check(kinds.size() >= 2 and entry_at > 0 and kinds[0] == "world" and kinds.slice(entry_at + 1) == PackedStringArray(["enemy_key"]),
-		"chunks, then the map entry, then its enemies (%s)" % ", ".join(kinds))
+	check(kinds.size() >= 2 and entry_at > 0 and kinds[0] == "world" and kinds.slice(entry_at + 1) == PackedStringArray(["enemy_key", "tally"]),
+		"chunks, then the map entry, then its enemies and the collection (%s)" % ", ".join(kinds))
 	for t: int in Config.NET_OP_INTERVAL_TICKS:
 		near.refill_ops()
 	r.host.run_frame(near, _op(NetProtocol.Op.TRAVEL, Config.MAP_DUNGEON, DungeonGen.exit_rect(r.dungeon.data).position))

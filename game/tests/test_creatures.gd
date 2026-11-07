@@ -212,6 +212,15 @@ func _check_maps() -> void:
 
 # --- spawning -----------------------------------------------------------------------------------------
 
+## M11c: the hash of `d` as far as tiles and drops go (the herd places the rare zone, which the hash covers since M11c: no tile changes).
+static func _hash_without_zone(d: WorldData) -> String:
+	var zone: RareZone = d.rare_zone
+	d.rare_zone = null
+	var out: String = d.content_hash()
+	d.rare_zone = zone
+	return out
+
+
 func _check_spawn_rules() -> void:
 	var want: int = Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer")
 	var bad: int = 0
@@ -222,7 +231,7 @@ func _check_spawn_rules() -> void:
 		check_eq(h.alive_count(&"hare") + h.alive_count(&"deer"), want, "seed %d: every prey kind at its cap at the start" % (s + 1))
 		check_eq(h.alive_count(&"hare"), Creatures.cap_of(&"hare"), "seed %d: hares" % (s + 1))
 		check_eq(h.alive_count(&"deer"), Creatures.cap_of(&"deer"), "seed %d: deer" % (s + 1))
-		check_eq(d.content_hash(), hash_before, "seed %d: spawning edits no world" % (s + 1))
+		check_eq(_hash_without_zone(d), hash_before, "seed %d: spawning edits no world" % (s + 1))
 		for c: CreatureSim in h.list:
 			var cell: Vector2i = Aim.feet_cell(c.pos)
 			var far: float = Config.safe_radius_px() + Config.CREATURE_SPAWN_LIGHT_CLEARANCE_TILES * Config.TILE
@@ -779,7 +788,7 @@ func _check_streams_unchanged() -> void:
 		if t % 120 == 0:
 			q.teleport(h.list[(t / 120) % h.list.size()].pos + Vector2(20.0, 0.0))
 		steps(h, [q] as Array[Player], 1)
-	check_eq(d.content_hash(), SurfaceGen.GOLDEN_HASH, "the world's hash is the generated one after a minute of creatures")
+	check_eq(_hash_without_zone(d), SurfaceGen.GOLDEN_HASH, "the world's hash is the generated one after a minute of creatures")
 
 
 # --- heretics and creatures ignore each other ---------------------------------------------------------------

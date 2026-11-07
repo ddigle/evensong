@@ -90,7 +90,8 @@ extends RefCounted
 ##   --test-pray=<letters>[,...]  one script per --test-ally in order: the ally joins every prayer's gather and answers its own
 ##                                turns by the letters (c right, w wrong, l late = no answer, q quit as its turn opens; past
 ##                                the end the last letter), so one process shows a prayer of several
-## M11a (offline screenshot / test flags):
+## M11a (offline screenshot / test flags; M11c: a session host's too: --test-creature, --test-near-creature around its own player,
+## --test-collection, --test-no-creatures):
 ##   --test-creature=<kind>:<n>[,...]   that many creatures of that kind (Config.CREATURES) around the local player on the surface
 ##                                at the start, Config.CREATURE_TEST_RING_PX from its feet, past the caps
 ##   --test-no-creatures          no creature spawns or respawns by itself (the test creatures still come)

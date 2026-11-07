@@ -184,7 +184,7 @@ func _check_triggers() -> void:
 	for t: int in Config.POISON_INTERVAL_TICKS + 1:
 		a.herd.step([] as Array[Player])
 	check(d.collection.has(&"hunt_deer"), "a death by poison is a kill")
-	# No collection on a bare world (a session until M11c): no error, nothing.
+	# No collection on a bare world: no error, nothing.
 	var bare: WorldData = WorldData.new(Vector2i(40, 30))
 	bare.map_id = Config.MAP_SURFACE
 	var a2: Arena = arena_for(bare)
@@ -268,7 +268,7 @@ func _check_arrows() -> void:
 	for t: int in 60:
 		a3.step(party)
 	check_eq(stag.hp, stag.hp_max() - 13, "the raised arrow on a rare creature")
-	# No collection (a session until M11c): as before.
+	# No collection: as before.
 	var bare: WorldData = WorldData.new(Vector2i(40, 30))
 	bare.map_id = Config.MAP_SURFACE
 	var a4: Arena = arena_for(bare)

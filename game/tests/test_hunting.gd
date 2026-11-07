@@ -823,7 +823,7 @@ func _check_main() -> void:
 	var last: CreatureSim = herd.list[herd.list.size() - 1]
 	check(Movement.can_stand(main.world.data, last.pos) and herd.can_walk(last.pos), "main: where it may stand")
 	check(last.pos.distance_to(main.player.sim_position) > last.num_f("alert_px"), "main: outside its alert radius")
-	# A world with no herd (a session's arena until M11c) leaves every attack as it was.
+	# A world with no herd (the dungeon's arena) leaves every attack as it was.
 	var a2: Arena = Arena.new()
 	a2.setup(main.world.data, 1)
 	a2.spawning = false

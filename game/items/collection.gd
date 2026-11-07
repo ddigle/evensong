@@ -3,8 +3,9 @@ extends RefCounted
 ## M11b: the world's collection (● game-concept §2, §4: 월드마다 독립, 달성 단위 자원·생물·업적, 베네핏 범위 클래스 / 전체 / 월드; which entries,
 ## thresholds and benefits are PROVISIONAL, Config "M11b", one table each). One per world: WorldData.collection, the same object on the
 ## surface's and the dungeon's data (offline Main puts it there), so every rule reaches it from a player's own data on either map. A
-## world with none (a session until M11c, a test's bare map) simply has no benefits. There is no save until M13; M11c puts it in the
-## snapshot.
+## world with none (a test's bare map) simply has no benefits. There is no save until M13. M11c: a session's is the host's (SessionHost):
+## the surface's snapshot and content hash carry it, and every client holds a copy from the collection messages (take_state), which
+## only its panel reads.
 ##
 ## It belongs to the world, not to a player: a death loses nothing, a new world starts empty, and whoever does the thing registers the
 ## entry for everyone (the rare ones are archers' by construction). Registered entries stay. What triggers an entry: a kill of a prey
@@ -92,6 +93,51 @@ func note_inventory(inv: Inventory) -> void:
 		var what: StringName = row["what"]
 		if row["how"] == "item" and not has(id) and inv.has_seen(what):
 			register(id)
+
+
+## M11c: the registered entries as bits (bit i = Config.COLLECTION_ENTRIES row i).
+func bits() -> int:
+	var out: int = 0
+	var rows: Array = Config.COLLECTION_ENTRIES
+	for i: int in rows.size():
+		var row: Dictionary = rows[i]
+		var id: StringName = row["id"]
+		if has(id):
+			out |= 1 << i
+	return out
+
+
+## M11c: the host's state (bits(), `p_kills`) as this copy's, absolute: what it did not have goes into `fresh` (the log), what the host
+## does not have goes. Returns whether anything changed.
+func take_state(p_bits: int, p_kills: int) -> bool:
+	var changed: bool = p_kills != kills
+	kills = p_kills
+	var rows: Array = Config.COLLECTION_ENTRIES
+	for i: int in rows.size():
+		var row: Dictionary = rows[i]
+		var id: StringName = row["id"]
+		var want: bool = (p_bits & (1 << i)) != 0
+		if want == has(id):
+			continue
+		changed = true
+		if want:
+			_done[id] = true
+			fresh.append(id)
+		else:
+			_done.erase(id)
+	if changed:
+		revision += 1
+	return changed
+
+
+## M11b: --test-collection: the first `n` entries (table order) registered, `p_kills` kills counted.
+func put_test(n: int, p_kills: int) -> void:
+	kills = p_kills
+	var rows: Array = Config.COLLECTION_ENTRIES
+	for i: int in mini(n, rows.size()):
+		var row: Dictionary = rows[i]
+		var id: StringName = row["id"]
+		register(id)
 
 
 ## The entries registered since the last call, oldest first (emptied).

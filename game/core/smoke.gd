@@ -95,6 +95,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_skills(r)  # M9a
 	_check_prayer(r)  # M10a
 	_check_hunt(r)  # M11a
+	_check_net_wild(r)  # M11c
 	_check_collection(r)  # M11b
 	_check_light(r)
 	_check_net(r)
@@ -1459,6 +1460,44 @@ static func _check_net_prayer(r: Report) -> void:
 		+ NetProtocol.PRAYER_EVENT_SIZES[NetProtocol.PrayerEvent.Kind.RESULT]
 	r.fields.append("prayer_wire=%dB/%dB/%dB/%dB lit=%d lag=%d" % [NetProtocol.OP_SIZES[NetProtocol.Op.PRAY] + 2,
 		NetProtocol.OP_SIZES[NetProtocol.Op.ANSWER] + 2, bytes.size() - 1, turn_bytes, lit, Config.PRAYER_ANSWER_LAG_TICKS])
+
+
+## M11c: hunting on the wire (protocol v13): a CAPTURE round trip, a batch of every creature of the caps, the collection message, the rare
+## zone and the collection through a snapshot of the seed-1 surface (the same world hash on the other side; a generated world's stays
+## golden). Field `wild_wire=<CAPTURE>B/<a creature>B/<a batch at the caps>B/<collection>B zone_snapshot=<bytes they add>B`.
+static func _check_net_wild(r: Report) -> void:
+	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(90, Vector2i.ZERO)
+	f.op = NetProtocol.Op.CAPTURE
+	f.slot = 1
+	f.cell = Vector2i(40, 40)
+	f.capture_id = 7
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([f] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 1 and up.frames[0].same_request(f), "CAPTURE round trips (M11c)")
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	r.expect_eq(data.content_hash(), SurfaceGen.GOLDEN_HASH, "the generated world has no zone or collection yet")
+	var bare: int = WorldSnapshot.raw_bytes(data).size()
+	var herd: Creatures = Creatures.new()
+	herd.setup(data, Config.DEFAULT_SEED)
+	var states: Array[NetProtocol.CreatureState] = []
+	for c: CreatureSim in herd.list:
+		states.append(NetProtocol.creature_of(c, NetProtocol.NO_SLOT))
+	var batch: PackedByteArray = NetProtocol.encode_creatures(1234, states)
+	var back: NetProtocol.CreatureBatch = NetProtocol.decode_creatures(batch)
+	var same: bool = back.ok and back.tick == 1234 and back.creatures.size() == states.size()
+	for i: int in mini(back.creatures.size(), states.size()):
+		same = same and back.creatures[i].id == states[i].id and back.creatures[i].kind == states[i].kind \
+			and back.creatures[i].pos.distance_to(states[i].pos) <= 0.5 / NetProtocol.CREATURE_POS_UNITS + 0.001
+	r.expect(same, "a batch of the caps round trips, each creature within the wire's quarter px")
+	data.collection = Collection.new()
+	data.collection.put_test(5, 9)
+	var col: NetProtocol.CollectionState = NetProtocol.decode_collection(NetProtocol.encode_collection(data.collection))
+	r.expect(col.ok and col.bits == 31 and col.kills == 9, "the collection message round trips")
+	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
+	var got: WorldData = WorldSnapshot.decode_raw(raw)
+	r.expect(got != null and got.content_hash() == data.content_hash() and got.rare_zone.describe() == data.rare_zone.describe() \
+		and got.collection.describe() == data.collection.describe(), "the zone and the collection come with the surface's snapshot")
+	r.fields.append("wild_wire=%dB/%dB/%dB/%dB zone_snapshot=%dB" % [NetProtocol.OP_SIZES[NetProtocol.Op.CAPTURE] + 2, NetProtocol.CREATURE_SIZE,
+		batch.size(), NetProtocol.COLLECTION_SIZE, raw.size() - bare])
 
 
 ## M10b: prayer `pr`'s events since the last call as the host's wire events (its players' slots `slots`) into `out`; cleared.

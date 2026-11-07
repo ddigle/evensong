@@ -27,12 +27,17 @@ extends RefCounted
 ## (CreatureSim.bound, can_walk). ● "희귀 생물 포획·사냥은 아처만": a blow on a rare creature by anyone but the archer does nothing but show that it
 ## did nothing (shut_out, refuse: Arena's every attack path asks first). A snare holds one (hold) and takes it (capture: no corpse, no
 ## drops, its place waits like a death's). A kill and a capture go to the world's collection (items/collection.gd), when it has one.
+##
+## M11c: a session's host holds the same herd in its surface Arena and steps it every tick (SessionHost._step_creatures); a client's mirror
+## arena holds a Creatures with no rules running (Creatures.mirror: only `list`, filled from the host's batches, net/net_combat.gd).
 
 ## What a kill did (for the log and tests). M11b: also a refused blow's kind and class (`refusals`).
 class Kill:
 	extends RefCounted
 	var kind: StringName = &""
 	var who: String = ""
+	## M11c: the blow's player (node instance id, 0 = nobody): the host's log names its slot.
+	var by: int = 0
 	var at: Vector2i = Vector2i.ZERO
 	## [item, count] rows.
 	var drops: Array = []
@@ -95,6 +100,16 @@ func setup(p_data: WorldData, world_seed: int, p_spawning: bool = true) -> void:
 			for i: int in cap_of(kind):
 				if try_spawn(kind, [] as Array[Player]) == null:
 					_wait(kind, Config.CREATURE_SPAWN_RETRY_TICKS)
+
+
+## M11c: a herd of nothing for a client's mirror arena (never stepped): net/net_combat.gd fills `list` for CombatView, Capture.target_at and
+## the bots.
+static func mirror(p_data: WorldData) -> Creatures:
+	var h: Creatures = Creatures.new()
+	h.data = p_data
+	h.safe = SafeZone.for_world(p_data)
+	h.spawning = false
+	return h
 
 
 ## Whether kind `kind` spawns by itself here: the prey anywhere, the rare ones where the world has its zone (M11b).
@@ -423,7 +438,7 @@ func spot_near(from: Vector2, angle: float) -> Variant:
 func spawn(kind: StringName, feet: Vector2) -> CreatureSim:
 	var c: CreatureSim = CreatureSim.new()
 	c.id = next_id
-	next_id += 1
+	next_id = next_id % NetProtocol.CREATURE_ID_MAX + 1  # M11c: an id on the wire is a u16 from 1
 	c.kind = kind
 	c.pos = feet
 	c.home = feet
@@ -449,6 +464,7 @@ func refuse(c: CreatureSim, by: int) -> void:
 	var k: Kill = Kill.new()
 	k.kind = c.kind
 	k.who = class_of(by)
+	k.by = by
 	k.at = Aim.feet_cell(c.pos)
 	refusals.append(k)
 
@@ -461,11 +477,12 @@ func by_id(id: int) -> CreatureSim:
 	return null
 
 
-## M11b: a snare holds `c` for `ticks`, thrown from point `from` (Capture.begin).
-func hold(c: CreatureSim, ticks: int, from: Vector2) -> void:
+## M11b: a snare holds `c` for `ticks`, thrown from point `from` (Capture.begin). M11c: by the player with node instance id `by`.
+func hold(c: CreatureSim, ticks: int, from: Vector2, by: int = 0) -> void:
 	if c.alive() and ticks > 0:
 		c.hold_ticks = ticks
 		c.held_from = from
+		c.held_by = by
 		c.walking = false
 		count("held")
 
@@ -482,6 +499,43 @@ func capture(c: CreatureSim) -> void:
 	var col: Collection = Collection.of(data)
 	if col != null:
 		col.note_capture(c.kind)
+
+
+## M11c: the feet of the live creatures (bodies a blocking piece may not cover, M11a's rule: the host's and a client's mirror's).
+func feet() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for c: CreatureSim in list:
+		if c.alive():
+			out.append(c.pos)
+	return out
+
+
+## M11a: --test-creature: [kind, n] `entries` on a ring of Config.CREATURE_TEST_RING_PX from feet `from` (a turn divided among them, the
+## nearest spot on each line that can_walk and Movement allow; none: left out). M11c: offline Main's and a session host's.
+func put_ring(entries: Array[Array], from: Vector2) -> void:
+	var total: int = 0
+	for e: Array in entries:
+		var n: int = e[1]
+		total += n
+	var i: int = 0
+	for e: Array in entries:
+		var kind: StringName = e[0]
+		var n: int = e[1]
+		for k: int in n:
+			var at: Variant = spot_near(from, TAU * i / total)
+			i += 1
+			if at != null:
+				var spot: Vector2 = at
+				spawn(kind, spot)
+
+
+## M11b: --test-near-creature: a creature of `kind` out of breath at `spot`, at `pct` percent HP. M11c: offline Main's and a session
+## host's (the bot's `creature` with a percent too).
+func put_resting(kind: StringName, spot: Vector2, pct: int) -> CreatureSim:
+	var c: CreatureSim = spawn(kind, spot)
+	c.hp = maxi(c.hp_max() * pct / 100, 1)
+	rest(c)
+	return c
 
 
 ## M11b, test flag: `c` stands out of breath (CreatureSim.State.REST), as after a burst.
@@ -622,6 +676,7 @@ func _die(c: CreatureSim, by: int) -> void:
 	var k: Kill = Kill.new()
 	k.kind = c.kind
 	k.who = class_of(by)
+	k.by = by
 	k.at = drop_cell(c.pos)
 	k.drops = drops_for(c.kind, k.who)
 	_put_drops(k)

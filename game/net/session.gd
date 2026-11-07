@@ -83,6 +83,12 @@ extends Node
 ## surface's clients; every player's zeal to every client). A client mirrors it (net/net_prayer.gd) and draws the circle, the lamps
 ## and the marks from it; its own prompt runs from when its turn's event came; it predicts nothing but the key it pressed.
 ##
+## M11c (hunting, the rare zone, capture, the collection): the host's surface Arena holds the herd and it runs every attack, kill, drop,
+## respawn, capture and the one Collection of the world (SessionHost). A client gets the creatures near its player as batches (_rpc_wild,
+## a keyframe _rpc_wild_keyframe) and draws them a buffer behind (net/net_combat.gd), the collection as an absolute message to everyone
+## (_rpc_tally), the rare zone and the collection in the surface's snapshot. A click with the snare is a CAPTURE request; a client predicts
+## only its body action.
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -111,6 +117,8 @@ signal shop_wanted(tile: Vector2i)
 signal bot_shop(buy_entry: int, sell_slot: int, sell_all: bool)
 ## M10b: a bot's `pray` this tick (F pressed and let go): Main takes it like the key (its pick up first, then the prayer's tap).
 signal bot_tap
+## M11c: a bot's `collection` this tick (K: Main opens or closes the panel on this machine).
+signal bot_collection
 
 enum Role { OFFLINE, HOST, CLIENT }
 const ROLE_NAMES: PackedStringArray = ["offline", "host", "client"]
@@ -517,6 +525,27 @@ func _rpc_vespers(payload: PackedByteArray) -> void:
 		client.on_prayer(payload)
 
 
+## Client (M11c): the creatures in its view (unreliable; may be late, lost or held back). The names sort after `_rpc_refused` (see above).
+@rpc("authority", "call_remote", "unreliable_ordered", 4)
+func _rpc_wild(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_wild(payload)
+
+
+## Client (M11c): the reliable creature batch (after they went quiet, after a welcome or an entry to the surface).
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_wild_keyframe(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_wild_keyframe(payload)
+
+
+## Client (M11c): the world's collection as the host has it.
+@rpc("authority", "call_remote", "reliable", 0)
+func _rpc_tally(payload: PackedByteArray) -> void:
+	if role == Role.CLIENT:
+		client.on_tally(payload)
+
+
 @rpc("authority", "call_remote", "reliable", 0)
 func _rpc_go() -> void:
 	if role == Role.CLIENT:
@@ -607,6 +636,18 @@ func send_skills(peer: int, payload: PackedByteArray) -> void:
 
 func send_prayer(peer: int, payload: PackedByteArray) -> void:
 	_rpc_vespers.rpc_id(peer, payload)
+
+
+func send_wild(peer: int, payload: PackedByteArray) -> void:
+	_rpc_wild.rpc_id(peer, payload)
+
+
+func send_wild_keyframe(peer: int, payload: PackedByteArray) -> void:
+	_rpc_wild_keyframe.rpc_id(peer, payload)
+
+
+func send_tally(peer: int, payload: PackedByteArray) -> void:
+	_rpc_tally.rpc_id(peer, payload)
 
 
 func send_go(peer: int) -> void:

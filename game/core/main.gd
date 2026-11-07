@@ -131,11 +131,11 @@ extends Node2D
 ## meditating, is a PRAY request (prayer_tap), a participant's key on its turn an ANSWER (NetPrayer.attach, before the frame's
 ## other requests). The host's prayer (a client: its mirror, NetPrayer) is drawn by the same code (shown_prayer, show_prayer_from);
 ## a bot's `pray` comes through NetSession.bot_tap.
-## M11a (offline first; a session's arenas have no herd until M11c, the rest as it was): the surface's creatures (combat/creatures.gd):
+## M11a (offline first; M11c: a session's herd is the host's, net/session_host.gd): the surface's creatures (combat/creatures.gd):
 ## the surface arena holds the herd, so every attack path hits them (Arena.hit_creature); step_creatures runs it on the game clock,
 ## every map's tick like the farms, and puts a kill's drops into the world. The meat eats through potion_impact.
 ## --test-creature puts some beside the local player, --test-no-creatures stops the natural ones (screenshots, tests).
-## M11b (offline first; a session has none of it until M11c): the world's collection (items/collection.gd: WorldData.collection, one object on
+## M11b (offline first; M11c: a session's are the host's, net/session_host.gd): the world's collection (items/collection.gd: WorldData.collection, one object on
 ## both maps' data, put there with the arenas, ensure_combat), the rare zone (world/rare_zone.gd: the herd places it, GameWorld shows it),
 ## the snare (a click: Player.capture_on, Capture.refusal; the throw's start holds the creature, its impact frame takes it, capture_impact), the
 ## collection panel (K, toggle_collection: the player stands, a prayer refuses it, nothing pauses), the merchant's restock read through the
@@ -243,6 +243,7 @@ func _ready() -> void:
 		net.shop_wanted.connect(open_shop)  # M8b: F at the merchant opens his shop panel here
 		net.bot_shop.connect(_on_bot_shop)  # M8b: a bot's shop panel clicks
 		net.bot_tap.connect(_f_press)  # M10b: a bot's `pray` (F pressed and let go: a tap once it is let go)
+		net.bot_collection.connect(toggle_collection)  # M11c: a bot's K
 		_connect_shop_panel()
 		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
@@ -428,7 +429,11 @@ func _bot_tick(delta: float) -> void:
 		var hc: Vector2i = a.heretic
 		arenas[current_map].spawn_heretic(Arena.spawn_feet(hc))  # M7c, test only (bot "heretic")
 	if not a.creature.is_empty() and ensure_combat(current_map) and arenas[current_map].herd != null:
-		arenas[current_map].herd.spawn(a.creature, Arena.spawn_feet(a.creature_cell))  # M11a, test only (bot "creature")
+		var bot_feet: Vector2 = Arena.spawn_feet(a.creature_cell)  # M11a, test only (bot "creature")
+		if a.creature_pct > 0:
+			arenas[current_map].herd.put_resting(a.creature, bot_feet, a.creature_pct)
+		else:
+			arenas[current_map].herd.spawn(a.creature, bot_feet)
 	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill,
 		a.skill_slot)
 	if a.op == null:
@@ -544,6 +549,8 @@ func _on_local_player_ready(p: Player) -> void:
 	_bind(p)
 	_connect_gear(p)  # M7c
 	_connect_skills(p)  # M9c: the skill keys, the near-cursor pick over the players on its map as this machine has them
+	if not p.capture_refused.is_connected(_on_capture_refused):
+		p.capture_refused.connect(_on_capture_refused)  # M11c: a click this machine refused (the session set capture_on and the herd)
 
 
 ## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
@@ -832,7 +839,7 @@ func ensure_combat(id: int) -> bool:
 	a.spawning = not CliOptions.current().test_no_spawns
 	a.threat_on = true  # M9a: offline (a session's host arenas stay off until M9c)
 	if id == Config.MAP_SURFACE:
-		a.herd = Creatures.new()  # M11a: offline (a session's arenas have none until M11c)
+		a.herd = Creatures.new()  # M11a: offline (M11c: a session's is the host's, SessionHost._setup_combat)
 		a.herd.setup(w.data, CliOptions.current().world_seed, not CliOptions.current().test_no_creatures)
 		w.show_rare_zone()  # M11b: the herd placed it
 	arenas[id] = a
@@ -953,7 +960,7 @@ func step_creatures() -> void:
 
 # --- M11b: the rare zone's snare and the world's collection (offline; M11c: a session's are the host's) -------------------------------
 
-## The world's collection (the surface's WorldData.collection), or null (a session until M11c).
+## The world's collection (the surface's WorldData.collection; M11c: a session's: the host's, or a client's copy of it), or null.
 func world_collection() -> Collection:
 	return world.data.collection if world != null and world.data != null else null
 
@@ -1008,6 +1015,8 @@ func _on_capture_refused(why: String, c: CreatureSim) -> void:
 	print("EVENSONG_CAPTURE refused: %s" % why)
 	if c != null:
 		c.refused_ticks = Config.CREATURE_REFUSED_SHOW_TICKS
+		if _in_session() and net.client != null and net.client.combat != null:
+			net.client.combat.mark_refused(c.id)  # M11c: `c` is the mirror's: it is made anew each frame
 
 
 ## Player `p`'s throw reaches its impact frame (Capture.land): the creature is taken, the catch shows, or nothing is spent.
@@ -1026,8 +1035,8 @@ func collection_open() -> bool:
 
 
 ## K: the collection panel (the player stands while it is open, like the other panels; nothing pauses); K, Tab or Esc close it. Refused
-## while another panel is open, down or dead, and while praying (Main._praying_refuses). A world with no collection (a session
-## until M11c) opens nothing.
+## while another panel is open, down or dead, and while praying (Main._praying_refuses). A world with no collection (a test's bare map)
+## opens nothing. M11c: in a session it shows this machine's copy of the host's.
 func toggle_collection() -> void:
 	if collection_open():
 		close_collection()
@@ -1036,7 +1045,7 @@ func toggle_collection() -> void:
 		return
 	var col: Collection = world_collection()
 	if col == null:
-		print("EVENSONG_COLLECTION none here (a session's comes with M11c)")
+		print("EVENSONG_COLLECTION none here")
 		return
 	if _praying_refuses("collection"):
 		return
@@ -1227,6 +1236,7 @@ func _other_bodies() -> Array[Vector2]:
 			bodies.append(p.sim_position)
 	if _in_session():
 		bodies.append_array(net.bots.foe_positions())  # M7c: the heretics as this machine has them (the build ghost)
+		bodies.append_array(net.bots.creature_feet())  # M11c: the creatures too
 	elif arenas.has(current_map):
 		for h: HereticSim in arenas[current_map].heretics:
 			if h.alive():
@@ -2696,23 +2706,15 @@ func put_test_near_creature(kind: StringName, pct: int) -> void:
 	var herd: Creatures = _local_herd()
 	if herd == null:
 		return
-	var c: CreatureSim = herd.spawn(kind, player.sim_position + Vector2(Config.CAPTURE_TEST_NEAR_PX, 0.0))
-	c.hp = maxi(c.hp_max() * pct / 100, 1)
-	herd.rest(c)
+	herd.put_resting(kind, player.sim_position + Vector2(Config.CAPTURE_TEST_NEAR_PX, 0.0), pct)
 	combat_views[Config.MAP_SURFACE].sync_creatures()
 
 
 ## M11b: --test-collection: the first `n` entries (table order) registered, `kills` kills counted.
 func put_test_collection(n: int, kills: int) -> void:
 	var col: Collection = world_collection()
-	if col == null:
-		return
-	col.kills = kills
-	var rows_table: Array = Config.COLLECTION_ENTRIES
-	for i: int in mini(n, rows_table.size()):
-		var row: Dictionary = rows_table[i]
-		var id: StringName = row["id"]
-		col.register(id)
+	if col != null:
+		col.put_test(n, kills)
 
 
 ## Screenshot / test flags (core/cli_options.gd).
@@ -2722,21 +2724,7 @@ func put_test_creatures(entries: Array[Array]) -> void:
 	if entries.is_empty() or not arenas.has(Config.MAP_SURFACE) or arenas[Config.MAP_SURFACE].herd == null \
 			or current_map != Config.MAP_SURFACE:
 		return
-	var herd: Creatures = arenas[Config.MAP_SURFACE].herd
-	var total: int = 0
-	for e: Array in entries:
-		var n: int = e[1]
-		total += n
-	var i: int = 0
-	for e: Array in entries:
-		var kind: StringName = e[0]
-		var n: int = e[1]
-		for k: int in n:
-			var at: Variant = herd.spot_near(player.sim_position, TAU * i / total)
-			i += 1
-			if at != null:
-				var feet: Vector2 = at
-				herd.spawn(kind, feet)
+	arenas[Config.MAP_SURFACE].herd.put_ring(entries, player.sim_position)
 	combat_views[Config.MAP_SURFACE].sync_creatures()
 
 

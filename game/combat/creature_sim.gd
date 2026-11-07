@@ -47,6 +47,8 @@ var bound: bool = false
 ## M11b: a snare holds it where it stands for this many ticks more (Capture.begin), thrown from this point (the rope is drawn to it).
 var hold_ticks: int = 0
 var held_from: Vector2 = Vector2.ZERO
+## M11c: the node instance id of the player whose snare holds it (0 = nobody): the batches name its slot, the rope is drawn to it.
+var held_by: int = 0
 ## M11b: display: ticks left of the refused mark (a blow that does nothing to it, Creatures.refuse).
 var refused_ticks: int = 0
 

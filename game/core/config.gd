@@ -1154,7 +1154,7 @@ const MEDITATION_ZEAL_BLOCKS_PRAYER: bool = false
 const PRAYER_JOIN_LAG_TICKS: int = 30
 
 # --- PROVISIONAL, M11a (hunting: the creatures, the hides and the meat; offline first) --------------------------------------
-# Offline first (M11a, like M5a-M10a; a session has no creature until M11c). README "임시값" M11a. ● decided and followed as written:
+# Offline first (M11a, like M5a-M10a; M11c: a session's are the host's, the same table). README "임시값" M11a. ● decided and followed as written:
 # anyone hunts, the hide is damaged and the yield low, no capture; the archer alone gets the whole hide (gameplay-design §3.0 R11
 # archer row, §3.4); the merchant's substitute is 일반 가죽·고기 (§3.0 R11). Every creature, name and number below is a placeholder.
 
@@ -1204,7 +1204,7 @@ const CREATURE_SPAWN_MIN_PLAYER_PX: float = 160.0
 const MEAT_HEAL_HP: int = 12
 
 # --- PROVISIONAL, M11b (the rare zone, capture, the collection, the rare material and gear; offline first) ------------------
-# Offline first (M11b, like M5a-M10a; a session has none of it until M11c). README "임시값" M11b. ● decided and followed as written: the
+# Offline first (M11b, like M5a-M10a; M11c: a session's is the host's, the same tables). README "임시값" M11b. ● decided and followed as written: the
 # collection is the world's (월드마다 독립; game-concept §4), its units are 자원 / 생물 / 업적, its benefits go to a class / all classes / the
 # world, 희귀 생물 포획·사냥은 아처만, a rare collectible's material is required for a specific piece of gear. Every number, name and rule
 # below is ○ or not in the docs: gameplay-design §3.4 ○ (capture: the archer's snare, HP low enough, register), §3.5 ○ (first
@@ -1469,6 +1469,13 @@ const SKILL_STUN_FRAME: int = 1
 ## IMPL (M9c): the most steps a session client's own skill copy runs in one tick to catch up with the host's time as heard
 ## (SessionClient._run_skills_copy).
 const NET_SKILLS_COPY_STEPS: int = 8
+## IMPL (M11c): a client gets the creatures within this box around its player (half width, half height, px): the view is VIEW_SIZE at
+## 16:9, wider on a 21:9 screen (aspect expand: half width 320), and 20 px of margin. So a herd wandering far off sends it nothing.
+const NET_CREATURE_VIEW_PX: Vector2 = Vector2(340.0, 200.0)
+## IMPL (M11c): on a host a snare holds a creature this many ticks more than offline: the hold counts host ticks, the throw a client's
+## frames, which a lost packet or the input jitter buffer (NET_INPUT_JITTER_FRAMES) can bring a few ticks late. Only a fleeing creature
+## would use them (one at rest stands anyway).
+const NET_CAPTURE_HOLD_SLACK_TICKS: int = 12
 ## IMPL (M10a, measured from art/env/altar_v04.png and altar_v04_unlit.png; tests/test_prayer.gd measures them again): the nine lamps'
 ## flame columns, top-left of each 2 x 5 flame in the altar picture, in the turns' order (row by row from the top left: turn i
 ## lights lamp i), and the box around a flame (relative to it) holding every pixel the lit and the unlit pictures differ in for

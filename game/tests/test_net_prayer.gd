@@ -249,7 +249,7 @@ func _check_ops_codec() -> void:
 		"same_request compares an ANSWER's prayer, turn and answer")
 	check(p.frames[1].describe_op().contains("answer map=0 prayer=44 turn=8 dir=several"), "an ANSWER describes itself (%s)" %
 		p.frames[1].describe_op())
-	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M10b: the prayer)")
+	check_eq(NetProtocol.VERSION, 13, "protocol version 13 (M10b: 12, the prayer; M11c: 13, the creatures)")
 
 
 static func _event(kind: int, tick: int = 1000) -> NetProtocol.PrayerEvent:

@@ -86,7 +86,7 @@ extends Node2D
 ## a skill key is refused with the HUD's mark, Skills.WHY_PRAYING). While MEDITATING the frame is as usual (a move breaks the
 ## meditation, Prayer). The zeal (SkillState.zeal_*) shows over the head (EffectMarks.Kind.ZEAL); the PrayerMark shows the turn's
 ## arrow (not over this machine's own player: its HUD prompt), the joined / left ring and the meditation's ring and bar (Main sets it).
-## M11b (`capture_on`: offline Main's player; a session's keep it off until M11c): a click with the snare selected (items/capture.gd:
+## M11b (`capture_on`: offline Main's player, M11c: a session's local player too): a click with the snare selected (items/capture.gd:
 ## Capture.refusal on the creature under the mouse, from `herd_provider`) puts the throw into the frame with that creature
 ## (action_capture), or says why not (capture_refused: nothing starts, nothing is spent); it lands on Capture.impact_tick (action_impact:
 ## Main takes the creature). A heretic's knife hit counts the world's collection defence with the worn armour's (Collection.defence_bonus).
@@ -212,8 +212,9 @@ var skill_aim_refused: bool = false
 var prayer_role: int = 0
 var prayer_face: int = RigData.Dir.NORTH
 var prayer_mark: PrayerMark
-## M11b (Main turns it on offline): the snare's click. `herd_provider` returns the herd of this player's map (Creatures, or null: no
-## creatures here), and `action_capture` is the id of the creature the playing throw goes to (0 = none).
+## M11b (Main turns it on offline; M11c: the session for its local player): the snare's click. `herd_provider` returns the herd of this
+## player's map (Creatures, or null: no creatures here; a client's: its mirror), and `action_capture` is the id of the creature the
+## playing throw goes to (0 = none).
 var capture_on: bool = false
 var herd_provider: Callable = Callable()
 var action_capture: int = 0
@@ -553,7 +554,7 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 		var quarry: CreatureSim = Capture.target_at(herd_here(), mouse)
 		var why_snare: String = Capture.refusal(self, quarry)
 		if why_snare.is_empty():
-			f.op = NetProtocol.Op.USE
+			f.op = NetProtocol.Op.CAPTURE  # M11c: its own request (the creature rides on the wire); offline the same frame
 			f.slot = inventory.selected
 			f.cell = aim_cell
 			f.anim = Config.CAPTURE_ANIM

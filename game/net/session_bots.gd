@@ -55,9 +55,12 @@ func local_action() -> NetBot.Action:
 		bot.world = p.data if p != null else null  # M5c: waitfield
 		bot.others = others_here()  # M7c: waitat
 		_prayer_for_bot(p)  # M10b: answer, waitturn, waitprayer
+		_creatures_for_bot()  # M11c: aimprey, hunt, waitprey, huntrare, snare
 		a = bot.step(feet)
 		if a.f_tap:
 			s.bot_tap.emit()  # M10b: `pray` = F pressed and let go (Main: its pick up, then the prayer's tap: PRAY)
+		if a.collection:
+			s.bot_collection.emit()  # M11c: K
 		if a.tab or a.craft_row >= 0:
 			s.bot_ui.emit(a.tab, a.craft_row)
 		if a.store_slot >= 0 or a.take_slot >= 0 or a.unequip:
@@ -115,6 +118,31 @@ func _prayer_for_bot(p: Player) -> void:
 		bot.prayer_member = np.mirror.is_member(id)
 		bot.prayer_dir = np.mirror.directions[np.my_turn] if np.window_open(s.tick) else -1
 		bot.prayer_window = s.tick - np.seen_at if bot.prayer_dir >= 0 else 0
+
+
+## M11c: the creatures on the local player's map as this machine has them (the host: its herd; a client: as it draws them), for the bot.
+func _creatures_for_bot() -> void:
+	bot.prey.clear()
+	bot.rare.clear()
+	bot.rare_ready.clear()
+	var herd: Creatures = s.host.herd_on(s.local_map()) if s.host != null else (s.client._mirror_herd() if s.client != null else null)
+	if herd == null:
+		return
+	for c: CreatureSim in herd.list:
+		if c.alive():
+			bot.prey.append(Creatures.aim_point(c))
+			if c.rare():
+				bot.rare.append(Creatures.aim_point(c))
+				bot.rare_ready.append(c.can_be_taken())
+
+
+## M11c: the live creatures' feet on the local player's map as this machine has them (Main's build ghost).
+func creature_feet() -> Array[Vector2]:
+	if s.host != null:
+		return s.host.creature_feet(s.local_map())
+	if s.client != null and s.client.combat != null:
+		return s.client.combat.creature_feet()
+	return [] as Array[Vector2]
 
 
 ## M7c: the other players' feet on the local player's map, as this machine has them (bot "waitat").

@@ -49,7 +49,7 @@ extends RefCounted
 ## the host does on the same tick); a zone that ends early (the blessing's cleric down, dead or gone) and a ward (note_ward) are
 ## events when they happen. `slots` (player node id -> session slot, the host fills it each tick) names players on the wire.
 ##
-## M11a (offline; a session's arenas have no herd until M11c, a mirror none): `herd` = the surface's creatures (combat/creatures.gd).
+## M11a (M11c: a session host's surface arena too; a client's mirror holds a herd filled from the batches): `herd` = the surface's creatures (combat/creatures.gd).
 ## Every attack that can hit a heretic can hit them (basic attacks, shots, the damaging skills, a thrown poison; zeal and wear are
 ## in the damage and the swing already, so they count the same) by hit_creature; a stun or a slow lands on them where it lands on a
 ## heretic, the slam pushes them. The taunt, threat and a heretic's own rules never read them. Their clock is the herd's, not this
@@ -140,6 +140,8 @@ class Splash:
 ## host counts it apart, "poison_hits", and tags its log line).
 class Hit:
 	extends RefCounted
+	## M11c: a creature's kind (then `heretic_id` = its id; &"" = a heretic).
+	var creature: StringName = &""
 	var heretic_id: int = 0
 	var amount: int = 0
 	var hp_after: int = 0
@@ -1131,7 +1133,17 @@ func hit_creature(c: CreatureSim, amount: int, by: int = 0) -> bool:
 	if not creature_open(c, by):
 		return false
 	count("creature_hits")
-	return herd.hit(c, amount, by)
+	var died: bool = herd.hit(c, amount, by)
+	if logging:
+		var r: Hit = Hit.new()  # M11c: the host's log and counters (SessionHost._flush_hits)
+		r.creature = c.kind
+		r.heretic_id = c.id
+		r.amount = amount
+		r.hp_after = c.hp
+		r.by_id = by
+		r.killed = died
+		hits.append(r)
+	return died
 
 
 ## M11a: in_circle's rule for creature `c`.

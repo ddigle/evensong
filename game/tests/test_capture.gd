@@ -383,7 +383,7 @@ func _check_refusals() -> void:
 	e.inventory.add(Capture.SNARE, 1)
 	check_eq(Capture.refusal(e, rare), "", "one snare will do")
 	check_eq(Capture.refusal(e, null), Capture.WHY_NOTHING, "nothing there, the rule")
-	# Off (a session until M11c): the click makes no frame and no refusal.
+	# Off: the click makes no frame and no refusal.
 	var off: Player = player(d2, "archer", rare.pos - Vector2(20, 0))
 	off.inventory.add(Capture.SNARE, 1)
 	off.inventory.select(0)
@@ -481,7 +481,7 @@ func _check_success() -> void:
 		c.hp = 2
 		var respawn: int = c.num_i("respawn_ticks")
 		var f: NetProtocol.InputFrame = click(p, Creatures.aim_point(c))
-		check_eq(f.op, NetProtocol.Op.USE, "%s: a USE" % kind)
+		check_eq(f.op, NetProtocol.Op.CAPTURE, "%s: a CAPTURE (M11c: its own request, offline the same frame)" % kind)
 		check_eq(f.anim, Config.CAPTURE_ANIM, "%s: the throw" % kind)
 		check_eq(f.capture_id, c.id, "%s: at it" % kind)
 		check_eq(p.action_capture, c.id, "%s: the action remembers" % kind)

@@ -105,10 +105,11 @@ var chests: Dictionary[Vector2i, Chest] = {}
 ## host's stock.
 var shop: Shop = null
 ## M11b: the world's collection (items/collection.gd): one per world, the same object on the surface's and the dungeon's data (offline Main
-## puts it there; a generated map and a session until M11c have none). Not in the content hash or the snapshot yet (M11c).
+## puts it there, M11c: a session host and, its copy, a client; a generated map has none). M11c: the surface's snapshot and content hash cover it.
 var collection: Collection = null
 ## M11b: the surface's rare zone (world/rare_zone.gd; the herd places it when the world starts, null on any other map or a map with no
-## site). No tile changes: not in the content hash, so the generated worlds hash as before.
+## site). No tile changes, and generated data has none yet (the herd comes later), so the generated worlds hash as before. M11c: the surface's
+## snapshot and content hash cover it: a client never places it itself.
 var rare_zone: RareZone = null
 
 
@@ -368,11 +369,19 @@ func content_hash() -> String:
 		var stock: PackedByteArray = shop.stock_bytes()
 		ctx.update(PackedInt64Array([SHOP_HASH_TAG, stock.size()]).to_byte_array())
 		ctx.update(stock)
+	if rare_zone != null:
+		# M11c: the rare zone and the collection, each after a tag of its own, only when the world has them (a generated map has neither,
+		# so the golden hashes stay). The collection is one object on every map's data: only the surface's hash covers it.
+		ctx.update(PackedInt64Array([ZONE_HASH_TAG, rare_zone.center.x, rare_zone.center.y, rare_zone.radius]).to_byte_array())
+	if collection != null and map_id == Config.MAP_SURFACE:
+		ctx.update(PackedInt64Array([COLLECTION_HASH_TAG, collection.bits(), collection.kills]).to_byte_array())
 	return ctx.finish().hex_encode()
 
 
-## M8b: the shop stock's tag in content_hash (no layer index: the layers are 0..LAYER_COUNT - 1).
+## M8b: the shop stock's tag in content_hash (no layer index: the layers are 0..LAYER_COUNT - 1). M11c: the rare zone's, the collection's.
 const SHOP_HASH_TAG: int = 100
+const ZONE_HASH_TAG: int = 101
+const COLLECTION_HASH_TAG: int = 102
 
 
 # --- storage chests (M7a) ----------------------------------------------------------------------

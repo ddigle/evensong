@@ -80,6 +80,13 @@ extends RefCounted
 ## prayer events (on_prayer, through the link simulation's delay like a late reliable message) feed the mirror Main draws
 ## (`prayer_net`: the circle, the lamps, the marks, the local prompt, every player's zeal). While the mirror says this player
 ## prays its frames do not move it. Nothing the prayer decides is predicted.
+##
+## M11c (hunting, capture, the collection): the creatures near this player come as batches (CH_CREATURE, unreliable, through the link
+## simulation like the enemies; a reliable keyframe after a welcome, an entry to the surface and when they go quiet) into NetCombat, whose
+## mirror herd CombatView draws and Capture.target_at reads. A click with the snare goes through Capture.refusal here (as drawn here) and
+## then as a CAPTURE request; the prediction plays the throw's body action at once, like a USE's, nothing it does: the creature, the
+## snare, the material and the entry are the host's. The rare zone and the collection come in the surface's snapshot; this client keeps
+## one Collection for the whole session (on every map's data: its panel reads it), the host's collection messages (on_tally) set it.
 
 var s: NetSession
 var prediction: Prediction
@@ -140,6 +147,12 @@ var heard_at: int = 0
 var prayer_net: NetPrayer = NetPrayer.new()
 var prayer_msgs: int = 0
 var bad_prayer: int = 0
+## M11c: the world's collection as this client has it (the host's; one object for the session), collection messages taken and malformed
+## ones, creature messages taken.
+var collection: Collection
+var tally_msgs: int = 0
+var bad_tally: int = 0
+var wild_msgs: int = 0
 
 var _last_state_tick: int = -1
 
@@ -204,6 +217,8 @@ func on_welcome(payload: PackedByteArray) -> void:
 		return
 	s.world.load_data(data)
 	s.worlds[Config.MAP_SURFACE] = s.world
+	s.world.show_rare_zone()  # M11c: from the snapshot, never from this machine's generator
+	_keep_collection(data)
 	world_build_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	snapshot_bytes = w.packed_size
 	snapshot_raw = w.raw_size
@@ -235,6 +250,8 @@ func on_welcome(payload: PackedByteArray) -> void:
 	me_player.party_provider = func() -> Array[Player]: return SessionHost.players_with(s, me_player)  # the near-cursor pick here
 	s.local.player.farming_on = true  # M5c: farming, purifying and carrying the altar too (the host decides the result)
 	s.local.player.purify_on = true
+	s.local.player.capture_on = true  # M11c: the snare's click (the host decides)
+	s.local.player.herd_provider = _mirror_herd
 	prediction = Prediction.new()
 	var me: NetProtocol.PlayerState = s.local.state()
 	prediction.setup(s.world.data, me.pos, me.facing, 0)
@@ -308,6 +325,9 @@ func on_map_entry(payload: PackedByteArray) -> void:
 		s.log_event("map_left", "map=%s edits=%d world=%s" % [Config.MAP_NAMES[old], s.log_for(old).size(),
 			old_world.data.content_hash().left(12)])
 	w.load_data(data)
+	_keep_collection(data)  # M11c
+	if e.map == Config.MAP_SURFACE:
+		w.show_rare_zone()
 	s.edit_logs.erase(old)
 	s.edit_logs.erase(e.map)
 	s.log_for(e.map).base = e.edit_position
@@ -741,6 +761,72 @@ func _apply_prayer(payload: PackedByteArray) -> void:
 	var m: Prayer = prayer_net.mirror
 	s.log_event("prayer", "events=%s phase=%s members=%d turn=%d lamps=%s zeal=%d" % [",".join(kinds), Prayer.PHASE_NAMES[m.phase],
 		m.members.size(), m.turn, NetPrayer.lamps_word(m.lamps), prayer_net.zeal.size()])
+
+
+## M11c: the creature batch of this client's view (unreliable: through the link simulation like the enemies).
+func on_wild(payload: PackedByteArray) -> void:
+	if not s.active:
+		return
+	s.link.pass_through(_apply_wild.bind(payload, false), Time.get_ticks_msec())
+
+
+func on_wild_keyframe(payload: PackedByteArray) -> void:
+	if not s.active:
+		return
+	_apply_wild(payload, true)
+
+
+func _apply_wild(payload: PackedByteArray, keyframe: bool) -> void:
+	if not s.active or s.over or combat == null:
+		return
+	var b: NetProtocol.CreatureBatch = NetProtocol.decode_creatures(payload)
+	if not b.ok:
+		bad_combat += 1
+		s.bad_messages += 1
+		return
+	wild_msgs += 1
+	clock.observe(b.tick, Interpolation.RemoteClock.now_ticks())
+	_heard(b.tick)
+	combat.on_creatures(b, keyframe)
+
+
+## The herd this client draws (null on a map with none): Player.herd_provider.
+func _mirror_herd() -> Creatures:
+	return combat.arena.herd if combat != null and combat.arena != null else null
+
+
+## World `data` just came from the host: this session's one Collection stays on it, with what its snapshot says (a message follows).
+func _keep_collection(data: WorldData) -> void:
+	if collection == null:
+		collection = data.collection if data.collection != null else Collection.new()
+	elif data.collection != null:
+		collection.take_state(data.collection.bits(), data.collection.kills)
+	collection.take_fresh()  # what came with a snapshot is no news; the message after it tells what is
+	data.collection = collection
+
+
+## M11c: the world's collection as the host has it now (absolute). A malformed message is counted and dropped.
+func on_tally(payload: PackedByteArray) -> void:
+	if not s.active or s.over or collection == null:
+		return
+	var c: NetProtocol.CollectionState = NetProtocol.decode_collection(payload)
+	if not c.ok:
+		bad_tally += 1
+		s.bad_messages += 1
+		return
+	tally_msgs += 1
+	collection.take_state(c.bits, c.kills)
+	var at: int = collection.count()
+	var fresh: Array[StringName] = collection.take_fresh()
+	if not fresh.is_empty():
+		s.log_event("collection", "entries=%s count=%d/%d kills=%d" % [",".join(fresh), at, Collection.total(), c.kills])
+
+
+## M11c results: the collection and the rare zone as this client has them, the creatures it was told of.
+func hunt_result() -> Dictionary:
+	var zone: RareZone = s.world.data.rare_zone if s.world != null and s.world.data != null else null
+	return {"collection": collection.describe() if collection != null else "none", "msgs": tally_msgs, "bad": bad_tally,
+		"wild_msgs": wild_msgs, "zone": zone.describe() if zone != null else "none"}
 
 
 ## M10b: the host tick as this client knows it now (the newest heard plus this client's ticks since).

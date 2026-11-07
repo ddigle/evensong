@@ -3,7 +3,7 @@ extends RefCounted
 ## M11b: the archer's capture (● game-concept §3, §4 "희귀 생물 포획·사냥은 아처만"; ○ gameplay-design §3.4 "포획: 아처 전용 도구(올가미·덫). 희귀 생물의 HP를
 ## 일정 이하로 낮춘 뒤 포획 시도 → 컬렉션 등록"; the numbers and the rest PROVISIONAL, Config "M11b"). Pure rules on Player, CreatureSim and
 ## Creatures, like items/potions.gd: the offline game (core/main.gd) calls begin() when the throw starts and land() on its impact frame.
-## M11c's host will call the same.
+## M11c: a session's host does the same on its own state (SessionHost._capture, _capture_land): a client's click is a CAPTURE request.
 ##
 ## A left click with the snare selected picks the creature under the mouse (target_at) and goes through refusal(): nothing is spent
 ## and nothing starts unless the player is up and free, an archer, and the creature is a rare one in reach with its HP at or below
@@ -103,10 +103,11 @@ static func refusal(p: Player, c: CreatureSim) -> String:
 	return ""
 
 
-## The throw of player `p` at creature `c` started: `c` is held until the impact frame (Config.CAPTURE_HOLD_SLACK_TICKS past it).
-static func begin(p: Player, herd: Creatures, c: CreatureSim) -> void:
+## The throw of player `p` at creature `c` started: `c` is held until the impact frame (Config.CAPTURE_HOLD_SLACK_TICKS past it). M11c:
+## `slack` more on a host, whose hold runs on its own clock while a client's frames may come late (Config.NET_CAPTURE_HOLD_SLACK_TICKS).
+static func begin(p: Player, herd: Creatures, c: CreatureSim, slack: int = 0) -> void:
 	if herd != null and c != null:
-		herd.hold(c, impact_tick() + Config.CAPTURE_HOLD_SLACK_TICKS, Combat.body_point(p.sim_position))
+		herd.hold(c, impact_tick() + Config.CAPTURE_HOLD_SLACK_TICKS + slack, Combat.body_point(p.sim_position), p.get_instance_id())
 
 
 ## Player `p`'s throw at the creature with id `creature_id` of `herd` reaches its impact frame.

@@ -100,6 +100,7 @@ func _check_placement() -> void:
 	herd.setup(gold, Config.DEFAULT_SEED)
 	for t: int in 3600:
 		herd.step([] as Array[Player])
+	gold.rare_zone = null  # M11c: the hash covers the zone; no tile or drop changed
 	check_eq(gold.content_hash(), SurfaceGen.GOLDEN_HASH, "a minute later the world's hash is the golden one")
 	note("rare zone: %d different sites in %d seeds" % [sites.size(), SEEDS])
 
