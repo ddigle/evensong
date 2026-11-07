@@ -68,6 +68,10 @@ const M8_MONEY: Array[StringName] = [&"money"]
 ## the drink path). Written out here.
 const M11_HIDES: Dictionary[StringName, String] = {&"hide_fine": "item_leather_a_v02.png", &"hide_worn": "item_leather_c_v03.png"}
 const M11_FOOD: Array[StringName] = [&"meat"]
+## M11b (appended after them): the snare (a consumable the capture spends), the rare material, the rare armour, their kinds and stacks; icons
+## drawn in code. Written out here.
+const M11B: Dictionary[StringName, Array] = {&"snare": [ItemDB.Kind.CONSUMABLE, 20], &"rare_essence": [ItemDB.Kind.MATERIAL, 99],
+	&"armor_rare": [ItemDB.Kind.ARMOR, 1]}
 
 
 func run() -> Array[String]:
@@ -89,17 +93,19 @@ func _check_table() -> void:
 	var m7: int = M7_MATERIALS.size() + M7_PLACEABLES.size() + M7_WEAPONS.size() + M7_ARMOR.size()
 	var m7b: int = M7B_TOOLS.size() + M7B_PIECES.size()
 	var m8: int = M8_MONEY.size()
-	var m11: int = M11_HIDES.size() + M11_FOOD.size()
+	var m11: int = M11_HIDES.size() + M11_FOOD.size() + M11B.size()
 	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size() + SEEDS.size()
 		+ CONSUMABLES.size() + m7 + m7b + m8 + m11,
-		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b) + money (M8a)")
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b) + money (M8a) + 3 (M11a) + 3 (M11b)")
 	var before_m7: int = ids.size() - m7 - m7b - m8 - m11
 	check_eq(ItemDB.index_of(&"armor_t1"), 47, "M7b: the M7a items keep their wire indices")
 	check_eq(ItemDB.ids().slice(48, 53), [&"axe", &"stone_wall", &"door", &"stone_floor", &"lantern"] as Array[StringName],
 		"M7b: the axe and the build pieces appended at the end")
 	check_eq(ItemDB.ids().slice(53, 54), M8_MONEY, "M8a: money appended after them (every earlier wire index unchanged)")
-	check_eq(ItemDB.ids().slice(54), [&"hide_fine", &"hide_worn", &"meat"] as Array[StringName],
+	check_eq(ItemDB.ids().slice(54, 57), [&"hide_fine", &"hide_worn", &"meat"] as Array[StringName],
 		"M11a: the hides and the meat appended after it (every earlier wire index unchanged)")
+	check_eq(ItemDB.ids().slice(57), [&"snare", &"rare_essence", &"armor_rare"] as Array[StringName],
+		"M11b: the snare, the material and the armour appended after them (every earlier wire index unchanged)")
 	check_eq(ItemDB.ids().slice(before_m7 - 4, before_m7 - 1), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
 		"M5a: the seeds appended at the end (the wire's item indices of the others unchanged)")
 	check_eq(ItemDB.ids().slice(before_m7 - 1, before_m7), [&"holy_water"] as Array[StringName], "M5b: holy water appended after them")
@@ -157,6 +163,12 @@ func _check_table() -> void:
 			check_eq(def.icon_path, ItemDB.ART_DIR + M11_HIDES[id], "M11a: %s icon file" % id)
 			check(not def.graded and def.action == -1, "M11a: %s has no grade and no action" % id)
 			check_eq(def.stack_max, Config.STACK_MATERIAL, "M11a: %s stack size" % id)
+			continue
+		if M11B.has(id):
+			check_eq(def.kind, M11B[id][0], "M11b: %s kind" % id)
+			check_eq(def.stack_max, M11B[id][1], "M11b: %s stack size" % id)
+			check(not def.graded and def.action == -1, "M11b: %s no grade, no tool action (the click is its own)" % id)
+			check_eq(String(def.icon_code), String(id), "M11b: %s icon drawn in code" % id)
 			continue
 		if M11_FOOD.has(id):
 			check_eq(def.kind, ItemDB.Kind.FOOD, "M11a: %s is food" % id)
@@ -231,8 +243,8 @@ func _check_table() -> void:
 		kinds.get(ItemDB.Kind.PLACEABLE, 0), kinds.get(ItemDB.Kind.POTION, 0), kinds.get(ItemDB.Kind.SEED, 0),
 		kinds.get(ItemDB.Kind.CONSUMABLE, 0), kinds.get(ItemDB.Kind.ARMOR, 0), kinds.get(ItemDB.Kind.BUILD, 0),
 		kinds.get(ItemDB.Kind.MONEY, 0), kinds.get(ItemDB.Kind.FOOD, 0)],
-		[13, 9, 15, 6, 3, 3, 1, 1, 4, 1, 1],
-		"items per kind (tool (M4a: 7, M7a: + 5 tier-1, M7b: + axe), material (M7a: + wood, ingots), gatherable, placeable (M6a: + table, M7a: + 3 stations, chest), potion (M6a), seed (M5a), consumable (M5b), armour (M7a), build (M7b), money (M8a))")
+		[13, 10, 15, 6, 3, 3, 2, 2, 4, 1, 1],
+		"items per kind (tool (M4a: 7, M7a: + 5 tier-1, M7b: + axe), material (M7a: + wood, ingots), gatherable, placeable (M6a: + table, M7a: + 3 stations, chest), potion (M6a), seed (M5a), consumable (M5b, M11b: + the snare), armour (M7a, M11b: + the rare one), build (M7b), money (M8a), food (M11a))")
 	# Every action with a hand tool has exactly one tool; throw has none (README). M4a: magic has the
 	# cleric's holy light.
 	var actions: Array[int] = []

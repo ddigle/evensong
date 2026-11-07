@@ -33,6 +33,7 @@ extends CanvasLayer
 ## M10-fix (PLACEHOLDER drawn in code): the nine lamps of the altar as a 3 x 3 grid at the top centre above the prompt, while a
 ## prayer's lamps show and the local player is at the altar (Main: show_prayer_lamps): participants south of the altar cover its
 ## bottom lamp row, so everyone there reads the lamps here too.
+## M11b: the collection panel (`collection`, ui/collection_panel.gd) that Main opens with K.
 
 signal armor_clicked
 
@@ -139,6 +140,8 @@ var crafting: CraftingPanel
 var chest: ChestPanel
 ## M8a: the shop panel (ui/shop_panel.gd).
 var shop: ShopPanel
+## M11b: the collection panel (ui/collection_panel.gd).
+var collection: CollectionPanel
 ## M10a: the prayer's prompt for the local player (Main sets it every tick): the direction its open turn wants (Prayer.Dir, -1 =
 ## none) and the window's ticks left.
 var prayer_dir: int = -1
@@ -163,6 +166,8 @@ func _init() -> void:
 	add_child(chest)
 	shop = ShopPanel.new()
 	add_child(shop)
+	collection = CollectionPanel.new()
+	add_child(collection)
 
 
 func _ready() -> void:

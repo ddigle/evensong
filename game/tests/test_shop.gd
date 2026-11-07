@@ -8,7 +8,8 @@ extends "res://tests/base_test.gd"
 ## clock (deterministic, not the wall clock), every buy path (not enough money, sold out, a full inventory, the last money spent,
 ## money from several stacks, the slot the price frees), every sell path (one, a whole stack, a partial stack, not bought, worn
 ## and broken gear, a full purse), and money as an item (the death bag takes half of every money stack, the chest, a drop, the
-## inventory's wire).
+## inventory's wire). M11b: the new recipes, an input of several items counting as its cheapest one, the snare and the rare armour neither sold
+## nor bought, the rare material bought.
 
 ## Written out here on purpose: the ● R11 대체 수단 column's entries whose item exists in the slice, in the panel's order
 ## (potions: 약초사 "상점 포션", 성직자 "상점 치유 포션"; 팔라딘 "상점의 성수"; 기술자 "기본 키트 (횃불 …)"; 광부 "상점의 저급 광석";
@@ -16,11 +17,13 @@ extends "res://tests/base_test.gd"
 const SOLD: Array[StringName] = [&"potion_healing", &"potion_buff", &"holy_water", &"torch", &"ore_copper", &"sword_t1",
 	&"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1", &"hide_worn", &"meat"]
 const GEAR: Array[StringName] = [&"sword_t1", &"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1"]
+## M11b: repairs beyond the gear he sells.
+const RARE_REPAIRS: int = 1
 ## Never bought (written out): money, the basic tools, seeds, placeables, build pieces, holy water, the debug-only items.
 const NOT_BOUGHT: Array[StringName] = [&"money", &"pickaxe", &"hoe", &"sickle", &"watering_can", &"sword", &"bow",
 	&"holy_light", &"axe", &"seed_healing", &"seed_buff", &"seed_poison", &"torch", &"alchemy_table", &"workbench", &"anvil",
 	&"relic_bench", &"storage_chest", &"stone_wall", &"door", &"stone_floor", &"lantern", &"holy_water", &"stone_block",
-	&"herb_clump"]
+	&"herb_clump", &"snare", &"armor_rare"]
 const BIG: int = 1 << 40
 
 
@@ -48,6 +51,23 @@ static func index_of(item: StringName) -> int:
 		if all[i].item == item:
 			return i
 	return -1
+
+
+## M11b: the least what will do for input `ing` fetches (the player sells the rest and keeps the cheapest in the recipe: the loop's best case).
+static func least_fetch(ing: Crafting.Ingredient) -> int:
+	var least: int = BIG
+	for id: StringName in ing.items():
+		least = mini(least, Shop.pays_for(id))
+	return least
+
+
+## M11b: the least input `ing` costs with money alone, -1 when money cannot get any of it.
+static func least_cost(ing: Crafting.Ingredient, cost: Dictionary[StringName, float]) -> float:
+	var least: float = -1.0
+	for id: StringName in ing.items():
+		if cost.has(id) and (least < 0.0 or cost[id] < least):
+			least = cost[id]
+	return least
 
 
 ## What everything `inv` holds fetches at the merchant (money counts as itself; the armour slot is not sold).
@@ -124,7 +144,7 @@ func _check_no_profit() -> void:
 	for r: Crafting.Recipe in Crafting.recipes():
 		var inputs: int = 0
 		for ing: Crafting.Ingredient in r.inputs:
-			inputs += ing.count * Shop.pays_for(ing.item)
+			inputs += ing.count * least_fetch(ing)
 		if r.is_repair():
 			repairs += 1
 			check(Shop.pays_for(r.repair) <= inputs, "%s: a repair adds at most %d, its material fetches %d" % [r.id,
@@ -134,7 +154,7 @@ func _check_no_profit() -> void:
 				r.out_count, r.output, r.out_count * Shop.pays_for(r.output), inputs])
 		walked += 1
 	check_eq(walked, Crafting.recipe_count(), "every recipe walked (%d, %d repairs)" % [walked, repairs])
-	check(repairs == GEAR.size(), "every repair walked")
+	check(repairs == GEAR.size() + RARE_REPAIRS, "every repair walked")
 	# (b): the shop-only cost, relaxed over the recipes until it holds still.
 	var cost: Dictionary[StringName, float] = {}
 	for o: Shop.Offer in Shop.offers():
@@ -150,10 +170,11 @@ func _check_no_profit() -> void:
 			var total: float = 0.0
 			var ok: bool = true
 			for ing2: Crafting.Ingredient in r2.inputs:
-				if not cost.has(ing2.item):
+				var each: float = least_cost(ing2, cost)
+				if each < 0.0:
 					ok = false
 					break
-				total += ing2.count * cost[ing2.item]
+				total += ing2.count * each
 			if ok and (not cost.has(r2.output) or total / r2.out_count < cost[r2.output] - 0.0001):
 				cost[r2.output] = total / r2.out_count
 				changed = true
@@ -163,6 +184,13 @@ func _check_no_profit() -> void:
 			Shop.pays_for(item)])
 	check(cost.has(&"ingot_copper") and cost[&"ingot_copper"] == float(Shop.price_of(&"ore_copper")),
 		"the one chain money alone can craft: the shop's copper ore smelted (%s)" % str(cost.keys()))
+	# M11b: what the collection's recipes need cannot be had with money: the rare armour never (its material comes from a capture), the snare
+	# never either (the merchant sells a worn hide but no wood).
+	check(not cost.has(&"armor_rare"), "the rare armour is out of money's reach")
+	check(not cost.has(Capture.SNARE), "so is the snare (he sells no wood)")
+	check(Shop.pays_for(Config.RARE_MATERIAL) > 0, "he buys the rare material")
+	check_eq(Shop.price_of(Config.RARE_MATERIAL), -1, "and never sells it")
+	check_eq(Shop.price_of(&"hide_fine"), -1, "● nor the whole hide: the archer's")
 	note("no-profit: %d recipes (%d repairs) walked, %d items reachable with money alone" % [walked, repairs, cost.size()])
 
 

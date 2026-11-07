@@ -26,6 +26,10 @@ const GOLDEN_PRAYERS: String = "d,w,w,s,d,d,a,d,w,s,w,w,d,a,s,s,d,a,w,w,s,s,a,w,
 var _nodes: Array[Node] = []
 
 
+## M11b: the world's rare creatures, one of each kind, in its zone.
+const RARE_KINDS: int = 3
+
+
 func run() -> Array[String]:
 	_check_table()
 	_check_maps()
@@ -143,9 +147,9 @@ func _check_table() -> void:
 		if prey.has(k):
 			top_prey = maxi(top_prey, c.hp_max())
 			alert_prey = maxf(alert_prey, c.num_f("alert_px"))
-			check(Creatures.spawns_now(k), "%s spawns in M11a" % k)
+			check(not Creatures.is_rare(k), "%s is prey" % k)
 		else:
-			check(not Creatures.spawns_now(k), "%s waits for the rare zone (M11b)" % k)
+			check(Creatures.is_rare(k), "%s lives in the rare zone (M11b: tests/test_rare_zone.gd)" % k)
 	for k2: StringName in rare:
 		var c2: CreatureSim = CreatureSim.new()
 		c2.kind = k2
@@ -215,7 +219,7 @@ func _check_spawn_rules() -> void:
 		var d: WorldData = SurfaceGen.generate(s + 1)
 		var hash_before: String = d.content_hash()
 		var h: Creatures = herd_on(d, s + 1, true)
-		check_eq(h.alive_count(), want, "seed %d: every prey kind at its cap at the start" % (s + 1))
+		check_eq(h.alive_count(&"hare") + h.alive_count(&"deer"), want, "seed %d: every prey kind at its cap at the start" % (s + 1))
 		check_eq(h.alive_count(&"hare"), Creatures.cap_of(&"hare"), "seed %d: hares" % (s + 1))
 		check_eq(h.alive_count(&"deer"), Creatures.cap_of(&"deer"), "seed %d: deer" % (s + 1))
 		check_eq(d.content_hash(), hash_before, "seed %d: spawning edits no world" % (s + 1))
@@ -235,7 +239,7 @@ func _check_spawn_rules() -> void:
 			if not ok:
 				bad += 1
 				fail("seed %d: %s stands where it may not" % [s + 1, c.describe()])
-			check(not c.rare(), "seed %d: no rare kind spawns in M11a" % (s + 1))
+			check(not c.rare() or (d.rare_zone != null and d.rare_zone.holds(c.pos)), "seed %d: a rare kind only in the rare zone" % (s + 1))
 	check_eq(bad, 0, "24 seeds: every creature on clean grass away from the light, corruption, walls and the edge")
 	# Never in the dungeon.
 	var dun: WorldData = DungeonGen.generate(1)
@@ -319,7 +323,7 @@ func _check_caps_and_respawn() -> void:
 	check_eq(h.waiting.size(), 1, "its place waits")
 	check_eq(h.clock, 0, "no step, no game time: the herd counts its own steps, never the wall clock")
 	steps(h, no_players(), Config.CREATURE_CORPSE_TICKS)
-	check_eq(h.list.size(), Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer") - 1, "the corpse is gone after its time")
+	check_eq(h.list.size(), Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer") + RARE_KINDS - 1, "the corpse is gone after its time")
 	steps(h, no_players(), respawn - Config.CREATURE_CORPSE_TICKS - 1)
 	check_eq(h.alive_count(&"hare"), cap - 1, "one tick before its time: still none")
 	steps(h, no_players(), 1)
@@ -338,7 +342,7 @@ func _check_caps_and_respawn() -> void:
 	var box: WorldData = open_world(Vector2i(24, 24))
 	box.layers[WorldData.Layer.FLOOR].fill(Terrain.GRASS)
 	var hb: Creatures = herd_on(box, 1, true)
-	check_eq(hb.alive_count(), Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer"), "a small open map fills too")
+	check_eq(hb.alive_count(&"hare") + hb.alive_count(&"deer"), Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer"), "a small open map fills too")
 	var everywhere: Player = player(box, "paladin", Vector2(190, 190))
 	var c1: CreatureSim = hb.list[0]
 	var k1: StringName = c1.kind

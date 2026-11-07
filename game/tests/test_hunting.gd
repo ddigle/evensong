@@ -163,7 +163,7 @@ func _check_items() -> void:
 	check_eq(Potions.effect_of(&"meat"), -1, "no potion effect: it cannot splash")
 	# Appended at the end (the wire sends items by index).
 	var ids: Array[StringName] = ItemDB.ids()
-	check_eq(ids.slice(ids.size() - 3), [&"hide_fine", &"hide_worn", &"meat"] as Array[StringName], "the new items are at the table's end")
+	check_eq(ids.slice(54, 57), [&"hide_fine", &"hide_worn", &"meat"] as Array[StringName], "the new items come after money")
 	check(ItemDB.index_of(ItemDB.MONEY) < ItemDB.index_of(&"hide_fine"), "after what was there")
 
 
@@ -243,7 +243,7 @@ func _check_walls() -> void:
 	var a: Arena = arena_for(d)
 	var y: float = 12.8 * Config.TILE
 	var p: Player = player(d, "paladin", Vector2(14 * Config.TILE - 6, y))
-	var c: CreatureSim = held(a, &"silver_stag", Vector2(15 * Config.TILE + 3, y))
+	var c: CreatureSim = held(a, &"deer", Vector2(15 * Config.TILE + 3, y))
 	check(p.sim_position.distance_to(c.pos) <= Combat.attack_for(&"sword").reach, "in the sword's reach")
 	a.player_attack(p, &"sword", Combat.aim_code(Vector2.RIGHT), [p] as Array[Player])
 	check_eq(c.hp, c.hp_max(), "a swing does not reach through a wall")
@@ -304,7 +304,7 @@ func _check_skills() -> void:
 		var p: Player = player(d, class_id, Vector2(200, 200))
 		var party: Array[Player] = [p]
 		wire(p, a, party)
-		var c: CreatureSim = held(a, &"silver_stag", p.sim_position + offset)
+		var c: CreatureSim = held(a, &"deer", p.sim_position + offset)
 		if not weapon.is_empty():
 			hold(p, weapon)
 		p.skills.resource = Skills.resource_cap(class_id)
@@ -326,7 +326,7 @@ func _check_skills() -> void:
 	var pal: Player = player(d2, "paladin", Vector2(200, 200))
 	var party2: Array[Player] = [pal]
 	wire(pal, a2, party2)
-	var c2: CreatureSim = held(a2, &"silver_stag", Vector2(218, 200))
+	var c2: CreatureSim = held(a2, &"deer", Vector2(218, 200))
 	hold(pal, &"sword")
 	press(pal, Skills.Slot.WEAPON, Creatures.aim_point(c2))
 	ticks(pal, Skills.impact_tick(Skills.CRUSHING_BLOW))
@@ -336,7 +336,7 @@ func _check_skills() -> void:
 	var her: Player = player(d3, "herbalist", Vector2(200, 200))
 	var party3: Array[Player] = [her]
 	wire(her, a3, party3)
-	var c3: CreatureSim = held(a3, &"silver_stag", Vector2(218, 200))
+	var c3: CreatureSim = held(a3, &"deer", Vector2(218, 200))
 	hold(her, &"sickle")
 	press(her, Skills.Slot.WEAPON, Creatures.aim_point(c3))
 	ticks(her, Skills.impact_tick(Skills.SWEEP))
@@ -346,7 +346,7 @@ func _check_skills() -> void:
 	var min4: Player = player(d4, "miner", Vector2(200, 200))
 	var party4: Array[Player] = [min4]
 	wire(min4, a4, party4)
-	var c4: CreatureSim = held(a4, &"silver_stag", Vector2(224, 200))
+	var c4: CreatureSim = held(a4, &"deer", Vector2(224, 200))
 	press(min4, Skills.Slot.IDENTITY, c4.pos)
 	ticks(min4, Skills.impact_tick(Skills.GROUND_SLAM))
 	check_eq(c4.pos.x, 224.0 + Skills.num_f(Skills.GROUND_SLAM, "push_px"), "the slam pushes a creature")
@@ -365,8 +365,8 @@ func _check_piercing() -> void:
 	var p: Player = player(d, "archer", Vector2(200, 200))
 	var party: Array[Player] = [p]
 	var dmg: int = 16
-	var c1: CreatureSim = held(a, &"silver_stag", Vector2(240, 200))
-	var c2: CreatureSim = held(a, &"silver_stag", Vector2(280, 200))
+	var c1: CreatureSim = held(a, &"deer", Vector2(240, 200))
+	var c2: CreatureSim = held(a, &"deer", Vector2(280, 200))
 	var h: HereticSim = a.spawn_heretic(Vector2(260, 200))
 	var s: Arena.Shot = a.skill_shot(p, Skills.PIERCING_ARROW, Combat.aim_code(Vector2(80, 0) + Vector2(0, 2)), dmg, 240.0, 260.0, true)
 	for t: int in 60:
@@ -411,7 +411,7 @@ func _check_zeal() -> void:
 	var a: Arena = arena_for(d)
 	var p: Player = player(d, "paladin", Vector2(200, 200))
 	var party: Array[Player] = [p]
-	var c: CreatureSim = held(a, &"silver_stag", Vector2(218, 200))
+	var c: CreatureSim = held(a, &"deer", Vector2(218, 200))
 	p.skills.add_zeal(25, 600, true)
 	var base: int = Combat.attack_for(&"sword").damage
 	var want: int = Prayer.zeal_damage(base, p)
@@ -420,7 +420,7 @@ func _check_zeal() -> void:
 	check_eq(c.hp_max() - c.hp, want, "a swing: zeal on a creature")
 	var r: Player = player(d, "archer", Vector2(200, 240))
 	r.skills.add_zeal(25, 600, true)
-	var c2: CreatureSim = held(a, &"silver_stag", Vector2(240, 240))
+	var c2: CreatureSim = held(a, &"deer", Vector2(240, 240))
 	a.player_attack(r, &"bow", aim_of(r, c2), [r] as Array[Player])
 	for t: int in 30:
 		a.step([r] as Array[Player])
@@ -428,7 +428,7 @@ func _check_zeal() -> void:
 	var m: Player = player(d, "miner", Vector2(400, 240))
 	m.skills.add_zeal(25, 600, true)
 	wire(m, a, [m] as Array[Player])
-	var c3: CreatureSim = held(a, &"silver_stag", Vector2(424, 240))
+	var c3: CreatureSim = held(a, &"deer", Vector2(424, 240))
 	press(m, Skills.Slot.IDENTITY, c3.pos)
 	ticks(m, Skills.impact_tick(Skills.GROUND_SLAM))
 	check_eq(c3.hp_max() - c3.hp, Prayer.zeal_damage(Skills.num_i(Skills.GROUND_SLAM, "damage"), m), "a skill: zeal on a creature")
@@ -733,7 +733,10 @@ func _check_main() -> void:
 	var herd: Creatures = main.arenas[Config.MAP_SURFACE].herd
 	check(herd != null, "offline: the surface arena has a herd")
 	check_eq(main.arenas[Config.MAP_DUNGEON].herd, null, "the dungeon's has none")
-	check_eq(herd.alive_count(), Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer"), "at their caps")
+	var caps: int = 0
+	for kind: StringName in Config.CREATURES:
+		caps += Creatures.cap_of(kind)
+	check_eq(herd.alive_count(), caps, "at their caps (M11b: the rare kinds in their zone)")
 	check_eq(herd.data, main.world.data, "on the surface's data")
 	# The herd's clock: every tick, with the local player on the surface or below.
 	var was: int = herd.clock
@@ -779,7 +782,7 @@ func _check_main() -> void:
 	q.inventory.select(s)
 	var st: ItemStack = q.inventory.stack_at(s)
 	var dur: int = st.durability
-	var deer: CreatureSim = herd.spawn(&"silver_stag", main.world.data.altar_center_px() + Vector2(0.0, Config.safe_radius_px() + 40.0))
+	var deer: CreatureSim = herd.spawn(&"deer", main.world.data.altar_center_px() + Vector2(0.0, Config.safe_radius_px() + 40.0))
 	deer.idle_ticks = 100000
 	q.teleport(deer.pos + Vector2(0.0, -18.0))
 	var hp: int = deer.hp

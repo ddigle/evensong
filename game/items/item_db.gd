@@ -37,6 +37,8 @@ extends RefCounted
 ## (items/shop.gd). "Use" does nothing with it. Appended at the end of the table.
 ## M11a: FOOD = eaten with "use" through the M6 drink path (items/potions.gd: a click, Config.DRINK_ANIM, it works on the effect
 ## frame); it is no potion (nobody throws it, it does not splash). The hides are materials.
+## M11b: the snare (CONSUMABLE, thrown at a rare creature with "use": items/capture.gd), the rare material (MATERIAL) and the rare armour
+## (ARMOR), appended at the end of the table, their icons drawn in code (PLACEHOLDERS).
 enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD, MONEY, FOOD }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
@@ -362,6 +364,19 @@ static func _build() -> void:
 	meat.icon_code = &"meat"
 	meat.effect = Potions.Effect.HEAL
 	_add(meat)
+	# M11b (appended): the archer's snare (○ gameplay-design §3.4 "올가미"; ○ 덫 is not built), the rare material a capture gives (● game-concept
+	# §4; the placeholder name 희귀 정수) and the rare armour it is required for (Config.ARMOR_DEFENCE, GEAR_DURABILITY; ● R21 no new looks).
+	var snare: ItemDef = ItemDef.new(Capture.SNARE, Kind.CONSUMABLE, Config.STACK_SNARE)
+	snare.icon_code = Capture.SNARE
+	_add(snare)
+	var essence: ItemDef = ItemDef.new(Config.RARE_MATERIAL, Kind.MATERIAL, Config.STACK_MATERIAL)
+	essence.icon_code = Config.RARE_MATERIAL
+	_add(essence)
+	var rare_armor: ItemDef = ItemDef.new(&"armor_rare", Kind.ARMOR, Config.STACK_TOOL)
+	rare_armor.icon_code = &"armor_rare"
+	rare_armor.tier = 2
+	rare_armor.durability = Config.GEAR_DURABILITY.get(&"armor_rare", 0)
+	_add(rare_armor)
 
 
 static func _tool(id: StringName, action: int) -> void:

@@ -104,6 +104,12 @@ var chests: Dictionary[Vector2i, Chest] = {}
 ## the stock (net/world_snapshot.gd) and a shop stock edit sets one offer's (net/edit_log.gd), so a session's clients hold the
 ## host's stock.
 var shop: Shop = null
+## M11b: the world's collection (items/collection.gd): one per world, the same object on the surface's and the dungeon's data (offline Main
+## puts it there; a generated map and a session until M11c have none). Not in the content hash or the snapshot yet (M11c).
+var collection: Collection = null
+## M11b: the surface's rare zone (world/rare_zone.gd; the herd places it when the world starts, null on any other map or a map with no
+## site). No tile changes: not in the content hash, so the generated worlds hash as before.
+var rare_zone: RareZone = null
 
 
 ## M7a: one storage chest's slots (Config.CHEST_SLOTS; null = empty). Stacks keep their durability.

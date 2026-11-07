@@ -81,7 +81,7 @@ const SHARD: Color = Color8(0xef, 0xe3, 0xc6)
 const BURST_FRAMES: int = 3
 ## M9b rows (by Arena.BurstKind): the oath ivory with a gold corner, the holy burst gold with an ivory corner, the arrow rain's
 ## landing buff amber on dark wood, the rocks iron on ash black, the crushing blow's arc gold on wood, the heavy strike's copper
-## light on copper dark, the sweep's iron light on iron.
+## light on copper dark, the sweep's iron light on iron. M11b: a snare's catch ivory with a gold corner on a ring of its own size.
 const BURST_COLOURS: Array[Array] = [
 	[Color8(0xf4, 0xc9, 0x5d), Color8(0x9c, 0x6a, 0x1f)],
 	[Color8(0xc0, 0x6a, 0x2e), Color8(0x8c, 0x4a, 0x22)],
@@ -93,6 +93,7 @@ const BURST_COLOURS: Array[Array] = [
 	[Color8(0xf4, 0xc9, 0x5d), Color8(0x9c, 0x6a, 0x1f)],
 	[Color8(0xdf, 0x90, 0x3f), Color8(0x8c, 0x4a, 0x22)],
 	[Color8(0xd2, 0xcb, 0xb8), Color8(0xa3, 0x9d, 0x92)],
+	[Color8(0xdc, 0xc4, 0x9a), Color8(0xf4, 0xc9, 0x5d)],
 ]
 const HEAL_BURST_LIFT_PX: int = 14
 const BURST_DOT_SPACING_PX: float = 6.0

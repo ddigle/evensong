@@ -640,6 +640,7 @@ const ARMOR_MIN_DAMAGE: int = 1
 ## everyone starts with, M2-M4, have none, so nobody is ever left without a basic attack or a pickaxe).
 const GEAR_DURABILITY: Dictionary[StringName, int] = {
 	&"sword_t1": 120, &"bow_t1": 120, &"holy_light_t1": 120, &"pickaxe_t1": 120, &"sickle_t1": 120, &"armor_t1": 100,
+	&"armor_rare": 140,
 }
 ## PROVISIONAL (not in docs): use wear. A weapon loses GEAR_WEAR_PER_ATTACK on every attack it lands on its hit frame (a
 ## swing or a shot let go, hit or miss; not a mining or harvest swing of the tier-1 pickaxe / sickle, whose mining power is
@@ -851,7 +852,7 @@ const SHOP_BUYS: Dictionary[StringName, int] = {
 	&"log": 2, &"planks": 1, &"ore_copper": 3, &"ore_iron": 4, &"ingot_copper": 3, &"ingot_iron": 4,
 	&"potion_healing": 4, &"potion_buff": 4, &"potion_poison": 4,
 	&"sword_t1": 8, &"bow_t1": 6, &"holy_light_t1": 6, &"pickaxe_t1": 8, &"sickle_t1": 6, &"armor_t1": 8,
-	&"hide_worn": 3, &"hide_fine": 7, &"meat": 2,
+	&"hide_worn": 3, &"hide_fine": 7, &"meat": 2, &"rare_essence": 12,
 }
 ## PROVISIONAL (not in the docs): an item with durability sells for its SHOP_BUYS price times the share of its durability left,
 ## rounded down (a sword_t1 at 60 / 120 sells for 4); one that comes to 0 (broken, or nearly) is refused (Shop.WHY_WORN_OUT).
@@ -1158,7 +1159,7 @@ const PRAYER_JOIN_LAG_TICKS: int = 30
 # archer row, §3.4); the merchant's substitute is 일반 가죽·고기 (§3.0 R11). Every creature, name and number below is a placeholder.
 
 ## PROVISIONAL (○ / not in the docs: game-concept §12 "컬렉션은 아처 구역 1개, 항목 5~10개", §3 "희귀 생물 포획·사냥"; names are placeholders,
-## README "M11a 생물 표"): every creature kind, in spawn order. `rare`: lives only in the rare zone (M11b; only the prey spawn in M11a).
+## README "M11a 생물 표"): every creature kind, in spawn order. `rare`: lives only in the rare zone (M11b).
 ## `hp`; `walk_speed` (wandering, px/s, below Config.WALK_SPEED) and `flee_speed` (a burst above it, so a player on foot falls
 ## behind for `flee_ticks`, then the creature stops and rests `rest_ticks`, when walking catches it: the bow's reach is the natural
 ## way, melee the slower one, the ● common tier); `alert_px` (it bolts from a player up within this, feet to feet, wandering or
@@ -1173,13 +1174,13 @@ const CREATURES: Dictionary[StringName, Dictionary] = {
 	&"deer": {"rare": false, "hp": 30, "walk_speed": 24.0, "flee_speed": 96.0, "flee_ticks": 90, "rest_ticks": 120,
 		"alert_px": 64.0, "wander_px": 96.0, "cap": 4, "respawn_ticks": 5 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 24.0,
 		"drops_hunter": [[&"hide_fine", 2], [&"meat", 2]], "drops_other": [[&"hide_worn", 1], [&"meat", 1]]},
-	&"lamp_fox": {"rare": true, "hp": 40, "walk_speed": 30.0, "flee_speed": 124.0, "flee_ticks": 90, "rest_ticks": 100,
+	&"lamp_fox": {"rare": true, "hp": 46, "walk_speed": 30.0, "flee_speed": 124.0, "flee_ticks": 90, "rest_ticks": 100,
 		"alert_px": 96.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 10.0, "hit_height_px": 14.0,
 		"drops_hunter": [[&"hide_fine", 2], [&"meat", 1]], "drops_other": []},
 	&"silver_stag": {"rare": true, "hp": 56, "walk_speed": 26.0, "flee_speed": 112.0, "flee_ticks": 100, "rest_ticks": 100,
 		"alert_px": 88.0, "wander_px": 64.0, "cap": 1, "respawn_ticks": 10 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 25.0,
 		"drops_hunter": [[&"hide_fine", 3], [&"meat", 2]], "drops_other": []},
-	&"ash_owl": {"rare": true, "hp": 36, "walk_speed": 28.0, "flee_speed": 128.0, "flee_ticks": 80, "rest_ticks": 110,
+	&"ash_owl": {"rare": true, "hp": 44, "walk_speed": 28.0, "flee_speed": 128.0, "flee_ticks": 80, "rest_ticks": 110,
 		"alert_px": 104.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 8.0, "hit_height_px": 16.0,
 		"drops_hunter": [[&"hide_fine", 1], [&"meat", 1]], "drops_other": []},
 }
@@ -1201,6 +1202,78 @@ const CREATURE_SPAWN_MIN_PLAYER_PX: float = 160.0
 ## Config.DRINK_ANIM, DRINK_EFFECT_FRAME; refused at full HP like a healing potion, Config.DRINK_AT_FULL_HP). Well below the common
 ## healing potion (Config.POTION_HEAL_HP).
 const MEAT_HEAL_HP: int = 12
+
+# --- PROVISIONAL, M11b (the rare zone, capture, the collection, the rare material and gear; offline first) ------------------
+# Offline first (M11b, like M5a-M10a; a session has none of it until M11c). README "임시값" M11b. ● decided and followed as written: the
+# collection is the world's (월드마다 독립; game-concept §4), its units are 자원 / 생물 / 업적, its benefits go to a class / all classes / the
+# world, 희귀 생물 포획·사냥은 아처만, a rare collectible's material is required for a specific piece of gear. Every number, name and rule
+# below is ○ or not in the docs: gameplay-design §3.4 ○ (capture: the archer's snare, HP low enough, register), §3.5 ○ (first
+# acquire), game-concept §12 "항목 5~10개".
+
+## PROVISIONAL (game-concept §12 "컬렉션은 아처 구역 1개"; size and distance are not in the docs): the one rare zone, a disc on the surface
+## chosen from the world seed (RareZone.place): radius in tiles; its middle at least RARE_ZONE_MIN_ALTAR_TILES from the altar's;
+## RARE_ZONE_EDGE_TILES of map outside the disc; no corrupted tile in the disc's bounding square grown by RARE_ZONE_ASH_CLEARANCE_TILES; at
+## least RARE_ZONE_MIN_OPEN_PCT of its tiles grass a player can stand on. No tile changes: the zone is a place in the world's state
+## and a picture.
+const RARE_ZONE_RADIUS_TILES: int = 9
+const RARE_ZONE_MIN_ALTAR_TILES: int = 30
+const RARE_ZONE_EDGE_TILES: int = 2
+const RARE_ZONE_ASH_CLEARANCE_TILES: int = 3
+const RARE_ZONE_MIN_OPEN_PCT: int = 85
+## PROVISIONAL (○ gameplay-design §3.4 "희귀 생물의 HP를 일정 이하로 낮춘 뒤"; the number is not in the docs): capture is refused while the
+## creature's HP is above this percent of its full HP. The rare kinds' HP in CREATURES are such that a bow, a tier-1 bow, and both with
+## the archer's collection benefit can each land a creature inside it (tests/test_capture.gd; README "M11b 잡히는 HP").
+const CAPTURE_HP_PCT: int = 30
+## PROVISIONAL (○ §3.4 "포획 시도"; not in the docs): the snare reaches this far, feet to feet, with no tile that stops a shot between. A
+## click picks the live creature whose figure's middle is nearest the mouse within its hit box + CAPTURE_GRAB_PX. It plays
+## CAPTURE_ANIM (the throw action: no new body art) and lands on CAPTURE_IMPACT_FRAME; from the click to that frame the creature is
+## held. One snare is spent and CAPTURE_MATERIAL_COUNT of RARE_MATERIAL given on the impact frame: no dice.
+const CAPTURE_REACH_PX: float = 40.0
+const CAPTURE_GRAB_PX: float = 6.0
+const CAPTURE_ANIM: int = RigData.Anim.THROW
+const CAPTURE_IMPACT_FRAME: int = 3
+const CAPTURE_MATERIAL_COUNT: int = 1
+## PROVISIONAL (not in the docs; ● game-concept §4 "희귀 수집품에서 나오는 특정 재료 → 특정 장비 제작에 필수"): the rare material's item, and
+## the snare's stack size.
+const RARE_MATERIAL: StringName = &"rare_essence"
+const STACK_SNARE: int = 20
+## PROVISIONAL (game-concept §4 ● units 자원 / 생물 / 업적, §12 "항목 5~10개"; which entries is not in the docs; names are placeholders): the
+## collection, one row per entry in the panel's order: `id`, `unit` ("creature", "resource", "achievement"), `how` it is registered and
+## `what`: "hunt" = a kill of that prey kind, by anyone; "capture" = a capture of that rare kind; "item" = a player of the world held that
+## item for the first time; "kills" = `count` creatures of any kind killed, by anyone (a capture is no kill).
+const COLLECTION_ENTRIES: Array = [
+	{"id": &"hunt_hare", "unit": "creature", "how": "hunt", "what": &"hare", "count": 1},
+	{"id": &"hunt_deer", "unit": "creature", "how": "hunt", "what": &"deer", "count": 1},
+	{"id": &"take_lamp_fox", "unit": "creature", "how": "capture", "what": &"lamp_fox", "count": 1},
+	{"id": &"take_silver_stag", "unit": "creature", "how": "capture", "what": &"silver_stag", "count": 1},
+	{"id": &"take_ash_owl", "unit": "creature", "how": "capture", "what": &"ash_owl", "count": 1},
+	{"id": &"first_hide_fine", "unit": "resource", "how": "item", "what": &"hide_fine", "count": 1},
+	{"id": &"first_rare_essence", "unit": "resource", "how": "item", "what": &"rare_essence", "count": 1},
+	{"id": &"hunted_ten", "unit": "achievement", "how": "kills", "what": &"", "count": 10},
+]
+## PROVISIONAL (game-concept §4 ● scopes 특정 클래스 / 전체 클래스 / 월드; thresholds and effects are not in the docs): how many entries light each
+## of the three benefits. &"class": COLLECTION_CLASS's arrows (basic attacks and its skills) deal COLLECTION_ARROW_PCT percent more,
+## rounded to nearest, at least 1. &"all": +COLLECTION_DEFENCE armour defence for everyone, also with no armour on, where Gear.after_armor
+## applies defence. &"world": the merchant restocks every COLLECTION_RESTOCK_TICKS of game time, not SHOP_RESTOCK_TICKS (the clock already
+## running is kept, so one past the new time restocks on the next tick); Collection.world_benefit is what M12 can read.
+const COLLECTION_BENEFITS: Dictionary[StringName, int] = {&"class": 3, &"all": 5, &"world": 8}
+const COLLECTION_CLASS: String = "archer"
+const COLLECTION_ARROW_PCT: int = 10
+const COLLECTION_DEFENCE: int = 1
+const COLLECTION_RESTOCK_TICKS: int = 7 * 60 * 60
+## PROVISIONAL (○ gameplay-design §3.4 "아처 전용 도구(올가미·덫)"; ● game-concept §4 the rare material is required for specific gear; recipes are
+## not in the docs): rows like STATION_RECIPES + a fifth column, the classes that may craft it (empty = anyone), appended after
+## BUILD_RECIPES (a CRAFT index keeps its meaning). An input is [item, count] or [[item, item, ...], count] (any of those items, the first ones first). The
+## snare is the archer's at the basic workbench (the herbalist's poison recipe's rule); the rare armour anyone's at the anvil.
+const COLLECTION_RECIPES: Array = [
+	["workbench", &"snare", 2, [[[&"planks", &"log"], 1], [[&"hide_worn", &"hide_fine"], 1]], ["archer"]],
+	["anvil", &"armor_rare", 1, [[&"rare_essence", 3], [&"hide_fine", 2]], []],
+]
+## PROVISIONAL (○ §2.4 "방어력"; the numbers are not in the docs; ● game-concept §12 R21 no new looks): the armour pieces' defence by item
+## (Gear.defence); the rare armour's full durability is in GEAR_DURABILITY. Its repair material is apart from GEAR_REPAIR_MATERIAL so that
+## a CRAFT index keeps its meaning (appended after COLLECTION_RECIPES).
+const ARMOR_DEFENCE: Dictionary[StringName, int] = {&"armor_t1": ARMOR_T1_DEFENCE, &"armor_rare": 6}
+const GEAR_REPAIR_RARE: Dictionary[StringName, StringName] = {&"armor_rare": &"hide_fine"}
 
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
@@ -1436,6 +1509,17 @@ const CREATURE_SALT: int = 0xC2EA7
 const CREATURE_ARRIVE_PX: float = 1.5
 const CREATURE_DROP_SPREAD_PX: int = 8
 const CREATURE_TEST_RING_PX: float = 104.0
+## IMPL (M11b): random centres RareZone.place tries before it walks every tile (RARE_ZONE_SALT with the world seed: its own stream); a
+## rare creature keeps its feet box this far inside the zone when it is put down; a click of no use on a rare creature marks it this many
+## ticks; a held creature waits this many ticks past the snare's impact frame (the hold ends by itself when the throw is cut off);
+## the zone's boundary stones around its rim; a test's near creature stands this far from the player's feet.
+const RARE_ZONE_TRIES: int = 256
+const RARE_ZONE_SALT: int = 0x51A4E
+const RARE_SPAWN_INSET_PX: float = 16.0
+const CREATURE_REFUSED_SHOW_TICKS: int = 30
+const CAPTURE_HOLD_SLACK_TICKS: int = 2
+const RARE_ZONE_MARKERS: int = 16
+const CAPTURE_TEST_NEAR_PX: float = 28.0
 
 
 static func safe_radius_px() -> float:

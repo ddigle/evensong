@@ -95,6 +95,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_skills(r)  # M9a
 	_check_prayer(r)  # M10a
 	_check_hunt(r)  # M11a
+	_check_collection(r)  # M11b
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -293,7 +294,7 @@ static func _check_items(r: Report) -> void:
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
 	r.expect_eq(tools, 13, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons; M7b: + the axe)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand", "skill_2", "skill_3", "skill_signature"]:
+			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand", "skill_2", "skill_3", "skill_signature", "collection"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -837,7 +838,9 @@ static func _check_hunt(r: Report) -> void:
 	a.setup(data, Config.DEFAULT_SEED)
 	var b: Creatures = Creatures.new()
 	b.setup(data, Config.DEFAULT_SEED)
-	var want: int = Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer")
+	var want: int = 0
+	for kind: StringName in Config.CREATURES:
+		want += Creatures.cap_of(kind)  # M11b: the rare kinds too (the rare zone)
 	r.expect_eq(a.alive_count(), want, "creatures at the start")
 	var same: bool = a.list.size() == b.list.size()
 	for i: int in mini(a.list.size(), b.list.size()):
@@ -862,6 +865,45 @@ static func _check_hunt(r: Report) -> void:
 	archer.free()
 	miner.free()
 	r.fields.append("herd=%d/%d hunt=%d/%d" % [want, Config.CREATURES.size(), got[0], got[1]])
+
+
+## M11b: the generated surface has its rare zone with the three rare kinds in it, a snare takes a hurt one (one snare out, the material
+## in, the entry registered), and a world's collection starts empty. Field `rare_zone=<x>,<y>/<r> rare=<n> capture=<snares left>/<material>
+## collection=<n>/<total>`.
+static func _check_collection(r: Report) -> void:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	data.collection = Collection.new()
+	var herd: Creatures = Creatures.new()
+	herd.setup(data, Config.DEFAULT_SEED)
+	r.expect(data.rare_zone != null, "the surface has a rare zone")
+	if data.rare_zone == null:
+		return
+	r.expect_eq(data.collection.count(), 0, "a new world's collection is empty")
+	var rare: int = 0
+	for c: CreatureSim in herd.list:
+		if c.rare():
+			rare += 1
+			r.expect(data.rare_zone.holds(c.pos), "%s lives in the zone" % c.kind)
+	r.expect_eq(rare, 3, "the rare creatures")
+	var fox: CreatureSim = null
+	for c2: CreatureSim in herd.list:
+		if c2.kind == &"lamp_fox":
+			fox = c2
+	var archer: Player = Player.new()
+	archer.setup(data, Config.HUNTER_CLASS, fox.pos + Vector2(Config.CAPTURE_TEST_NEAR_PX, 0.0))
+	archer.inventory.add(Capture.SNARE, 2)
+	fox.hp = 1
+	r.expect_eq(Capture.refusal(archer, fox), "", "a hurt rare creature in reach may be snared")
+	var landed: Capture.Landed = Capture.land(archer, herd, fox.id)
+	r.expect(landed.ok(), "the snare takes it: %s" % landed.why)
+	r.expect(herd.by_id(fox.id) == null, "the creature is gone")
+	r.expect(data.collection.has(&"take_lamp_fox"), "its entry is registered")
+	var snares: int = archer.inventory.count_of(Capture.SNARE)
+	var material: int = archer.inventory.count_of(Config.RARE_MATERIAL)
+	r.expect(snares == 1 and material == Config.CAPTURE_MATERIAL_COUNT, "one snare out, the material in")
+	archer.free()
+	r.fields.append("rare_zone=%s rare=%d capture=%d/%d collection=%d/%d" % [data.rare_zone.describe(), rare, snares, material,
+		data.collection.count(), Collection.total()])
 
 
 static func _check_light(r: Report) -> void:

@@ -54,6 +54,10 @@ extends RefCounted
 ## in the damage and the swing already, so they count the same) by hit_creature; a stun or a slow lands on them where it lands on a
 ## heretic, the slam pushes them. The taunt, threat and a heretic's own rules never read them. Their clock is the herd's, not this
 ## step's (the map's players may be elsewhere: Main.step_creatures).
+##
+## M11b: ● "희귀 생물 포획·사냥은 아처만": a blow on a rare creature by anyone but the archer does nothing (creature_open, every path; it stops a shot
+## like any body), its refused mark shows. The archer's arrows take the collection's class benefit (Collection.arrow_damage, after the
+## tier-1 rule, before the zeal).
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -147,8 +151,8 @@ class Hit:
 ## M9a: what a skill shows for a moment where it worked (display only, CombatView): the taunt's ring around the paladin, the
 ## ground slam's ring around the miner, the heal's sparks over the healed ally. M9b: the oath's ring, the holy burst's ring, the
 ## arrow rain's and the rockfall's rings where they landed, and the melee weapon skills' arcs (CRUSH, HEAVY, SWEEP: `aim`,
-## `arc_deg`).
-enum BurstKind { TAUNT, SLAM, HEAL, OATH, HOLY, RAIN, ROCKS, CRUSH, HEAVY, SWEEP }
+## `arc_deg`). M11b: a snare's catch (CAPTURE), appended (the wire sends the kind's index).
+enum BurstKind { TAUNT, SLAM, HEAL, OATH, HOLY, RAIN, ROCKS, CRUSH, HEAVY, SWEEP, CAPTURE }
 
 
 class Burst:
@@ -1054,7 +1058,7 @@ func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
 						f.owner_id):
 				s.heretics += 1
 		for c: CreatureSim in hunted():  # M11a: the same poison, by the thrower (a death by it counts as his class's blow)
-			if c.alive() and in_splash(at, c.pos) \
+			if c.alive() and in_splash(at, c.pos) and creature_open(c, f.owner_id) \
 					and herd.poison(c, Prayer.zeal_hit(Potions.poison_damage(f.grade), f.zeal_pct), Potions.poison_ticks(f.grade),
 						f.owner_id):
 				count("splash_creatures")
@@ -1110,9 +1114,22 @@ func creature_at(point: Vector2) -> CreatureSim:
 	return null
 
 
+## M11b: whether a blow by the player with node instance id `by` may touch creature `c` (Creatures.shut_out: a rare one is the archer's
+## alone); when not, its refused mark shows.
+func creature_open(c: CreatureSim, by: int) -> bool:
+	if not Creatures.shut_out(c, by):
+		return true
+	herd.refuse(c, by)
+	count("creature_refused")
+	return false
+
+
 ## M11a: `amount` of damage on creature `c` by the player with node instance id `by` (Creatures.hit: the flash, the bolt, a death's
-## drops). No threat: a heretic's only (hit_heretic). Returns whether it died.
+## drops). No threat: a heretic's only (hit_heretic). Returns whether it died. M11b: nothing at all on a rare creature for anyone but the
+## archer (creature_open; a path with more to do than the damage asks first).
 func hit_creature(c: CreatureSim, amount: int, by: int = 0) -> bool:
+	if not creature_open(c, by):
+		return false
 	count("creature_hits")
 	return herd.hit(c, amount, by)
 
@@ -1135,6 +1152,8 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 	if a == null:
 		return edits
 	var dmg: int = a.damage if damage < 0 else damage  # M7a: offline Main passes a tier-1 weapon's (Gear.attack_damage)
+	if a.kind == Combat.Kind.ARROW:
+		dmg = Collection.arrow_damage(dmg, p)  # M11b: the archer's collection benefit
 	dmg = Prayer.zeal_damage(dmg, p)  # M10a: the prayer's zeal on every hit it lands (README "M10a 열정이 세는 피해")
 	var dir: Vector2 = Combat.aim_vector(aim)
 	count("player_attacks")
@@ -1251,6 +1270,8 @@ func slam(p: Player, radius: float, damage: int, push: float) -> int:
 	for c: CreatureSim in hunted():  # M11a
 		var to: Vector2 = c.pos - p.sim_position
 		if not c.alive() or to.length() > radius or not Combat.line_clear(data, Combat.body_point(p.sim_position), Combat.body_point(c.pos)):
+			continue
+		if not creature_open(c, p.get_instance_id()):
 			continue
 		hit_creature(c, damage, p.get_instance_id())
 		n += 1
@@ -1374,6 +1395,8 @@ func melee_skill(p: Player, aim: int, damage: int, reach: float, arc_deg: float,
 	for c: CreatureSim in hunted():  # M11a: its stun and slow too (Creatures.stun, slow; a dead one takes neither)
 		if not c.alive() or not Combat.melee_hits(data, p.sim_position, dir, c.pos, reach, arc_deg):
 			continue
+		if not creature_open(c, p.get_instance_id()):
+			continue
 		hit_creature(c, damage, p.get_instance_id())
 		n += 1
 		herd.stun(c, stun)
@@ -1419,7 +1442,7 @@ func area_hit(p: Player, at: Vector2, radius: float, damage: int, kind: int) -> 
 			hit_heretic(h, damage, p.get_instance_id())
 			n += 1
 	for c: CreatureSim in hunted():  # M11a
-		if creature_in_circle(at, radius, c):
+		if creature_in_circle(at, radius, c) and creature_open(c, p.get_instance_id()):
 			hit_creature(c, damage, p.get_instance_id())
 			n += 1
 	add_burst(kind, at, radius, 0, p.get_instance_id())
@@ -1473,7 +1496,7 @@ func _land_strike(s: Strike) -> void:
 			if h.alive():
 				stun_heretic(h, s.stun_ticks)
 	for c: CreatureSim in hunted():  # M11a
-		if creature_in_circle(s.pos, s.radius, c):
+		if creature_in_circle(s.pos, s.radius, c) and creature_open(c, s.owner_id):
 			hit_creature(c, s.damage, s.owner_id)
 			s.hits += 1
 			herd.stun(c, s.stun_ticks)

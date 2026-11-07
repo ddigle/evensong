@@ -14,8 +14,7 @@ extends RefCounted
 ##
 ## Spawning: at the start every prey kind up to its cap, and a dead one's place is taken Config row `respawn_ticks` of game time
 ## later (a Respawn waits; a try that finds no tile waits Config.CREATURE_SPAWN_RETRY_TICKS more). spawn_ok reads the live world,
-## so what players built or purified since counts at once. The rare kinds are in the table and the picture but do not spawn yet
-## (M11b's zone).
+## so what players built or purified since counts at once.
 ##
 ## Determinism: its own RandomNumberGenerator, seeded from the world seed and Config.CREATURE_SALT, and its own ids: heretic spawns,
 ## prayer directions, the generators and every id of the Arena stay as they were (no world edit but a kill's drops).
@@ -23,8 +22,13 @@ extends RefCounted
 ## Killing: the killing blow's class decides the drops (● gameplay-design §3.0 R11, §3.4: Config.HUNTER_CLASS gets `drops_hunter`,
 ## anyone else `drops_other`; no dice). They go out as ordinary drops (EditLog.WorldEdit.drop_put, `edits`: the caller applies them,
 ## like the other world rules). What happened goes into `kills` for the caller's log.
+##
+## M11b: the rare zone (world/rare_zone.gd, placed in setup, data.rare_zone): the rare kinds spawn only inside it and never leave it
+## (CreatureSim.bound, can_walk). ● "희귀 생물 포획·사냥은 아처만": a blow on a rare creature by anyone but the archer does nothing but show that it
+## did nothing (shut_out, refuse: Arena's every attack path asks first). A snare holds one (hold) and takes it (capture: no corpse, no
+## drops, its place waits like a death's). A kill and a capture go to the world's collection (items/collection.gd), when it has one.
 
-## What a kill did (for the log and tests).
+## What a kill did (for the log and tests). M11b: also a refused blow's kind and class (`refusals`).
 class Kill:
 	extends RefCounted
 	var kind: StringName = &""
@@ -60,6 +64,8 @@ var spawning: bool = true
 ## The world edits of kills since the caller last took them (step() hands them over), and what happened (the caller clears it).
 var edits: Array[EditLog.WorldEdit] = []
 var kills: Array[Kill] = []
+## M11b: the blows refused since the caller last looked (it clears them).
+var refusals: Array[Kill] = []
 ## Counters for logs and tests.
 var stats: Dictionary[String, int] = {}
 var _synced_altar: Rect2i = Rect2i()
@@ -77,8 +83,11 @@ func setup(p_data: WorldData, world_seed: int, p_spawning: bool = true) -> void:
 	waiting.clear()
 	edits.clear()
 	kills.clear()
+	refusals.clear()
 	next_id = 1
 	clock = 0
+	if data.map_id == Config.MAP_SURFACE and data.rare_zone == null:
+		data.rare_zone = RareZone.place(data, world_seed)  # M11b: also with spawning off (the picture shows it)
 	if not spawning:
 		return
 	for kind: StringName in Config.CREATURES:
@@ -88,10 +97,14 @@ func setup(p_data: WorldData, world_seed: int, p_spawning: bool = true) -> void:
 					_wait(kind, Config.CREATURE_SPAWN_RETRY_TICKS)
 
 
-## Whether kind `kind` spawns by itself (M11a: the prey; the rare ones wait for M11b's zone).
-static func spawns_now(kind: StringName) -> bool:
+## Whether kind `kind` spawns by itself here: the prey anywhere, the rare ones where the world has its zone (M11b).
+func spawns_now(kind: StringName) -> bool:
+	return not is_rare(kind) or data.rare_zone != null
+
+
+static func is_rare(kind: StringName) -> bool:
 	var rare: bool = Config.CREATURES[kind]["rare"]
-	return not rare
+	return rare
 
 
 func stat(key: String) -> int:
@@ -145,6 +158,8 @@ func _step_one(c: CreatureSim, players: Array[Player]) -> void:
 	c.walking = false
 	if c.flash_ticks > 0:
 		c.flash_ticks -= 1
+	if c.refused_ticks > 0:
+		c.refused_ticks -= 1
 	if not c.alive():
 		c.state_ticks += 1
 		return
@@ -156,6 +171,9 @@ func _step_one(c: CreatureSim, players: Array[Player]) -> void:
 		c.slow_ticks -= 1
 		if c.slow_ticks == 0:
 			c.slow_pct = 0
+	if c.hold_ticks > 0:
+		c.hold_ticks -= 1  # M11b: a snare holds it until its throw lands or runs out
+		return
 	if c.stun_ticks > 0:
 		c.stun_ticks -= 1
 		return
@@ -215,7 +233,7 @@ func _begin_wander(c: CreatureSim) -> void:
 	var a: float = rng.randf() * TAU
 	var r: float = sqrt(rng.randf()) * c.num_f("wander_px")
 	var spot: Vector2 = c.home + Vector2.from_angle(a) * r
-	if not Movement.can_stand(data, spot) or not can_walk(spot):
+	if not Movement.can_stand(data, spot) or not can_walk(spot, c):
 		_begin_idle(c)
 		return
 	c.target = spot
@@ -251,7 +269,7 @@ func _walk(c: CreatureSim, dir: Vector2, speed: float, turns: Array[int]) -> boo
 	for t: int in turns:
 		var way: Vector2i = STEPS[posmod(i + t, STEPS.size())]
 		var next: Vector2 = Movement.step(data, c.pos, way, Config.NET_TICK, c.speed_now(speed))
-		if next == c.pos or not can_walk(next):
+		if next == c.pos or not can_walk(next, c):
 			continue
 		c.pos = next
 		c.walking = true
@@ -261,14 +279,14 @@ func _walk(c: CreatureSim, dir: Vector2, speed: float, turns: Array[int]) -> boo
 
 
 ## The altar's new light lies on it: it walks straight out, by the walls' rule alone (every step inside the light is one can_walk
-## refuses).
+## refuses). M11b: one bound to the rare zone stays in it (the light may cover it: it stands where the zone ends).
 func _leave_light(c: CreatureSim) -> void:
 	var away: Vector2 = c.pos - safe.center
 	var i: int = dir_of(away if away.length_squared() > 0.0001 else Vector2.DOWN)
 	for t: int in FLEE_TURNS:
 		var way: Vector2i = STEPS[posmod(i + t, STEPS.size())]
 		var next: Vector2 = Movement.step(data, c.pos, way, Config.NET_TICK, c.num_f("flee_speed"))
-		if next != c.pos:
+		if next != c.pos and _stays_in_zone(next, c):
 			c.pos = next
 			c.walking = true
 			c.facing = Movement.facing_for(way, c.facing)
@@ -281,10 +299,15 @@ static func dir_of(v: Vector2) -> int:
 	return posmod(roundi(v.angle() / TAU * STEPS.size()), STEPS.size())
 
 
-## A creature's feet may be at `feet` as far as the world's zones go: its box wholly outside the light and on no corrupted tile.
-## (What blocks walking is Movement's.)
-func can_walk(feet: Vector2) -> bool:
-	if not Combat.box_outside_light(data, safe, feet):
+## M11b: creature `c`'s feet may be at `feet` as far as the rare zone goes: one that is not bound to it may be anywhere.
+func _stays_in_zone(feet: Vector2, c: CreatureSim) -> bool:
+	return c == null or not c.bound or data.rare_zone == null or data.rare_zone.holds(feet)
+
+
+## A creature's feet may be at `feet` as far as the world's zones go: its box wholly outside the light and on no corrupted tile. M11b:
+## creature `c`, bound to the rare zone, keeps its box inside it. (What blocks walking is Movement's.)
+func can_walk(feet: Vector2, c: CreatureSim = null) -> bool:
+	if not _stays_in_zone(feet, c) or not Combat.box_outside_light(data, safe, feet):
 		return false
 	for cell: Vector2i in Arena.cells_under(Movement.feet_box(feet)):
 		if data.get_value(WorldData.Layer.CORRUPTION, cell) != 0:
@@ -309,8 +332,8 @@ func _step_respawns(players: Array[Player]) -> void:
 		if r.due > clock:
 			still.append(r)
 			continue
-		if alive_count(r.kind) >= cap_of(r.kind):
-			continue  # a test put one down meanwhile: the place is taken
+		if alive_count(r.kind) >= cap_of(r.kind) or not spawns_now(r.kind):
+			continue  # a test put one down meanwhile: the place is taken (M11b: a rare kind with no zone to come back to)
 		if try_spawn(r.kind, players) == null:
 			r.due = clock + Config.CREATURE_SPAWN_RETRY_TICKS
 			still.append(r)
@@ -323,22 +346,37 @@ static func cap_of(kind: StringName) -> int:
 
 
 ## One spawn try for `kind`: below its cap, random tiles until one whose feet point (Arena.spawn_feet) passes spawn_ok. Returns the
-## creature or null.
+## creature or null. M11b: a rare kind's tiles are the rare zone's, and it stays there.
 func try_spawn(kind: StringName, players: Array[Player]) -> CreatureSim:
 	if alive_count(kind) >= cap_of(kind):
 		return null
+	var rare: bool = is_rare(kind)
+	if rare and data.rare_zone == null:
+		return null
 	for attempt: int in Config.CREATURE_SPAWN_TRIES:
-		var c: Vector2i = Vector2i(rng.randi_range(0, data.size.x - 1), rng.randi_range(0, data.size.y - 1))
+		var c: Vector2i = _rare_tile() if rare else Vector2i(rng.randi_range(0, data.size.x - 1), rng.randi_range(0, data.size.y - 1))
 		var feet: Vector2 = Arena.spawn_feet(c)
-		if spawn_ok(feet, players):
-			return spawn(kind, feet)
+		if spawn_ok(feet, players, rare):
+			var out: CreatureSim = spawn(kind, feet)
+			out.bound = rare
+			return out
 	count("spawn_misses")
 	return null
 
 
-## Whether a creature may be put down at `feet` now (the live world): the rows of Config "M11a".
-func spawn_ok(feet: Vector2, players: Array[Player]) -> bool:
+## M11b: a random tile of the rare zone's bounding square.
+func _rare_tile() -> Vector2i:
+	var z: RareZone = data.rare_zone
+	return Vector2i(rng.randi_range(z.center.x - z.radius, z.center.x + z.radius),
+		rng.randi_range(z.center.y - z.radius, z.center.y + z.radius))
+
+
+## Whether a creature may be put down at `feet` now (the live world): the rows of Config "M11a". M11b: `in_zone` (a rare kind) also
+## inside the rare zone, Config.RARE_SPAWN_INSET_PX from its rim.
+func spawn_ok(feet: Vector2, players: Array[Player], in_zone: bool = false) -> bool:
 	if data.map_id != Config.MAP_SURFACE:
+		return false
+	if in_zone and (data.rare_zone == null or not data.rare_zone.holds(feet, Config.RARE_SPAWN_INSET_PX)):
 		return false
 	var cell: Vector2i = Aim.feet_cell(feet)
 	var edge: int = Config.CREATURE_SPAWN_EDGE_TILES
@@ -397,6 +435,67 @@ func spawn(kind: StringName, feet: Vector2) -> CreatureSim:
 
 
 # --- what happens to it ----------------------------------------------------------------------------
+
+## M11b, ● game-concept §4 "희귀 생물 포획·사냥은 아처만": `c` is rare and the player with node instance id `by` is no archer (or nobody): a blow of
+## theirs does nothing to it.
+static func shut_out(c: CreatureSim, by: int) -> bool:
+	return c.rare() and class_of(by) != Config.HUNTER_CLASS
+
+
+## M11b: a blow by the player with node instance id `by` did nothing to `c`: its refused mark shows (no flash, no bolt), the log hears.
+func refuse(c: CreatureSim, by: int) -> void:
+	c.refused_ticks = Config.CREATURE_REFUSED_SHOW_TICKS
+	count("refused")
+	var k: Kill = Kill.new()
+	k.kind = c.kind
+	k.who = class_of(by)
+	k.at = Aim.feet_cell(c.pos)
+	refusals.append(k)
+
+
+## M11b: the creature with id `id` here, or null.
+func by_id(id: int) -> CreatureSim:
+	for c: CreatureSim in list:
+		if c.id == id:
+			return c
+	return null
+
+
+## M11b: a snare holds `c` for `ticks`, thrown from point `from` (Capture.begin).
+func hold(c: CreatureSim, ticks: int, from: Vector2) -> void:
+	if c.alive() and ticks > 0:
+		c.hold_ticks = ticks
+		c.held_from = from
+		c.walking = false
+		count("held")
+
+
+## M11b: a snare takes `c` (Capture.land checked it): it is gone at once with no corpse and no drops, its place waits for its
+## `respawn_ticks`, and the world's collection hears.
+func capture(c: CreatureSim) -> void:
+	_set_state(c, CreatureSim.State.DEAD)
+	c.walking = false
+	c.hold_ticks = 0
+	list.erase(c)
+	count("captured")
+	_wait(c.kind, c.num_i("respawn_ticks"))
+	var col: Collection = Collection.of(data)
+	if col != null:
+		col.note_capture(c.kind)
+
+
+## M11b, test flag: `c` stands out of breath (CreatureSim.State.REST), as after a burst.
+func rest(c: CreatureSim) -> void:
+	if c.alive():
+		_set_state(c, CreatureSim.State.REST)
+
+
+## M11b: `how_many` of `item` lie down as an ordinary drop where feet `feet` stand (drop_cell, like a kill's).
+func lay_down(feet: Vector2, item: StringName, how_many: int) -> void:
+	var k: Kill = Kill.new()
+	k.at = drop_cell(feet)
+	k.drops = [[item, how_many]]
+	_put_drops(k)
 
 ## A shot whose ground point is `ground` hits `c`: the drawn shot inside its drawn box (Combat.shot_hits_box at its kind's size).
 static func shot_hits(ground: Vector2, c: CreatureSim) -> bool:
@@ -457,13 +556,14 @@ func slow(c: CreatureSim, pct: int, ticks: int) -> void:
 	count("slowed")
 
 
-## The ground slam's push: `dist` px along unit vector `dir`, a px at a time, stopping where it could not stand or walk.
+## The ground slam's push: `dist` px along unit vector `dir`, a px at a time, stopping where it could not stand or walk (M11b: out of
+## its zone either).
 func push(c: CreatureSim, dir: Vector2, dist: float) -> void:
 	var gone: float = 0.0
 	while c.alive() and gone < dist:
 		var step: float = minf(1.0, dist - gone)
 		var next: Vector2 = c.pos + dir * step
-		if not Movement.can_stand(data, next) or not can_walk(next):
+		if not Movement.can_stand(data, next) or not can_walk(next, c):
 			break
 		c.pos = next
 		gone += step
@@ -508,7 +608,7 @@ func _tick_poison(c: CreatureSim) -> void:
 
 
 ## `c` dies by a blow of the player with node instance id `by`: its drops by that player's class (● §3.4) lie on its tile, its place
-## waits for `respawn_ticks`.
+## waits for `respawn_ticks`. M11b: the world's collection counts the kill (a rare kind's entry takes a capture: a kill gives it none).
 func _die(c: CreatureSim, by: int) -> void:
 	_set_state(c, CreatureSim.State.DEAD)
 	c.walking = false
@@ -518,6 +618,7 @@ func _die(c: CreatureSim, by: int) -> void:
 	c.poison_ticks = 0
 	c.poison_damage = 0
 	c.poison_timer = 0
+	c.hold_ticks = 0
 	var k: Kill = Kill.new()
 	k.kind = c.kind
 	k.who = class_of(by)
@@ -527,6 +628,9 @@ func _die(c: CreatureSim, by: int) -> void:
 	kills.append(k)
 	count("killed")
 	_wait(c.kind, c.num_i("respawn_ticks"))
+	var col: Collection = Collection.of(data)
+	if col != null:
+		col.note_kill(c.kind)
 
 
 ## The [item, count] rows a kill of `kind` by class `class_id` gives (● §3.0 R11, §3.4).

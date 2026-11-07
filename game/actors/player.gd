@@ -86,6 +86,10 @@ extends Node2D
 ## a skill key is refused with the HUD's mark, Skills.WHY_PRAYING). While MEDITATING the frame is as usual (a move breaks the
 ## meditation, Prayer). The zeal (SkillState.zeal_*) shows over the head (EffectMarks.Kind.ZEAL); the PrayerMark shows the turn's
 ## arrow (not over this machine's own player: its HUD prompt), the joined / left ring and the meditation's ring and bar (Main sets it).
+## M11b (`capture_on`: offline Main's player; a session's keep it off until M11c): a click with the snare selected (items/capture.gd:
+## Capture.refusal on the creature under the mouse, from `herd_provider`) puts the throw into the frame with that creature
+## (action_capture), or says why not (capture_refused: nothing starts, nothing is spent); it lands on Capture.impact_tick (action_impact:
+## Main takes the creature). A heretic's knife hit counts the world's collection defence with the worn armour's (Collection.defence_bonus).
 
 signal action_started(item: StringName, anim: int, target: Vector2i)
 signal action_finished(anim: int)
@@ -118,6 +122,8 @@ signal skill_refused(slot: int, id: StringName, why: String)
 signal skill_started(slot: int, id: StringName)
 ## M10a: a use, a drink, a throw or a dash pressed while praying (nothing starts; `what` for the log).
 signal prayer_refused(what: String)
+## M11b: a click with the snare that was refused (Capture.WHY_*; nothing starts or is spent), at creature `c` (null: none under the mouse).
+signal capture_refused(why: String, c: CreatureSim)
 
 ## Longest tick (px) drawn between its ends: two walking steps (2.4 px) and some float slack. One
 ## frame per tick is one step; more only while the host catches a client up (net/input_gate.gd),
@@ -206,6 +212,11 @@ var skill_aim_refused: bool = false
 var prayer_role: int = 0
 var prayer_face: int = RigData.Dir.NORTH
 var prayer_mark: PrayerMark
+## M11b (Main turns it on offline): the snare's click. `herd_provider` returns the herd of this player's map (Creatures, or null: no
+## creatures here), and `action_capture` is the id of the creature the playing throw goes to (0 = none).
+var capture_on: bool = false
+var herd_provider: Callable = Callable()
+var action_capture: int = 0
 var _mouse_moved_msec: int = -1000000
 ## make_frame(): the mouse aimed or the use button was held (step_frame() adds "an action plays").
 var _aim_input: bool = false
@@ -256,6 +267,7 @@ func setup(p_data: WorldData, class_id: String, feet: Vector2, p_facing: int = R
 	action_skill = &""
 	action_skill_slot = -1
 	action_skill_target = 0
+	action_capture = 0
 	skill_aim_target = null
 	skill_aim_refused = false
 	prayer_role = Prayer.Role.NONE
@@ -344,6 +356,14 @@ static func pressed_skill_slot() -> int:
 	if Input.is_action_just_pressed(&"skill_signature"):
 		return Skills.Slot.SIGNATURE
 	return -1
+
+
+## M11b: the herd of this player's map (herd_provider; unset or none: null).
+func herd_here() -> Creatures:
+	if herd_provider.is_valid():
+		var got: Creatures = herd_provider.call()
+		return got
+	return null
 
 
 ## M9a: the players the near-cursor pick may choose from (party_provider; unset: this player alone).
@@ -528,6 +548,19 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.item = selected.id
 		else:
 			potion_refused.emit("drink", why_drink)
+	elif free and capture_on and use_pressed and selected != null and Capture.is_snare(selected.id):
+		# M11b: the snare, a click (not repeated), at the creature under the mouse.
+		var quarry: CreatureSim = Capture.target_at(herd_here(), mouse)
+		var why_snare: String = Capture.refusal(self, quarry)
+		if why_snare.is_empty():
+			f.op = NetProtocol.Op.USE
+			f.slot = inventory.selected
+			f.cell = aim_cell
+			f.anim = Config.CAPTURE_ANIM
+			f.item = selected.id
+			f.capture_id = quarry.id
+		else:
+			capture_refused.emit(why_snare, quarry)
 	elif free and purify_on and use_pressed and selected != null and Purify.is_holy_water(selected.id):
 		# M5b: holy water is poured on the target tile (a click, not repeated); it works on its effect frame (Main).
 		var why_pour: String = Purify.holy_water_refusal(data, sim_position, aim_cell) if data != null else Purify.WHY_NOTHING
@@ -610,10 +643,12 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 		action_skill = frame.skill
 		action_skill_slot = frame.skill_slot if not frame.skill.is_empty() else -1
 		action_skill_target = frame.skill_target if not frame.skill.is_empty() else 0
+		action_capture = frame.capture_id  # M11b
 	elif action_anim < 0:
 		action_skill = &""
 		action_skill_slot = -1
 		action_skill_target = 0
+		action_capture = 0
 	if skills_on:
 		# M9a: the game clock (cooldowns, the refusal mark) and the class meter; a poison tick is damage taken (the paladin's
 		# conviction), a death loses the meter. M9c: a session host's members count their clock on host time instead.
@@ -658,6 +693,8 @@ static func impact_tick_of(item: StringName, anim: int) -> int:
 		return Skills.impact_tick(item)  # M9a: a skill's action lands on its own frame (Config.SKILLS "impact")
 	if Potions.is_drink(item):
 		return Potions.impact_tick(anim)
+	if Capture.is_snare(item):
+		return Capture.impact_tick()  # M11b
 	if Purify.is_holy_water(item):
 		return Purify.impact_tick()
 	var farm_tick: int = Farming.impact_tick(item)  # M5a: the hoe tills, the watering can waters on their own frame
@@ -711,12 +748,13 @@ func load_sim(st: PlayerSim) -> void:
 
 ## M4a: a hit of `amount` (PlayerSim.hurt: nothing while down, dead or invulnerable). Returns the
 ## PlayerSim event bits (HURT, DOWNED; 0 = it did not land). M7a: `armored` (a heretic's knife) with `gear_on`: the worn
-## armour takes its defence off (Gear.after_armor) and wears when the hit lands (Gear.wear_armor).
+## armour takes its defence off (Gear.after_armor) and wears when the hit lands (Gear.wear_armor). M11b: the world's collection adds its
+## defence, with or without armour on.
 func take_hit(amount: int, armored: bool = false) -> int:
 	var st: PlayerSim = to_sim()
 	var was_channel: bool = channel_tick > 0
 	if armored and gear_on:
-		amount = Gear.after_armor(amount, inventory)
+		amount = Gear.after_armor(amount, inventory, Collection.defence_bonus(data))
 	if skills_on:
 		amount = Skills.after_ward(amount, skills)  # M9b: the oath's ward, after the armour
 	var hp_before: int = vitals.hp

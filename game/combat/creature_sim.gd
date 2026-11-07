@@ -42,6 +42,13 @@ var poison_by: int = 0
 ## Display: ticks since it was put down (walk frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0
+## M11b: it came down in the rare zone and stays in it (Creatures.can_walk). A test flag's creature is not bound.
+var bound: bool = false
+## M11b: a snare holds it where it stands for this many ticks more (Capture.begin), thrown from this point (the rope is drawn to it).
+var hold_ticks: int = 0
+var held_from: Vector2 = Vector2.ZERO
+## M11b: display: ticks left of the refused mark (a blow that does nothing to it, Creatures.refuse).
+var refused_ticks: int = 0
 
 
 func alive() -> bool:
@@ -99,6 +106,16 @@ func slowed() -> bool:
 
 func poisoned() -> bool:
 	return alive() and poison_ticks > 0
+
+
+## M11b: a snare holds it now.
+func held() -> bool:
+	return alive() and hold_ticks > 0
+
+
+## M11b: its HP is low enough for a snare (Config.CAPTURE_HP_PCT of its full HP, or less) and it is a rare one.
+func can_be_taken() -> bool:
+	return alive() and rare() and hp * 100 <= hp_max() * Config.CAPTURE_HP_PCT
 
 
 func describe() -> String:

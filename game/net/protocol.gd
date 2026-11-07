@@ -361,6 +361,8 @@ class InputFrame:
 	var skill: StringName = &""
 	var skill_slot: int = -1
 	var skill_target: int = 0
+	## M11b, resolved, not sent (offline; M11c names it on the wire): the creature a snare's USE is thrown at (Creatures.by_id).
+	var capture_id: int = 0
 	## M9c: the mouse in world px when the frame was made (Player.make_frame), sent with a SKILL and a THROW in whole px: the
 	## one thing about a skill the host cannot know (the near-cursor ally, ● R42; a point skill's point).
 	var cursor: Vector2 = Vector2.ZERO

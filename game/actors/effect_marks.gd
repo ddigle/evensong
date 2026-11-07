@@ -9,8 +9,9 @@ extends Node2D
 ## faith-gold shield (the paladin's oath), a stunned heretic's gold star, a slowed heretic's iron arrow down.
 ## M10a (a PLACEHOLDER too): a zealous player's sword (an iron blade, a gold guard: the group prayer's zeal = attack, or a
 ## meditation's). Not a flame: a player standing just south of the altar has it over the altar's lamps.
+## M11b (a PLACEHOLDER too): the refused cross (the shop panel's refusal red) over a rare creature a blow did nothing to.
 
-enum Kind { BUFF, POISON, TAUNT, WARD, STUN, SLOW, ZEAL }
+enum Kind { BUFF, POISON, TAUNT, WARD, STUN, SLOW, ZEAL, REFUSED }
 
 const SIZE: int = 7
 const GAP: int = 1
@@ -24,6 +25,7 @@ const MAPS: Array[Array] = [
 	["...k...", "..kgk..", "kkkgkkk", "kgggggk", ".kgsgk.", "kgk.kgk", "kk...kk"],
 	["..kkk..", "..khk..", "..khk..", "kkkhkkk", ".khhhk.", "..khk..", "...k..."],
 	["...k...", "..khk..", "..khk..", ".kkhkk.", "kgggggk", ".kkakk.", "...k..."],
+	["rr...rr", "rrr.rrr", ".rrrrr.", "..rrr..", ".rrrrr.", "rrr.rrr", "rr...rr"],
 ]
 
 static var _textures: Array[ImageTexture] = []
