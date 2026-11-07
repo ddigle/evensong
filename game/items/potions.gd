@@ -16,6 +16,9 @@ extends RefCounted
 ## Config.THROW_RELEASE_FRAME and splashes where it lands (Arena.throw_potion): healing heals and the buff
 ## buffs the players in the splash, poison poisons the heretics (players only with Config.FRIENDLY_FIRE).
 ## Values by grade (COMMON / FINE: the herbs' grade, ● gameplay-design §3.4) are PROVISIONAL rows of Config.
+## M11a: eating goes through the same path (is_drink: the meat, ItemDB.Kind.FOOD): a click, Config.DRINK_ANIM, the effect frame, one
+## taken from the stack (release), the same refusals (full HP, not up); it heals Config.MEAT_HEAL_HP. It is no potion: is_potion and
+## effect_of stay potions' (the throw, the splash, the recipes).
 
 enum Effect { HEAL, BUFF, POISON }
 
@@ -37,6 +40,18 @@ static var herbalist_only: bool = Config.THROW_HERBALIST_ONLY
 static func is_potion(id: StringName) -> bool:
 	var def: ItemDB.ItemDef = ItemDB.get_def(id)
 	return def != null and def.is_potion()
+
+
+## M11a: what a click drinks or eats: a potion or food (the path this file's "drink" rules run on).
+static func is_drink(id: StringName) -> bool:
+	var def: ItemDB.ItemDef = ItemDB.get_def(id)
+	return def != null and (def.is_potion() or def.is_food())
+
+
+## M11a: food (Config.MEAT_HEAL_HP, not a potion's grade table).
+static func is_food(id: StringName) -> bool:
+	var def: ItemDB.ItemDef = ItemDB.get_def(id)
+	return def != null and def.is_food()
 
 
 ## The potion's effect (Effect), -1 for anything else.
@@ -78,9 +93,9 @@ static func impact_tick(anim: int) -> int:
 
 ## Why drinking potion `id` at `grade` with vitals `vit` is refused now ("" = it may be drunk).
 static func drink_refusal(id: StringName, _grade: int, vit: Vitals) -> String:
-	var effect: int = effect_of(id)
-	if effect < 0:
+	if not is_drink(id):
 		return WHY_NOT_POTION
+	var effect: int = ItemDB.get_def(id).effect
 	if not vit.alive():
 		return WHY_NOT_UP
 	if effect == Effect.HEAL and vit.hp >= Config.PLAYER_HP_MAX and not Config.DRINK_AT_FULL_HP:
@@ -93,6 +108,8 @@ static func drink_refusal(id: StringName, _grade: int, vit: Vitals) -> String:
 ## Potion `id` at `grade` works on `sim` (drunk, or splashed on it): heal, buff or poison. Returns the
 ## PlayerSim event bits of what it did (PlayerSim.HEALED / BUFFED / POISONED; 0 = nothing, e.g. not up).
 static func apply(sim: PlayerSim, id: StringName, grade: int) -> int:
+	if is_food(id):
+		return PlayerSim.HEALED if sim.heal(Config.MEAT_HEAL_HP) > 0 else 0
 	match effect_of(id):
 		Effect.HEAL:
 			return PlayerSim.HEALED if sim.heal(heal_hp(grade)) > 0 else 0

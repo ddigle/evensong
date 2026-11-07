@@ -131,6 +131,10 @@ extends Node2D
 ## meditating, is a PRAY request (prayer_tap), a participant's key on its turn an ANSWER (NetPrayer.attach, before the frame's
 ## other requests). The host's prayer (a client: its mirror, NetPrayer) is drawn by the same code (shown_prayer, show_prayer_from);
 ## a bot's `pray` comes through NetSession.bot_tap.
+## M11a (offline first; a session's arenas have no herd until M11c, the rest as it was): the surface's creatures (combat/creatures.gd):
+## the surface arena holds the herd, so every attack path hits them (Arena.hit_creature); step_creatures runs it on the game clock,
+## every map's tick like the farms, and puts a kill's drops into the world. The meat eats through potion_impact.
+## --test-creature puts some beside the local player, --test-no-creatures stops the natural ones (screenshots, tests).
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -354,6 +358,7 @@ func _physics_process(delta: float) -> void:
 	_track_f_tap()  # M10a: an F press let go soon enough that nothing took is the prayer's tap
 	step_altar_hold(player)
 	step_combat(delta)
+	step_creatures()  # M11a: after the combat (its kills' drops lie down this tick), on the game clock
 	check_carriers()  # M5-fix: after the combat, like the host (SessionHost.tick: arenas, then _check_carriers)
 	step_prayer()  # M10a: after the combat (a hit this tick is the prayer's), before the views
 	step_farms()
@@ -371,6 +376,10 @@ func _bot_tick(delta: float) -> void:
 		for h: HereticSim in arenas[current_map].heretics:
 			if h.alive():
 				bot.foes.append(h.pos)
+		bot.prey.clear()  # M11a: aimprey, hunt, waitprey
+		for c: CreatureSim in arenas[current_map].hunted():
+			if c.alive():
+				bot.prey.append(Creatures.aim_point(c))
 	bot.life = player.vitals.life
 	bot.downed.clear()
 	for p: Player in players_on(current_map):
@@ -406,6 +415,8 @@ func _bot_tick(delta: float) -> void:
 	if a.heretic != null and ensure_combat(current_map):
 		var hc: Vector2i = a.heretic
 		arenas[current_map].spawn_heretic(Arena.spawn_feet(hc))  # M7c, test only (bot "heretic")
+	if not a.creature.is_empty() and ensure_combat(current_map) and arenas[current_map].herd != null:
+		arenas[current_map].herd.spawn(a.creature, Arena.spawn_feet(a.creature_cell))  # M11a, test only (bot "creature")
 	player.tick_controls(a.dir, a.mouse, a.aiming, a.use_pressed, a.use_held, delta, a.dash, a.interact, a.skill,
 		a.skill_slot)
 	if a.op == null:
@@ -727,8 +738,8 @@ func _on_action_impact(item: StringName, anim: int, target: Vector2i) -> void:
 	if Skills.is_skill(item):
 		skill_impact(player, item)  # M9a
 		return
-	if Potions.is_potion(item):
-		potion_impact(player, item, anim)  # M6a
+	if Potions.is_drink(item):
+		potion_impact(player, item, anim)  # M6a (M11a: the meat is eaten the same way)
 		return
 	if purify_on and Purify.is_holy_water(item):
 		holy_water_impact(player, target)  # M5b
@@ -798,6 +809,9 @@ func ensure_combat(id: int) -> bool:
 	a.setup(w.data, CliOptions.current().world_seed)
 	a.spawning = not CliOptions.current().test_no_spawns
 	a.threat_on = true  # M9a: offline (a session's host arenas stay off until M9c)
+	if id == Config.MAP_SURFACE:
+		a.herd = Creatures.new()  # M11a: offline (a session's arenas have none until M11c)
+		a.herd.setup(w.data, CliOptions.current().world_seed, not CliOptions.current().test_no_creatures)
 	arenas[id] = a
 	v = CombatView.new()
 	v.name = &"Combat"
@@ -874,7 +888,7 @@ func _attack(p: Player, item: StringName) -> void:
 	if not ensure_combat(current_map):
 		return
 	var a: Arena = arenas[current_map]
-	var before: int = a.stats.get("heretic_hits", 0) + a.stats.get("shrine_hits", 0)
+	var before: int = a.stat("heretic_hits") + a.stat("shrine_hits") + a.stat("creature_hits")
 	# M7a: the stack that plays it (its tier-1 damage while not broken), then its use wear (M7c: the host's rule too).
 	var stack: ItemStack = Gear.playing_stack(p.inventory, p.action_slot, item)
 	var damage: int = Gear.attack_damage(stack, Combat.attack_for(item).damage) if p.gear_on else -1
@@ -887,9 +901,27 @@ func _attack(p: Player, item: StringName) -> void:
 	for e: EditLog.WorldEdit in edits:
 		current_world().apply_edit(e)
 		_log_edit(e)
-	var after: int = a.stats.get("heretic_hits", 0) + a.stats.get("shrine_hits", 0)
+	var after: int = a.stat("heretic_hits") + a.stat("shrine_hits") + a.stat("creature_hits")
 	if after > before:
 		print("EVENSONG_COMBAT hit item=%s class=%s hits=%d shrine_hp=%d" % [item, p.class_id(), after - before, a.shrine_hp])
+
+
+## M11a: one game tick of the surface's creatures (every map's tick, the local player's or not: their spawns and respawns run on the
+## game clock, like the farms): the kills' drops go into the world, the kills into the log, the view follows.
+func step_creatures() -> void:
+	if not ensure_combat(Config.MAP_SURFACE):
+		return
+	var herd: Creatures = arenas[Config.MAP_SURFACE].herd
+	if herd == null:
+		return
+	var w: GameWorld = worlds[Config.MAP_SURFACE]
+	for e: EditLog.WorldEdit in herd.step(players_on(Config.MAP_SURFACE)):
+		w.apply_edit(e)
+	for k: Creatures.Kill in herd.kills:
+		print("EVENSONG_HUNT killed kind=%s by=%s at=%d,%d drops=%s" % [k.kind, k.who if not k.who.is_empty() else "?", k.at.x, k.at.y,
+			Creatures.describe_drops(k.drops)])
+	herd.kills.clear()
+	combat_views[Config.MAP_SURFACE].sync_creatures()
 
 
 func _log_edit(e: EditLog.WorldEdit) -> void:
@@ -1042,6 +1074,9 @@ func _on_place_requested(slot: int, cell: Vector2i) -> void:
 	if arenas.has(current_map):
 		for h: HereticSim in arenas[current_map].heretics:
 			bodies.append(h.pos)
+		for c: CreatureSim in arenas[current_map].hunted():  # M11a
+			if c.alive():
+				bodies.append(c.pos)
 	_apply_offline(WorldItems.place(current_world().data, player.sim_position, player.inventory, slot, cell, bodies,
 		[] as Array[Vector2], _other_players()),
 		"place", cell)
@@ -1050,7 +1085,7 @@ func _on_place_requested(slot: int, cell: Vector2i) -> void:
 # --- M7b: building, doors, trees (offline) ---------------------------------------------------------------
 
 ## The other bodies on the local player's map: the other players' feet and the heretics' (what a blocking piece may not
-## cover).
+## cover). M11a: the creatures' too.
 func _other_bodies() -> Array[Vector2]:
 	var bodies: Array[Vector2] = []
 	for p: Player in players_on(current_map):
@@ -1062,6 +1097,9 @@ func _other_bodies() -> Array[Vector2]:
 		for h: HereticSim in arenas[current_map].heretics:
 			if h.alive():
 				bodies.append(h.pos)
+		for c: CreatureSim in arenas[current_map].hunted():
+			if c.alive():
+				bodies.append(c.pos)
 	return bodies
 
 
@@ -2509,6 +2547,30 @@ func _on_action_started(item: StringName, anim: int, target: Vector2i) -> void:
 
 
 ## Screenshot / test flags (core/cli_options.gd).
+## M11a: --test-creature: `entries` = [kind, n] rows beside the local player on the surface, on a ring of Config.CREATURE_TEST_RING_PX from
+## its feet (a turn divided among them, the nearest spot on the line toward the player that can_walk and Movement allow; none: left out).
+func put_test_creatures(entries: Array[Array]) -> void:
+	if entries.is_empty() or not arenas.has(Config.MAP_SURFACE) or arenas[Config.MAP_SURFACE].herd == null \
+			or current_map != Config.MAP_SURFACE:
+		return
+	var herd: Creatures = arenas[Config.MAP_SURFACE].herd
+	var total: int = 0
+	for e: Array in entries:
+		var n: int = e[1]
+		total += n
+	var i: int = 0
+	for e: Array in entries:
+		var kind: StringName = e[0]
+		var n: int = e[1]
+		for k: int in n:
+			var at: Variant = herd.spot_near(player.sim_position, TAU * i / total)
+			i += 1
+			if at != null:
+				var feet: Vector2 = at
+				herd.spawn(kind, feet)
+	combat_views[Config.MAP_SURFACE].sync_creatures()
+
+
 func _apply_test_options(options: CliOptions) -> void:
 	if options.start_map != Config.MAP_SURFACE:
 		travel(options.start_map)
@@ -2546,6 +2608,7 @@ func _apply_test_options(options: CliOptions) -> void:
 		for c: Vector2i in options.test_heretics:
 			arenas[current_map].spawn_heretic(Arena.spawn_feet(c))
 		combat_views[current_map].sync(players_on(current_map))
+	put_test_creatures(options.test_creatures)  # M11a
 	if not options.test_fields.is_empty():
 		apply_test_fields(options.test_fields)  # M5a
 	put_test_build(current_world(), options.test_build)  # M7b: pieces put down without the rules (screenshots, tests)

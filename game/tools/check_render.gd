@@ -285,6 +285,8 @@ func _run() -> void:
 			await _check_prayer_marks()
 		if _want("prayer_net"):
 			await _check_prayer_net()  # M10b
+		if _want("creatures"):
+			await _check_creatures()  # M11a
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -3381,6 +3383,136 @@ func _check_merchant() -> void:
 		_fail("merchant", line)
 
 
+## M11a: the creatures as a CreatureView draws them, against the CPU's picture (CreatureView.image, the rows of its maps): every kind in
+## every direction (west = east mirrored) and both walk frames (the second a px higher), bottom middle on the feet; the corpse (the
+## picture upside down); the hit flash (Player.HIT_FLASH on every drawn pixel); the HP bar (the heretic's colours: every px on its
+## place, over the picture's top row); a stun's mark over it; with the evening on the hard light darkens the picture.
+func _check_creatures() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var feet: Vector2i = origin + Vector2i(200, 180)
+	var v: CreatureView = CreatureView.new()
+	world.entities.add_child(v)
+	var c: CreatureSim = CreatureSim.new()
+	c.id = 1
+	var screens: int = 0
+	var bad: int = 0
+	var drawn: int = 0
+	var dirs: Array[int] = [RigData.Dir.SOUTH, RigData.Dir.EAST, RigData.Dir.NORTH, RigData.Dir.WEST]
+	for kind: StringName in Config.CREATURES:
+		c.kind = kind
+		c.hp = c.hp_max()
+		c.pos = Vector2(feet)
+		c.state = CreatureSim.State.IDLE
+		for dir: int in dirs:
+			c.facing = dir
+			var row: int = RigData.sheet_row(dir)
+			var west: bool = RigData.is_mirrored(dir)
+			for f: int in 2:
+				c.walking = f == 1
+				c.clock = CreatureSim.WALK_FRAME_TICKS * f
+				v.show_sim(c)
+				var img: Image = CreatureView.image(kind, row, f)
+				if west:
+					img.flip_x()
+				var size: Vector2i = img.get_size()
+				var off: Vector2i = Vector2i(-(size.x / 2), -size.y - f)  # written out: bottom middle on the feet, a px of bob
+				if west:
+					off.x = -off.x - size.x
+				var expected: Image = bg.duplicate() as Image
+				_paste_at(expected, img, feet - origin + off)
+				var got: Image = await _capture()
+				screens += 1
+				var n: int = count_diff(got, expected)
+				drawn = maxi(drawn, count_diff(got, bg))
+				if n > 0:
+					bad += 1
+				if n > 0 or save_all:
+					_save(got, "creature_%s_%s_%d_got.png" % [kind, RigData.DIR_NAMES[dir], f])
+					_save(expected, "creature_%s_%s_%d_expected.png" % [kind, RigData.DIR_NAMES[dir], f])
+	# The corpse: the east picture upside down, on the same box.
+	c.kind = &"deer"
+	c.hp = 0
+	c.facing = RigData.Dir.EAST
+	c.walking = false
+	c.state = CreatureSim.State.DEAD
+	v.show_sim(c)
+	var corpse: Image = CreatureView.image(&"deer", 1, 0)
+	corpse.flip_y()
+	var want_corpse: Image = bg.duplicate() as Image
+	_paste_at(want_corpse, corpse, feet - origin + Vector2i(-(corpse.get_width() / 2), -corpse.get_height()))
+	var got_corpse: Image = await _capture()
+	var corpse_wrong: int = count_diff(got_corpse, want_corpse)
+	# The flash: every drawn pixel is the picture times Player.HIT_FLASH.
+	c.state = CreatureSim.State.IDLE
+	c.hp = c.hp_max()
+	c.flash_ticks = 3
+	v.show_sim(c)
+	var pic: Image = CreatureView.image(&"deer", 1, 0)
+	var at: Vector2i = feet - origin + Vector2i(-(pic.get_width() / 2), -pic.get_height())
+	var got_flash: Image = await _capture()
+	var flash_wrong: int = 0
+	var flash_px: int = 0
+	for y: int in pic.get_height():
+		for x: int in pic.get_width():
+			var px: Color = pic.get_pixel(x, y)
+			if px.a8 < 255:
+				continue
+			flash_px += 1
+			var want_px: Color = px * Player.HIT_FLASH
+			var got_px: Color = got_flash.get_pixel(at.x + x, at.y + y)
+			if absf(want_px.r - got_px.r) > 0.02 or absf(want_px.g - got_px.g) > 0.02 or absf(want_px.b - got_px.b) > 0.02:
+				flash_wrong += 1
+	# The HP bar at half, the stun's mark over it.
+	c.flash_ticks = 0
+	c.hp = c.hp_max() / 2
+	c.stun_ticks = 10
+	v.show_sim(c)
+	var got_bar: Image = await _capture()
+	var top: int = -CreatureView.height_of(&"deer") - CreatureView.BAR_GAP - CreatureView.BAR_HEIGHT - 2
+	var left: Vector2i = feet - origin + Vector2i(-Heretic.BAR_SIZE.x / 2 - 1, top)
+	var want_bar: Dictionary[Vector2i, Color] = {}
+	for bx: int in Heretic.BAR_SIZE.x + 2:
+		for by: int in CreatureView.BAR_HEIGHT + 2:
+			want_bar[left + Vector2i(bx, by)] = Heretic.BAR_BACK
+	var fill: int = Heretic.bar_fill(0.5)
+	for bx2: int in fill:
+		for by2: int in CreatureView.BAR_HEIGHT:
+			want_bar[left + Vector2i(1 + bx2, 1 + by2)] = Heretic.BAR_FILL
+	var bar_wrong: int = _count_wrong(got_bar, want_bar)
+	var mark_y: int = feet.y - origin.y + top - CreatureView.MARK_GAP - EffectMarks.SIZE
+	var mark: Dictionary[Vector2i, Color] = {}
+	_image_pixels(mark, EffectMarks.image(EffectMarks.Kind.STUN), Vector2i(feet.x - origin.x + EffectMarks.icon_offset(0, 1).x, mark_y))
+	var mark_wrong: int = _count_wrong(got_bar, mark)
+	# The evening: outside the light the picture is darkened, its outline stays dark.
+	c.hp = c.hp_max()
+	c.stun_ticks = 0
+	v.show_sim(c)
+	world.lighting.set_evening(true)
+	var dusk: Image = await _capture()
+	var darker: int = 0
+	var body_px: int = 0
+	for y2: int in pic.get_height():
+		for x2: int in pic.get_width():
+			var art: Color = pic.get_pixel(x2, y2)
+			if art.a8 < 255 or _brightness(art) < 0.2:
+				continue
+			body_px += 1
+			if _brightness(dusk.get_pixelv(at + Vector2i(x2, y2))) < _brightness(art) - 0.05:
+				darker += 1
+	world.lighting.set_evening(false)
+	world.entities.remove_child(v)
+	v.free()
+	var line: String = "screens=%d bad=%d drawn=%d corpse_wrong=%d flash=%d/%d bar_wrong=%d mark_wrong=%d dusk=%d/%d" % [screens, bad, drawn,
+		corpse_wrong, flash_wrong, flash_px, bar_wrong, mark_wrong, darker, body_px]
+	if screens == 40 and bad == 0 and drawn > 100 and corpse_wrong == 0 and flash_wrong == 0 and flash_px > 100 and bar_wrong == 0 \
+			and mark_wrong == 0 and body_px > 50 and darker * 10 >= body_px * 9:
+		print("EVENSONG_RENDER creatures ok %s" % line)
+	else:
+		_fail("creatures", line)
+
+
 ## M8a: the shop panel over the open inventory (the layout written out here: the chest panel's place and width, 3 + 18 header,
 ## entries 38 px wide 2 apart, 4 a row, rows 20 apart; an entry = an 18 px slot, its stock (always, rust when 0), a 5 px coin 2 px
 ## right of the slot and centred, the price 1 px after it (ivory, rust when short)); the selected entry's gold frame; the sold-out
@@ -3412,7 +3544,7 @@ func _check_shop_panel() -> void:
 	var view: Vector2i = Config.VIEW_SIZE
 	var grid_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
 	var top_inv_row: int = view.y - 4 - 18 - 4 - 18 - 20
-	var h: int = 3 + 18 + 3 * 18 + 2 * 2 + 3
+	var h: int = 3 + 18 + 4 * 18 + 3 * 2 + 3  # M11a: 13 offers, a fourth row
 	var p: Rect2i = Rect2i(grid_left - 3, top_inv_row - 6 - h, 8 * 18 + 7 * 2 + 6, h)
 	var place_ok: bool = hud.shop.panel_rect() == p
 	var want: Dictionary[Vector2i, Color] = {}
@@ -3504,7 +3636,7 @@ func _check_shop_panel() -> void:
 	hud.free()
 	var line: String = "place=%s pixels=%d mismatches=%d entries=%d veil_darker=%d/%d sold_out_darker=%d/%d refusal_pixels=%d refusal_mismatches=%d" % [
 		str(place_ok), want.size(), bad, offers.size(), veil_darker, veil_px, holy_darker, holy_px, want2.size(), bad2]
-	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 11 and veil_darker == veil_px and veil_px > 30 \
+	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 13 and veil_darker == veil_px and veil_px > 30 \
 			and holy_darker == holy_px and holy_px > 15 and bad2 == 0:
 		print("EVENSONG_RENDER shop_panel ok %s" % line)
 	else:

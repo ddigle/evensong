@@ -13,6 +13,7 @@ extends Node
 ## (_sync_zones: the blessing's turning ring around the cleric, the mist's puffs). The flat ground pictures (a strike's ring, a
 ## zone) go on a ground layer just before the entities (like the AllyMark: under every figure); the falling shapes and the
 ## bursts sort with the entities.
+## M11a: the surface's creatures (sync_creatures: a CreatureView per creature of Arena.herd, under the entities like a heretic).
 
 ## IMPL: bars over a downed player: width, place above the feet, colours (bleed-out = rust, revive = the
 ## faith gold, background ash black).
@@ -49,6 +50,8 @@ var strike_rings: Dictionary[int, Node2D] = {}
 var strike_falls: Dictionary[int, Node2D] = {}
 var zones: Dictionary[int, Node2D] = {}
 var ground: Node2D
+## M11a: a node per creature (Arena.herd).
+var creatures: Dictionary[int, CreatureView] = {}
 var _bars: Dictionary[int, Node2D] = {}
 var _shrine_ratio: float = 1.0
 ## M4-fix: the shrine's fixture node found once for its footprint (not a walk over every entity per sync).
@@ -153,6 +156,9 @@ func clear() -> void:
 	_free_all(strike_rings)  # M9b
 	_free_all(strike_falls)
 	_free_all(zones)
+	for v: CreatureView in creatures.values():  # M11a
+		_free(v)
+	creatures.clear()
 	flasks.clear()
 	splashes.clear()
 	bursts.clear()
@@ -203,6 +209,27 @@ func sync(players: Array[Player] = []) -> void:
 	_sync_zones()
 	_sync_shrine()
 	_sync_down_bars(players)
+	sync_creatures()  # M11a
+
+
+## M11a: the herd as it is now (Main after its step: the creatures' clock runs with nobody on the map too).
+func sync_creatures() -> void:
+	if arena == null or arena.herd == null:
+		return
+	var seen: Dictionary[int, bool] = {}
+	for c: CreatureSim in arena.herd.list:
+		seen[c.id] = true
+		var node: CreatureView = creatures.get(c.id, null)
+		if node == null:
+			node = CreatureView.new()
+			node.name = StringName("Creature_%d" % c.id)
+			entities.add_child(node)
+			creatures[c.id] = node
+		node.show_sim(c)
+	for id: int in creatures.keys():
+		if not seen.has(id):
+			_free(creatures[id])
+			creatures.erase(id)
 
 
 func _shot_node(s: Arena.Shot) -> Node2D:

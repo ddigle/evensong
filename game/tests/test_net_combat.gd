@@ -597,6 +597,7 @@ func _check_two_fight_one() -> void:
 	var r: Rig = _rig("paladin")
 	await await_frames(1)
 	var f: Vector2 = spot(r)
+	check_eq(r.host.arenas[Config.MAP_SURFACE].herd, null, "M11a: a session's arena has no creatures until M11c")
 	var h: HereticSim = r.host.arenas[Config.MAP_SURFACE].spawn_heretic(f)
 	r.s.local.player.teleport(f + Vector2(-18, 0))
 	var c: Client = _join(r, 101, "archer", f + Vector2(72, 0))

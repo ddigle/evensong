@@ -14,7 +14,7 @@ extends "res://tests/base_test.gd"
 ## (potions: 약초사 "상점 포션", 성직자 "상점 치유 포션"; 팔라딘 "상점의 성수"; 기술자 "기본 키트 (횃불 …)"; 광부 "상점의 저급 광석";
 ## 룬마스터 "상점 1티어 장비").
 const SOLD: Array[StringName] = [&"potion_healing", &"potion_buff", &"holy_water", &"torch", &"ore_copper", &"sword_t1",
-	&"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1"]
+	&"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1", &"hide_worn", &"meat"]
 const GEAR: Array[StringName] = [&"sword_t1", &"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1"]
 ## Never bought (written out): money, the basic tools, seeds, placeables, build pieces, holy water, the debug-only items.
 const NOT_BOUGHT: Array[StringName] = [&"money", &"pickaxe", &"hoe", &"sickle", &"watering_can", &"sword", &"bow",

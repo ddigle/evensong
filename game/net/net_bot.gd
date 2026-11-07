@@ -92,12 +92,19 @@ extends RefCounted
 ##   hurt:<slot>,<amount>         test only, the host: member slot <slot> takes a hit of <amount> now (Player.take_hit: a
 ##                                participant hit leaves the prayer, the cleric stops it; nothing reaches a praying player inside
 ##                                the light in the slice)
+## M11a (offline: the creatures as Main has them, `prey`, set before each step):
+##   aimprey                      from now on aim at the nearest live creature (the middle of its figure; none: not aiming)
+##   hunt:<ticks>[,<n>[,<px>]]    hold the use button aimed at the nearest live creature while more than n (default 0) are there, at
+##                                most that many ticks; with px, walk toward it while it is farther than px (melee, or to get in range)
+##   waitprey:<n>[,<ticks>]       stand until at most n live creatures are there (default 1800 ticks)
+##   creature:<kind>,<x>,<y>      test only, offline: a creature of that kind on tile x,y of the surface now
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt",
+	"aimprey", "hunt", "waitprey", "creature"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -108,7 +115,7 @@ const WAITMAP_LIMIT_TICKS: int = 1800
 ## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
 const ARRIVE_PX: float = 0.6
 
-enum Aiming { NONE, OFFSET, CELL, FOE }
+enum Aiming { NONE, OFFSET, CELL, FOE, PREY }
 
 class Command:
 	extends RefCounted
@@ -171,6 +178,9 @@ class Action:
 	## M10b (test only, the host): member slot `hurt_slot` takes a hit of `hurt_amount` this tick (-1 = none).
 	var hurt_slot: int = -1
 	var hurt_amount: int = 0
+	## M11a (test only, offline): a creature of this kind goes down on this tile this tick (&"" = none).
+	var creature: StringName = &""
+	var creature_cell: Vector2i = Vector2i.ZERO
 
 
 var commands: Array[Command] = []
@@ -191,6 +201,8 @@ var prayer_phase: int = 0
 var prayer_member: bool = false
 var prayer_dir: int = -1
 var prayer_window: int = 0
+## M11a: the live creatures on this map as Main has them: the middle of each figure (Creatures.aim_point).
+var prey: Array[Vector2] = []
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -314,6 +326,26 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimfoe":
 			if args.size() != 0:
 				return "aimfoe takes no arguments"
+		"aimprey":
+			if args.size() != 0:
+				return "aimprey takes no arguments"
+		"hunt":
+			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() > 1 and not _whole(args[1], 0)) \
+					or (args.size() > 2 and not _whole(args[2], 1)):
+				return "expected hunt:<ticks>[,<n>[,<px>]]"
+			c.ticks = args[0].to_int()
+			c.count = args[1].to_int() if args.size() > 1 else 0
+			c.offset = Vector2(args[2].to_float() if args.size() > 2 else 0.0, 0.0)
+		"waitprey":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 0) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitprey:<n>[,<ticks>]"
+			c.count = args[0].to_int()
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
+		"creature":
+			if args.size() != 3 or not Config.CREATURES.has(StringName(args[0])) or not _whole(args[1], 0) or not _whole(args[2], 0):
+				return "expected creature:<%s>,<x>,<y>" % "|".join(Config.CREATURES.keys())
+			c.item = StringName(args[0])
+			c.cell = Vector2i(args[1].to_int(), args[2].to_int())
 		"tab", "throw", "unequip", "wreck", "pray":
 			if args.size() != 0:
 				return "%s takes no arguments" % c.op
@@ -691,6 +723,38 @@ func _advance(a: Action, feet: Vector2) -> void:
 				_aiming = Aiming.FOE
 				_next()
 				_fill_aim(a, feet)
+			"aimprey":
+				_aiming = Aiming.PREY
+				_next()
+				_fill_aim(a, feet)
+			"hunt":
+				if _left < 0:
+					_left = c.ticks
+				var quarry: Variant = _nearest(prey, feet)
+				if quarry == null or _left <= 0 or prey.size() <= c.count:
+					_next()
+				else:
+					_left -= 1
+					var spot: Vector2 = quarry
+					a.aiming = true
+					a.mouse = spot
+					if c.offset.x > 0.0 and feet.distance_to(spot) > c.offset.x:
+						a.dir = Vector2i(_toward(spot.x - feet.x), _toward(spot.y - feet.y))
+					else:
+						a.use_held = true
+					return
+			"waitprey":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if prey.size() <= c.count or _left <= 0:
+					_next()
+				return
+			"creature":
+				a.creature = c.item
+				a.creature_cell = c.cell
+				_next()
+				return
 			"fight":
 				if _left < 0:
 					_left = c.ticks
@@ -778,6 +842,11 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 			a.mouse = feet + _aim
 		Aiming.CELL:
 			a.mouse = _aim
+		Aiming.PREY:
+			var quarry: Variant = _nearest(prey, feet)
+			if quarry != null:
+				a.aiming = true
+				a.mouse = quarry
 		Aiming.FOE:
 			var foe: Variant = nearest_foe(feet)
 			a.aiming = foe != null

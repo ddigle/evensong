@@ -335,7 +335,7 @@ func on_map_entry(payload: PackedByteArray) -> void:
 	s.local_map_changed.emit(e.map)
 
 
-## M8b: the shop's stock of `data` as one word (the counts left in Shop.offers() order, "/" between: "3/3/2/10/5/1/1/1/1/1/1"),
+## M8b: the shop's stock of `data` as one word (the counts left in Shop.offers() order, "/" between: "3/3/2/10/5/1/1/1/1/1/1/3/4"),
 ## "none" without a shop.
 static func _stock_line(data: WorldData) -> String:
 	if data.shop == null:

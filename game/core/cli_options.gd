@@ -90,11 +90,17 @@ extends RefCounted
 ##   --test-pray=<letters>[,...]  one script per --test-ally in order: the ally joins every prayer's gather and answers its own
 ##                                turns by the letters (c right, w wrong, l late = no answer, q quit as its turn opens; past
 ##                                the end the last letter), so one process shows a prayer of several
+## M11a (offline screenshot / test flags):
+##   --test-creature=<kind>:<n>[,...]   that many creatures of that kind (Config.CREATURES) around the local player on the surface
+##                                at the start, Config.CREATURE_TEST_RING_PX from its feet, past the caps
+##   --test-no-creatures          no creature spawns or respawns by itself (the test creatures still come)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
 
 const DEFAULT_FRAMES: int = 10
+## M11a: most creatures one --test-creature entry puts down.
+const TEST_CREATURES_MAX: int = 16
 
 var smoke: bool = false
 var host: bool = false
@@ -167,6 +173,9 @@ var test_wear: int = 0
 ## M7b test flag: [tile (Vector2i), piece (StringName: a build piece's item id, or &"door_open")] per piece put down at the
 ## start without the building rules.
 var test_build: Array[Array] = []
+## M11a test flags: [kind (StringName), n] per entry; natural creature spawns off.
+var test_creatures: Array[Array] = []
+var test_no_creatures: bool = false
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -179,6 +188,22 @@ static func current() -> CliOptions:
 	if _current == null:
 		_current = parse(OS.get_cmdline_user_args())
 	return _current
+
+
+## M11a: --test-creature=<kind>:<n>[,...]: [kind, n] rows; a kind outside Config.CREATURES or a count outside 1..16 is an error.
+static func _parse_creatures(value: String, raw: String, errors: PackedStringArray) -> Array[Array]:
+	var out: Array[Array] = []
+	for part: String in value.split(",", false):
+		var kv: PackedStringArray = part.split(":")
+		if kv.size() != 2 or not Config.CREATURES.has(StringName(kv[0])) or not kv[1].is_valid_int() or kv[1].to_int() < 1 \
+				or kv[1].to_int() > TEST_CREATURES_MAX:
+			errors.append("%s: expected --test-creature=<%s>:<1..%d>[,...]" % [raw, "|".join(Config.CREATURES.keys()),
+				TEST_CREATURES_MAX])
+			return []
+		out.append([StringName(kv[0]), kv[1].to_int()])
+	if out.is_empty():
+		errors.append("%s: expected --test-creature=<kind>:<n>[,...]" % raw)
+	return out
 
 
 static func parse(argv: PackedStringArray) -> CliOptions:
@@ -365,6 +390,10 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.test_dungeon_heretics = _parse_tiles(value, raw, o.errors)
 			"test-no-spawns":
 				o.test_no_spawns = true
+			"test-no-creatures":
+				o.test_no_creatures = true
+			"test-creature":
+				o.test_creatures = _parse_creatures(value, raw, o.errors)
 			"test-start-hp":
 				for part: String in value.split(",", false):
 					var kv: PackedStringArray = part.split(":")

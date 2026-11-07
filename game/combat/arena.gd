@@ -48,6 +48,12 @@ extends RefCounted
 ## the end of the host's tick as events (skill_events: each once, with the tick it showed age 0, so a client draws the same frame
 ## the host does on the same tick); a zone that ends early (the blessing's cleric down, dead or gone) and a ward (note_ward) are
 ## events when they happen. `slots` (player node id -> session slot, the host fills it each tick) names players on the wire.
+##
+## M11a (offline; a session's arenas have no herd until M11c, a mirror none): `herd` = the surface's creatures (combat/creatures.gd).
+## Every attack that can hit a heretic can hit them (basic attacks, shots, the damaging skills, a thrown poison; zeal and wear are
+## in the damage and the swing already, so they count the same) by hit_creature; a stun or a slow lands on them where it lands on a
+## heretic, the slam pushes them. The taunt, threat and a heretic's own rules never read them. Their clock is the herd's, not this
+## step's (the map's players may be elsewhere: Main.step_creatures).
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -63,7 +69,7 @@ class Shot:
 	## The shooter (node instance id; friendly fire off: it never hits a player).
 	var owner_id: int = 0
 	var done: bool = false
-	## What stopped it: "", "wall", "heretic", "shrine", "player", "spent".
+	## What stopped it: "", "wall", "heretic", "shrine", "player", "spent". M11a: "creature".
 	var stopped_by: String = ""
 	## M4b: the aim code it flies along, its weapon and the shooter's session slot (255 = none / offline),
 	## the tick it was let go and where (a late client gets it as a let-go event).
@@ -72,7 +78,8 @@ class Shot:
 	var aim: int = 0
 	var item: StringName = &""
 	var owner_slot: int = 255
-	## M9a: a piercing shot (the archer's identity skill) flies on through heretics, each hit once (`pierced`: their ids).
+	## M9a: a piercing shot (the archer's identity skill) flies on through heretics, each hit once (`pierced`: their ids; M11a: a
+	## creature's id negated, the two count from 1 apart).
 	var pierce: bool = false
 	var pierced: Dictionary[int, bool] = {}
 
@@ -262,6 +269,9 @@ var strikes: Array[Strike] = []
 var zones: Array[Zone] = []
 ## M9c (the host fills it each tick): each player's session slot by node instance id (events name players by slot).
 var slots: Dictionary[int, int] = {}
+## M11a: the surface's creatures (null: none on this map, or none yet in a session).
+var herd: Creatures = null
+var _no_creatures: Array[CreatureSim] = []
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -1043,6 +1053,11 @@ func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
 					and poison_heretic(h, Prayer.zeal_hit(Potions.poison_damage(f.grade), f.zeal_pct), Potions.poison_ticks(f.grade),
 						f.owner_id):
 				s.heretics += 1
+		for c: CreatureSim in hunted():  # M11a: the same poison, by the thrower (a death by it counts as his class's blow)
+			if c.alive() and in_splash(at, c.pos) \
+					and herd.poison(c, Prayer.zeal_hit(Potions.poison_damage(f.grade), f.zeal_pct), Potions.poison_ticks(f.grade),
+						f.owner_id):
+				count("splash_creatures")
 	if effect != Potions.Effect.POISON or Config.FRIENDLY_FIRE:
 		for p: Player in players:
 			if not in_splash(at, p.sim_position):
@@ -1081,6 +1096,32 @@ func heretic_at(point: Vector2) -> HereticSim:
 	return null
 
 
+## M11a: the creatures attacks can reach here (the herd's list, corpses too: every path checks alive()), none without a herd.
+func hunted() -> Array[CreatureSim]:
+	return herd.list if herd != null else _no_creatures
+
+
+## M11a: the creature a shot at ground point `point` hits (Creatures.shot_hits: inside its kind's drawn box), the first in the list,
+## or null.
+func creature_at(point: Vector2) -> CreatureSim:
+	for c: CreatureSim in hunted():
+		if c.alive() and Creatures.shot_hits(point, c):
+			return c
+	return null
+
+
+## M11a: `amount` of damage on creature `c` by the player with node instance id `by` (Creatures.hit: the flash, the bolt, a death's
+## drops). No threat: a heretic's only (hit_heretic). Returns whether it died.
+func hit_creature(c: CreatureSim, amount: int, by: int = 0) -> bool:
+	count("creature_hits")
+	return herd.hit(c, amount, by)
+
+
+## M11a: in_circle's rule for creature `c`.
+func creature_in_circle(at: Vector2, radius: float, c: CreatureSim) -> bool:
+	return c.alive() and c.pos.distance_to(at) <= radius and Combat.line_clear(data, at, Combat.body_point(c.pos))
+
+
 # --- players' attacks ------------------------------------------------------------------------------
 
 ## Player `p`'s weapon `item` lands (its hit frame) along aim code `aim`: a melee arc hits every heretic
@@ -1101,6 +1142,9 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 		for h: HereticSim in heretics:
 			if h.alive() and Combat.melee_hits(data, p.sim_position, dir, h.pos, a.reach, a.arc_deg):
 				hit_heretic(h, dmg, p.get_instance_id())
+		for c: CreatureSim in hunted():  # M11a
+			if c.alive() and Combat.melee_hits(data, p.sim_position, dir, c.pos, a.reach, a.arc_deg):
+				hit_creature(c, dmg, p.get_instance_id())
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
 				if o != p and Combat.melee_hits(data, p.sim_position, dir, o.sim_position, a.reach, a.arc_deg):
@@ -1204,6 +1248,14 @@ func slam(p: Player, radius: float, damage: int, push: float) -> int:
 		if h.alive() and push > 0.0:
 			var away: Vector2 = d.normalized() if d.length_squared() > 0.0001 else Vector2(PlayerSim.facing_vector(p.facing))
 			_push(h, away, push)
+	for c: CreatureSim in hunted():  # M11a
+		var to: Vector2 = c.pos - p.sim_position
+		if not c.alive() or to.length() > radius or not Combat.line_clear(data, Combat.body_point(p.sim_position), Combat.body_point(c.pos)):
+			continue
+		hit_creature(c, damage, p.get_instance_id())
+		n += 1
+		if c.alive() and push > 0.0:
+			herd.push(c, to.normalized() if to.length_squared() > 0.0001 else Vector2(PlayerSim.facing_vector(p.facing)), push)
 	add_burst(BurstKind.SLAM, p.sim_position, radius, 0, p.get_instance_id())
 	count("slams")
 	count("slam_hits", n)
@@ -1319,6 +1371,13 @@ func melee_skill(p: Player, aim: int, damage: int, reach: float, arc_deg: float,
 		if h.alive():
 			stun_heretic(h, stun)
 			slow_heretic(h, slow_pct, slow_ticks)
+	for c: CreatureSim in hunted():  # M11a: its stun and slow too (Creatures.stun, slow; a dead one takes neither)
+		if not c.alive() or not Combat.melee_hits(data, p.sim_position, dir, c.pos, reach, arc_deg):
+			continue
+		hit_creature(c, damage, p.get_instance_id())
+		n += 1
+		herd.stun(c, stun)
+		herd.slow(c, slow_pct, slow_ticks)
 	var rect: Rect2i = shrine_rect()
 	if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, reach, arc_deg):
 		edits.append_array(damage_shrine(damage))
@@ -1358,6 +1417,10 @@ func area_hit(p: Player, at: Vector2, radius: float, damage: int, kind: int) -> 
 	for h: HereticSim in heretics:
 		if in_circle(at, radius, h):
 			hit_heretic(h, damage, p.get_instance_id())
+			n += 1
+	for c: CreatureSim in hunted():  # M11a
+		if creature_in_circle(at, radius, c):
+			hit_creature(c, damage, p.get_instance_id())
 			n += 1
 	add_burst(kind, at, radius, 0, p.get_instance_id())
 	count("area_hits", n)
@@ -1409,6 +1472,11 @@ func _land_strike(s: Strike) -> void:
 			s.hits += 1
 			if h.alive():
 				stun_heretic(h, s.stun_ticks)
+	for c: CreatureSim in hunted():  # M11a
+		if creature_in_circle(s.pos, s.radius, c):
+			hit_creature(c, s.damage, s.owner_id)
+			s.hits += 1
+			herd.stun(c, s.stun_ticks)
 	add_burst(BurstKind.RAIN if s.kind == StrikeKind.ARROWS else BurstKind.ROCKS, s.pos, s.radius, 0, s.owner_id)
 	count("strikes_landed")
 	count("strike_hits", s.hits)
@@ -1643,11 +1711,21 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 					s.pierced[ph.id] = true
 					hit_heretic(ph, s.damage, s.owner_id)
 					count("pierce_hits")
+			for pc: CreatureSim in hunted():  # M11a: a creature too, each once
+				if pc.alive() and not s.pierced.has(-pc.id) and Creatures.shot_hits(s.pos, pc):
+					s.pierced[-pc.id] = true
+					hit_creature(pc, s.damage, s.owner_id)
+					count("pierce_hits")
 			continue
 		var h: HereticSim = heretic_at(s.pos)
 		if h != null:
 			hit_heretic(h, s.damage, s.owner_id)
 			_stop(s, "heretic")
+			return edits
+		var cr: CreatureSim = creature_at(s.pos)  # M11a
+		if cr != null:
+			hit_creature(cr, s.damage, s.owner_id)
+			_stop(s, "creature")
 			return edits
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:

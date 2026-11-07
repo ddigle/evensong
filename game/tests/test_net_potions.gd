@@ -565,6 +565,15 @@ func _check_throw_requests() -> void:
 	check(mp.refused(SessionHost.WHY_BUSY) - dbusy == drink_ticks - 1 and mp.player.vitals.hp == 40 + Config.POTION_HEAL_HP[1]
 		and mp.player.inventory.count_of(&"potion_healing") == 1, "a drink on each of %d frames: one drink (+%d HP, one potion), the rest busy" % [
 		drink_ticks, Config.POTION_HEAL_HP[1]])
+	# M11a: the meat is eaten the same way on the host (a USE of its slot, its own heal on the effect frame, one gone).
+	give(mp, &"meat", 2)
+	var meat_slot: int = slot_of(mp.player.inventory, &"meat")
+	host_frame(r, mp, NetProtocol.InputFrame.new())
+	mp.player.vitals.hp = 40
+	for i: int in drink_ticks:
+		host_frame(r, mp, _use(Config.MAP_SURFACE, dcell, meat_slot, 64))
+	check(mp.player.vitals.hp == 40 + Config.MEAT_HEAL_HP and mp.player.inventory.count_of(&"meat") == 1,
+		"M11a: the host eats the meat through the drink path (+%d HP, one gone), got HP %d" % [Config.MEAT_HEAL_HP, mp.player.vitals.hp])
 	# Down: a throw and a drink are refused.
 	for i: int in 4:
 		host_frame(r, m, NetProtocol.InputFrame.new())

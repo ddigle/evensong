@@ -94,6 +94,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_shop(r)
 	_check_skills(r)  # M9a
 	_check_prayer(r)  # M10a
+	_check_hunt(r)  # M11a
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -825,6 +826,42 @@ static func _check_prayer(r: Report) -> void:
 		p3.free()
 	med.free()
 	r.fields.append("prayer=%d/%d/%d faith=%d zeal_hit=%d meditate=%d" % [lit, count, zeal, spent, hit, meditated])
+
+
+## M11a: the surface's herd fills to its caps from its own stream (twice the same), a walking player sets a hare off and a kill's drops
+## go by the class of the killing blow (a bare arena, an arrow's damage on a hare and a deer). Field `herd=<alive>/<kinds> hunt=<archer's
+## items>/<anyone else's items>`.
+static func _check_hunt(r: Report) -> void:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var a: Creatures = Creatures.new()
+	a.setup(data, Config.DEFAULT_SEED)
+	var b: Creatures = Creatures.new()
+	b.setup(data, Config.DEFAULT_SEED)
+	var want: int = Creatures.cap_of(&"hare") + Creatures.cap_of(&"deer")
+	r.expect_eq(a.alive_count(), want, "creatures at the start")
+	var same: bool = a.list.size() == b.list.size()
+	for i: int in mini(a.list.size(), b.list.size()):
+		same = same and a.list[i].pos == b.list[i].pos and a.list[i].kind == b.list[i].kind
+	r.expect(same, "the same seed spawns the same creatures")
+	var archer: Player = Player.new()
+	archer.setup(data, Config.HUNTER_CLASS, data.altar_center_px())
+	var miner: Player = Player.new()
+	miner.setup(data, "miner", data.altar_center_px())
+	var got: Array[int] = []
+	for p: Player in [archer, miner]:
+		var h: CreatureSim = a.list[0]
+		a.hit(h, h.hp, p.get_instance_id())
+		var items: int = 0
+		for e: EditLog.WorldEdit in a.take_edits():
+			r.expect(ItemDB.has(e.drop.item), "a kill's drop is an item")
+			items += e.drop.count
+		got.append(items)
+		for i: int in Config.CREATURE_CORPSE_TICKS:
+			a.step([] as Array[Player])
+	r.expect(got[0] > got[1], "the archer's kill yields more than anyone else's")
+	archer.free()
+	miner.free()
+	r.fields.append("herd=%d/%d hunt=%d/%d" % [want, Config.CREATURES.size(), got[0], got[1]])
 
 
 static func _check_light(r: Report) -> void:

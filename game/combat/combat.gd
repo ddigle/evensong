@@ -113,9 +113,13 @@ static func body_centre(feet: Vector2) -> Vector2:
 ## standing at `feet`: the drawn shot is inside its drawn box, Config.BODY_HIT_RADIUS_PX either side of the
 ## feet and from the feet up Config.BODY_HIT_HEIGHT_PX (PROVISIONAL "M4-fix 화살 조준").
 static func shot_hits_body(ground: Vector2, feet: Vector2) -> bool:
+	return shot_hits_box(ground, feet, Config.BODY_HIT_RADIUS_PX, Config.BODY_HIT_HEIGHT_PX)
+
+
+## M11a: the same rule for a figure of its own size (a creature: Config.CREATURES `hit_radius_px`, `hit_height_px`).
+static func shot_hits_box(ground: Vector2, feet: Vector2, radius: float, height: float) -> bool:
 	var drawn: Vector2 = ground - Vector2(0.0, Config.SHOT_DRAW_LIFT_PX)
-	return absf(drawn.x - feet.x) <= Config.BODY_HIT_RADIUS_PX and drawn.y <= feet.y \
-		and drawn.y >= feet.y - Config.BODY_HIT_HEIGHT_PX
+	return absf(drawn.x - feet.x) <= radius and drawn.y <= feet.y and drawn.y >= feet.y - height
 
 
 ## Whether tile `c` stops a shot and a melee line: outside the map, or what blocks walking (walls and

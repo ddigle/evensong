@@ -149,7 +149,7 @@ func _session_market() -> void:
 		check_eq(str(_map_of(inst2.result, "0").get("merchant", "")), "67,50", "market/%s: the merchant at (67, 50)" % inst2.name)
 	# The late joiner's snapshot: the merchant and the stock as they were when it came (before its own torch).
 	var welcome: String = _line_with(_log_lines(c3), " welcome slot=")
-	check(welcome.contains(" merchant=67,50 shop=2/2/0/9/5/1/1/1/1/1/1 "),
+	check(welcome.contains(" merchant=67,50 shop=2/2/0/9/5/1/1/1/1/1/1/3/4 "),
 		"market/c3 (late): its snapshot had the merchant and the stock as they were (%s)" % welcome)
 	for inst3: Instance in [host, c1, c2, c3]:
 		check(_log_count(inst3, "EVENSONG_SHOP open at=67,50") >= 1, "market/%s: opened the shop panel on its own machine" % inst3.name)

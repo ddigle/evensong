@@ -593,8 +593,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if p.action_anim >= 0 and p.action_tick == Player.impact_tick_of(p.action_item, p.action_anim):
 		if Skills.is_skill(p.action_item):
 			_skill_impact(m)  # M9c: a skill's impact frame
-		elif Potions.is_potion(p.action_item):
-			_potion(m)  # M6b: the drink's effect frame, the throw's release frame
+		elif Potions.is_drink(p.action_item):
+			_potion(m)  # M6b: the drink's effect frame, the throw's release frame (M11a: the meat's too)
 		else:
 			_impact(m)
 	if events & PlayerSim.DASHED:
@@ -815,7 +815,7 @@ static func _potion_in(p: Player, slot: int) -> bool:
 	if slot < 0 or slot >= p.inventory.hotbar_size:
 		return false
 	var st: ItemStack = p.inventory.stack_at(slot)
-	return st != null and Potions.is_potion(st.id)
+	return st != null and Potions.is_drink(st.id)  # M11a: the meat is eaten the same way
 
 
 ## M6b: a USE of a potion = a drink (Config.DRINK_ANIM): in reach (the target tile only sets the facing, as for a
@@ -890,7 +890,7 @@ static func _action_op_name(frame: NetProtocol.InputFrame) -> String:
 		return "throw"
 	if frame.op == NetProtocol.Op.SKILL:
 		return "skill"
-	return "drink" if Potions.is_potion(frame.item) else "use"
+	return "drink" if Potions.is_drink(frame.item) else "use"
 
 
 ## M9 review: the player a SKILL / THROW frame says its sender picked (frame.pick, a member slot), or null.

@@ -12,6 +12,7 @@ extends RefCounted
 ## M7b (PLACEHOLDERS too): the axe has a map of its own (a broad iron bit on a wooden haft, like the action sheet's axe); the
 ## build pieces are composed from parts of their placed art (ItemDB.BUILD_ICONS, compose_parts).
 ## M8a (PLACEHOLDER too): money is a silver coin with a gold lamp flame (MAPS "money").
+## M11a (PLACEHOLDER too): the meat is a raw haunch on its bone (MAPS "meat").
 
 const SIZE: int = 16
 ## Map characters -> colour (brief §4 base / faith rows, 04-env iron and copper item colours).
@@ -34,11 +35,32 @@ const PALETTE: Dictionary[String, Color] = {
 	"y": Color8(0xd5, 0xce, 0x40),  # poison yellow
 	"Y": Color8(0xa5, 0xa1, 0x32),  # poison yellow dark
 	"u": Color8(0xc4, 0x42, 0x1c),  # rust spot
+	# M11a: the meat, the healing red's ramp and a bone ivory ("s" is the §4 faith ivory).
+	"R": Color8(0x7e, 0x24, 0x1e),  # meat dark
+	"P": Color8(0xd8, 0x6a, 0x54),  # meat fat
 }
 
 ## Plain Arrays on purpose: in Godot 4.7.2 a const Dictionary[..., PackedStringArray] built from
 ## array literals reads back garbage (24 empty strings) and crashed image_from_map (measured, M2a).
 const MAPS: Dictionary[StringName, Array] = {
+	&"meat": [
+		"................",
+		"................",
+		".....kkkkk......",
+		"...kkrrrrrkk....",
+		"..krrrPPrrrrk...",
+		"..krrPrrrrrrk...",
+		".krrrrrrrrrrRk..",
+		".krrrrrrrrrRRk..",
+		".krrrrrrrrRRk...",
+		"..kRrrrrrRRkkk..",
+		"...kkRRRRkkssk..",
+		".....kkkk.kssk..",
+		"...........kkk..",
+		"................",
+		"................",
+		"................",
+	],
 	&"pickaxe": [
 		"................",
 		"....kkkkkk......",

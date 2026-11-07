@@ -518,7 +518,7 @@ func make_frame(input: Vector2i, mouse: Vector2, aiming: bool, use_pressed: bool
 			f.throw_to = Potions.throw_target(Combat.body_point(sim_position), mouse).round()
 		else:
 			potion_refused.emit("throw", why_throw)
-	elif free and potions_on and use_pressed and selected != null and Potions.is_potion(selected.id):
+	elif free and potions_on and use_pressed and selected != null and Potions.is_drink(selected.id):  # M11a: the meat too
 		var why_drink: String = Potions.drink_refusal(selected.id, selected.grade, vitals)
 		if why_drink.is_empty():
 			f.op = NetProtocol.Op.USE
@@ -656,7 +656,7 @@ func step_frame(frame: NetProtocol.InputFrame, delta: float) -> int:
 static func impact_tick_of(item: StringName, anim: int) -> int:
 	if Skills.is_skill(item):
 		return Skills.impact_tick(item)  # M9a: a skill's action lands on its own frame (Config.SKILLS "impact")
-	if Potions.is_potion(item):
+	if Potions.is_drink(item):
 		return Potions.impact_tick(anim)
 	if Purify.is_holy_water(item):
 		return Purify.impact_tick()

@@ -22,6 +22,9 @@ const MAX_PLAYERS: int = 9
 const CLASSES: PackedStringArray = ["paladin", "miner", "archer", "cleric", "herbalist"]
 ## ● character frames 32x32, feet on frame row y=31 (concept-art-brief §5.6, R20·R26).
 const CHAR_FRAME: Vector2i = Vector2i(32, 32)
+## ● the class whose kill leaves the hide whole, every other class's damages it (gameplay-design §3.0 R11 archer row, §3.4 "생물을
+## 아처가 잡으면 가죽이 온전, 다른 클래스는 손상").
+const HUNTER_CLASS: String = "archer"
 
 # --- PROVISIONAL (○ / ?) --------------------------------------------------------------------
 
@@ -813,8 +816,9 @@ const MERCHANT_BLOCKS: bool = true
 ## 비쌈)" (holy water, the dearest consumable, the smallest stock), the engineer's "기본 키트 (횃불, 발판)" (the torch: 발판 does not
 ## exist), the miner's "상점의 저급 광석 소량" (copper ore, the lower of the slice's two ores, a small stock) and the rune
 ## master's "상점 1티어 장비" (the six tier-1 pieces, one of each: the tier cap; dearer than their materials, the anvil being the
-## better way, tier 2 of the rule). The archer's leather and meat (no hunting until M11), the wizard's charms (no elements)
-## and the thief's keys (no locked chests) have no item in the slice.
+## better way, tier 2 of the rule). The wizard's charms (no elements) and the thief's keys (no locked chests) have no item in the
+## slice. M11a: the archer's "상점의 일반 가죽·고기" (hunting exists now, so its items do): the worn hide (the shop's 일반 가죽, the same
+## item, README "M11a 일반 가죽") and the meat, at the end so an offer's index keeps its meaning.
 const SHOP_SELLS: Array = [
 	[&"potion_healing", 12, 3],
 	[&"potion_buff", 12, 3],
@@ -827,6 +831,8 @@ const SHOP_SELLS: Array = [
 	[&"pickaxe_t1", 30, 1],
 	[&"sickle_t1", 24, 1],
 	[&"armor_t1", 45, 1],
+	[&"hide_worn", 10, 3],
+	[&"meat", 6, 4],
 ]
 ## PROVISIONAL (● R11 "성능 상한" read as no high grade): the grade the shop's graded items (the potions) come in: COMMON
 ## (ItemDB.Grade.COMMON = 1).
@@ -845,6 +851,7 @@ const SHOP_BUYS: Dictionary[StringName, int] = {
 	&"log": 2, &"planks": 1, &"ore_copper": 3, &"ore_iron": 4, &"ingot_copper": 3, &"ingot_iron": 4,
 	&"potion_healing": 4, &"potion_buff": 4, &"potion_poison": 4,
 	&"sword_t1": 8, &"bow_t1": 6, &"holy_light_t1": 6, &"pickaxe_t1": 8, &"sickle_t1": 6, &"armor_t1": 8,
+	&"hide_worn": 3, &"hide_fine": 7, &"meat": 2,
 }
 ## PROVISIONAL (not in the docs): an item with durability sells for its SHOP_BUYS price times the share of its durability left,
 ## rounded down (a sword_t1 at 60 / 120 sells for 4); one that comes to 0 (broken, or nearly) is refused (Shop.WHY_WORN_OUT).
@@ -1145,6 +1152,56 @@ const MEDITATION_ZEAL_BLOCKS_PRAYER: bool = false
 ## and its tap arrives one way later. Offline 0 (no lag). The joiner goes to the end of the turn order (turn 0 is the cleric's).
 const PRAYER_JOIN_LAG_TICKS: int = 30
 
+# --- PROVISIONAL, M11a (hunting: the creatures, the hides and the meat; offline first) --------------------------------------
+# Offline first (M11a, like M5a-M10a; a session has no creature until M11c). README "임시값" M11a. ● decided and followed as written:
+# anyone hunts, the hide is damaged and the yield low, no capture; the archer alone gets the whole hide (gameplay-design §3.0 R11
+# archer row, §3.4); the merchant's substitute is 일반 가죽·고기 (§3.0 R11). Every creature, name and number below is a placeholder.
+
+## PROVISIONAL (○ / not in the docs: game-concept §12 "컬렉션은 아처 구역 1개, 항목 5~10개", §3 "희귀 생물 포획·사냥"; names are placeholders,
+## README "M11a 생물 표"): every creature kind, in spawn order. `rare`: lives only in the rare zone (M11b; only the prey spawn in M11a).
+## `hp`; `walk_speed` (wandering, px/s, below Config.WALK_SPEED) and `flee_speed` (a burst above it, so a player on foot falls
+## behind for `flee_ticks`, then the creature stops and rests `rest_ticks`, when walking catches it: the bow's reach is the natural
+## way, melee the slower one, the ● common tier); `alert_px` (it bolts from a player up within this, feet to feet, wandering or
+## idle; a hit makes it bolt at once, resting too); `wander_px` (how far from home it wanders); `cap` (alive at once) and
+## `respawn_ticks` (game clock, from the death); `hit_radius_px` and `hit_height_px` (the drawn figure's box a shot must be
+## inside, Combat.shot_hits_body's rule at its size, measured from the view's maps); `drops_hunter` and `drops_other` ([item, count]
+## rows by the killing blow's class: ● the archer's whole hide, everyone else's damaged one and fewer, no dice).
+const CREATURES: Dictionary[StringName, Dictionary] = {
+	&"hare": {"rare": false, "hp": 10, "walk_speed": 28.0, "flee_speed": 112.0, "flee_ticks": 80, "rest_ticks": 120,
+		"alert_px": 72.0, "wander_px": 64.0, "cap": 6, "respawn_ticks": 3 * 60 * 60, "hit_radius_px": 8.0, "hit_height_px": 12.0,
+		"drops_hunter": [[&"hide_fine", 1], [&"meat", 1]], "drops_other": [[&"hide_worn", 1]]},
+	&"deer": {"rare": false, "hp": 30, "walk_speed": 24.0, "flee_speed": 96.0, "flee_ticks": 90, "rest_ticks": 120,
+		"alert_px": 64.0, "wander_px": 96.0, "cap": 4, "respawn_ticks": 5 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 24.0,
+		"drops_hunter": [[&"hide_fine", 2], [&"meat", 2]], "drops_other": [[&"hide_worn", 1], [&"meat", 1]]},
+	&"lamp_fox": {"rare": true, "hp": 40, "walk_speed": 30.0, "flee_speed": 124.0, "flee_ticks": 90, "rest_ticks": 100,
+		"alert_px": 96.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 10.0, "hit_height_px": 14.0,
+		"drops_hunter": [[&"hide_fine", 2], [&"meat", 1]], "drops_other": []},
+	&"silver_stag": {"rare": true, "hp": 56, "walk_speed": 26.0, "flee_speed": 112.0, "flee_ticks": 100, "rest_ticks": 100,
+		"alert_px": 88.0, "wander_px": 64.0, "cap": 1, "respawn_ticks": 10 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 25.0,
+		"drops_hunter": [[&"hide_fine", 3], [&"meat", 2]], "drops_other": []},
+	&"ash_owl": {"rare": true, "hp": 36, "walk_speed": 28.0, "flee_speed": 128.0, "flee_ticks": 80, "rest_ticks": 110,
+		"alert_px": 104.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 8.0, "hit_height_px": 16.0,
+		"drops_hunter": [[&"hide_fine", 1], [&"meat", 1]], "drops_other": []},
+}
+## PROVISIONAL (not in the docs): an unalarmed creature stands between these many ticks (drawn from its own stream), then walks to a
+## spot within its wander_px of home (a spot it may not stand on: it stands on). A dead one lies this long, then is gone (the drop
+## is on the ground from the killing blow).
+const CREATURE_IDLE_TICKS_MIN: int = 90
+const CREATURE_IDLE_TICKS_MAX: int = 300
+const CREATURE_CORPSE_TICKS: int = 45
+## PROVISIONAL (not in the docs): where a creature may be put down: grass on the surface (no soil, ash or fixture under it; no doorway)
+## at least CREATURE_SPAWN_LIGHT_CLEARANCE_TILES beyond the safe radius, CREATURE_SPAWN_ASH_CLEARANCE_TILES (Chebyshev) from every
+## corrupted tile, CREATURE_SPAWN_EDGE_TILES from the map's edge and (respawns; the world's start has no player yet)
+## CREATURE_SPAWN_MIN_PLAYER_PX from every player. Walking it keeps out of the light and off corrupted tiles (Creatures.can_walk).
+const CREATURE_SPAWN_LIGHT_CLEARANCE_TILES: int = 5
+const CREATURE_SPAWN_ASH_CLEARANCE_TILES: int = 3
+const CREATURE_SPAWN_EDGE_TILES: int = 2
+const CREATURE_SPAWN_MIN_PLAYER_PX: float = 160.0
+## PROVISIONAL (not in the docs; the ● R11 "수율 낮음" gives no number): what eating one meat heals (left click through the M6 drink path:
+## Config.DRINK_ANIM, DRINK_EFFECT_FRAME; refused at full HP like a healing potion, Config.DRINK_AT_FULL_HP). Well below the common
+## healing potion (Config.POTION_HEAL_HP).
+const MEAT_HEAL_HP: int = 12
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -1369,6 +1426,16 @@ const PRAYER_SENT_SHOW_TICKS: int = PRAYER_ANSWER_WINDOW_TICKS + PRAYER_ANSWER_L
 ## IMPL (M10-fix: participants south of the altar cover its bottom lamp row): while a prayer's lamps show, the HUD of a player who
 ## prays, meditates or stands this close to the altar's centre also draws the nine lamps as a small grid (Hud.show_prayer_lamps).
 const PRAYER_HUD_LAMPS_REACH_PX: float = 2.0 * PRAYER_CIRCLE_RADIUS_PX
+## IMPL (M11a): a spawn try picks this many random tiles before it gives up for CREATURE_SPAWN_RETRY_TICKS; the creatures' random stream is
+## its own (CREATURE_SALT with the world seed: heretic spawns, prayer directions and the generators never read it, nor it them); a wander
+## ends within CREATURE_ARRIVE_PX of its spot; a kill's drops lie CREATURE_DROP_SPREAD_PX apart on its tile (both show); a test creature
+## (--test-creature) stands on a ring CREATURE_TEST_RING_PX from the local player (outside every alert radius but the rare ones').
+const CREATURE_SPAWN_TRIES: int = 32
+const CREATURE_SPAWN_RETRY_TICKS: int = 60
+const CREATURE_SALT: int = 0xC2EA7
+const CREATURE_ARRIVE_PX: float = 1.5
+const CREATURE_DROP_SPREAD_PX: int = 8
+const CREATURE_TEST_RING_PX: float = 104.0
 
 
 static func safe_radius_px() -> float:
