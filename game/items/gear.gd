@@ -17,6 +17,8 @@ extends RefCounted
 ## Config.GEAR_DEATH_WEAR_PCT of its full durability on death (wear_on_death). At 0 it is broken: it works as its base item
 ## (Config.GEAR_BROKEN_UNUSABLE off) or not at all (on). Repair: an anvil recipe per item (Crafting, Config.GEAR_REPAIR_MATERIAL;
 ## M7-rf, the human's decision: anyone, Config.GEAR_REPAIR_COST_ANYONE of the material, the higher common cost).
+## M11b: the rare armour (armor_rare): the same slot and rules, its own defence (Config.ARMOR_DEFENCE) and durability, repaired with
+## Config.GEAR_REPAIR_RARE. The collection's all-classes benefit adds to the defence, also with no armour on (after_armor's `extra`).
 
 const WHY_NOT_ARMOR: String = "not armour"
 const WHY_EMPTY: String = "empty slot"
@@ -67,13 +69,14 @@ static func attack_damage(stack: ItemStack, base_damage: int) -> int:
 static func defence(inv: Inventory) -> int:
 	if inv == null or inv.armor == null or inv.armor.broken():
 		return 0
-	return Config.ARMOR_T1_DEFENCE
+	var d: int = Config.ARMOR_DEFENCE.get(inv.armor.id, 0)
+	return d
 
 
 ## A heretic's hit of `amount` on a player wearing `inv`'s armour: less the defence, never below Config.ARMOR_MIN_DAMAGE
-## (an unarmoured hit is unchanged).
-static func after_armor(amount: int, inv: Inventory) -> int:
-	var d: int = defence(inv)
+## (an unarmoured hit is unchanged). M11b: `extra` = defence the world adds (Collection.defence_bonus), with or without armour.
+static func after_armor(amount: int, inv: Inventory, extra: int = 0) -> int:
+	var d: int = defence(inv) + extra
 	if d <= 0:
 		return amount
 	return maxi(amount - d, mini(Config.ARMOR_MIN_DAMAGE, amount))

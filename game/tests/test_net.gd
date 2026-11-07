@@ -21,6 +21,8 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_enemies": NetProtocol.CH_ENEMY, "_rpc_enemy_keyframe": NetProtocol.CH_CONTROL, "_rpc_shots": NetProtocol.CH_CONTROL,
 	"_rpc_skills": NetProtocol.CH_CONTROL,  # M9c: the owner's skill state
 	"_rpc_vespers": NetProtocol.CH_CONTROL,  # M10b: the prayer events (the surface), the zeals (everyone)
+	"_rpc_wild": NetProtocol.CH_CREATURE, "_rpc_wild_keyframe": NetProtocol.CH_CONTROL,  # M11c: the creatures in a client's view
+	"_rpc_tally": NetProtocol.CH_CONTROL,  # M11c: the world's collection
 }
 ## M10-fix: the RPCs a version refusal needs, at the numbers every build since v9 gives them (Godot numbers a node's RPCs by their
 ## sorted names): an older or newer client's hello must reach the host's `_rpc_hello` and the host's refusal its `_rpc_refused`, so a
@@ -28,7 +30,7 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 const RPC_STABLE: Dictionary[String, int] = {"_rpc_hello": 6, "_rpc_refused": 13}
 ## Only these may be called by clients; everything else only by the host (authority).
 const CLIENT_CALLABLE: PackedStringArray = ["_rpc_hello", "_rpc_input", "_rpc_done"]
-const UNRELIABLE: PackedStringArray = ["_rpc_input", "_rpc_state", "_rpc_enemies"]
+const UNRELIABLE: PackedStringArray = ["_rpc_input", "_rpc_state", "_rpc_enemies", "_rpc_wild"]
 
 
 func run() -> Array[String]:
@@ -1111,8 +1113,8 @@ func _check_snapshot() -> void:
 		data.set_value(WorldData.Layer.FLOOR_PIECE, Vector2i(rng.randi_range(0, data.size.x - 1),
 			rng.randi_range(0, data.size.y - 1)), WorldData.FLOOR_PIECE_STONE)
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 + 1,
-		"raw snapshot = header + seven layers (M7-rf) + drop count (0) + chest count (0, M7c) + shop offer count (0: no shop, M8b)")
+	check_eq(raw.size(), WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * data.size.x * data.size.y + 2 + 2 + 1 + 1 + 1,
+		"raw snapshot = header + seven layers (M7-rf) + drop count (0) + chest count (0, M7c) + shop offer count (0: no shop, M8b) + no zone, no collection (M11c)")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
 	if check(back != null, "raw snapshot decodes"):
 		var same: bool = back.size == data.size and back.world_seed == data.world_seed and back.altar_rect == data.altar_rect

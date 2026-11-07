@@ -30,6 +30,11 @@ extends RefCounted
 ## others at t_draw), a burst or a zone that follows a player around that player as drawn here; a strike until its delay is up
 ## (its landing is a burst event, its hits come with the batches), a zone until its duration is up or its early end. A ward over a
 ## player until its time is up (the shield, Player._sync_view). A heretic's stun, slow and taunt are marks in the batch.
+##
+## M11c: the creatures near this player (NetProtocol.CreatureBatch: a track per creature, drawn at t_draw like the heretics) fill the mirror
+## arena's herd (surface only), which CombatView draws, Capture.target_at picks from and the bots aim at. One missing from a batch is gone
+## or out of this client's view. Its HP, flash and marks are the host's; a click this machine refused shows the refused mark at once
+## (mark_refused).
 
 ## M9c: a skill's burst as the host's event tells it (Arena.Burst at its age, drawn by CombatView).
 class BurstTrack:
@@ -158,6 +163,21 @@ class FoeTrack:
 	var gone_at: int = -1
 
 
+## M11c: one received creature state at a host tick, and its track.
+class CreatureSnap:
+	extends RefCounted
+	var tick: int = 0
+	var e: NetProtocol.CreatureState
+
+
+class CreatureTrack:
+	extends RefCounted
+	var id: int = 0
+	var snaps: Array[CreatureSnap] = []
+	## The host tick of the first batch it was missing from (-1 = still there).
+	var gone_at: int = -1
+
+
 class ShotTrack:
 	extends RefCounted
 	var id: int = 0
@@ -234,6 +254,20 @@ var stale: int = 0
 var other_map: int = 0
 var shot_events: int = 0
 var foe_hp: Dictionary[int, Array] = {}
+## M11c: the creatures by id, the newest batch's tick and its creatures, batches / keyframes / stale ones taken, the HP each was seen with
+## (consecutive repeats dropped), the kinds seen, and until when (host time) a refused click's mark shows here.
+var creatures: Dictionary[int, CreatureTrack] = {}
+var creature_tick: int = -1
+var creature_last: NetProtocol.CreatureBatch
+var creature_batches: int = 0
+var creature_keyframes: int = 0
+var creature_stale: int = 0
+var creature_hp: Dictionary[int, Array] = {}
+var kinds_seen: Dictionary[String, bool] = {}
+## The batches that showed each mark on a creature ("refused", "stunned", "slowed", "poisoned", "held").
+var creature_marks: Dictionary[String, int] = {}
+var _refused_until: Dictionary[int, float] = {}
+var _t_fresh: float = 0.0
 
 
 ## Starts over on map `p_map` (its data): no heretic, no shot until the host's keyframe.
@@ -241,6 +275,12 @@ func reset(p_map: int, p_data: WorldData) -> void:
 	map = p_map
 	data = p_data
 	arena = Arena.mirror(p_data)
+	if p_map == Config.MAP_SURFACE:
+		arena.herd = Creatures.mirror(p_data)  # M11c: filled from the host's batches, never stepped
+	creatures.clear()
+	creature_tick = -1
+	creature_last = null
+	_refused_until.clear()
 	foes.clear()
 	shots.clear()
 	flasks.clear()
@@ -480,6 +520,72 @@ func forget_player(slot: int) -> void:
 			flasks[id].follow = NetProtocol.NO_SLOT
 
 
+## M11c: a creature batch (or keyframe). False when this map has no creatures (a batch sent before this client went down, overtaking its
+## map entry on another channel): it is skipped.
+func on_creatures(b: NetProtocol.CreatureBatch, keyframe: bool) -> bool:
+	if arena == null or arena.herd == null:
+		other_map += 1
+		return false
+	if b.tick <= creature_tick:
+		creature_stale += 1
+		return true
+	creature_tick = b.tick
+	creature_last = b
+	if keyframe:
+		creature_keyframes += 1
+	else:
+		creature_batches += 1
+	var seen: Dictionary[int, bool] = {}
+	for e: NetProtocol.CreatureState in b.creatures:
+		seen[e.id] = true
+		var tr: CreatureTrack = creatures.get(e.id, null)
+		if tr == null:
+			tr = CreatureTrack.new()
+			tr.id = e.id
+			creatures[e.id] = tr
+		tr.gone_at = -1
+		var s: CreatureSnap = CreatureSnap.new()
+		s.tick = b.tick
+		s.e = e
+		tr.snaps.append(s)
+		while tr.snaps.size() > 64:
+			tr.snaps.pop_front()
+		kinds_seen[String(e.kind)] = true
+		_note_creature_marks(e)
+		var hps: Array = creature_hp.get(e.id, [])
+		if hps.is_empty() or hps.back() != e.hp:
+			hps.append(e.hp)
+		creature_hp[e.id] = hps
+		if creature_hp.size() > 64:
+			creature_hp.erase(creature_hp.keys()[0])
+	for id: int in creatures:
+		if not seen.has(id) and creatures[id].gone_at < 0:
+			creatures[id].gone_at = b.tick
+	return true
+
+
+func _note_creature_marks(e: NetProtocol.CreatureState) -> void:
+	var names: PackedStringArray = []
+	if e.refused:
+		names.append("refused")
+	if e.stunned:
+		names.append("stunned")
+	if e.slowed:
+		names.append("slowed")
+	if e.poisoned:
+		names.append("poisoned")
+	if e.holder != NetProtocol.NO_SLOT:
+		names.append("held")
+	for name: String in names:
+		var n: int = creature_marks.get(name, 0)
+		creature_marks[name] = n + 1
+
+
+## M11c: a click with the snare this machine refused: creature `id` shows the refused mark here (the host never heard of it).
+func mark_refused(id: int) -> void:
+	_refused_until[id] = _t_fresh + Config.CREATURE_REFUSED_SHOW_TICKS
+
+
 ## Fills the mirror arena for drawing at host time `t_fresh` (the newest this client knows) with positions
 ## `delay` ticks behind it (see the class comment). M9c: `positions` = the players on this map as drawn here, by slot (a burst
 ## or a zone that follows one is drawn around it).
@@ -487,6 +593,8 @@ func sample(t_fresh: float, delay: float, positions: Dictionary[int, Vector2] = 
 	if arena == null:
 		return
 	var t_draw: float = t_fresh - delay
+	_t_fresh = t_fresh
+	_sample_creatures(t_draw, positions)  # M11c
 	arena.heretics.clear()
 	for id: int in foes.keys():
 		var h: HereticSim = sample_foe(foes[id], t_draw, t_fresh)
@@ -549,6 +657,57 @@ func sample(t_fresh: float, delay: float, positions: Dictionary[int, Vector2] = 
 	_sample_skills(t_fresh, t_draw, positions)  # M9c
 	arena.shrine_hp = shrine_hp_at(t_draw)
 	arena.shrine_flash = maxi(Config.HIT_FLASH_TICKS - floori(t_draw - shrine_hit_tick), 0) if t_draw >= shrine_hit_tick else 0
+
+
+## M11c: the creatures as the mirror herd's at `t_draw`; gone ones forgotten.
+func _sample_creatures(t_draw: float, positions: Dictionary[int, Vector2]) -> void:
+	if arena.herd == null:
+		return
+	arena.herd.list.clear()
+	for id: int in creatures.keys():
+		var tr: CreatureTrack = creatures[id]
+		var c: CreatureSim = sample_creature(tr, t_draw, positions)
+		if c == null and tr.gone_at >= 0 and t_draw >= tr.gone_at:
+			creatures.erase(id)
+			_refused_until.erase(id)
+		elif c != null:
+			if _refused_until.get(id, -1.0) > _t_fresh:
+				c.refused_ticks = 1
+			arena.herd.list.append(c)
+	arena.herd.list.sort_custom(func(a: CreatureSim, b: CreatureSim) -> bool: return a.id < b.id)
+
+
+## M11c: one creature as drawn at `t_draw`, or null (not there yet, or gone). `positions`: the players as drawn here, by slot (a snare's rope
+## goes to its thrower). Nothing but the drawing reads these: the hold's and the marks' times are the host's.
+static func sample_creature(tr: CreatureTrack, t_draw: float, positions: Dictionary[int, Vector2]) -> CreatureSim:
+	if tr.snaps.is_empty() or (tr.gone_at >= 0 and t_draw >= tr.gone_at):
+		return null
+	while tr.snaps.size() >= 2 and tr.snaps[1].tick <= t_draw:
+		tr.snaps.pop_front()
+	var a: CreatureSnap = tr.snaps[0]
+	var b: CreatureSnap = tr.snaps[1] if tr.snaps.size() > 1 else null
+	var c: CreatureSim = CreatureSim.new()
+	c.id = tr.id
+	c.kind = a.e.kind
+	c.pos = a.e.pos
+	if b != null and t_draw > a.tick:
+		c.pos = a.e.pos.lerp(b.e.pos, clampf((t_draw - a.tick) / float(b.tick - a.tick), 0.0, 1.0))
+	c.home = c.pos
+	c.facing = a.e.facing
+	c.walking = a.e.walking
+	c.state = a.e.state
+	c.hp = a.e.hp
+	c.flash_ticks = maxi(a.e.flash - maxi(floori(t_draw - a.tick), 0), 0)
+	c.clock = maxi(floori(t_draw), 0)
+	c.poison_ticks = 1 if a.e.poisoned else 0
+	c.stun_ticks = 1 if a.e.stunned else 0
+	c.slow_pct = 1 if a.e.slowed else 0
+	c.slow_ticks = c.slow_pct
+	c.refused_ticks = 1 if a.e.refused else 0
+	if a.e.holder != NetProtocol.NO_SLOT:
+		c.hold_ticks = 1
+		c.held_from = Combat.body_point(positions[a.e.holder]) if positions.has(a.e.holder) else c.pos
+	return c
 
 
 ## M9c: the bursts, strikes and zones as the mirror arena's (CombatView draws them): each at the host's age at the drawing time
@@ -693,6 +852,13 @@ func latest_hash() -> String:
 	return ctx.finish().hex_encode()
 
 
+## M11c: the live creatures' feet as drawn last (the build ghost's bodies).
+func creature_feet() -> Array[Vector2]:
+	if arena == null or arena.herd == null:
+		return [] as Array[Vector2]
+	return arena.herd.feet()
+
+
 ## The live heretics' positions as drawn last (bots aim at them).
 func foe_positions() -> Array[Vector2]:
 	var out: Array[Vector2] = []
@@ -717,7 +883,14 @@ func to_dict() -> Dictionary:
 		marks[mark] = ids
 	var warded: Array = warded_seen.keys()
 	warded.sort()
-	return {"map": map, "batches": batches, "keyframes": keyframes, "stale": stale, "other_map": other_map,
+	var creature_hps: Dictionary = {}
+	for id: int in creature_hp:
+		creature_hps[str(id)] = creature_hp[id]
+	var kinds: Array = kinds_seen.keys()
+	kinds.sort()
+	return {"creature_batches": creature_batches, "creature_keyframes": creature_keyframes, "creature_stale": creature_stale,
+		"creature_hp": creature_hps, "creature_kinds": kinds, "creature_marks": creature_marks,
+		"creatures": creature_last.creatures.size() if creature_last != null else 0, "map": map, "batches": batches, "keyframes": keyframes, "stale": stale, "other_map": other_map,
 		"shot_events": shot_events, "hash": latest_hash(), "foe_hp": hp, "flask_events": flask_events,
 		"poisoned_seen": poisoned, "skill_events": skill_events, "bursts_seen": bursts_seen, "marks_seen": marks,
 		"warded_seen": warded,

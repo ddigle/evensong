@@ -64,6 +64,8 @@ var zeal_sent_pct: int = 0
 var zeal_sent_until: int = 0
 ## M10-fix: and whether it said a prayer's zeal (not only a meditation's).
 var zeal_sent_prayer: bool = false
+## Host (M11c): this client's creature batches (what it can see differs per client: SessionHost._send_creatures).
+var creature_cast: StateBroadcast = StateBroadcast.new()
 var _last_action: int = -1
 var _last_action_start: float = -1.0
 

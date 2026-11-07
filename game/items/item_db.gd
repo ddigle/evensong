@@ -35,12 +35,16 @@ extends RefCounted
 ## M8a: MONEY = the currency (● gameplay-design §3.0 R41: money; its name is not decided, PROVISIONAL Config.MONEY_NAME): an item
 ## like any other (it stacks, drops, goes into the chest and half of it into the death bag), paid to and by the merchant
 ## (items/shop.gd). "Use" does nothing with it. Appended at the end of the table.
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD, MONEY }
+## M11a: FOOD = eaten with "use" through the M6 drink path (items/potions.gd: a click, Config.DRINK_ANIM, it works on the effect
+## frame); it is no potion (nobody throws it, it does not splash). The hides are materials.
+## M11b: the snare (CONSUMABLE, thrown at a rare creature with "use": items/capture.gd), the rare material (MATERIAL) and the rare armour
+## (ARMOR), appended at the end of the table, their icons drawn in code (PLACEHOLDERS).
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD, MONEY, FOOD }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
 const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable", "armor",
-	"build", "money"]
+	"build", "money", "food"]
 ## M7a: the icons of the wood and the ingots (04-env 묶음 2 #62 log, #46 planks, #42 / #44 ingots: the 3/4 icons v02, like the
 ## stone block and the ores; whether material icons are 3/4 v02 or front v03 is ○ brief §5.7).
 const WOOD_ICONS: Dictionary[StringName, String] = {
@@ -143,6 +147,10 @@ class ItemDef:
 	## M8a: the currency (items/shop.gd).
 	func is_money() -> bool:
 		return kind == Kind.MONEY
+
+	## M11a: eaten through the drink path (items/potions.gd).
+	func is_food() -> bool:
+		return kind == Kind.FOOD
 
 
 static var _table: Dictionary[StringName, ItemDef] = {}
@@ -346,6 +354,29 @@ static func _build() -> void:
 	var money: ItemDef = ItemDef.new(MONEY, Kind.MONEY, Config.STACK_MONEY)
 	money.icon_code = MONEY
 	_add(money)
+	# M11a (appended): the hides (● gameplay-design §3.0 R11 archer row, §3.4: the archer's kill leaves the hide whole, anyone else's
+	# damages it; the worn hide is also the shop's 일반 가죽, the same item, README "M11a 일반 가죽"), materials. Icons: 04-env 묶음 2 #52
+	# a tanned flat hide and #54 a dark folded one (ours, copied to art/items). The meat: no art, a code icon (PLACEHOLDER), eaten
+	# with left click (Kind.FOOD, Config.MEAT_HEAL_HP).
+	_art(&"hide_fine", Kind.MATERIAL, Config.STACK_MATERIAL, false, "item_leather_a_v02.png")
+	_art(&"hide_worn", Kind.MATERIAL, Config.STACK_MATERIAL, false, "item_leather_c_v03.png")
+	var meat: ItemDef = ItemDef.new(&"meat", Kind.FOOD, Config.STACK_MATERIAL)
+	meat.icon_code = &"meat"
+	meat.effect = Potions.Effect.HEAL
+	_add(meat)
+	# M11b (appended): the archer's snare (○ gameplay-design §3.4 "올가미"; ○ 덫 is not built), the rare material a capture gives (● game-concept
+	# §4; the placeholder name 희귀 정수) and the rare armour it is required for (Config.ARMOR_DEFENCE, GEAR_DURABILITY; ● R21 no new looks).
+	var snare: ItemDef = ItemDef.new(Capture.SNARE, Kind.CONSUMABLE, Config.STACK_SNARE)
+	snare.icon_code = Capture.SNARE
+	_add(snare)
+	var essence: ItemDef = ItemDef.new(Config.RARE_MATERIAL, Kind.MATERIAL, Config.STACK_MATERIAL)
+	essence.icon_code = Config.RARE_MATERIAL
+	_add(essence)
+	var rare_armor: ItemDef = ItemDef.new(&"armor_rare", Kind.ARMOR, Config.STACK_TOOL)
+	rare_armor.icon_code = &"armor_rare"
+	rare_armor.tier = 2
+	rare_armor.durability = Config.GEAR_DURABILITY.get(&"armor_rare", 0)
+	_add(rare_armor)
 
 
 static func _tool(id: StringName, action: int) -> void:

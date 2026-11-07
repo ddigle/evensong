@@ -92,12 +92,31 @@ extends RefCounted
 ##   hurt:<slot>,<amount>         test only, the host: member slot <slot> takes a hit of <amount> now (Player.take_hit: a
 ##                                participant hit leaves the prayer, the cleric stops it; nothing reaches a praying player inside
 ##                                the light in the slice)
+## M11a (offline: the creatures as Main has them, `prey`, set before each step):
+##   aimprey                      from now on aim at the nearest live creature (the middle of its figure; none: not aiming)
+##   hunt:<ticks>[,<n>[,<px>]]    hold the use button aimed at the nearest live creature while more than n (default 0) are there, at
+##                                most that many ticks; with px, walk toward it while it is farther than px (melee, or to get in range)
+##   waitprey:<n>[,<ticks>]       stand until at most n live creatures are there (default 1800 ticks)
+##   waitseen:<n>[,<ticks>]       M11c: stand until at least n live creatures are there (default 1800 ticks; a client: in its view)
+##   creature:<kind>,<x>,<y>[,<pct>]   test only, offline and (M11c) the host: a creature of that kind on tile x,y of the surface now; with
+##                                pct, out of breath at that percent of its HP (it stands until its rest is over or a hit)
+## M11b (offline: the rare creatures as Main has them, `rare`, `rare_ready`; M11c: in a session too, as this machine has them):
+##   huntrare:<ticks>[,<px>]      shoot (one press every RARE_SHOT_TICKS: an arrow in the air would kill what is nearly caught) at the
+##                                nearest live rare creature until a snare could take it, at most that long; with px, walk to it while
+##                                it is farther than that
+##   snare:<ticks>                walk to the nearest rare creature a snare could take and click on it in reach, until none is left
+##   collection                   K: open or close the collection panel
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
+## M11b: `snare` clicks this far inside the snare's reach (measured to the figure's middle; its feet are a little farther); `huntrare`
+## shoots once in this many ticks (the bow's action and an arrow's flight over its reach).
+const SNARE_MARGIN_PX: float = 12.0
+const RARE_SHOT_TICKS: int = 100
 const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall", "walkto", "aim", "aimat", "use", "pick",
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
-	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt"]
+	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt",
+	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -108,7 +127,7 @@ const WAITMAP_LIMIT_TICKS: int = 1800
 ## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
 const ARRIVE_PX: float = 0.6
 
-enum Aiming { NONE, OFFSET, CELL, FOE }
+enum Aiming { NONE, OFFSET, CELL, FOE, PREY }
 
 class Command:
 	extends RefCounted
@@ -171,6 +190,12 @@ class Action:
 	## M10b (test only, the host): member slot `hurt_slot` takes a hit of `hurt_amount` this tick (-1 = none).
 	var hurt_slot: int = -1
 	var hurt_amount: int = 0
+	## M11a (test only, offline): a creature of this kind goes down on this tile this tick (&"" = none).
+	var creature: StringName = &""
+	var creature_cell: Vector2i = Vector2i.ZERO
+	var creature_pct: int = 0
+	## M11b: K pressed this tick (Main.toggle_collection).
+	var collection: bool = false
 
 
 var commands: Array[Command] = []
@@ -191,6 +216,11 @@ var prayer_phase: int = 0
 var prayer_member: bool = false
 var prayer_dir: int = -1
 var prayer_window: int = 0
+## M11a: the live creatures on this map as Main has them: the middle of each figure (Creatures.aim_point).
+var prey: Array[Vector2] = []
+## M11b: the live rare creatures among them, and whether a snare could take each now.
+var rare: Array[Vector2] = []
+var rare_ready: Array[bool] = []
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -314,7 +344,38 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimfoe":
 			if args.size() != 0:
 				return "aimfoe takes no arguments"
-		"tab", "throw", "unequip", "wreck", "pray":
+		"aimprey":
+			if args.size() != 0:
+				return "aimprey takes no arguments"
+		"hunt":
+			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() > 1 and not _whole(args[1], 0)) \
+					or (args.size() > 2 and not _whole(args[2], 1)):
+				return "expected hunt:<ticks>[,<n>[,<px>]]"
+			c.ticks = args[0].to_int()
+			c.count = args[1].to_int() if args.size() > 1 else 0
+			c.offset = Vector2(args[2].to_float() if args.size() > 2 else 0.0, 0.0)
+		"waitprey", "waitseen":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 0) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected %s:<n>[,<ticks>]" % c.op
+			c.count = args[0].to_int()
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
+		"creature":
+			if args.size() < 3 or args.size() > 4 or not Config.CREATURES.has(StringName(args[0])) or not _whole(args[1], 0) \
+					or not _whole(args[2], 0) or (args.size() == 4 and not (_whole(args[3], 1) and args[3].to_int() <= 100)):
+				return "expected creature:<%s>,<x>,<y>[,<pct>]" % "|".join(Config.CREATURES.keys())
+			c.item = StringName(args[0])
+			c.cell = Vector2i(args[1].to_int(), args[2].to_int())
+			c.count = args[3].to_int() if args.size() == 4 else 0
+		"huntrare":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected huntrare:<ticks>[,<px>]"
+			c.ticks = args[0].to_int()
+			c.offset = Vector2(args[1].to_float() if args.size() == 2 else 0.0, 0.0)
+		"snare":
+			if args.size() != 1 or not _whole(args[0], 1):
+				return "expected snare:<ticks>"
+			c.ticks = args[0].to_int()
+		"tab", "throw", "unequip", "wreck", "pray", "collection":
 			if args.size() != 0:
 				return "%s takes no arguments" % c.op
 		"answer":
@@ -568,6 +629,42 @@ func _advance(a: Action, feet: Vector2) -> void:
 				a.tab = true
 				_next()
 				return
+			"collection":
+				a.collection = true  # M11b
+				_next()
+				return
+			"huntrare":
+				if _left < 0:
+					_left = c.ticks
+				var rare_at: int = _nearest_rare(feet, false)
+				if rare_at < 0 or _left <= 0 or rare_ready[rare_at]:
+					_next()
+				else:
+					_left -= 1
+					var spot_r: Vector2 = rare[rare_at]
+					a.aiming = true
+					a.mouse = spot_r
+					if c.offset.x > 0.0 and feet.distance_to(spot_r) > c.offset.x:
+						a.dir = Vector2i(_toward(spot_r.x - feet.x), _toward(spot_r.y - feet.y))
+					else:
+						a.use_held = _left % RARE_SHOT_TICKS == 0
+					return
+			"snare":
+				if _left < 0:
+					_left = c.ticks
+				var taken_at: int = _nearest_rare(feet, true)
+				if taken_at < 0 or _left <= 0:
+					_next()
+				else:
+					_left -= 1
+					var spot_s: Vector2 = rare[taken_at]
+					a.aiming = true
+					a.mouse = spot_s
+					if feet.distance_to(spot_s) > Config.CAPTURE_REACH_PX - SNARE_MARGIN_PX:
+						a.dir = Vector2i(_toward(spot_s.x - feet.x), _toward(spot_s.y - feet.y))
+					else:
+						a.use_held = _left % 2 == 0  # a press every other tick (NetBot.step: pressed = held, not held before)
+					return
 			"pray":
 				a.f_tap = true  # M10a
 				_next()
@@ -691,6 +788,39 @@ func _advance(a: Action, feet: Vector2) -> void:
 				_aiming = Aiming.FOE
 				_next()
 				_fill_aim(a, feet)
+			"aimprey":
+				_aiming = Aiming.PREY
+				_next()
+				_fill_aim(a, feet)
+			"hunt":
+				if _left < 0:
+					_left = c.ticks
+				var quarry: Variant = _nearest(prey, feet)
+				if quarry == null or _left <= 0 or prey.size() <= c.count:
+					_next()
+				else:
+					_left -= 1
+					var spot: Vector2 = quarry
+					a.aiming = true
+					a.mouse = spot
+					if c.offset.x > 0.0 and feet.distance_to(spot) > c.offset.x:
+						a.dir = Vector2i(_toward(spot.x - feet.x), _toward(spot.y - feet.y))
+					else:
+						a.use_held = true
+					return
+			"waitprey", "waitseen":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if (prey.size() <= c.count if c.op == "waitprey" else prey.size() >= c.count) or _left <= 0:
+					_next()
+				return
+			"creature":
+				a.creature = c.item
+				a.creature_cell = c.cell
+				a.creature_pct = c.count
+				_next()
+				return
 			"fight":
 				if _left < 0:
 					_left = c.ticks
@@ -771,6 +901,18 @@ static func _toward(d: float) -> int:
 	return 1 if d > 0.0 else -1
 
 
+## M11b: the index in `rare` of the nearest one (`ready`: of those a snare could take), -1 for none.
+func _nearest_rare(feet: Vector2, ready: bool) -> int:
+	var best: int = -1
+	var best_d: float = INF
+	for i: int in rare.size():
+		var d: float = feet.distance_to(rare[i])
+		if d < best_d and (not ready or rare_ready[i]):
+			best = i
+			best_d = d
+	return best
+
+
 func _fill_aim(a: Action, feet: Vector2) -> void:
 	a.aiming = _aiming != Aiming.NONE
 	match _aiming:
@@ -778,6 +920,11 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 			a.mouse = feet + _aim
 		Aiming.CELL:
 			a.mouse = _aim
+		Aiming.PREY:
+			var quarry: Variant = _nearest(prey, feet)
+			if quarry != null:
+				a.aiming = true
+				a.mouse = quarry
 		Aiming.FOE:
 			var foe: Variant = nearest_foe(feet)
 			a.aiming = foe != null

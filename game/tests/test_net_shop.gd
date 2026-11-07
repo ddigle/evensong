@@ -153,7 +153,7 @@ func stock_up(m: NetMember, money: int, extra: Array = []) -> void:
 # --- the wire (protocol v10) ------------------------------------------------------------------------------------------
 
 func _check_shop_codec() -> void:
-	check_eq(NetProtocol.VERSION, 12, "protocol version 12 (M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer)")
+	check_eq(NetProtocol.VERSION, 13, "protocol version 13 (M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer; M11c: 13, the creatures)")
 	check_eq([NetProtocol.OP_SIZES[NetProtocol.Op.BUY], NetProtocol.OP_SIZES[NetProtocol.Op.SELL]], [6, 9],
 		"BUY 6 B (map, the merchant's tile, the offer), SELL 9 B (+ the whole byte; M8 review: + the item and grade seen)")
 	check(NetProtocol.op_has_map(NetProtocol.Op.BUY) and NetProtocol.op_has_map(NetProtocol.Op.SELL), "both name their map")
@@ -272,7 +272,7 @@ func _check_snapshot_shop() -> void:
 	check(back != null and back.content_hash() == data.content_hash() and back.shop != null
 		and back.shop.stock_bytes() == data.shop.stock_bytes() and back.shop.clock == 0 and Merchant.tile_of(back) == MERCHANT,
 		"the snapshot carries the stock (not the clock) and the merchant's tile: the same world")
-	var shop_at: int = raw.size() - Shop.offers().size() - 1
+	var shop_at: int = raw.size() - Shop.offers().size() - 1 - 2  # M11c: no zone, no collection after it (a byte each)
 	var bad: Array = []
 	var w1: PackedByteArray = raw.duplicate()
 	w1[shop_at] = 5

@@ -19,6 +19,8 @@ extends SceneTree
 ##            hidden), pixel for pixel.
 ##   items    (M2b) the gatherables and a drop on screen, evening off: the screen equals the screen
 ##            without them plus each one's art (world picture / icon) on its tile, pixel for pixel.
+##   wild_net (M11c) a host's creatures, the rare zone and the collection panel drawn by a client from the wire: the host's picture to the
+##            pixel (a batch, a snapshot, a collection message).
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -161,6 +163,13 @@ extends SceneTree
 ##            rocks, a healing mist (its edge and puffs), the sweep's arc and the blessing's ring, every pixel on the rules written
 ##            out here, nothing else changed, unshaded (the same in the evening); the strike's ring and the zones on the ground
 ##            layer before the entities.
+##   rare_zone (M11b) evening off: the rare zone's tint (TINT over the ground exactly where its picture has it, nothing outside) and its
+##            boundary stones (every pixel of the stone on each spot); evening on: the flames keep their colours, the stones darken.
+##   capture_marks (M11b) a rare creature low enough for a snare: the HP bar with its notch, the ring's dots in both phases under the body,
+##            the rope to where it was thrown from, the refused cross, every pixel on its place; evening on: ring and rope keep their
+##            colours; a hurt prey has neither ring nor notch.
+##   collection_panel (M11b) the panel half filled (the layout written out here): frames, the header's count, registered cells' pictures,
+##            the others' silhouettes, the unit dots, the kills' pips, the benefit marks lit and dimmed, every opaque pixel on its place.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
 
 const CliScript := preload("res://core/cli.gd")
@@ -285,6 +294,16 @@ func _run() -> void:
 			await _check_prayer_marks()
 		if _want("prayer_net"):
 			await _check_prayer_net()  # M10b
+		if _want("creatures"):
+			await _check_creatures()  # M11a
+		if _want("rare_zone"):
+			await _check_rare_zone()  # M11b
+		if _want("capture_marks"):
+			await _check_capture_marks()
+		if _want("collection_panel"):
+			await _check_collection_panel()
+		if _want("wild_net"):
+			await _check_wild_net()  # M11c
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -3381,6 +3400,136 @@ func _check_merchant() -> void:
 		_fail("merchant", line)
 
 
+## M11a: the creatures as a CreatureView draws them, against the CPU's picture (CreatureView.image, the rows of its maps): every kind in
+## every direction (west = east mirrored) and both walk frames (the second a px higher), bottom middle on the feet; the corpse (the
+## picture upside down); the hit flash (Player.HIT_FLASH on every drawn pixel); the HP bar (the heretic's colours: every px on its
+## place, over the picture's top row); a stun's mark over it; with the evening on the hard light darkens the picture.
+func _check_creatures() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var feet: Vector2i = origin + Vector2i(200, 180)
+	var v: CreatureView = CreatureView.new()
+	world.entities.add_child(v)
+	var c: CreatureSim = CreatureSim.new()
+	c.id = 1
+	var screens: int = 0
+	var bad: int = 0
+	var drawn: int = 0
+	var dirs: Array[int] = [RigData.Dir.SOUTH, RigData.Dir.EAST, RigData.Dir.NORTH, RigData.Dir.WEST]
+	for kind: StringName in Config.CREATURES:
+		c.kind = kind
+		c.hp = c.hp_max()
+		c.pos = Vector2(feet)
+		c.state = CreatureSim.State.IDLE
+		for dir: int in dirs:
+			c.facing = dir
+			var row: int = RigData.sheet_row(dir)
+			var west: bool = RigData.is_mirrored(dir)
+			for f: int in 2:
+				c.walking = f == 1
+				c.clock = CreatureSim.WALK_FRAME_TICKS * f
+				v.show_sim(c)
+				var img: Image = CreatureView.image(kind, row, f)
+				if west:
+					img.flip_x()
+				var size: Vector2i = img.get_size()
+				var off: Vector2i = Vector2i(-(size.x / 2), -size.y - f)  # written out: bottom middle on the feet, a px of bob
+				if west:
+					off.x = -off.x - size.x
+				var expected: Image = bg.duplicate() as Image
+				_paste_at(expected, img, feet - origin + off)
+				var got: Image = await _capture()
+				screens += 1
+				var n: int = count_diff(got, expected)
+				drawn = maxi(drawn, count_diff(got, bg))
+				if n > 0:
+					bad += 1
+				if n > 0 or save_all:
+					_save(got, "creature_%s_%s_%d_got.png" % [kind, RigData.DIR_NAMES[dir], f])
+					_save(expected, "creature_%s_%s_%d_expected.png" % [kind, RigData.DIR_NAMES[dir], f])
+	# The corpse: the east picture upside down, on the same box.
+	c.kind = &"deer"
+	c.hp = 0
+	c.facing = RigData.Dir.EAST
+	c.walking = false
+	c.state = CreatureSim.State.DEAD
+	v.show_sim(c)
+	var corpse: Image = CreatureView.image(&"deer", 1, 0)
+	corpse.flip_y()
+	var want_corpse: Image = bg.duplicate() as Image
+	_paste_at(want_corpse, corpse, feet - origin + Vector2i(-(corpse.get_width() / 2), -corpse.get_height()))
+	var got_corpse: Image = await _capture()
+	var corpse_wrong: int = count_diff(got_corpse, want_corpse)
+	# The flash: every drawn pixel is the picture times Player.HIT_FLASH.
+	c.state = CreatureSim.State.IDLE
+	c.hp = c.hp_max()
+	c.flash_ticks = 3
+	v.show_sim(c)
+	var pic: Image = CreatureView.image(&"deer", 1, 0)
+	var at: Vector2i = feet - origin + Vector2i(-(pic.get_width() / 2), -pic.get_height())
+	var got_flash: Image = await _capture()
+	var flash_wrong: int = 0
+	var flash_px: int = 0
+	for y: int in pic.get_height():
+		for x: int in pic.get_width():
+			var px: Color = pic.get_pixel(x, y)
+			if px.a8 < 255:
+				continue
+			flash_px += 1
+			var want_px: Color = px * Player.HIT_FLASH
+			var got_px: Color = got_flash.get_pixel(at.x + x, at.y + y)
+			if absf(want_px.r - got_px.r) > 0.02 or absf(want_px.g - got_px.g) > 0.02 or absf(want_px.b - got_px.b) > 0.02:
+				flash_wrong += 1
+	# The HP bar at half, the stun's mark over it.
+	c.flash_ticks = 0
+	c.hp = c.hp_max() / 2
+	c.stun_ticks = 10
+	v.show_sim(c)
+	var got_bar: Image = await _capture()
+	var top: int = -CreatureView.height_of(&"deer") - CreatureView.BAR_GAP - CreatureView.BAR_HEIGHT - 2
+	var left: Vector2i = feet - origin + Vector2i(-Heretic.BAR_SIZE.x / 2 - 1, top)
+	var want_bar: Dictionary[Vector2i, Color] = {}
+	for bx: int in Heretic.BAR_SIZE.x + 2:
+		for by: int in CreatureView.BAR_HEIGHT + 2:
+			want_bar[left + Vector2i(bx, by)] = Heretic.BAR_BACK
+	var fill: int = Heretic.bar_fill(0.5)
+	for bx2: int in fill:
+		for by2: int in CreatureView.BAR_HEIGHT:
+			want_bar[left + Vector2i(1 + bx2, 1 + by2)] = Heretic.BAR_FILL
+	var bar_wrong: int = _count_wrong(got_bar, want_bar)
+	var mark_y: int = feet.y - origin.y + top - CreatureView.MARK_GAP - EffectMarks.SIZE
+	var mark: Dictionary[Vector2i, Color] = {}
+	_image_pixels(mark, EffectMarks.image(EffectMarks.Kind.STUN), Vector2i(feet.x - origin.x + EffectMarks.icon_offset(0, 1).x, mark_y))
+	var mark_wrong: int = _count_wrong(got_bar, mark)
+	# The evening: outside the light the picture is darkened, its outline stays dark.
+	c.hp = c.hp_max()
+	c.stun_ticks = 0
+	v.show_sim(c)
+	world.lighting.set_evening(true)
+	var dusk: Image = await _capture()
+	var darker: int = 0
+	var body_px: int = 0
+	for y2: int in pic.get_height():
+		for x2: int in pic.get_width():
+			var art: Color = pic.get_pixel(x2, y2)
+			if art.a8 < 255 or _brightness(art) < 0.2:
+				continue
+			body_px += 1
+			if _brightness(dusk.get_pixelv(at + Vector2i(x2, y2))) < _brightness(art) - 0.05:
+				darker += 1
+	world.lighting.set_evening(false)
+	world.entities.remove_child(v)
+	v.free()
+	var line: String = "screens=%d bad=%d drawn=%d corpse_wrong=%d flash=%d/%d bar_wrong=%d mark_wrong=%d dusk=%d/%d" % [screens, bad, drawn,
+		corpse_wrong, flash_wrong, flash_px, bar_wrong, mark_wrong, darker, body_px]
+	if screens == 40 and bad == 0 and drawn > 100 and corpse_wrong == 0 and flash_wrong == 0 and flash_px > 100 and bar_wrong == 0 \
+			and mark_wrong == 0 and body_px > 50 and darker * 10 >= body_px * 9:
+		print("EVENSONG_RENDER creatures ok %s" % line)
+	else:
+		_fail("creatures", line)
+
+
 ## M8a: the shop panel over the open inventory (the layout written out here: the chest panel's place and width, 3 + 18 header,
 ## entries 38 px wide 2 apart, 4 a row, rows 20 apart; an entry = an 18 px slot, its stock (always, rust when 0), a 5 px coin 2 px
 ## right of the slot and centred, the price 1 px after it (ivory, rust when short)); the selected entry's gold frame; the sold-out
@@ -3412,7 +3561,7 @@ func _check_shop_panel() -> void:
 	var view: Vector2i = Config.VIEW_SIZE
 	var grid_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
 	var top_inv_row: int = view.y - 4 - 18 - 4 - 18 - 20
-	var h: int = 3 + 18 + 3 * 18 + 2 * 2 + 3
+	var h: int = 3 + 18 + 4 * 18 + 3 * 2 + 3  # M11a: 13 offers, a fourth row
 	var p: Rect2i = Rect2i(grid_left - 3, top_inv_row - 6 - h, 8 * 18 + 7 * 2 + 6, h)
 	var place_ok: bool = hud.shop.panel_rect() == p
 	var want: Dictionary[Vector2i, Color] = {}
@@ -3504,7 +3653,7 @@ func _check_shop_panel() -> void:
 	hud.free()
 	var line: String = "place=%s pixels=%d mismatches=%d entries=%d veil_darker=%d/%d sold_out_darker=%d/%d refusal_pixels=%d refusal_mismatches=%d" % [
 		str(place_ok), want.size(), bad, offers.size(), veil_darker, veil_px, holy_darker, holy_px, want2.size(), bad2]
-	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 11 and veil_darker == veil_px and veil_px > 30 \
+	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 13 and veil_darker == veil_px and veil_px > 30 \
 			and holy_darker == holy_px and holy_px > 15 and bad2 == 0:
 		print("EVENSONG_RENDER shop_panel ok %s" % line)
 	else:
@@ -4426,3 +4575,441 @@ static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
 			if a.get_pixelv(top + Vector2i(x, y)) == b.get_pixelv(top + Vector2i(x, y)):
 				n += 1
 	return n
+
+
+# --- M11c ---------------------------------------------------------------------------------------------------------------
+
+## M11c: what a client draws from the wire is the host's picture to the pixel. The creatures: one of every kind, walking and standing,
+## hurt, flashing, poisoned, stunned, slowed, refused, a corpse, one a snare holds with its rope and one a snare could take with its glow,
+## drawn by a CombatView from the host's herd, then by another from a NetCombat mirror fed the encoded batch and sampled at that tick. The
+## rare zone: from a surface snapshot decoded (RareZoneView on the data that came). The collection panel: on a copy fed the message.
+func _check_wild_net() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var tick: int = 7777
+	var herd: Creatures = Creatures.mirror(data)
+	var arena: Arena = Arena.mirror(data)
+	arena.herd = herd
+	var keys: Array = Config.CREATURES.keys()
+	var holder: Vector2 = Vector2(origin + Vector2i(60, 70))
+	for i: int in 12:
+		var kind: StringName = keys[i % keys.size()]
+		var c: CreatureSim = herd.spawn(kind, Vector2(origin + Vector2i(60 + 62 * (i % 6), 100 + 90 * (i / 6))))
+		c.facing = [RigData.Dir.SOUTH, RigData.Dir.EAST, RigData.Dir.NORTH, RigData.Dir.WEST][i % 4]
+		c.clock = tick
+		c.walking = i % 3 == 1
+		match i:
+			1:
+				c.flash_ticks = 3
+			2:
+				c.hp = c.hp_max() * Config.CAPTURE_HP_PCT / 100
+			3:
+				c.hp = c.hp_max() / 2
+				c.poison_ticks = 9
+				c.poison_damage = 1
+			4:
+				c.stun_ticks = 9
+			5:
+				c.slow_pct = 30
+				c.slow_ticks = 9
+			6:
+				c.refused_ticks = 3
+			7:
+				c.hp = 0
+				c.state = CreatureSim.State.DEAD
+				c.walking = false
+			8:
+				c.hp = c.hp_max() * Config.CAPTURE_HP_PCT / 100
+				c.hold_ticks = 9
+				c.held_from = Combat.body_point(holder)
+				c.held_by = 1
+	var states: Array[NetProtocol.CreatureState] = []
+	for c2: CreatureSim in herd.list:
+		states.append(NetProtocol.creature_of(c2, 0 if c2.held_by != 0 else NetProtocol.NO_SLOT))
+	var view: CombatView = CombatView.new()
+	world.add_child(view)
+	view.setup(arena, world.entities)
+	view.sync_creatures()
+	var host_img: Image = await _capture()
+	var drawn: int = count_diff(host_img, bg)
+	view.clear()
+	world.remove_child(view)
+	view.free()
+	# The client's: the batch off the wire into its mirror, sampled at that tick.
+	var payload: PackedByteArray = NetProtocol.encode_creatures(tick, states)
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_SURFACE, data)
+	var b: NetProtocol.CreatureBatch = NetProtocol.decode_creatures(payload)
+	nc.on_creatures(b, true)
+	var slots_drawn: Dictionary[int, Vector2] = {0: holder}
+	nc.sample(float(tick), 0.0, slots_drawn)
+	var mirror: CombatView = CombatView.new()
+	world.add_child(mirror)
+	mirror.setup(nc.arena, world.entities)
+	mirror.sync_creatures()
+	var client_img: Image = await _capture()
+	var creature_bad: int = count_diff(client_img, host_img)
+	if creature_bad > 0 or save_all:
+		_save(host_img, "wild_net_host.png")
+		_save(client_img, "wild_net_client.png")
+	mirror.clear()
+	world.remove_child(mirror)
+	mirror.free()
+	# The rare zone from a snapshot.
+	var z: RareZone = RareZone.place(data, data.world_seed)
+	data.rare_zone = z
+	world.show_rare_zone()
+	var hidden: Array[CanvasItem] = _hide_entities()
+	_look_at(Vector2i(z.center_px()))
+	var zone_host: Image = await _capture()
+	var came: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(data))
+	var same_zone: bool = came != null and came.rare_zone != null
+	var zone_bad: int = -1
+	if same_zone:
+		world.rare_view.setup(came)
+		var zone_client: Image = await _capture()
+		zone_bad = count_diff(zone_client, zone_host)
+	world.rare_view.setup(data)
+	for item: CanvasItem in hidden:
+		item.visible = true
+	# The panel on the message's copy.
+	var col: Collection = Collection.new()
+	col.put_test(5, 7)
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.collection.open_for(col)
+	var panel_host: Image = await _capture()
+	hud.collection.close()
+	var msg: NetProtocol.CollectionState = NetProtocol.decode_collection(NetProtocol.encode_collection(col))
+	var copy: Collection = Collection.new()
+	copy.take_state(msg.bits, msg.kills)
+	hud.collection.open_for(copy)
+	var panel_client: Image = await _capture()
+	var panel_bad: int = count_diff(panel_client, panel_host)
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "creatures=%d drawn=%d mismatches=%d bytes=%d zone_mismatches=%d panel_mismatches=%d" % [states.size(), drawn, creature_bad, payload.size(),
+		zone_bad, panel_bad]
+	if creature_bad == 0 and drawn > 800 and b.ok and states.size() == 12 and zone_bad == 0 and panel_bad == 0:
+		print("EVENSONG_RENDER wild_net ok %s" % line)
+	else:
+		_fail("wild_net", line)
+
+
+# --- M11b ---------------------------------------------------------------------------------------------------------------
+
+## M11b: the rare zone's picture on the seed's real ground (see the header).
+func _check_rare_zone() -> void:
+	world.lighting.set_evening(false)
+	var data: WorldData = world.data
+	var z: RareZone = RareZone.place(data, data.world_seed)
+	if z == null:
+		_fail("rare_zone", "no zone on this world")
+		return
+	data.rare_zone = z
+	world.show_rare_zone()
+	var hidden: Array[CanvasItem] = _hide_entities()
+	var mid: Vector2i = Vector2i(z.center_px())
+	var origin: Vector2i = _look_at(mid)
+	world.rare_view.visible = false
+	var bg: Image = await _capture()
+	world.rare_view.visible = true
+	var got: Image = await _capture()
+	var half: int = 144  # 9 tiles, written out
+	var at: Vector2i = mid - Vector2i(half, half)
+	var tint: Image = RareZoneView.tint_image(half)
+	var stones: Dictionary[Vector2i, Color] = {}
+	var stone: Image = RareZoneView.image()
+	for c: Vector2i in world.rare_view.spots:
+		var top_left: Vector2i = Vector2i((c.x * 16 + 8 - 4), (c.y + 1) * 16 - 9) - origin  # bottom middle on the tile's bottom middle
+		_image_pixels(stones, stone, top_left)
+	var on_px: int = 0
+	var off_px: int = 0
+	var wrong: int = 0
+	var stone_px: int = 0
+	for y: int in got.get_height():
+		for x: int in got.get_width():
+			var s: Vector2i = Vector2i(x, y)
+			if stones.has(s):
+				stone_px += 1
+				if got.get_pixelv(s).to_rgba32() != stones[s].to_rgba32():
+					wrong += 1
+				continue
+			var q: Vector2i = s + origin - at
+			var inside: bool = q.x >= 0 and q.y >= 0 and q.x < tint.get_width() and q.y < tint.get_height() and tint.get_pixelv(q).a8 > 0
+			var b: Color = bg.get_pixelv(s)
+			var g: Color = got.get_pixelv(s)
+			if inside:
+				on_px += 1
+				var want: Color = b.lerp(Color(0.957, 0.788, 0.365), 0.10)  # written out: the faint gold
+				if absf(g.r - want.r) > 0.012 or absf(g.g - want.g) > 0.012 or absf(g.b - want.b) > 0.012:
+					wrong += 1
+			else:
+				off_px += 1
+				if g.to_rgba32() != b.to_rgba32():
+					wrong += 1
+	# The evening: the flames unshaded, a stone's body darker than by day.
+	world.lighting.set_evening(true)
+	var dusk: Image = await _capture()
+	world.lighting.set_evening(false)
+	var flames: Dictionary[Vector2i, Color] = {}
+	var flame: Image = RareZoneView.image(true)
+	var darker: int = 0
+	var body: int = 0
+	for c2: Vector2i in world.rare_view.spots:
+		var top_left2: Vector2i = Vector2i((c2.x * 16 + 8 - 4), (c2.y + 1) * 16 - 9) - origin
+		var box: Rect2i = Rect2i(Vector2i.ZERO, Config.VIEW_SIZE)
+		if box.encloses(Rect2i(top_left2, stone.get_size())):
+			_image_pixels(flames, flame, top_left2)
+			for yy: int in stone.get_height():
+				for xx: int in stone.get_width():
+					var sc: Vector2i = top_left2 + Vector2i(xx, yy)
+					if stone.get_pixel(xx, yy).a8 == 255 and flame.get_pixel(xx, yy).a8 == 0 and _brightness(stone.get_pixel(xx, yy)) > 0.5:
+						body += 1
+						if _brightness(dusk.get_pixelv(sc)) < _brightness(stone.get_pixel(xx, yy)) * 0.8:
+							darker += 1
+	var flame_wrong: int = _count_wrong(dusk, flames)
+	world.rare_view.visible = false
+	for ci: CanvasItem in hidden:
+		ci.visible = true
+	if save_all or wrong > 0:
+		_save(got, "rare_zone_got.png")
+	var line: String = "tint=%d off=%d stones=%d wrong=%d flames=%d/%d dusk=%d/%d" % [on_px, off_px, stone_px, wrong, flame_wrong, flames.size(), darker, body]
+	if wrong == 0 and on_px > 20000 and off_px > 1000 and stone_px > 200 and flame_wrong == 0 and flames.size() >= 3 and body > 20 and darker == body:
+		print("EVENSONG_RENDER rare_zone ok %s" % line)
+	else:
+		_fail("rare_zone", line)
+
+
+## M11b: the pixels of a creature's body (`kind` facing east) with feet at screen point `feet`.
+static func _body_pixels(want: Dictionary[Vector2i, Color], kind: StringName, feet: Vector2i) -> void:
+	var img: Image = CreatureView.image(kind, 1, 0)
+	_image_pixels(want, img, feet + Vector2i(-(img.get_width() / 2), -img.get_height()))
+
+
+## M11b: the HP bar over a creature of `kind` at `hp` of `full`, with feet at `feet`, its notch at column 4 when `notch`.
+static func _bar_pixels(want: Dictionary[Vector2i, Color], kind: StringName, hp: int, full: int, feet: Vector2i, notch: bool) -> void:
+	var top: int = feet.y - CreatureView.height_of(kind) - 2 - 2 - 2
+	var left: int = feet.x - 8
+	for y: int in range(top, top + 4):
+		for x: int in range(left, left + 16):
+			want[Vector2i(x, y)] = Heretic.BAR_BACK
+	var fill: int = clampi(ceili(14.0 * hp / full), 1, 14)
+	for y2: int in range(top + 1, top + 3):
+		for x2: int in fill:
+			want[Vector2i(left + 1 + x2, y2)] = Heretic.BAR_FILL
+		if notch:
+			want[Vector2i(left + 1 + 4, y2)] = Color8(0xef, 0xe3, 0xc6)
+
+
+func _check_capture_marks() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var feet: Vector2i = origin + Vector2i(200, 180)
+	var at: Vector2i = feet - origin
+	var v: CreatureView = CreatureView.new()
+	world.entities.add_child(v)
+	var c: CreatureSim = CreatureSim.new()
+	c.id = 1
+	c.kind = &"lamp_fox"
+	c.hp = 13
+	c.pos = Vector2(feet)
+	c.facing = RigData.Dir.EAST
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var bad: Array[int] = []
+	var drawn: int = 0
+	for phase: int in 2:
+		c.clock = CreatureView.GLOW_STEP_TICKS * phase
+		v.show_sim(c)
+		var want: Dictionary[Vector2i, Color] = {}
+		for p: Vector2i in CreatureView.glow_pixels(c.kind, phase):
+			want[at + p] = gold
+		_body_pixels(want, c.kind, at)
+		_bar_pixels(want, c.kind, 13, 46, at, true)
+		var got: Image = await _capture()
+		bad.append(_count_wrong(got, want))
+		drawn += want.size()
+		if save_all:
+			_save(got, "capture_ring_%d.png" % phase)
+	# The rope, while held.
+	c.clock = 0
+	c.hold_ticks = 5
+	c.held_from = c.pos + Vector2(-30, -6)
+	v.show_sim(c)
+	var with_rope: Dictionary[Vector2i, Color] = {}
+	for p2: Vector2i in CreatureView.rope_pixels(Vector2i(-30, -6)):
+		with_rope[at + p2] = Color8(0xdc, 0xc4, 0x9a)
+	for p3: Vector2i in CreatureView.glow_pixels(c.kind, 0):
+		with_rope[at + p3] = gold
+	_body_pixels(with_rope, c.kind, at)
+	var got_rope: Image = await _capture()
+	var rope_wrong: int = _count_wrong(got_rope, with_rope)
+	# Unshaded at dusk.
+	world.lighting.set_evening(true)
+	var dusk: Image = await _capture()
+	world.lighting.set_evening(false)
+	var marks: Dictionary[Vector2i, Color] = {}
+	for p4: Vector2i in CreatureView.rope_pixels(Vector2i(-30, -6)):
+		marks[at + p4] = Color8(0xdc, 0xc4, 0x9a)
+	for p5: Vector2i in CreatureView.glow_pixels(c.kind, 0):
+		marks[at + p5] = gold
+	var cover: Dictionary[Vector2i, Color] = {}
+	_body_pixels(cover, c.kind, at)
+	for s: Vector2i in cover:
+		marks.erase(s)
+	var dusk_wrong: int = _count_wrong(dusk, marks)
+	# The refused cross over its head (a healthy one: no ring, no bar).
+	c.hold_ticks = 0
+	c.hp = 46
+	c.refused_ticks = 5
+	v.show_sim(c)
+	var with_cross: Dictionary[Vector2i, Color] = {}
+	_body_pixels(with_cross, c.kind, at)
+	var top: int = -CreatureView.height_of(c.kind) - 2 - 2 - 2
+	_rows_pixels(with_cross, ["11...11", "111.111", ".11111.", "..111..", ".11111.", "111.111", "11...11"], at + Vector2i(-3, top - 6 - 7),
+		Color8(0xb8, 0x2e, 0x24))  # written out: the shop panel's refusal red
+	var got_cross: Image = await _capture()
+	var cross_wrong: int = _count_wrong(got_cross, with_cross)
+	# A hurt prey: its bar without a notch, no ring (the screen is the background but for body and bar).
+	c.kind = &"deer"
+	c.hp = 2
+	c.refused_ticks = 0
+	v.show_sim(c)
+	var prey: Dictionary[Vector2i, Color] = {}
+	_body_pixels(prey, c.kind, at)
+	_bar_pixels(prey, c.kind, 2, 30, at, false)
+	var got_prey: Image = await _capture()
+	var prey_wrong: int = _count_wrong(got_prey, prey)
+	var stray: int = 0
+	for y: int in got_prey.get_height():
+		for x: int in got_prey.get_width():
+			var q: Vector2i = Vector2i(x, y)
+			if not prey.has(q) and got_prey.get_pixelv(q).to_rgba32() != bg.get_pixelv(q).to_rgba32():
+				stray += 1
+	world.entities.remove_child(v)
+	v.free()
+	var line: String = "ring=%s drawn=%d rope=%d dusk=%d/%d cross=%d prey=%d stray=%d" % [bad, drawn, rope_wrong, dusk_wrong, marks.size(), cross_wrong, prey_wrong, stray]
+	if bad == [0, 0] and drawn > 300 and rope_wrong == 0 and dusk_wrong == 0 and marks.size() >= 18 and cross_wrong == 0 and prey_wrong == 0 and stray == 0:
+		print("EVENSONG_RENDER capture_marks ok %s" % line)
+	else:
+		_fail("capture_marks", line)
+
+
+func _check_collection_panel() -> void:
+	world.lighting.set_evening(false)
+	_look_at(Vector2i(400, 400))
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	var col: Collection = Collection.new()
+	for id: StringName in [&"hunt_hare", &"take_lamp_fox", &"first_hide_fine", &"hunt_deer"]:
+		col.register(id)
+	col.kills = 3
+	hud.collection.open_for(col)
+	var got: Image = await _capture()
+	if save_all:
+		_save(got, "collection_panel.png")
+	var dark: Color = Hud.FRAME_DARK
+	var ivory: Color = Hud.DIGIT
+	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
+	var faith: Color = Color8(0x9c, 0x6a, 0x1f)
+	var shade: Color = Color8(0x3f, 0x37, 0x30)
+	var p: Rect2i = Rect2i(480 - 134 - 4, 4, 134, 107)  # top right; 4 + 4 x 30 + 3 x 2 + 4 across; 4 + 14 + 2 x 30 + 2 + 3 + 20 + 4 down
+	var place_ok: bool = CollectionPanel.panel_rect_for(Config.VIEW_SIZE) == p
+	var want: Dictionary[Vector2i, Color] = {}
+	_frame_pixels(want, p, dark)
+	_frame_pixels(want, p.grow(-1), Hud.FRAME)
+	# The header: "4/8", the underline.
+	var hx: int = p.position.x + 5
+	var hy: int = p.position.y + 6
+	_rows_pixels(want, Hud.DIGITS[4], Vector2i(hx, hy), ivory)
+	_rows_pixels(want, ["001", "001", "010", "100", "100"], Vector2i(hx + 4, hy), faith)
+	_rows_pixels(want, Hud.DIGITS[8], Vector2i(hx + 8, hy), ivory)
+	for ux: int in range(p.position.x + 4, p.end.x - 4):
+		want[Vector2i(ux, p.position.y + 15)] = faith
+	# The cells: [picture, registered, unit colour].
+	var copper: Color = Color8(0xc0, 0x6a, 0x2e)
+	var pictures: Array[Array] = [
+		[CreatureView.image(&"hare", 1, 0), true, copper], [CreatureView.image(&"deer", 1, 0), true, copper],
+		[CreatureView.image(&"lamp_fox", 1, 0), true, copper], [CreatureView.image(&"silver_stag", 1, 0), false, copper],
+		[CreatureView.image(&"ash_owl", 1, 0), false, copper],
+		[LightGen.to_rgba8(ItemIcons.texture_for(&"hide_fine").get_image()), true, ivory],
+		[ItemIcons.image_from_map(&"rare_essence"), false, ivory], [ItemIcons.image_from_map(&"tally"), false, gold],
+	]
+	for i: int in pictures.size():
+		var r: Rect2i = Rect2i(p.position + Vector2i(4 + (i % 4) * 32, 4 + 14 + (i / 4) * 32), Vector2i(30, 30))
+		var img: Image = pictures[i][0]
+		var done: bool = pictures[i][1]
+		var unit: Color = pictures[i][2]
+		if not done:
+			for y: int in range(r.position.y, r.end.y):
+				for x: int in range(r.position.x, r.end.x):
+					want[Vector2i(x, y)] = dark
+		_frame_pixels(want, r, faith if done else dark)
+		var pic_at: Vector2i = r.position + (Vector2i(30, 30) - img.get_size()) / 2
+		for y2: int in img.get_height():
+			for x2: int in img.get_width():
+				var px: Color = img.get_pixel(x2, y2)
+				if done and px.a8 == 255:
+					want[pic_at + Vector2i(x2, y2)] = px
+				elif not done and px.a8 >= 128:
+					want[pic_at + Vector2i(x2, y2)] = shade
+		for dy: int in 2:
+			for dx: int in 2:
+				want[r.position + Vector2i(2 + dx, 2 + dy)] = unit
+		if i == 7:
+			# The kills: ten pips in two rows of five, the first three lit.
+			for k: int in 10:
+				var pip: Vector2i = Vector2i(r.position.x + (30 - 18) / 2 + (k % 5) * 4, r.end.y - 3 - 6 + (k / 5) * 4)
+				for py: int in 2:
+					for pxx: int in 2:
+						want[pip + Vector2i(pxx, py)] = gold if k < 3 else Hud.FRAME
+	# The benefits: the class's lit at 3 (4 registered), the others dim.
+	var lit: Array[bool] = [true, false, false]
+	var counts: Array[int] = [3, 5, 8]
+	var maps: Array[StringName] = [&"benefit_class", &"benefit_all", &"benefit_world"]
+	var veiled: Dictionary[Vector2i, Color] = {}
+	for j: int in 3:
+		var b: Rect2i = Rect2i(p.position.x + 4 + j * 42, p.end.y - 4 - 20, 40, 20)
+		_frame_pixels(want, b, gold if lit[j] else dark)
+		if lit[j]:
+			_image_pixels(want, ItemIcons.image_from_map(maps[j]), b.position + Vector2i(2, 2))
+		else:
+			_image_pixels(veiled, ItemIcons.image_from_map(maps[j]), b.position + Vector2i(2, 2))
+		_rows_pixels(want, Hud.DIGITS[counts[j]], b.position + Vector2i(22, 7), gold if lit[j] else Hud.FRAME)
+	var wrong: int = _count_wrong(got, want)
+	var dimmer: int = 0
+	var dim_px: int = 0
+	for s: Vector2i in veiled:
+		if _brightness(veiled[s]) > 0.5:
+			dim_px += 1
+			if _brightness(got.get_pixelv(s)) < _brightness(veiled[s]) * 0.6:
+				dimmer += 1
+	# Everything lit: every cell's picture, the three marks.
+	for row: Dictionary in Config.COLLECTION_ENTRIES:
+		var id2: StringName = row["id"]
+		col.register(id2)
+	col.kills = 12
+	var full: Image = await _capture()
+	if save_all:
+		_save(full, "collection_panel_full.png")
+	var want2: Dictionary[Vector2i, Color] = {}
+	for j2: int in 3:
+		var b2: Rect2i = Rect2i(p.position.x + 4 + j2 * 42, p.end.y - 4 - 20, 40, 20)
+		_frame_pixels(want2, b2, gold)
+		_image_pixels(want2, ItemIcons.image_from_map(maps[j2]), b2.position + Vector2i(2, 2))
+	for k2: int in 10:
+		var last: Rect2i = Rect2i(p.position + Vector2i(4 + 3 * 32, 4 + 14 + 32), Vector2i(30, 30))
+		var pip2: Vector2i = Vector2i(last.position.x + 6 + (k2 % 5) * 4, last.end.y - 3 - 6 + (k2 / 5) * 4)
+		want2[pip2] = gold
+	var full_wrong: int = _count_wrong(full, want2)
+	root.remove_child(hud)
+	hud.free()
+	var line: String = "place=%s px=%d wrong=%d dim=%d/%d full=%d" % [place_ok, want.size(), wrong, dimmer, dim_px, full_wrong]
+	if place_ok and want.size() > 1200 and wrong == 0 and dim_px > 40 and dimmer == dim_px and full_wrong == 0:
+		print("EVENSONG_RENDER collection_panel ok %s" % line)
+	else:
+		_save(got, "collection_panel_got.png")
+		_fail("collection_panel", line)

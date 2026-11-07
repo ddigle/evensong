@@ -94,6 +94,9 @@ static func run(tree: SceneTree) -> Report:
 	_check_shop(r)
 	_check_skills(r)  # M9a
 	_check_prayer(r)  # M10a
+	_check_hunt(r)  # M11a
+	_check_net_wild(r)  # M11c
+	_check_collection(r)  # M11b
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -292,7 +295,7 @@ static func _check_items(r: Report) -> void:
 			r.expect(RigData.is_action(def.action), "tool %s has no body action" % id)
 	r.expect_eq(tools, 13, "tools (M4a: + holy_light; M7a: + 5 tier-1 weapons; M7b: + the axe)")
 	for action: String in ["use_item", "hotbar_prev", "hotbar_next", "toggle_inventory", "debug_give", "debug_action",
-			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand", "skill_2", "skill_3", "skill_signature"]:
+			"interact", "debug_drop", "dash", "skill_1", "demolish", "craft_hand", "skill_2", "skill_3", "skill_signature", "collection"]:
 		r.expect(InputMap.has_action(action), "input action %s missing" % action)
 	# M2b: every gatherable's world picture (the gatherable count is checked with the world).
 	for id: StringName in WorldItems.GATHERABLES:
@@ -825,6 +828,83 @@ static func _check_prayer(r: Report) -> void:
 		p3.free()
 	med.free()
 	r.fields.append("prayer=%d/%d/%d faith=%d zeal_hit=%d meditate=%d" % [lit, count, zeal, spent, hit, meditated])
+
+
+## M11a: the surface's herd fills to its caps from its own stream (twice the same), a walking player sets a hare off and a kill's drops
+## go by the class of the killing blow (a bare arena, an arrow's damage on a hare and a deer). Field `herd=<alive>/<kinds> hunt=<archer's
+## items>/<anyone else's items>`.
+static func _check_hunt(r: Report) -> void:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	var a: Creatures = Creatures.new()
+	a.setup(data, Config.DEFAULT_SEED)
+	var b: Creatures = Creatures.new()
+	b.setup(data, Config.DEFAULT_SEED)
+	var want: int = 0
+	for kind: StringName in Config.CREATURES:
+		want += Creatures.cap_of(kind)  # M11b: the rare kinds too (the rare zone)
+	r.expect_eq(a.alive_count(), want, "creatures at the start")
+	var same: bool = a.list.size() == b.list.size()
+	for i: int in mini(a.list.size(), b.list.size()):
+		same = same and a.list[i].pos == b.list[i].pos and a.list[i].kind == b.list[i].kind
+	r.expect(same, "the same seed spawns the same creatures")
+	var archer: Player = Player.new()
+	archer.setup(data, Config.HUNTER_CLASS, data.altar_center_px())
+	var miner: Player = Player.new()
+	miner.setup(data, "miner", data.altar_center_px())
+	var got: Array[int] = []
+	for p: Player in [archer, miner]:
+		var h: CreatureSim = a.list[0]
+		a.hit(h, h.hp, p.get_instance_id())
+		var items: int = 0
+		for e: EditLog.WorldEdit in a.take_edits():
+			r.expect(ItemDB.has(e.drop.item), "a kill's drop is an item")
+			items += e.drop.count
+		got.append(items)
+		for i: int in Config.CREATURE_CORPSE_TICKS:
+			a.step([] as Array[Player])
+	r.expect(got[0] > got[1], "the archer's kill yields more than anyone else's")
+	archer.free()
+	miner.free()
+	r.fields.append("herd=%d/%d hunt=%d/%d" % [want, Config.CREATURES.size(), got[0], got[1]])
+
+
+## M11b: the generated surface has its rare zone with the three rare kinds in it, a snare takes a hurt one (one snare out, the material
+## in, the entry registered), and a world's collection starts empty. Field `rare_zone=<x>,<y>/<r> rare=<n> capture=<snares left>/<material>
+## collection=<n>/<total>`.
+static func _check_collection(r: Report) -> void:
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	data.collection = Collection.new()
+	var herd: Creatures = Creatures.new()
+	herd.setup(data, Config.DEFAULT_SEED)
+	r.expect(data.rare_zone != null, "the surface has a rare zone")
+	if data.rare_zone == null:
+		return
+	r.expect_eq(data.collection.count(), 0, "a new world's collection is empty")
+	var rare: int = 0
+	for c: CreatureSim in herd.list:
+		if c.rare():
+			rare += 1
+			r.expect(data.rare_zone.holds(c.pos), "%s lives in the zone" % c.kind)
+	r.expect_eq(rare, 3, "the rare creatures")
+	var fox: CreatureSim = null
+	for c2: CreatureSim in herd.list:
+		if c2.kind == &"lamp_fox":
+			fox = c2
+	var archer: Player = Player.new()
+	archer.setup(data, Config.HUNTER_CLASS, fox.pos + Vector2(Config.CAPTURE_TEST_NEAR_PX, 0.0))
+	archer.inventory.add(Capture.SNARE, 2)
+	fox.hp = 1
+	r.expect_eq(Capture.refusal(archer, fox), "", "a hurt rare creature in reach may be snared")
+	var landed: Capture.Landed = Capture.land(archer, herd, fox.id)
+	r.expect(landed.ok(), "the snare takes it: %s" % landed.why)
+	r.expect(herd.by_id(fox.id) == null, "the creature is gone")
+	r.expect(data.collection.has(&"take_lamp_fox"), "its entry is registered")
+	var snares: int = archer.inventory.count_of(Capture.SNARE)
+	var material: int = archer.inventory.count_of(Config.RARE_MATERIAL)
+	r.expect(snares == 1 and material == Config.CAPTURE_MATERIAL_COUNT, "one snare out, the material in")
+	archer.free()
+	r.fields.append("rare_zone=%s rare=%d capture=%d/%d collection=%d/%d" % [data.rare_zone.describe(), rare, snares, material,
+		data.collection.count(), Collection.total()])
 
 
 static func _check_light(r: Report) -> void:
@@ -1380,6 +1460,44 @@ static func _check_net_prayer(r: Report) -> void:
 		+ NetProtocol.PRAYER_EVENT_SIZES[NetProtocol.PrayerEvent.Kind.RESULT]
 	r.fields.append("prayer_wire=%dB/%dB/%dB/%dB lit=%d lag=%d" % [NetProtocol.OP_SIZES[NetProtocol.Op.PRAY] + 2,
 		NetProtocol.OP_SIZES[NetProtocol.Op.ANSWER] + 2, bytes.size() - 1, turn_bytes, lit, Config.PRAYER_ANSWER_LAG_TICKS])
+
+
+## M11c: hunting on the wire (protocol v13): a CAPTURE round trip, a batch of every creature of the caps, the collection message, the rare
+## zone and the collection through a snapshot of the seed-1 surface (the same world hash on the other side; a generated world's stays
+## golden). Field `wild_wire=<CAPTURE>B/<a creature>B/<a batch at the caps>B/<collection>B zone_snapshot=<bytes they add>B`.
+static func _check_net_wild(r: Report) -> void:
+	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new(90, Vector2i.ZERO)
+	f.op = NetProtocol.Op.CAPTURE
+	f.slot = 1
+	f.cell = Vector2i(40, 40)
+	f.capture_id = 7
+	var up: NetProtocol.InputPacket = NetProtocol.decode_inputs(NetProtocol.encode_inputs([f] as Array[NetProtocol.InputFrame]))
+	r.expect(up.ok and up.frames.size() == 1 and up.frames[0].same_request(f), "CAPTURE round trips (M11c)")
+	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	r.expect_eq(data.content_hash(), SurfaceGen.GOLDEN_HASH, "the generated world has no zone or collection yet")
+	var bare: int = WorldSnapshot.raw_bytes(data).size()
+	var herd: Creatures = Creatures.new()
+	herd.setup(data, Config.DEFAULT_SEED)
+	var states: Array[NetProtocol.CreatureState] = []
+	for c: CreatureSim in herd.list:
+		states.append(NetProtocol.creature_of(c, NetProtocol.NO_SLOT))
+	var batch: PackedByteArray = NetProtocol.encode_creatures(1234, states)
+	var back: NetProtocol.CreatureBatch = NetProtocol.decode_creatures(batch)
+	var same: bool = back.ok and back.tick == 1234 and back.creatures.size() == states.size()
+	for i: int in mini(back.creatures.size(), states.size()):
+		same = same and back.creatures[i].id == states[i].id and back.creatures[i].kind == states[i].kind \
+			and back.creatures[i].pos.distance_to(states[i].pos) <= 0.5 / NetProtocol.CREATURE_POS_UNITS + 0.001
+	r.expect(same, "a batch of the caps round trips, each creature within the wire's quarter px")
+	data.collection = Collection.new()
+	data.collection.put_test(5, 9)
+	var col: NetProtocol.CollectionState = NetProtocol.decode_collection(NetProtocol.encode_collection(data.collection))
+	r.expect(col.ok and col.bits == 31 and col.kills == 9, "the collection message round trips")
+	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
+	var got: WorldData = WorldSnapshot.decode_raw(raw)
+	r.expect(got != null and got.content_hash() == data.content_hash() and got.rare_zone.describe() == data.rare_zone.describe() \
+		and got.collection.describe() == data.collection.describe(), "the zone and the collection come with the surface's snapshot")
+	r.fields.append("wild_wire=%dB/%dB/%dB/%dB zone_snapshot=%dB" % [NetProtocol.OP_SIZES[NetProtocol.Op.CAPTURE] + 2, NetProtocol.CREATURE_SIZE,
+		batch.size(), NetProtocol.COLLECTION_SIZE, raw.size() - bare])
 
 
 ## M10b: prayer `pr`'s events since the last call as the host's wire events (its players' slots `slots`) into `out`; cleared.

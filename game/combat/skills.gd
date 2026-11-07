@@ -497,6 +497,7 @@ class Landed:
 ## fizzles) and then wards, strikes or heals (_land_signature). `r.edits` = world edits for the caller (the shrine breaking).
 ## M9c: `owner_slot` = the caster's session slot (its shots' events name it; 255 offline).
 ## M10a: every damaging skill's damage is raised by the caster's zeal (Prayer.zeal_damage: the arrow and the strikes keep it).
+## M11b: the archer's three arrow skills take the collection's class benefit first (Collection.arrow_damage, after the tier-1 rule).
 static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], owner_slot: int = 255) -> Landed:
 	var r: Landed = Landed.new()
 	r.id = id
@@ -507,7 +508,8 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], 
 		TAUNT:
 			r.taunted = arena.taunt(p, num_f(TAUNT, "radius_px"), num_i(TAUNT, "taunt_ticks"))
 		PIERCING_ARROW:
-			r.shot = arena.skill_shot(p, PIERCING_ARROW, p.action_aim, Prayer.zeal_damage(num_i(PIERCING_ARROW, "damage"), p),
+			r.shot = arena.skill_shot(p, PIERCING_ARROW, p.action_aim,
+				Prayer.zeal_damage(Collection.arrow_damage(num_i(PIERCING_ARROW, "damage"), p), p),
 				num_f(PIERCING_ARROW, "reach_px"), num_f(PIERCING_ARROW, "speed"), true, owner_slot)
 		HEAL:
 			var t: Player = null
@@ -538,7 +540,7 @@ static func land(p: Player, id: StringName, arena: Arena, party: Array[Player], 
 				num_i(id, "stun_ticks"), num_i(id, "slow_pct"), num_i(id, "slow_ticks"), kinds[id], r.edits)
 			r.wore = wear_weapon(p)
 		FAN_SHOT:
-			r.damage = Prayer.zeal_damage(weapon_damage(p, num_i(FAN_SHOT, "damage")), p)
+			r.damage = Prayer.zeal_damage(Collection.arrow_damage(weapon_damage(p, num_i(FAN_SHOT, "damage")), p), p)
 			r.shots = arena.fan_shot(p, FAN_SHOT, p.action_aim, r.damage, num_i(FAN_SHOT, "arrows"),
 				num_i(FAN_SHOT, "spread_aim"), num_f(FAN_SHOT, "reach_px"), num_f(FAN_SHOT, "speed"), owner_slot)
 			r.wore = wear_weapon(p)
@@ -581,7 +583,8 @@ static func _land_signature(p: Player, id: StringName, arena: Arena, party: Arra
 			arena.add_burst(Arena.BurstKind.OATH, p.sim_position, radius, pid, pid)
 			arena.note_ward(warded)  # M9c: a session's clients draw the shield over each of them
 		ARROW_RAIN:
-			r.damage = Prayer.zeal_damage(num_i(ARROW_RAIN, "damage") + r.spent * num_i(ARROW_RAIN, "damage_per_focus_pct") / 100, p)
+			r.damage = Prayer.zeal_damage(Collection.arrow_damage(num_i(ARROW_RAIN, "damage")
+				+ r.spent * num_i(ARROW_RAIN, "damage_per_focus_pct") / 100, p), p)
 			r.strike = arena.add_strike(Arena.StrikeKind.ARROWS, p.action_target, num_f(ARROW_RAIN, "radius_px"),
 				num_i(ARROW_RAIN, "delay_ticks"), r.damage, 0, pid)
 		ROCKFALL:

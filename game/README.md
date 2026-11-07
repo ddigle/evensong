@@ -30,6 +30,10 @@
 그 위에 **M10a "집단 기도 · 묵상 · 열정"**(혼자 할 때 먼저. ~~세션에서는 기도의 탭이 `prayer offline only (M10b)`로 거부되고 나머지는 그대로, 전송 형식 v11·월드 해시 그대로~~ M10b부터 세션에서도 기도한다: 다음 줄)을 더했다: ● R45(game-concept §9.3·§9.4, gameplay-design §3.6, 사람이 정함)의 차례 응답 기도. 성직자가 제단 둘레 원(임시값 반지름 64px) 안에서 F를 짧게 눌렀다 떼면(탭, 임시값 20틱 안) 기도가 시작되고, 원 안의 사람이 모이기 3초 동안 F 탭 한 번으로 참여한다. 차례 9번(● 고정, 등잔 아홉)이 참여 순서로 돌아가고, 차례인 사람은 뜬 방향을 W A S D로 1.5초 안에 넣는다(참여자는 움직이지 않는다: 이동 키가 답). 맞으면 그 등잔이 켜지고 틀리거나 늦으면 깜박이다 꺼진다. 끝나면 남은 참여자 모두 열정(피해 +%)을 5분 받는다: 15% + (켜진 등잔 − 5) × 2% + 인원(한 명에 2%, 상한 8%), 바닥 5%(디버프 없음). 성직자의 신앙 30을 끝날 때 쓴다(멈추면 안 씀). 참여자가 맞거나 그만두면 혼자 빠지고, 성직자가 맞거나 그만두면 멈춘다. 전투 중(성직자가 5초 안에 피해, 제단 12칸 안에 누군가를 노리는 이단)·제단을 든 동안·열정이 남은 동안은 시작할 수 없다. 성직자가 없거나 혼자면(원 안에 다른 산 사람이 없음. M10 검토: 참여할 수 있는 다른 사람이 없음) 누구나 탭으로 3초 묵상해 열정 5%를 2분 받는다. 열정은 기본 공격(근접·화살·빛 탄·이단의 제단)과 피해 스킬 아홉에 붙고 던진 독에는 붙지 않는다. F를 길게 누르면 그대로 제단을 들되(M5b) 기도·묵상 중에는 아무도 들 수 없다. 그림은 모두 코드 그림(새 그림 파일 없음): 원(점선 금빛 고리), 제단 등잔 아홉의 상태(켜짐·깜박이다 꺼짐·그을음·답하는 중의 불씨: 04-env 제단의 켠·끈 그림 칸으로), 차례인 사람 머리 위 화살표, 내 차례의 HUD 큰 화살표와 줄어드는 막대, 참여·떠남 고리(M10 검토: 성직자의 후광과 헷갈려 금빛 불티로), 열정 표시(칼)와 남은 시간. 시험 동료 여럿(`--test-ally=a,b,c`)과 그 대본(`--test-pray`), 봇 `pray`·`answer`·`waitturn`·`waitprayer`로 한 프로세스에서 넷이 기도한다. [M10a: 집단 기도 · 묵상 · 열정](#m10a-집단-기도--묵상--열정).
 그 위에 **M10b "세션의 기도"**를 더했다: M10a가 혼자 할 때 더한 것을 세션에서 모두 호스트가 정한다(● game-concept §13 호스트 권한). 원 안의 F 탭은 새 요청 **PRAY**(1B: 호스트가 자기 상태로 혼자 할 때의 탭 규칙을 봄: 성직자가 아닌 사람의 "시작"은 묵상, 원 밖·신앙·전투·열정·모이기 끝·아홉은 거부), 기도 중 자기 차례의 W A S D는 새 요청 **ANSWER**(4B: 기도 번호·차례·키. 남의 차례·지난 차례·아직 안 열린 차례·두 번째 답·예산 밖은 거부)다. 호스트가 지상 제단의 기도 하나를 돌리고(방향·차례·판정·등잔·방해·열정·신앙), 일어난 일은 새 **기도 메시지**(사건 열한 종류: 시작·참여·떠남·멈춤·차례·결과·끝·묵상 셋·열정)로 지상의 사람에게, 사람마다의 열정은 모두에게 간다. 클라이언트는 그 사건으로 사본을 만들어 혼자 할 때와 같은 코드로 원·등잔·머리 위 표시·HUD를 그린다. ● R45 "입력 시간은 왕복을 견딜 만큼": 차례의 창(1.5초)은 그 사람 기기에 차례 사건이 도착한 때부터 돌고, 호스트는 자기 창이 닫힌 뒤 0.5초(새 임시값 "M10b 답 판정")까지 그 차례의 답을 받는다(세션의 기도 25.5초). 예측은 누른 키(흐린 화살표)뿐이고 결과는 호스트의 것이다. 기도 중인 사람의 다른 요청은 모두 거부, 기도·묵상 중에는 제단을 못 든다. 늦은 참가·지상으로 들어옴은 진행 중인 기도를 그 시작 이후 사건으로 받는다. 전송 형식 v12(버전 11은 `version`으로 거부). 시험 셋(`test_net_prayer.gd` 한 프로세스, 실제 세션 `vigil`·`litany`·`silent`), 창 그림 검사 `prayer_net`, 두 창 그림. [M10b: 세션의 기도](#m10b-세션의-기도).
 그 위에 **M10 검토 반영**(2026-11-03, 아래 "검토 반영 (M10)")을 더했다: **버전 거부가 다시 닿는다**(M10b의 새 RPC `_rpc_prayer`가 이름 순으로 매기는 Godot의 RPC 번호를 밀어 버전 11 클라이언트가 `refused: version`(코드 3) 대신 `lost the host`(코드 4)로 끝났다. 새 RPC를 `_rpc_vespers`로 바꾸고 시험이 `_rpc_hello`·`_rpc_refused`의 번호 6·13을 지킨다. 실제 프로세스로 v11 exe와 서로 확인), 제단 남쪽에 선 몸이 아래 줄 등잔을 가려 **제단 가까이 있는 사람의 HUD 가운데 위에 등잔 아홉 칸**(코드 그림), **"혼자" = 참여할 수 있는 다른 사람이 없음**(기도의 열정이 남은 사람은 동행이 아님, 새 임시값 "M10 검토 혼자"), **모이기가 성직자 혼자로 끝나면 기도가 아니다**(멈춤 `nobody joined`, 신앙 안 씀, 그 성직자는 대신 묵상, 새 임시값 "M10 검토 혼자 남은 모이기"), **묵상의 열정은 기도를 막지 않는다**(묵상만 막음, 새 임시값 "M10 검토 묵상의 열정": 열정이 기도에서 왔는지를 스킬 상태와 열정 사건에, ZEAL 9B → 10B), 세션에서 모이기 끝 직후 0.5초 안에 닿은 참여는 받는다(새 임시값 "M10 검토 늦은 참여"), 참여·떠남·묵상 표시가 고리에서 금빛 불티로(성직자의 후광과 헷갈림), 링크 흉내가 잃은 reliable 메시지의 다시 보냄을 흉내 낸다(답 판정의 실제 한계를 다시 잼), 슬롯을 물려받은 늦은 참가자, 기도 메시지가 잘리면 오류 로그, 손실 회선 클라이언트의 보간 검사를 끄지 않고 느슨하게, 그리고 시험이 보지 않던 가지(원 안에서 상인·드롭·문을 겨눈 세션 F, 세션의 누르고 있기, 호스트 자신의 창, PRAY 예산, 묵상 중 늦은 참가, 클라이언트 성직자). 전송 형식은 v12 그대로(아직 내지 않은 판), 월드 해시·스냅샷 그대로.
+그 위에 **M11a "사냥: 생물 · 가죽 · 고기"**(혼자 할 때 먼저. 세션에는 생물이 없고(M11c에서 켠다) 나머지는 M10 그대로, 전송 형식 v12·월드 해시·이단과 기도의 난수열 그대로)를 더했다: ● gameplay-design §3.0 R11 아처 줄·§3.4(누구나 사냥, 가죽 손상·낮은 수율, 아처만 온전한 가죽, 상인의 일반 가죽·고기). 생물 다섯의 표 하나(`Config.CREATURES`: 토끼·사슴과 희귀 셋, 이름·숫자는 모두 자리 표시. 희귀 셋은 표와 그림만, 나타나는 것은 M11b), 지상에 사는 무리(`combat/creatures.gd`: 게임 시계, 자기 난수열, 상한·다시 나옴, 서성임·달아남·쉼, 벽·건설·문·오염·제단 빛을 지킴), 이단을 칠 수 있는 공격은 모두 생물을 친다(기본 공격 다섯, 피해 스킬 아홉, 던진 독, 열정, 1티어 마모), 마지막 타격의 클래스가 떨어뜨리는 것을 정한다(● 아처 = 온전한 가죽, 그 밖 = 손상·적게, 운 없음), 고기는 좌클릭으로 M6 마시기 길을 지나 먹는다, 상인이 일반 가죽(= 손상된 가죽)·고기를 판다(13항목). 생물·고기 그림은 코드 그림 자리 표시다. [M11a: 사냥 · 생물 · 가죽 · 고기](#m11a-사냥--생물--가죽--고기).
+그 위에 **M11b "희귀 구역 · 포획 · 컬렉션"**(혼자 할 때 먼저. 세션에는 없고(M11c에서 켠다) 전송 형식 v12·월드 해시 그대로)를 더했다: ● game-concept §2·§3·§4(월드마다 독립, 달성 단위 자원·생물·업적, 베네핏 범위 클래스·전체·월드, 희귀 생물 포획·사냥은 아처만, 희귀 재료 → 특정 장비), ○ gameplay-design §3.4(포획)·§3.5(첫 획득 해금). 시드로 정하는 희귀 구역 하나(타일을 고치지 않는다), 그 안에서만 사는 희귀 생물 셋, 아처가 아니면 아무 일도 없는 타격, 올가미로 잡기, 항목 8개와 베네핏 셋(아처 화살 +10%, 전원 방어 +1, 상인 재고 7분), 희귀 재료와 희귀 갑옷, 컬렉션 창(K). 그림은 모두 코드 그림 자리 표시다. [M11b: 희귀 구역 · 포획 · 컬렉션](#m11b-희귀-구역--포획--컬렉션).
+그 위에 **M11c "세션의 사냥 · 포획 · 컬렉션"**을 더했다: M11a·M11b가 혼자 할 때 더한 것을 세션에서 모두 호스트가 정한다(● game-concept §13 호스트 권한). 호스트의 지상 아레나가 무리를 쥐고(자기 난수열, 게임 시계) 모든 공격 길이 호스트 상태로 생물을 친다. 마지막 타격의 클래스가 드롭을 정하고(보통 드롭 편집) 호스트의 올가미 판정은 새 요청 **CAPTURE**(9B: 생물 번호, 호스트가 클래스·올가미·번호·도달·HP·상태를 자기 상태로 검사)다. 생물은 새 묶음(10B 하나, 클라이언트마다 **시야 상자 안의 것만**, 바뀔 때만, 멈추면 키프레임 하나)으로 가서 이단처럼 100ms 뒤를 그리고, 컬렉션은 모든 클라이언트에게 절대값 메시지(6B), 구역과 컬렉션은 지상 스냅샷과 내용 해시에 든다(있을 때만: 골든 해시 그대로). 베네핏은 호스트의 숫자다. 클라이언트는 자기 몸 동작만 예측한다. 전송 형식 **v13**, v12와는 양쪽 방향으로 `refused: version`. 실제 세션 `hunt`·`snare`·`wilds`·`herd`, 한 프로세스 `test_net_wild.gd`, 창 검사 `wild_net`. 자세한 것은 아래 "M11c: 세션의 사냥 · 포획 · 컬렉션".
+그 위에 **M11 검토 반영**(2026-11-07, 아래 "검토 반영 (M11)")을 더했다: 제단이 산 생물 위에 놓이지 않는다(혼자 할 때와 호스트, 클릭·유령·내려놓기. 아니면 그 생물이 발자국 안에 영영 갇혔다), 새 빛에서 걸어 나가는 생물이 오염 칸 위에 멈추지 않는다, 시야 상자가 맵 끝에서 카메라처럼 멈춘다(16:9에서도 화면 안의 생물이 안 보이던 것), 떠난 사람의 슬롯을 받은 사람에게 올가미 줄이 가지 않는다, 번호가 돌아가도 산 생물을 건너뛴다, 스폰이 횃불·주머니 칸을 피한다. 통과만 하던 시험을 고치고 빠진 시험을 더했다. 전송 형식 v13·월드 해시 그대로.
 
 기준 문서: `docs/game-concept.md` §2 §3 §7 §9.3 §9.7 §10 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §2.2 §2.3 §2.4 §2.5 §2.6 §3.0 §3.1 §3.2 §3.4 §3.5 §3.8 §5 (M4b: §2.1 실시간·에임형, §2.6 사망 흐름, §3.0 팔라딘 줄, §3.1 ○ "타일 동기화가 던전 안 인원끼리만", game-concept §13 호스트 권한. M6a: §1 ○ "Tab 인벤토리·제작", §2.2 ? 스킬 킷과 ○ 약초사 정체성 스킬 = 약제 투척, §2.4 ○ 상태이상, §3.0 ● R11 약초사 줄, §3.4 ● 상급, §3.5 ○ 제작·해금, game-concept §9.7 ○ 조제대, §12 ● 작물 셋 R28. M6b: game-concept §13 ● 호스트 권한, §2.6 ● 소생(던진 회복과의 관계), 나머지는 M6a와 같음), `docs/concept-art-brief.md` §4 §5.6 §5.7(M6a: ● R29 물약 색), `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작. M4a: 8차 피격·사망, 13차 이단과 "M4에 넘길 것"), `assets/concept/04-env/prompts.md`("본 제작", 채집물, M3a: 던전 바닥↔벽 타일, 광맥, 벽 금, 던전 입구, 이단의 제단, 소품. M6a: 조제대 v05, 작은 것 묶음 `items_v04_strip`의 물약).
 M5a 기준 문서: `docs/game-concept.md` §9.3(● 제단 = 빛·안전 반경, 위치·이동 자유), §9.7(○ 농사 줄기, 밭은 빛 안에서만, 시듦과 되살아남, 밭은 남음, R37 슬라이스 줄), §10(톤 이원화), §11, §12(● 작물 셋 R28, ● R37 누가 무엇을 심나), `docs/gameplay-design.md` §1(○ 키), §2.6, §3.0(● R11 약초사·팔라딘 줄), §3.4(● 상급), §3.7(○ 정화: M5b), §3.8(○ 농사, ● R37 줄), `docs/concept-art-brief.md` §5.7(● R28 작물, ● R29 시든 작물·물 준 흙 칸별 덧칠·독초 색), `assets/concept/04-env/prompts.md`(1차 시험 손질: 흙 v03·물 준 흙·흙 변형, `crops_v03`, 씨앗 봉투 #18~#20).
@@ -45,6 +49,9 @@ M9a 기준 문서: `docs/gameplay-design.md` §1(○ 키 초안 "1 2 3 스킬, R
 M9c 기준 문서: M9a와 같음(`docs/gameplay-design.md` §1 ○ 키, §2.1 ● 실시간·에임형·● R42 커서 근처 아군(잡는 반경은 정하지 않음), §2.2 ● R42 하이브리드 킷·슬라이스 15개, ○ 클래스 자원, §2.3 ○ 위협, §2.4 ○ 군중 제어·상태이상, §2.5 ○ 아처 집중, §2.6, `docs/game-concept.md` §3 ● 전투 역할, §12) + `docs/game-concept.md` §13(● 호스트 권한, ○ 늦은 참가 스냅샷).
 M10a 기준 문서: `docs/game-concept.md` §9.3(● R45 차례 하나 = 등잔 하나, 켜진 등잔 수가 효과 크기, ○ 기도 밖의 등잔 모습, 성직자의 집단 기도는 제단에서), §9.4(● R45 절차, WASD, 결과는 기본보다 오르내림·디버프와 취소 없음, 고정 차례 수(○ 9), 입력 시간(○ 1.5초 안팎), 방해, 시간(○ 5분)·사망하면 사라짐·남은 동안 다시 못 함, 비용 = 신앙(○ 양), 인원 보너스·상한(○ 숫자), 슬라이스 기도 = 열정, 성직자가 없거나 혼자면 묵상; "기도에 소모"), §7(집단 기도의 절차 [x] R45), §12(판정 기준 "기도가 의식처럼 느껴지는가"), `docs/gameplay-design.md` §1(○ F "상호작용 (… 기도 …)"), §2.2(○ 신앙 "기도·성물·봉헌으로 쌓임"), §3.0(● R11 성직자 줄 "누구나 제단에서 짧은 묵상 → 소형 버프"), §3.6(● R45 요약).
 M10b 기준 문서: M10a와 같음 + `docs/game-concept.md` §13(● 호스트 권한, ○ 늦은 참가 스냅샷), §9.4(● R45 "입력 시간은 호스트 왕복을 견딜 만큼 넉넉하게 … 반응 속도가 아니라 주의를 본다").
+M11a 기준 문서: `docs/gameplay-design.md` §3.0(● R11 아처 줄: 대체 수단 "상점의 일반 가죽·고기", 공용 수행 "누구나 사냥. 가죽 손상으로 수율 낮음. 포획 불가", 클래스 전용 "온전한 가죽, 희귀 생물 포획, 희귀 재료 → 특정 장비"), §3.1(○ 지상 = 사냥), §3.4(● "생물을 아처가 잡으면 가죽이 온전, 다른 클래스는 손상", ○ 포획: M11b), §3.5(○ 재료를 처음 얻으면 레시피 해금: M11b), `docs/game-concept.md` §2(컬렉션 줄), §3(아처 줄: ● 희귀 생물 포획·사냥), §4(컬렉션 결정 + 제안: M11b), §9.3(● 안전 반경 = 빛), §11(우선순위: 가축·사육·다른 구역 2차), §12(컬렉션은 아처 구역 1개, 항목 5~10개, 판정 기준 "컬렉션이 혼자 놀 이유가 되는가").
+M11b 기준 문서: `docs/game-concept.md` §2(컬렉션 줄), §3(아처 줄: ● 희귀 생물 포획·사냥), §4(● 월드마다 독립, 달성 단위 자원·생물·업적, 베네핏 범위 클래스·전체·월드, 희귀 생물 포획·사냥은 아처만, 희귀 수집품의 재료 → 특정 장비 필수), §11(우선순위: 컬렉션 슬라이스, 나머지 구역·가축·사육·성화 UI는 2차), §12(컬렉션은 아처 구역 1개, 항목 5~10개, 판정 기준 "컬렉션이 혼자 놀 이유가 되는가"), `docs/gameplay-design.md` §3.0(● R11 아처 줄), §3.4(○ 포획: 올가미·덫, HP를 낮춘 뒤, 컬렉션 등록, 약초사 인계), §3.5(○ 재료를 처음 얻으면 레시피 해금).
+M11c 기준 문서: M11a·M11b와 같음 + `docs/game-concept.md` §13(● 호스트 권한, ○ 늦은 참가 스냅샷).
 문서의 ●는 그대로 따르고, ○·?는 정하지 않고 [임시값](#임시값-사람-확인-필요)으로 둔다.
 
 ## 준비
@@ -75,10 +82,10 @@ timeout 300 "$GODOT" --headless --path game --import < /dev/null
 ### 전체 테스트
 
 ```bash
-timeout 900 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
+timeout 1800 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
 ```
 
-- 출력: 첫 줄 `EVENSONG_TESTS start: 27 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24, M5c: 27, M7a: 30, M7b: 32, M7c: 35. 전체가 M7b까지 약 365~400초, M7c에서 약 510초(실제 세션 둘이 약 70초 더함), M7-fix에서 약 457초, M7-rf에서 약 485~505초(파일 수 그대로, checks 29,093), M7-rf 검토 반영 뒤 약 510~525초(checks 29,144), M8a: 37파일(checks 29,707, 약 460초), M8b: 40파일(checks 30,175, 약 535초: 실제 세션 둘이 약 60초 더함), M8 검토: 40파일(checks 30,230, 약 560~590초), M9a: 41파일(checks 30,671, 약 630~645초. 이 기기가 그때 느렸다: 아래 "측정"의 M9a), M9b: 42파일(checks 31,376, 약 560~595초), M9c: 44파일(checks 31,841, 약 590~595초: 실제 세션 `rites`·`chant`가 약 46초 더함), M9 검토: 45파일(checks 31,939, 약 600초), M10a: 47파일(checks 32,833, 약 650초: `net_session`이 홀로 100~117초라 파일 하나 제한 120초에 가깝다. 다른 무거운 일과 같이 돌리지 않는다), M10b: 50파일(실제 세션 `vigil` 약 50초·`litany`+`silent` 약 80초를 더함, 아래 "측정"의 M10b), M10 검토: 50파일(checks 33,843, 약 740~770초)이라 위 명령의 `timeout`은 600이면 빠듯하다: 900으로 돌린다)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
+- 출력: 첫 줄 `EVENSONG_TESTS start: 27 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24, M5c: 27, M7a: 30, M7b: 32, M7c: 35. 전체가 M7b까지 약 365~400초, M7c에서 약 510초(실제 세션 둘이 약 70초 더함), M7-fix에서 약 457초, M7-rf에서 약 485~505초(파일 수 그대로, checks 29,093), M7-rf 검토 반영 뒤 약 510~525초(checks 29,144), M8a: 37파일(checks 29,707, 약 460초), M8b: 40파일(checks 30,175, 약 535초: 실제 세션 둘이 약 60초 더함), M8 검토: 40파일(checks 30,230, 약 560~590초), M9a: 41파일(checks 30,671, 약 630~645초. 이 기기가 그때 느렸다: 아래 "측정"의 M9a), M9b: 42파일(checks 31,376, 약 560~595초), M9c: 44파일(checks 31,841, 약 590~595초: 실제 세션 `rites`·`chant`가 약 46초 더함), M9 검토: 45파일(checks 31,939, 약 600초), M10a: 47파일(checks 32,833, 약 650초: `net_session`이 홀로 100~117초라 파일 하나 제한 120초에 가깝다. 다른 무거운 일과 같이 돌리지 않는다), M10b: 50파일(실제 세션 `vigil` 약 50초·`litany`+`silent` 약 80초를 더함, 아래 "측정"의 M10b), M10 검토: 50파일(checks 33,843, 약 740~770초), M11a: 52파일(checks 35,472, 약 805~837초), M11b: 55파일(checks 46,594, 약 777~807초), M11c: 58파일(checks 47,635, 약 898~914초: 실제 세션 `hunt`·`snare`·`wilds`·`herd`가 약 105초 더함)이라 위 명령의 `timeout`은 900이면 빠듯하다: 1800으로 돌린다)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
 - 종료 코드: 모두 통과 0, 하나라도 실패 1 (불러오기 실패·시간 초과·테스트 파일 없음·시작 중 오류·마지막 파일 뒤 오류도 1)
 - 통과하는 실행에도 오류 묶음이 **8개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
   - `ERROR: Character: unknown class 'wizard'` 1개: `test_actors.gd`가 모르는 클래스 이름을 거부하는지 확인
@@ -143,6 +150,8 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_rites --net-exe=build/evensong.console.exe < /dev/null   # 자식을 내보낸 exe로
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_prayer < /dev/null    # M10b 한 프로세스 기도 (약 9초)
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_vigil,net_litany < /dev/null   # M10b 실제 세션 vigil / litany·silent (약 50초 + 80초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_wild < /dev/null      # M11c 한 프로세스 사냥·포획·컬렉션 (약 10초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_hunt,net_herd < /dev/null   # M11c 실제 세션 hunt·snare / wilds·herd (약 50초 + 55초)
 ```
 
 - `test_net.gd`: 전송 형식(왕복, 잘린 패킷 전부, 무작위 바이트 2,000개), 인원 상한(진짜 9명: 10번째 거부, 빈 자리 다시 쓰기), 호스트 입력 검사(순서·중복·속도 제한·고르게 적용·따라잡기는 틱당 4개까지, 실제 시간 시계 `InputGate.ticks_between`과 그 시계로 두 배 빨리 보내는 클라이언트, 호스트가 1초 멈췄다 따라잡기를 두 순서로: 물리 틱 안에서 멈춤 / 틱 밖에서 멈춰 Godot이 따라잡기 틱 뒤에 네트워크를 읽음, 멈춤 크레딧이 쌓이지 않고 사라짐), 호스트가 바라보기를 방향에서 정하기(클라이언트 예측과 프레임마다 같음), 호스트의 묶음/키프레임/조용함 판단, 클라이언트 예측을 지연·손실 있는 가짜 연결로 호스트와 맞춰 보기(지연 0·5·9틱, 손실 0·25%, 위치와 바라보기), 보간, 월드 스냅샷(여섯 레이어 왕복, 조각 크기·순서·틱당 개수, 받는 쪽 검사: 빠진 조각·바뀐 바이트·다른 월드·크기, 크기 상한 `MAX_SIDE`·`MAX_PACKED`, 크기·md5가 맞는 무작위 조각도 풀기 단계에서 거부), 스냅샷 뒤의 편집 기록, 스냅샷 크기와 참가 시간(128×96, 512×512 합성, 512×512 무작위), 봇 스크립트, CLI, RPC 표(누가 부를 수 있는지·채널·신뢰성), 전송(ENet 호스트+참가를 한 프로세스에서, 양쪽 연결의 패킷 조절 설정, Steam은 신호로 unavailable)
@@ -152,6 +161,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 - `test_net_skills.gd`·`test_net_rites.gd` (M9c): 한 프로세스와 실제 세션의 스킬(아래 "M9c: 세션의 스킬"의 "시험"). `test_net_rites.gd`(`rites`·`chant`, 약 45초)는 `test_net_session.gd`의 도구로 돈다
 - `test_skills_review.gd` (M9 검토): 검토 지적의 고침을 혼자 할 때와 한 프로세스 세션 리그에서(`test_net_skills.gd`를 이어 씀, 아래 "검토 반영 (M9)")
 - `test_net_prayer.gd`·`test_net_vigil.gd`·`test_net_litany.gd` (M10b): 한 프로세스와 실제 세션의 기도(아래 "M10b: 세션의 기도"의 "시험"). 실제 세션 둘은 `test_net_session.gd`의 도구를 쓰고, 파일마다 120초 제한 안에 들게 `silent`를 `litany` 파일에 두었다(`--net-sessions=vigil`·`litany,silent`로 고름)
+- `test_net_wild.gd`·`test_net_hunt.gd`·`test_net_herd.gd` (M11c): 한 프로세스와 실제 세션의 사냥·포획·컬렉션(아래 "M11c: 세션의 사냥 · 포획 · 컬렉션"의 "시험"). 실제 세션 둘은 `test_net_session.gd`의 도구를 쓰고(`--net-sessions=hunt,snare`·`wilds,herd`), 파일마다 120초 제한 안에 든다. 모든 세션 시험 인스턴스는 `--test-no-creatures`로 뜨고 이 파일들만 무리를 켠다(`_launch`의 `creatures`)
 - `test_net_build.gd`·`test_net_house.gd`·`test_net_stock.gd` (M7c): 한 프로세스와 실제 세션의 작업대·장비·창고·건설·나무(아래 "M7c: 세션의 작업대 · 장비 · 창고 · 건설 · 나무"의 "시험"). `test_net_house.gd`(`house`)와 `test_net_stock.gd`(`stock`)는 `test_net_session.gd`의 도구로 돈다
 - `test_net_fields.gd`·`test_net_farm.gd`·`test_net_purify.gd` (M5c): 한 프로세스와 실제 세션의 농사·정화·제단(아래 "M5c: 세션의 농사 · 정화 · 제단"의 "시험"). `test_net_farm.gd`(`farm`·`farm4`)와 `test_net_purify.gd`(`purify`·`altar`)는 `test_net_session.gd`의 도구로 돌고, 파일 하나 제한 120초 안에 들게 둘로 나눴다
 - `test_net_potions.gd`·`test_net_brew.gd` (M6b): 한 프로세스와 실제 세션의 제작·물약(아래 "M6b: 세션의 제작 · 물약"의 "시험"). `test_net_brew.gd`는 `test_net_session.gd`의 도구로 `brew`·`brew4`(약 55초, 파일 하나 제한 120초 안)
@@ -205,6 +215,7 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 - 마지막 줄은 `EVENSONG_SMOKE ok exported=true ... hash=0da8e0d26ded ... gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=323B items=54 actions=9 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 chain=25/7 gear=21/8/96 chest=16 build=3/1/2 trees=30/4 shop=67,50/11/9 skills=15/15 pick=true taunt=1 slam=16 rock=24/60 ward=6 mist=4 zone=(1016.0, 760.0)/112 ... snapshot=662B/86054B combat_wire=26B potion_wire=40B/47B fields_wire=17B/11B builds_wire=85B/635B/38B shop_wire=8B/11B/8B/659B skills_wire=15B/16B/18B/123B landed=5 events=6 net=v11 checks=466`을 찍고 0으로 끝나야 한다(M9 검토에서 고친 줄: 앞 줄은 M8의 것이었다. M3-fix에서 던전 해시 둘이 바뀌었다: 벽 횃불 자리 고르기. M4a·M4b·M6a·M6b·M5a·M5b·M5c·M7a·M7b·M7c에서 항목이 늘었다(M7b: `items=53 actions=9`, `chain=25/7`: 작업대 레시피에 건설 조각·도끼 다섯. M7c: `builds_wire`, `net=v8`, 스냅샷 원본 +2B·던전 지도 `dungeon_map=321B`(창고 수 +2B: M7-fix에서 기대 줄을 고침). M7-fix: 입력 `craft_hand` 검사 하나 더해 423. M7-rf: 바닥 조각 위의 벽과 철거 순서·바닥 조각이 든 스냅샷과 편집 검사 넷을 더해 427, `build=3/1/2`(놓은 조각 = 바닥 조각 + 그 위 벽 + 문), 일곱째 레이어로 스냅샷 원본 +12,288B(`snapshot=662B/86053B`)·던전 지도 `dungeon_map=322B`(+1B), `builds_wire=85B/635B/38B`(바닥 조각 위 벽이 든 스냅샷, 편집은 창고 칸 16 + 바닥 조각 11 + 문 11), `net=v9`. 지상·던전 해시는 그대로: 생성 월드에 바닥 조각이 없어 해시가 레이어 여섯만 덮음). M8a: 화폐 아이템으로 `items=54`, 상점 검사 일곱을 더해 434, `shop=67,50/11/9`(시드 1 상인 칸 / 파는 것 열하나 / 회복 물약 하나 사고 돌 하나 판 뒤 남은 돈). 지상·던전 해시·스냅샷 크기 그대로(생성기는 상인을 놓지 않는다). M8b: 스냅샷의 상점 바이트(0 = 없음)로 원본 +1B(`snapshot=662B/86054B`, 압축은 그대로)·던전 지도 `dungeon_map=323B`(+1B), 전송 검사 셋을 더해 437, `shop_wire=8B/9B/8B/659B`(프레임의 BUY / SELL, 상점 재고 편집, 상인과 성수 하나 팔린 상점이 있는 시드 1 지상의 압축 스냅샷), `net=v10`. 지상·던전 해시 그대로(생성된 월드에는 상점이 없어 해시가 재고를 덮지 않음). M8 검토: SELL이 보낸 사람이 본 아이템·등급 2B를 실어 `shop_wire=8B/11B/8B/659B`, 검사 수 437 그대로(SELL 왕복 검사가 본 아이템·등급도 봄). 지상 해시는 M7b에서 `hash=0da8e0d26ded`로 바뀌었다(나무 30그루, 아래 "M7b"), 던전 해시는 그대로). 아래 "스모크" 참조
 - M10a: 위 줄의 `mist=4` 뒤에 ` prayer=6/3/21 faith=30 zeal_hit=17 meditate=5`가 붙고 끝이 `checks=474`다(에디터 빌드의 `--smoke`로 확인. M10a는 세션·전송 형식을 바꾸지 않아 내보내지 않았다: 내보낸 exe의 줄은 다음에 내보낼 때 확인)
 - M10b: 그 뒤 `skills_wire=… events=6` 다음에 ` prayer_wire=3B/6B/166B/15B lit=6 lag=30`이 붙고 `net=v12`, 끝이 `checks=477`다(PRAY 3B·ANSWER 6B는 프레임 번호·op 바이트 포함, 166B = 셋의 기도 하나의 사건 스물둘, 15B = 차례 하나의 차례·결과 사건, 6 = 호스트 방식의 기도 셋에서 100틱째의 답이 여유로 받아져 켜진 등잔, 30 = 여유 틱). 내보낸 exe의 줄은 아래 "측정"의 M10b
+- M11c: `dungeon_map=325B`(스냅샷의 구역·컬렉션 표시 2B), `items=60`, `chain=28/7`, `shop=67,50/13/9`, `herd=13/5 hunt=2/1` 뒤에 ` wild_wire=11B/10B/135B/6B zone_snapshot=11B`(CAPTURE 11B = 프레임 번호·op 바이트 포함, 생물 10B, 상한 13마리 묶음 135B, 컬렉션 6B, 스냅샷의 구역 + 컬렉션 11B), `rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8`, `snapshot=663B/86056B`, `shop_wire=8B/11B/8B/663B`, `net=v13`, 끝이 `checks=508`다. 내보낸 exe의 줄은 아래 "측정"의 M11c
 
 ### 실행
 
@@ -216,6 +227,9 @@ game/build/evensong.exe -- --class=miner               # 내보낸 빌드
 timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그리지 않고 120프레임 (오류 확인용)
 "$GODOT" --path game -- --class=miner --give=pickaxe,hoe,sickle,watering_can,sword,bow,wild_healing:12,stone_a:30   # M2a: 도구를 들고 시작
 "$GODOT" --path game -- --class=miner --give=pickaxe,torch:10 --start-map=dungeon   # M3a: 던전 도착점에서, 곡괭이(1번)와 횃불(2번)
+"$GODOT" --path game -- --class=archer --test-select=8 --test-at=62,56 --test-no-creatures --test-creature=hare:1,deer:1   # M11a: 빛 남쪽 밖, 활을 든 아처 둘레에 토끼와 사슴
+"$GODOT" --path game -- --class=archer --test-at-zone=0,0 --test-no-spawns --give=snare:4 --test-select=8   # M11b: 희귀 구역 한가운데. 활로 희귀 생물을 쏘고(HP 막대의 눈금 아래로), 쉬는 동안 걸어가 1번(올가미)을 고르고 좌클릭
+"$GODOT" --path game -- --class=archer --test-at-zone=-2,0 --test-no-creatures --test-no-spawns --give=snare:3 --test-select=1 --test-near-creature=lamp_fox:25   # M11b: 잡을 수 있는 여우가 바로 옆에(금빛 고리), 좌클릭 = 잡기, K = 컬렉션 창
 "$GODOT" --path game -- --class=archer --test-select=8                              # M4a: 아처, 활(핫바 8번)을 든 채로. 북쪽 오염 구역(약 27칸)으로 걸어가면 이단
 "$GODOT" --path game -- --class=paladin --test-at=72,26 --test-heretic=75,26 --test-select=8   # M4a: 오염 구역 옆, 이단 하나와 바로 붙어서
 "$GODOT" --path game -- --class=herbalist --give=alchemy_table,wild_healing:4,wild_buff:4,wild_poison:4   # M6a: 조제대(핫바 1번)를 들고. 남쪽을 조준하고 좌클릭 = 놓기, 그 옆에서 Tab
@@ -266,6 +280,8 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 - M7b 세션(M7c에서 바뀜): 조각 좌클릭은 호스트가 `building offline only`로 거부하고, 우클릭은 콘솔에 같은 거부만 찍고, 문의 F는 M5c 줍기 요청 그대로, 도끼는 휘두르기만 한다(호스트가 `chopping offline only`로 셈). 나무는 세션 월드에도 있고 막는다
 - M9a (혼자 할 때, 키는 임시값 "M9a 슬롯·키"): **1** = 정체성 스킬(팔라딘 도발, 아처 꿰뚫는 화살, 성직자 치유(받을 아군 근처에 마우스), 광부 땅 울리기, 약초사 약제 투척(회복·버프는 아군에게, 독은 마우스 점)), **2** = 무기 스킬(M9b에서 만듦, 아래 줄), **3** = 선택 슬롯(잠김), **R** = 시그니처(M9b에서 만듦). 핫바 오른쪽 스킬 줄: 칸 넷과 키 글자, 쿨다운 덮개, 거부의 빨간 테, 위에 클래스 자원 막대(약초사는 회복 약초 점). 콘솔 `EVENSONG_SKILL ...`. 세션에서는 M9c까지 M6 그대로(1 = 약초사 투척, 회복·버프도 겨눔)
 - M9b (혼자 할 때, 키는 M9a 그대로): **2** = 무기 스킬, 핫바에서 **든 클래스 무기**(기본·1티어, 시작 무기는 8번)가 정한다: 팔라딘 검 내려치기(앞 호, 기절), 아처 활 부채 사격(화살 셋), 성직자 성광(무기)의 성광 폭발(커서 자리), 광부 곡괭이 내리찍기(캐지 않음), 약초사 낫 휩쓸기(넓은 호, 둔화). 무기를 들지 않으면 2 칸이 빨갛다. **R** = 시그니처, 클래스 자원을 쓴다: 팔라딘 수호의 맹세(신념 50, 둘레 아군 막기), 아처 화살비(집중 30 이상을 모두, 커서 자리), 성직자 축복(신앙 50, 자기를 따라가는 회복 고리), 광부 낙석(지구력 40, 커서 자리), 약초사 회복 안개(회복 약초 셋, 커서 자리 구름). 자원이 모자라면 R 칸이 빨갛다. `--test-resource=100`이면 막대가 찬 채 시작. 세션에서는 M9c까지 없음 → **M9c부터 세션에서도 같은 키**(호스트가 정함, 아래 "창 둘로 M9 해 보기". 막대는 호스트 플래그 `--test-start-resource=<클래스>:<n>`)
+- M11a (혼자 할 때): 생물은 지상의 빛 밖에 산다(시작할 때 토끼 여섯·사슴 넷). 무기를 들고 겨누고 좌클릭 = 사냥(기본 공격과 피해 스킬 모두 닿는다). 죽으면 그 칸에 가죽·고기가 떨어진다(F로 줍기: 다른 드롭처럼 옆 칸에서). 고기를 들고 좌클릭 = 먹기(HP 12, 가득 차면 거부). 콘솔 `EVENSONG_HUNT killed kind=deer by=archer at=70,40 drops=hide_fine:2+meat:2`
+- M11b (혼자 할 때, 키는 임시값 "M11b 컬렉션 창"): 희귀 구역은 맵 한쪽의 원(금빛이 희미하게 깔리고 둘레에 등불 돌)이다. 희귀 생물 셋이 그 안에서만 산다. 활 등으로 HP를 낮추면(아처만, 다른 클래스의 타격은 빨간 ×만 뜨고 아무 일도 없다) HP 막대의 눈금 아래에서 발밑에 금빛 고리가 깜박인다. **올가미**를 고르고 그 생물을 좌클릭 = 잡기(닿는 거리 안, 던지는 동작 끝에 잡힘, 올가미 하나 씀). **K** = 컬렉션 창(K·Tab·Esc로 닫음, 게임은 멈추지 않음). 콘솔 `EVENSONG_CAPTURE caught kind=lamp_fox who=archer material=1 dropped=0 snares=2`, `EVENSONG_COLLECTION entry=take_lamp_fox unit=creature count=3/8`, `EVENSONG_COLLECTION benefit=class at=3`
 - M10a (혼자 할 때, 키는 임시값 "M10a F"·"M10a 응답 키"): 제단 둘레 원(반지름 64px) 안에서 **F를 짧게**(20틱 안에 떼기) = 기도의 탭. 성직자이고 원 안에 다른 산 사람이 있으면 기도 시작(신앙 30 이상, 전투 아님, 자기 열정 없음), 모이기 3초 동안 다른 사람의 탭 = 참여, 참여자의 탭 = 그만두기(성직자면 기도가 멈춤), 그 밖(성직자 아님, 성직자 혼자) = 묵상 3초(움직이거나 맞으면 끊김). F가 먼저 다른 일(입구·계단, 상인, 창고, 문, 줍기, 팔라딘 채널링)을 했으면 탭이 아니다. F를 길게 누르면 M5b대로 제단을 든다(기도·묵상이 있는 동안은 아무도 못 든다). 기도 중에는 **W A S D**(방향키도)가 답이고 움직이지 않는다: 차례가 오면 HUD 가운데 위에 큰 화살표와 줄어드는 막대, 그 방향을 한 번 누른다(먼저 누른 하나, 둘을 같이 누르면 틀림). 스킬·클릭·Space·창은 거부. 콘솔 `EVENSONG_PRAYER start who=LocalPlayer faith=100 directions=d,w,w,s,d,d,a,d,w`, `join who=Ally_paladin members=2`, `turn 0 who=LocalPlayer dir=d`, `answer turn=0 who=LocalPlayer ok lamp=lit`, `answer turn=2 who=Ally_archer late lamp=out`, `left who=Ally_miner why=quit members=3`, `stopped why=the cleric: hit lit=1 (nothing given, no faith spent)`, `end lit=8 participants=4 zeal=27% ticks=18000 faith=30`, `meditate who=LocalPlayer ticks=180`, `meditated who=LocalPlayer zeal=5% ticks=7200`, `meditation broken who=LocalPlayer: moved`, `refused start who=LocalPlayer: in combat`, `refused use who=LocalPlayer: praying`, M10 검토: `stopped why=nobody joined lit=0 (nothing given, no faith spent)`(모이기가 성직자 혼자로 끝남, 그다음 `meditate who=…`). ~~세션에서는 탭이 `EVENSONG_PRAYER refused who=...: prayer offline only (M10b)`만 찍는다(M10b에서 켬)~~ M10b부터 세션에서는 탭이 PRAY 요청이다(`EVENSONG_PRAYER tap who=... (to the host)`, 아래 "M10b: 세션의 기도")
 - `world.tscn`: WASD 또는 방향키로 자유 카메라 이동 (제단·빛은 있고 캐릭터는 없다)
 - 창 기본 1920×1080(4배). `-- --scale=3`이면 1440×810
@@ -611,6 +627,50 @@ evensong.console.exe -- --join=<데스크탑 주소> --class=paladin
 3. 서피스 HUD의 열정 남은 시간 막대가 데스크탑과 같이 줄어드는지(5분), 서피스가 사망하면(빛 밖에서) 열정이 두 기기에서 같이 없어지는지
 4. 이상하면 두 콘솔의 `pray`·`answer`·`prayer`·`request_refused` 줄을 남겨 둔다
 
+혼자 M11 해 보기 (사람이 할 것, M11a·M11b, 판정 기준 ● game-concept §12 "컬렉션이 혼자 놀 이유가 되는가"):
+
+```bash
+"$GODOT" --path game -- --class=archer --test-no-spawns --give=snare:4,hide_fine:2,log:2     # 처음부터: 빛 밖으로 나가 사냥
+"$GODOT" --path game -- --class=archer --test-at-zone=-8,0 --test-no-spawns --give=snare:4   # 구역 곁에서 바로
+"$GODOT" --path game -- --class=paladin --test-at-zone=-8,0 --test-no-spawns --give=bow:1    # 아처가 아니면 어떤지
+```
+
+1. 빛 밖의 토끼·사슴: 활로 쏘는 것이 자연스럽고, 칼로 쫓는 것은 되지만 느린지(1.5초 달리기·2초 쉼). 토끼가 너무 작거나 빠르지 않은지. 저녁에 생물이 읽히는지(사슴 앞모습이 가늘다: M11a 그림)
+2. 아처의 처치 = 온전한 가죽·고기, 다른 클래스 = 손상된 가죽. F로 줍고 고기 좌클릭. 상인(제단 곁)의 일반 가죽 10·고기 6, 사들이는 값
+3. 구역(금빛이 희미하게 깔린 원, 둘레에 돌)을 찾을 수 있는지, 금빛이 너무 희미하지 않은지. 희귀 셋을 쏴서 HP 막대의 눈금 아래로 낮추면 금빛 고리가 뜨는지, 올가미를 들고 좌클릭(40px 안)으로 잡히는지, 그 거리가 맞는지, 쫓아 잡는 데 걸리는 시간
+4. K: 칸 여덟·항목 수·베네핏 표시 셋. 3개에서 활 +10%, 5개에서 방어 +1, 8개에서 재고 7분이 **혼자 놀 이유가 되는지**. 재료 3 + 온전한 가죽 2로 모루에서 희귀 갑옷
+5. 셋째 명령: 팔라딘의 화살이 희귀 생물에게 빨간 ×만 내는지. **구역을 몸으로 막을지**(임시값 "M11b 구역 접근")
+6. 저녁 1배 화면에서 토끼와 등불 여우가 구별되는지, 재 올빼미가 어두운 풀 위에서 보이는지, 포획 고리가 읽히는지. **그림이 올 때까지 희귀 생물에 작은 표시를 늘 붙일지**(M11 검토: 6배에서는 다섯 모양이 다 다르지만 1배에서는 차이가 작다)
+
+창 둘로 M11 해 보기 (사람이 할 것, M11c):
+
+```bash
+"$GODOT" --path game -- --host --scale=2 --class=paladin --test-no-spawns --give=bow:1
+"$GODOT" --path game -- --join=127.0.0.1 --class=archer --scale=2 --net-lag=120 --net-loss=5 --give=snare:3
+```
+
+1. 두 창이 함께 빛 남쪽으로 나간다. 창 1의 팔라딘과 창 2의 아처가 같은 사슴을 쏜다: 맞은 번쩍임·HP 막대가 두 창에 같이 뜨는지, 달아나는 사슴이 창 2에서 끊기지 않는지(100ms 뒤를 그림). 마지막 화살의 주인이 정하는지: 아처면 두 창에 온전한 가죽 둘·고기 둘, 팔라딘이면 손상된 가죽·고기(창 1 콘솔 `hunt killed slot=… by=… drops=…`)
+2. 둘 다 구역까지 걸어간다(시드 1이면 동쪽으로 50칸). 두 창에 같은 금빛 원. 창 1의 화살이 희귀 생물에게 ×만 내는지가 **두 창 모두에서** 보이는지(콘솔 `hunt refused`). 창 2가 쏴서 낮춘 뒤 잡는다: 던지기는 창 2에서 바로, 생물이 사라지는 것은 왕복 뒤인데 거슬리는지. 창 1 콘솔 `capture slot=1 caught …`, `collection entry=…`. 달리는 생물에게 던지면 `out of reach`로 거부되는 일이 잦은지(임시값 "M11c 포획 판정")
+3. 양쪽 K: 같은 칸이 켜져 있는지, 창을 연 채 다른 창이 사냥하면 킬 표시가 늘어나는지
+4. 창 2만 던전에 내려간 동안 창 1이 사냥: 창 2의 K에 그대로 늘어나는지(던전에서도 메시지가 온다). 올라오면 곁의 생물이 바로 보이는지
+5. 셋째 창을 띄우면(`--join=127.0.0.1 --class=miner --scale=2`) 시야의 생물과 컬렉션이 처음부터 있는지
+6. 이상하면 두 콘솔의 `hunt`·`capture`·`collection`·`request_refused`·`EVENSONG_CAPTURE` 줄을 남겨 둔다
+
+두 기기에서 M11 해 보기 (사람이 할 것, M11c. **서피스는 이번 빌드로 다시 내보낸 exe여야 한다**):
+
+```bash
+# 데스크탑: 내보낸 뒤 (클라이언트의 --give를 받으려면 --test-allow-give)
+game/build/evensong.console.exe -- --host --class=paladin --test-no-spawns --test-allow-give --give=bow:1
+# 서피스: 먼저 전송 형식 비교, 그다음 참가 (v12 exe는 `version`으로 거부된다)
+evensong.console.exe --headless -- --smoke      # wild_wire=11B/10B/135B/6B zone_snapshot=11B ... net=v13 인지 (위 "내보내기"의 기대 줄)
+evensong.console.exe -- --join=<데스크탑 주소> --class=archer --give=snare:3
+```
+
+1. 서피스의 구역이 데스크탑과 같은 자리인지(서피스의 콘솔 `welcome …`이 말하는 월드 해시가 같으면 같다. 구역은 호스트의 스냅샷으로 온다: 서피스의 생성기는 고르지 않는다)
+2. 실제 회선(Tailscale)에서 서피스의 활로 사슴 맞히기: 달아나는 생물을 쏠 때 맞는 곳과 보이는 곳이 얼마나 어긋나는지(호스트 시간 판정, 되감기 없음). 쉬는 생물을 올가미로 잡을 때 왕복이 거슬리는지
+3. 서피스에서 생물 끊김: 무리 곁에서 프레임이 떨어지거나 끊기면 데스크탑 콘솔의 `hunt`와 함께 남겨 둔다(묶음이 많을 때 한 클라이언트 2.7KB/s)
+4. 이상하면 두 콘솔의 `hunt`·`capture`·`collection`·`request_refused` 줄을 남겨 둔다
+
 ### 스크린샷
 
 ```bash
@@ -877,6 +937,47 @@ sleep 2
 timeout 90 "$GODOT" --max-fps 60 --path game -- --join=127.0.0.1:24894 --class=paladin --scale=2 --bot="$CB" --screenshot=shots/m10b_client.png --frames=395 --keep-running --net-timeout=19 < /dev/null
 ```
 
+- M11a 그림 3장 (`shots/m11_hunt.png`, `shots/m11_hurt.png`, `shots/m11_hurt_4x.png`. 시드 1, 저녁, 480×270, 이단·생물 스폰 끔, 혼자 할 때, 빛 남쪽 밖에 선 아처, 생물과 고기는 코드 그림 자리 표시):
+  - `m11_hunt.png` (20프레임): 활을 든 아처, 동쪽 104px에 토끼(남쪽을 봄), 서쪽 104px에 사슴. 둘 다 경계 밖이라 서 있다
+  - `m11_hurt.png` (175프레임, 봇 `hunt:600`): 토끼는 화살에 죽어 그 칸에 온전한 가죽 + 고기, 아처는 서쪽을 겨눠 활을 당김, 사슴은 화살을 맞고 달아났다 쉬는 중(머리 위 HP 막대, 옆 모습)
+  - `m11_hurt_4x.png`: 그 그림의 가운데 띠(60, 90)부터 340×110을 4배(가장 가까운 이웃)로
+  - 2~4배로 본 것: 사슴(24px)은 플레이어(약 28px)와 나란히 서면 어깨쯤이고 옆 모습이 사슴으로 읽힌다. 앞 모습은 다리와 뿔이 가늘어 저녁에는 얇아 보인다. 토끼(13px)는 플레이어 허리쯤의 작은 갈색 덩어리로, 1배에서 귀가 겨우 읽히고 크기로 사슴과 갈린다. HP 막대·드롭(가죽과 고기가 8px 떨어져 둘 다 보임)은 1배에서 읽힌다. 처음 값 4px는 두 드롭이 한 덩어리로 보여 8px로 바꿨다
+
+```bash
+A="--class=archer --test-select=8 --test-at=63,56 --test-no-creatures --test-no-spawns --test-creature=hare:1,deer:1"
+timeout 120 "$GODOT" --max-fps 60 --path game -- $A --screenshot=shots/m11_hunt.png --frames=20 < /dev/null
+timeout 120 "$GODOT" --max-fps 60 --path game -- $A "--bot=hunt:600" --screenshot=shots/m11_hurt.png --frames=175 < /dev/null
+uv run --python 3.14.6 --with pillow==11.3.0 python -c "from PIL import Image; i = Image.open('game/shots/m11_hurt.png').convert('RGB').crop((60, 90, 400, 200)); i.resize((i.width * 4, i.height * 4), Image.NEAREST).save('game/shots/m11_hurt_4x.png')"
+```
+
+- M11b 그림 넷 (`shots/m11b_capture.png`, `shots/m11b_capture_4x.png`, `shots/m11b_panel.png`, `shots/m11b_end.png`. 시드 1, 저녁, 480×270, 이단 스폰 끔, 혼자 할 때, 희귀 구역은 (114, 63), 모두 코드 그림 자리 표시). `m11b_panel.png`과 `m11b_end.png`는 자연히 나타난 희귀 생물의 HP를 플래그로 낮추지 않고 봇이 쫓아 잡은 **실제 프로세스**다:
+  - `m11b_capture.png` (15프레임): 구역 안에서 아처가 올가미를 던지는 동작 중. 여우는 HP 25%로 쉬는 중이었고 잡혀 서 있다: 머리 위 HP 막대의 상아색 눈금(30%) 아래로 빨간 채움, 발밑에 금빛 고리, 아처 쪽으로 점선 밧줄. `m11b_capture_4x.png`: 그 가운데 (150, 80)부터 220×130을 4배로
+  - `m11b_panel.png` (실제 실행, 약 8,200프레임): 구역 한가운데서 시작한 아처 봇이 자연히 나타난 희귀 셋을 화살(100틱에 한 번)로 낮추고 쉬는 동안 걸어가 모두 올가미로 잡았다(`ash_owl`, `silver_stag`, `lamp_fox` 순서). 창이 반쯤 찼다: 4/8, 희귀 셋과 "첫 희귀 재료"가 그림, 토끼·사슴·온전한 가죽·열 마리는 어두운 그림자, 킬 점 0/10, 클래스 베네핏만 금빛 테(문턱 3), 나머지 둘은 어둡다
+  - `m11b_end.png` (실제 실행, 약 11,000프레임): 한 바퀴의 끝. 구역 서쪽 밖에서 아처 봇이 토끼·사슴 열 마리를 사냥하고(`--test-creature`는 자리만 가깝게 둔 것, 사냥은 진짜), 구역으로 걸어가 희귀 셋을 잡고, 모루를 놓아 희귀 갑옷을 만들어 입고 K. 8/8, 베네핏 셋 모두 금빛 테, HUD 왼쪽 갑옷 칸에 희귀 갑옷. 콘솔에 베네핏이 3·5·8에서 켜지는 줄이 찍힌다
+  - 2~4배로 본 것: 눈금과 금빛 고리는 저녁에도 1배에서 읽힌다(둘 다 unshaded). 밧줄은 점선이라 4배에서 또렷하고 1배에서는 희미하다(동작이 0.3초라 충분하다). 경계 돌은 1배에서 작은 돌 더미로 읽히고 불꽃 3픽셀은 저녁에도 색이 그대로다. 땅의 금빛은 알파 0.1로 아주 희미해서 돌 없이는 구역 경계가 잘 안 보인다(의도: "faint", 사람이 볼 것). 창의 그림자는 생물마다 윤곽으로 갈린다. 처음 그린 클래스 표식은 칼처럼 보여서 화살촉과 깃이 있는 화살로 다시 그렸다
+
+```bash
+A="--class=archer --test-at-zone=-2,0 --test-no-creatures --test-no-spawns --give=snare:3 --test-select=1 --test-near-creature=lamp_fox:25"
+timeout 120 "$GODOT" --max-fps 60 --path game -- $A "--bot=wait:4;snare:60" --screenshot=shots/m11b_capture.png --frames=15 < /dev/null
+uv run --python 3.14.6 --with pillow==11.3.0 python -c "from PIL import Image; i = Image.open('game/shots/m11b_capture.png').convert('RGB').crop((150, 80, 370, 210)); i.resize((i.width * 4, i.height * 4), Image.NEAREST).save('game/shots/m11b_capture_4x.png')"
+B="wait:10;select:8;huntrare:1800,130;select:1;snare:900;select:8;huntrare:1800,130;select:1;snare:900;select:8;huntrare:1800,130;select:1;snare:900;collection;wait:60"
+timeout 170 "$GODOT" --max-fps 60 --path game -- --class=archer --test-at-zone=0,0 --test-no-spawns --give=snare:4 --test-select=1 "--bot=$B" --screenshot=shots/m11b_panel.png --frames=8200 < /dev/null
+A="--class=archer --test-at-zone=-17,0 --test-no-spawns --give=snare:4,hide_fine:2,anvil:1 --test-creature=hare:5,deer:5"
+B="select:8;hunt:4000,13,130;walkto:112,63,900;select:8;huntrare:1800,130;select:1;snare:900;select:8;huntrare:1800,130;select:1;snare:900;select:8;huntrare:1800,130;select:1;snare:900;wait:60;select:3;aim:0,30;wait:5;use:1;wait:30;tab;wait:3;craft:1;wait:3;tab;wait:3;select:2;wait:3;use:1;wait:10;collection;wait:6000"
+timeout 260 "$GODOT" --max-fps 60 --path game -- $A "--bot=$B" --screenshot=shots/m11b_end.png --frames=11000 < /dev/null
+```
+
+- M11c 두 창 그림 `shots/m11c_host.png`, `shots/m11c_client.png`: 세션 하나의 두 화면, 저녁, 시드 1, 스폰·자연의 무리 끔. 호스트(팔라딘, 활, 창 1)와 클라이언트(아처, 창 2)가 빛 남쪽에서 사슴 한 마리를 보고, 호스트의 화살이 맞은 뒤(`hunt hit slot=0 kind=deer id=1 amount=12 hp=18`) 달아나 쉬는 사슴에게 둘이 겨누며 다가간 순간. 두 화면 모두 같은 사슴, HP 막대 18/30, 두 사람의 몸이 그쪽을 본다. 호스트 화면의 사슴은 자기 무리, 클라이언트 화면의 사슴은 묶음에서 그린 것이다(같은 그림인지는 창 검사 `wild_net`이 픽셀로 본다). 찍기는 M10b와 같다: `--frames`는 각 프로세스의 프레임이라 창 시작 시간에 따라 맞춰야 하지만, 이 장면은 사슴이 몇 초 서 있어 여유가 있다
+
+```bash
+HB="select:1;walkto:60,51;walkto:62,55;waitat:62,58,900;wait:20;creature:deer,68,57,100;wait:120;aimprey;wait:4;use:1;wait:30;walkto:76,55;wait:900"
+CB="select:8;walkto:66,52;walkto:62,58;waitseen:1,900;wait:150;aimprey;walkto:77,58;wait:900"
+timeout 50 "$GODOT" --max-fps 60 --path game -- --host=24895 --scale=2 --class=paladin --test-no-spawns --test-no-creatures --test-allow-give --give=bow:1 "--bot=$HB" --screenshot=shots/m11c_host.png --frames=1100 --keep-running --net-timeout=30 < /dev/null &
+sleep 1
+timeout 50 "$GODOT" --max-fps 60 --path game -- --join=127.0.0.1:24895 --scale=2 --class=archer "--bot=$CB" --screenshot=shots/m11c_client.png --frames=1000 --keep-running --net-timeout=29 < /dev/null &
+wait
+```
+
 ### 그림 검사 (창, 렌더러 필요)
 
 헤드리스 테스트는 더미 렌더러라 화면을 못 본다. 빛·불꽃·캐릭터 레이어·y 정렬이 **실제로 그려진 픽셀**을 보는 검사는 따로 창을 띄워 돌린다 (창이 3초쯤 떴다 닫힌다).
@@ -893,6 +994,11 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 - `rig`: 5클래스 × 4방향 × (걷기 6 + idle 4 + M2a 몸 동작 8개의 55) 프레임을 저녁 끈 화면에 세워, 배경 + 시트에서 CPU로 합친 그림과 픽셀까지 비교 (그리기 순서, v01→v02 이동 + 기준점, 서쪽 반전, 64칸 동작의 발 맞춤, 손에 든 표식 숨기기). 한 화면에 캐릭터 20명, 65화면
 - 일부러 깨 본 것 (M2a): 캐릭터가 64칸 동작 칸의 (16, 16)을 빼먹고 32칸처럼 놓음 → `rig` FAIL(65화면 중 불일치 655,477픽셀)·종료 1
 - M4a: `rig`이 피격 6·사망 7프레임까지 78화면이 됐다(사망 프레임은 표식을 숨긴 합성과 비교). `heretic`: 이단 시트 다섯의 모든 프레임을 네 방향(한 화면에 32명: 줄 = 남·동·북·서, 칸 = 프레임)으로 세워 배경 + CPU 합성(그 줄의 시트 칸, 32칸은 (16, 32)·64칸은 (32, 48)을 발에, 서쪽은 동쪽 반전)과 픽셀까지 비교하고, 반쯤 다친 이단의 HP 막대(unshaded)를 그 픽셀까지. `bars`: HUD의 HP 60/100·스태미나 20(대시 비용 밑이라 어두운 금빛) 막대 396픽셀과 사망 뒤 카운트다운 숫자(3배) 81픽셀이 정한 색 그대로. 일부러 깨 본 것은 아래 "측정"의 M4a
+- `creatures` (M11a): 생물 다섯 × 네 방향(서 = 동 반전) × 걷기 두 프레임(둘째는 1px 위)을 배경 + CPU 합성(`CreatureView.image`, 지도의 글자)과 픽셀까지 비교(40화면), 시체(뒤집은 그림), 맞은 번쩍임(그린 픽셀마다 `Player.HIT_FLASH` 곱), HP 막대(이단의 색, 그림 맨 위 위), 기절 표시, 저녁에 어두워지는 몸
+- `rare_zone` (M11b): 저녁 끄고 시드의 진짜 땅에서(엔티티 숨김): 구역 그림을 숨긴 화면 위로 금빛(`TINT`)이 구역 그림의 칸 그대로만 얹히는지(±0.012), 밖은 한 픽셀도 안 바뀌는지, 경계 돌의 모든 픽셀. 저녁 켜고: 불꽃 3픽셀 × 돌은 색 그대로, 돌 몸통은 어두워짐
+- `capture_marks` (M11b): 저녁 끄고 잡을 수 있는 여우의 HP 막대와 눈금, 몸 아래 금빛 고리의 두 위상, 밧줄, 거부 ×, 픽셀까지. 저녁 켜고 고리·밧줄은 색 그대로. 다친 사슴은 눈금도 고리도 없고 몸과 막대 밖 어떤 픽셀도 바뀌지 않음
+- `collection_panel` (M11b): 창을 이 검사에 따로 적은 배치로(134×107, 칸 30px 2px 간격, 4열): 테, 머리의 "4/8"과 밑줄, 등록한 칸의 그림, 나머지의 그림자(한 색), 단위 점, 킬 점 열 개, 베네핏 표식 켜짐·어두움, 불투명한 모든 픽셀. 여덟 다 채운 화면의 표식 셋과 점 열 개
+- `wild_net` (M11c): 클라이언트가 전선에서 받아 그린 것이 호스트의 그림과 픽셀까지 같은지. 종류마다 걷는·서 있는 생물 열둘(다침, 번쩍임, 독, 기절, 둔화, 거부 표시, 시체, 붙든 생물의 밧줄, 잡을 수 있는 생물의 고리)을 호스트의 무리로 그린 화면과, 인코드한 묶음을 `NetCombat`에 넣고 그 틱에 표본을 뜬 거울로 그린 화면. 희귀 구역은 스냅샷을 풀어 나온 데이터로 다시 그린 화면, 컬렉션 창은 메시지를 받은 사본으로 연 화면
 - `combat_net` (M4b): 세션 클라이언트가 그리는 호스트의 싸움. 이단 다섯(예고 중·피격 중 HP 막대와 깜빡임·죽는 중·쫓는 중·가장자리 대기), 화살과 빛 탄, 다운된 플레이어(다운·소생 막대)를 호스트의 `CombatView`가 자기 아레나로 그린 화면과, 클라이언트가 전송 형식(적 묶음, 화살 사건, vitals 블록이 있는 상태)을 풀어 `NetCombat`·Player로 그 틱에 그린 화면이 픽셀까지 같아야 한다(그리고 배경과 2,000픽셀 넘게 달라야: 실제로 그렸다). 일부러 깨 본 것: 클라이언트가 이단의 깜빡임을 버림 → 불일치 725, 남의 vitals를 안 그림 → 544, 화살 방향 1/16바퀴 어긋남 → 53. 셋 다 FAIL·종료 1
 - `crafting` (M6a): HUD의 제작 창을 약초사(여섯 줄 모두 만들 수 있게 약초를 줌)와 팔라딘(넷이 어둡게)으로 열어, 창이 그리는 불투명 픽셀(바깥·안쪽 테, 조제대 아이콘과 금빛 밑줄, 줄마다 입력·출력 칸의 테와 아이콘(수·상급 점 자리 빼고), 수 숫자 자리, 상급 점, 화살표, 약초사 표시, 고른 줄의 금빛 테) 3,818개가 그 자리 그 색인지, 어두운 줄의 밝은 픽셀(아이콘·화살표·숫자, 943개)이 모두 원래보다 어두운지. 반투명 바탕(`Hud.FILL`)은 섞기 반올림 때문에 보지 않는다(`bars`와 같은 이유)
 - `potions` (M6a): 저녁 끄고 한 화면에 세계 편집으로 놓은 조제대, 독 걸린 이단(시트 프레임 + 머리 위 독 표시), 반쯤 날아간 병(물약 아이콘, 포물선 높이), 터짐 둘(0·1프레임)을 그려 배경 + 각각의 CPU 합성과 픽셀까지 비교(조제대 자리는 `FixtureView.table_origin`을 쓰지 않고 그림의 마지막 불투명 줄을 재서 따로 계산). 그다음 버프·독이 걸린 성직자의 머리 위 표시 둘과 HUD의 효과 아이콘·남은 시간 막대 126픽셀이 그 자리 그 색인지. 일부러 깨 본 것: 화살표를 금빛으로(`crafting` 불일치 72), 터짐 1px(`potions` 135), 머리 위 표시 1px 아래(23 · 표시 35), 조제대 그림 1px 위(484). 넷 다 FAIL·종료 1. 조제대는 처음에 기대 그림을 같은 함수로 만들어 통과해 버렸고(M4a의 교훈과 같은 실수), 따로 계산하게 고쳤다. M6-fix: 그다음 저녁을 켜고 같은 화면을 다시 찍어, 병·터짐의 불투명 픽셀 197개(병 92)가 제 색 그대로(unshaded)이고 둘레 바닥은 어두워졌는지(8px 간격 표본 2,039개가 저녁 끔의 66% 밑). 일부러 깨 봄: 병을 shaded로 되돌리면 `dark_mismatches=92`로 FAIL·종료 1
@@ -968,6 +1074,14 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--test-start-resource=<클래스>:<0..100>[,...]` | M9c(호스트): 그 클래스가 참가할 때(호스트 자신도) 클래스 막대를 그 값으로(상한까지). 세션 시험이 시그니처를 바로 쓰려고. 약초사는 막대가 없어 `--give=wild_healing:<n>` | 동작 (시험용, M9c) |
 | `--test-pray=<글자>[,...]` | M10a(혼자 할 때): `--test-ally` 순서대로 동료마다 대본. 동료는 기도마다 모이기 20 + 10 × (동료 번호)틱에 탭으로 참여하고, 자기 차례마다 글자 하나를 창의 30틱에(c 맞음, w 틀림 = 반대 방향, l 늦음 = 답 없음, q 그 차례가 열릴 때 그만두기; 대본이 끝나면 마지막 글자) | 동작 (스크린샷·시험용, M10a) |
 | `--bot=` `answer:wrong[,<틱>]`, `hurt:<자리>,<피해>` | M10b: `answer:wrong` = 내 차례마다 반대 키(`answer:auto`처럼 그 틱째에, 빠질 때까지). `hurt` = 시험 전용, 호스트: 그 멤버가 지금 그만큼 맞음(`Player.take_hit`; 슬라이스에는 빛 안에서 기도하는 사람에게 닿는 피해가 없어서). 세션에서 `pray`·`answer`·`waitturn`·`waitprayer`는 이 기기의 기도(호스트: 자기 기도, 클라이언트: 사본, 자기 창은 차례 사건이 온 때부터)를 본다 |
+| `--test-creature=<종류>:<수>[,...]` | M11a(혼자 할 때, M11c: 호스트의 자기 플레이어 둘레에도): 그 종류(`Config.CREATURES`: hare, deer, lamp_fox, silver_stag, ash_owl)의 생물을 수만큼(1~16) 내 플레이어 둘레 104px 고리에(한 바퀴를 나눠, 설 수 없으면 한 칸씩 안팎으로), 상한을 넘어서도. 희귀 셋도 된다(M11b 전에는 이 플래그로만 나타남). 클라이언트에서는 아무것도 안 함(무리는 호스트의 것) |
+| `--test-no-creatures` | M11a(혼자 할 때, M11c: 호스트도): 생물이 스스로 나타나지도 다시 나오지도 않는다(`--test-creature`는 그대로). 스크린샷과 시험용 |
+| `--test-at-zone=<dx>,<dy>` | M11b(혼자 할 때): 내 플레이어가 희귀 구역 가운데 칸에서 이만큼(타일) 떨어진 칸에 선다. 시드마다 구역 자리가 달라서 |
+| `--test-near-creature=<종류>:<1..100>` | M11b(혼자 할 때, M11c: 호스트의 자기 플레이어 곁에도): 그 종류 하나가 내 플레이어 동쪽 28px(`CAPTURE_TEST_NEAR_PX`, 올가미가 닿음)에서 쉬는 중, HP는 그 퍼센트. 잡기를 바로 보려고 |
+| `--test-collection=<0..8>[,<kills>]` | M11b(혼자 할 때, M11c: 호스트도): 표의 앞 n항목을 등록하고 킬을 그만큼 센다 |
+| `--bot=` `huntrare:<틱>[,<px>]`, `snare:<틱>`, `collection` | M11b(혼자 할 때, M11c: 세션에서도, 이 기기의 무리로): `huntrare` = 가장 가까운 희귀 생물을 100틱에 한 번 쏜다(`RARE_SHOT_TICKS`: 누르고 있으면 날아가는 화살이 죽인다), 올가미가 닿을 HP가 되면 다음으로, px를 주면 그보다 멀 때 걸어감. `snare` = 잡을 수 있는 가장 가까운 희귀 생물로 걸어가 닿으면 좌클릭, 남은 것이 없으면 다음으로. `collection` = K |
+| `--bot=` `aimprey`, `hunt:<틱>[,<n>[,<px>]]`, `waitprey:<n>[,<틱>]`, `creature:<종류>,<x>,<y>` | M11a(혼자 할 때, M11c: 세션에서도, 이 기기의 무리로. `creature`는 호스트만): `aimprey` = 앞으로 가장 가까운 산 생물의 몸 가운데를 겨눔, `hunt` = 그것을 겨누고 좌클릭을 누르고 있기(n마리보다 많은 동안, 그 틱까지, px를 주면 그보다 멀 때 걸어감), `waitprey` = n마리 이하가 될 때까지 서 있기, `creature` = 시험 전용, 지상의 그 칸에 생물 하나 |
+| `--bot=` `waitseen:<n>[,<틱>]`, `creature:<종류>,<x>,<y>,<%>` | M11c: `waitseen` = 이 기기에 산 생물이 n마리 이상 보일 때까지 서 있기(기본 1800틱; 클라이언트는 시야 상자 안의 것), `creature`의 넷째 값 = 그 퍼센트 HP로 쉬는 중(100이면 다치지 않은 채 쉼) | 동작 (시험용) |
 | `--test-shop-restock=<1..36000>` | M8b: 상점의 재고가 `SHOP_RESTOCK_TICKS`(10분) 대신 이 틱마다 다시 찬다(혼자 할 때와 호스트, `Shop.restock_ticks`). 세션 시험이 몇 초 안에 다시 채우기를 보려고. 임시값 값은 그대로 |
 | `--bot=` `waitstock:<n>,<left>[,<ticks>]` | M8b: 이 기기 월드의 상점에서 항목 n(1 = 왼쪽 위)의 남은 수가 정확히 left가 될 때까지 서 있기(기본 1800틱, 넘으면 다음 명령으로). 세션에서는 봇의 `buy`·`sell`이 `NetSession.bot_shop`으로 Main에 가서 BUY·SELL 요청이 된다 |
 | `--bot=` `wreck` | M7b(혼자 할 때): 이 틱에 우클릭 = 목표 칸의 건설 조각 철거. 놓기는 조각을 고르고 `use:1`(좌클릭), 문은 `pick`(F) | 동작 (M7b, 스크린샷·시험용) |
@@ -976,7 +1090,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--net-out=<폴더>`, `--net-name=<이름>` | 테스트 인스턴스: 결과 JSON·표시 파일을 쓰고 세션이 끝나면 종료 | 동작 |
 | `--net-start=<n>`, `--net-expect=<n>`, `--net-expect-refused=<n>` | 호스트: 클라이언트 n명이 오면 봇 시작 / n명이 봇을 마치거나 나가고 n번 거부했으면 세션 끝 | 동작 (테스트) |
 | `--net-timeout=<초>` | 그 시간이 지나면 종료 코드 6 (테스트가 멈춰 있지 않게) | 동작 |
-| `--net-lag=<ms>`, `--net-loss=<%>` | 클라이언트: 왕복 지연·손실 흉내 (unreliable 입력·상태만) | 동작 |
+| `--net-lag=<ms>`, `--net-loss=<%>` | 클라이언트: 왕복 지연·손실 흉내. unreliable 입력·상태와 적·생물 묶음은 `LinkSim.pass_through`(늦추고 버림), 기도 메시지는 `LinkSim.delay`(늦추고, 잃으면 다시 보내는 만큼 더 늦음). 나머지 reliable 메시지는 그대로 | 동작 |
 | `--test-perturb-generator` | 이 프로세스의 생성기가 같은 시드로 다른 월드를 만든다(재 가장자리 노이즈 시드를 바꿈, `SurfaceGen.test_perturb`). 다른 아키텍처 흉내 | 동작 (테스트 전용, H1) |
 | `--test-snapshot-chunk-bytes=<1..1024>` | 호스트: 월드 스냅샷을 이 크기 조각으로 자른다(`WorldSnapshot.chunk_bytes`, 기본 1024). 작은 월드도 여러 조각·여러 틱으로 보내 보려고 | 동작 (테스트 전용, H1) |
 | `--give=<id>[:<수>[:<등급>]],...` | 디버그: 시작할 때 내 인벤토리에 아이템을 넣는다. id는 아래 "아이템 표", 등급 `common`/`fine`은 약초만(M6a: 물약도, 예 `potion_poison:3:fine`. 조제대는 `alchemy_table`). 예 `--give=pickaxe,stone_a:30,wild_healing:3:fine`. 게임 안에서는 F5가 디버그 묶음을 준다. M2b: 호스트는 자기 인벤토리에 바로, 클라이언트는 호스트에게 주기 요청을 보낸다(호스트가 디버그 빌드이거나 `--test-allow-give`일 때만 받아 준다). 요청 하나의 개수는 1바이트라 255개를 넘으면 여러 요청으로 나눈다(M2-fix: 전에는 300이 44로 잘렸다). 기다리는 요청은 `NET_LOCAL_OPS_MAX` 64개까지, 넘는 것은 `request_dropped` 줄을 찍고 버린다 | 동작 (M2a, M2b) |
@@ -1017,6 +1131,8 @@ M8b: 전송 형식 v10(프레임의 BUY·SELL 왕복), 시드 1 지상에 상인
 M9a: 입력 액션 `skill_2`·`skill_3`·`skill_signature`, 클래스 다섯의 정체성 스킬이 만들어짐, 이름 있는 스킬 15개(● R42 수), 맨 지도에서 커서 근처 아군 고르기·피해가 이단을 그 사람에게 돌림·도발이 팔라딘에게 묶음·땅 울리기가 밈(출력 `skills=<만든 수>/<이름 수> pick=<맞음> taunt=<걸린 수> slam=<민 px>` = `skills=5/15 pick=true taunt=1 slam=16`),
 M9c: 전송 형식 v11(SKILL·THROW가 커서를 정수 px로 싣고 왕복), 진짜 아레나(로그 켬, 자리 셋)에 팔라딘의 도발·내려치기·맹세, 아처의 화살비, 약초사의 회복 안개를 내려놓고 한 틱 돌려 그 틱의 사건과 적 묶음을 클라이언트 `NetCombat`이 받아 고리·타격·구역을 호스트와 같은 나이로·이단을 기절·도발 표시로·맹세를 받은 자리의 막기를 가짐, 스킬 메시지 왕복(출력 `skills_wire=<SKILL 요청>B/<스킬 메시지>B/<적 묶음의 이단 하나>B/<그 틱의 스킬 사건>B landed=<내려앉은 스킬> events=<사건 수>`, 이 데스크탑 `skills_wire=13B/16B/18B/123B landed=5 events=6`, 적 하나 18B라 `combat_wire=26B`. **M9 검토**: SKILL이 13B(+ 핫바 칸·고른 아군)라 `skills_wire=15B/16B/18B/123B`, 병의 던짐 사건이 28B(+ 따라가는 아군)라 `potion_wire=40B/47B`),
 M9b: 클래스 다섯의 무기 스킬·시그니처가 모두 만들어짐, 맨 지도에서 낙석 타격이 경고 뒤에 피해와 기절, 맹세의 막기가 칼 한 번을 덜어 줌, 회복 안개 한 번이 회복(출력에 ` rock=<피해>/<기절 틱> ward=<12 중 받은 피해> mist=<회복>` = `rock=24/60 ward=6 mist=4`, `skills=15/15`).
+M11b: 입력 액션 `collection`, 시드 1 지상의 희귀 구역과 그 안의 희귀 셋(세 종류 하나씩, 무리 13), 맨 규칙으로 다친 여우를 잡음(올가미 하나, 재료 하나, 항목 등록, 생물 사라짐). 새 필드 `rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8`, `herd=13/5`, `items=60`
+M11c: 전송 형식 v13(CAPTURE 왕복, 상한의 무리 묶음이 왕복해 ¼px 안, 컬렉션 메시지 왕복), 구역과 컬렉션이 스냅샷으로 가서 같은 해시, 생성된 월드는 골든 그대로. 출력 `wild_wire=11B/10B/135B/6B zone_snapshot=11B`
 M10a: 시드 1 지상에서 등잔 아홉 자리에 제단 그림의 불꽃 81픽셀이 다 있음, 원 안의 성직자(신앙 100) 탭으로 시작·둘 참여·차례 아홉(성직자와 첫 동료 맞음, 둘째 틀림) → 등잔 여섯, 셋 모두 열정 21%, 신앙 30 씀, 그 열정의 검 한 번 17, 묵상 열정 5(출력 ` prayer=<켜진 등잔>/<참여자>/<열정 %> faith=<쓴 신앙> zeal_hit=<검 피해> meditate=<묵상 열정 %>` = `prayer=6/3/21 faith=30 zeal_hit=17 meditate=5`, checks 466 → 474).
 기본 월드의 안전 반경 hard 빛 텍스처 226×226 텍셀 전부 = `is_in_safe_zone()`, 불꽃 마스크 81픽셀,
 네트워크(G3): 물리 틱 60, ENet 호스트가 루프백 빈 포트에서 열리고 닫힘(방화벽 창이 뜨지 않게 127.0.0.1만), Steam 가용성 = GodotSteam 유무, 상태 묶음 왕복, 늦은 참가 월드 스냅샷 왕복(H1: 이 빌드의 zstd로 압축 → 조각 → 받기 → 같은 월드), 9명 뒤 열 번째 거부, `main.tscn`에 `Net` 노드.
@@ -1048,7 +1164,10 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 부활 카운트다운; M6a: 효과 아이콘; M7a: 내구도 막대, 갑옷 칸), crafting_panel.gd (M6a: 제작 창;
                                 M7a: 재료 셋까지, 수리 줄, 스크롤), chest_panel.gd (M7a: 창고 창),
                                 shop_panel.gd (M8a: 상점 창, 팔 값 표시, 거부 표시)
-  combat/                       (M4a) combat.gd (공격 표·조준 코드·근접 호·시야 선·곡괭이 규칙·적의 빛 규칙), heretic_sim.gd
+                                M11b: collection.gd (월드의 컬렉션: 항목·등록·베네핏), capture.gd (올가미: 대상·거부·잡기)
+  combat/                       (M11a) creature_sim.gd (생물 하나: 상태와 표의 숫자), creatures.gd (지상의 무리: 자기 난수열, 상한·다시 나옴, 서성임·
+                                달아남·쉼, 맞음·기절·둔화·독, 죽음과 떨어뜨림). 그림 = actors/creature_view.gd
+                                (M4a) combat.gd (공격 표·조준 코드·근접 호·시야 선·곡괭이 규칙·적의 빛 규칙), heretic_sim.gd
                                 (이단 하나의 상태와 그림 시간), arena.gd (지도 하나의 전투: 이단·화살과 빛 탄·제단 HP·소생·스폰),
                                 combat_view.gd (그리기: 이단 노드, 날아가는 것, 제단·다운 막대). M6a: arena.gd에 던진 병·터짐·이단의 독.
                                 M9a: skills.gd (스킬 킷: 슬롯·거부·커서 근처 아군·자원 쓰기·맞는 프레임의 효과; M9b: 무기 스킬·시그니처),
@@ -1090,6 +1209,7 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 모아 거울 아레나에 그리기; M6b: 던진 병 트랙 `FlaskTrack`과 터짐, 이단의 독 표시)
                                 M10b: net_prayer.gd (클라이언트의 기도 사본: 호스트의 기도 사건을 받아 원·등잔·표시를 그릴 상태,
                                 내 차례의 창(사건이 온 때부터)과 ANSWER 붙이기, 사람마다의 열정)
+                                M11c: net_combat.gd에 생물 트랙(`CreatureTrack`: 거울 아레나의 무리), protocol.gd에 CAPTURE·생물 묶음·컬렉션 메시지(v13), world_snapshot.gd에 구역·컬렉션, session_host.gd의 `_step_creatures`·`_capture`·`_send_creatures`·`_send_collection`
   scenes/                       main.tscn (실행 장면: 월드 + 카메라 + Net), world.tscn (월드 + 제단 + 빛 + 자유 카메라 + 디버그 선)
   art/tiles/, art/chars/, art/env/, art/items/, art/enemies/ (M4a), art/npcs/ (M8 상인)   우리 PNG·JSON 사본 (아래 "그림 출처")
   tests/                        run_all.gd (러너), base_test.gd (기반 클래스), test_core.gd, test_world.gd, test_actors.gd,
@@ -1112,6 +1232,10 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 test_net_skills.gd (M9c: 세션의 스킬, 한 프로세스, test_net_potions.gd를 이어 씀), test_net_rites.gd (M9c:
                                 실제 세션 rites, chant), test_skills_review.gd (M9 검토: 고침의 시험, test_net_skills.gd를 이어 씀),
                                 test_prayer.gd, test_prayer_main.gd (M10a: 기도 모델·열정 피해·그림 규칙 / main.tscn의 F·동료·봇),
+                                test_creatures.gd, test_hunting.gd (M11a: 생물 표·자리·행동·결정성·그림 / 공격 경로·떨어뜨림·고기·상점·main.tscn),
+                                test_rare_zone.gd, test_capture.gd, test_collection.gd (M11b: 구역 자리·희귀 생물·그림 / 아처만의 규칙·올가미 / 항목·베네핏·레시피·창·한 바퀴),
+                                test_net_wild.gd (M11c: 세션의 사냥·포획·컬렉션, 한 프로세스, test_net_combat.gd를 이어 씀),
+                                test_net_hunt.gd, test_net_herd.gd (M11c: 실제 세션 hunt·snare / wilds·herd, test_net_session.gd를 이어 씀)
                                 test_net_prayer.gd (M10b: 세션의 기도, 한 프로세스, test_net_skills.gd를 이어 씀), test_net_vigil.gd,
                                 test_net_litany.gd (M10b: 실제 세션 vigil / litany, silent, test_net_session.gd를 이어 씀),
                                 fixtures/ (러너 자체 시험)
@@ -2111,7 +2235,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 | 룬마스터 "상점 1티어 장비" | 1티어 검 · 활 · 성광 · 곡괭이 · 낫 · 갑옷 | 30 · 24 · 30 · 30 · 24 · 45 | 1씩 |
 
 - 성능 상한: 물약은 일반 등급만(`SHOP_GRADE`, ● R11 "성능 상한"을 상급 없음으로 읽음), 장비는 1티어만(새것, 내구도 가득). 독 물약은 약초사의 상태이상 약제이고 열에 없어 팔지 않는다. 성수는 가장 비싼 소모품(40, 다음으로 비싼 소모품 12의 세 배 넘게)이고 재고도 가장 적다(2). 1티어 장비 값은 재료보다 비싸다(재료를 상인에게 팔면 받는 값의 세 배쯤, 상점 구리광석으로 쳐도 위): 누구나 모루에서 만드는 길(3단 규칙의 2단계 "공용 수행")이 더 낫다
-- **만들지 않은 것**(그 시스템이 슬라이스에 없어서, 만들지 않았다): 기술자의 "발판"(탑다운에서 무엇인지 문서에 없다), 아처의 "일반 가죽·고기"(사냥은 M11), 마법사의 "일회용 속성 부적"(원소·인챈트가 없다), 시프의 "상점 열쇠"(잠긴 상자가 없다)
+- **만들지 않은 것**(그 시스템이 슬라이스에 없어서, 만들지 않았다): 기술자의 "발판"(탑다운에서 무엇인지 문서에 없다), ~~아처의 "일반 가죽·고기"(사냥은 M11)~~(**M11a에서 넣음**: 13항목, 아래 "M11a"의 "상점"), 마법사의 "일회용 속성 부적"(원소·인챈트가 없다), 시프의 "상점 열쇠"(잠긴 상자가 없다)
 - **재고**는 세계에 하나(상인 하나, `Main.shop`): 산 만큼 줄고(`다 팔렸다`), `SHOP_RESTOCK_TICKS`(10분)마다 모두 상한으로 돌아온다(임시값 "M8a 재고 채우기"). 시계는 상점이 센 게임 틱(혼자 할 때 `Main.step_shop`이 물리 틱마다, 모든 지도의 시간, 농장처럼)이고 벽시계가 아니다(시험: 프레임이 지나도 그대로). 상인이 사들인 것은 재고가 되지 않고 사라진다(임시값 "M8a 상인이 산 것")
 - **사는 것 = 화폐를 버는 길** (임시값 "M8a 화폐 얻기", `SHOP_BUYS`): 모아 오거나 만든 것을, 등급과 상관없이 하나에: 돌(캔 바위·지상 돌 여섯) 1, 버섯 다섯 1, 야생 약초 셋(= 수확한 작물) 2, 통나무 2, 널판 1, 구리광석 3, 철광석 4, 구리 주괴 3, 철 주괴 4, 물약 셋 4, 1티어 검 8 · 활 6 · 성광 6 · 곡괭이 8 · 낫 6 · 갑옷 8. 사지 않는 것: 기본 도구·무기, 씨앗, 놓는 것(횃불·작업대·창고·조제대), 건설 조각, 성수, 화폐, 디버그 전용(돌 블록·약초 덤불). 이단이 떨구는 동전은 넣지 않았다(버는 길을 한 곳에 두어 사람이 한 가지를 정하도록)
 - **이익 고리가 없다** (시험 `test_shop.gd`): ① 상인이 사는 값은 같은 것을 파는 값보다 늘 낮다(구리광석 3 < 8, 물약 4 < 12, 장비 6~8 < 24~45). ② 만든 것은 재료보다 비싸게 사지 않는다: 레시피 31개(수리 6개 포함)를 모두 걸어 본다(널판 둘 = 통나무 하나, 주괴 = 광석, 물약 = 약초 둘, 1티어 장비 ≤ 재료, 수리 한 번이 더하는 값 ≤ 재료 두 개 값). ③ 돈만으로 얻는 값(사기 + 산 것의 레시피)이 늘 상인이 주는 값보다 크다(돈만으로 이어지는 사슬은 상점 구리광석 제련 하나, 8 → 3). ④ 무작위 걷기 40번 × 80수(사기·만들기·닳기·팔기)에서 가진 것을 상인에게 다 팔면 받을 값이 한 번도 늘지 않고, 사기는 늘 줄인다. 그래서 사고·만들고·파는 어떤 순서도 돈을 늘리지 못한다
@@ -2647,6 +2771,299 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=
 - 한 세션에 같은 기도 번호의 아래 바이트(256번째 기도마다)가 되돌아온다: 256개 앞 기도의 차례에 남은 답이 오는 일은 없다(그 사이 수십 분)
 - 사람이 할 확인: 아래 "혼자, 창 둘로, 두 기기에서 M10 해 보기"
 
+## M11a: 사냥 · 생물 · 가죽 · 고기
+
+혼자 할 때 먼저(M11a 지시, M5a~M10a처럼). **세션(`--host`/`--join`)에는 생물이 없다**(M11c에서 켠다): 호스트의 아레나에는 무리(`Arena.herd`)가 없어 모든 공격 길이 예전 그대로이고(`hunted()`가 빈 배열), 전송 형식 v12·월드 해시·스냅샷 형식도 그대로다. 세션에서 달라지는 것은 아이템 표 끝의 세 줄(번호가 뒤에 붙음)과 상인의 두 항목뿐이다: 고기는 세션에서도 먹을 수 있고(호스트의 마시기 길, `Potions.is_drink`), 재고 바이트가 13개다(같은 빌드끼리. 새 전송 형식 번호는 M11c가 올린다). 호스트를 잃고 혼자 계속하는 클라이언트는 그때부터 생물이 있다(`Main._go_offline_combat` → `setup_combat` → `ensure_combat`).
+
+문서의 ●(§3.0 R11 아처 줄, §3.4 원칙)는 그대로 따른다. **생물의 종류·이름·숫자는 문서에 없다**: 모두 자리 표시이고 표 하나(`Config.CREATURES`)에 있다.
+
+### 생물 표 (`Config.CREATURES`, 임시값 "M11a 생물 표")
+
+| 종류 | 자리 표시 이름 | HP | 걷기 / 달아남 px/s | 달아남 / 쉼 틱 | 경계 px | 서성임 px | 상한 | 다시 나옴 | 아처 | 그 밖 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `hare` | 토끼 (사냥감) | 10 | 28 / 112 | 80 / 120 | 72 | 64 | 6 | 3분 | 온전한 가죽 1 + 고기 1 | 손상된 가죽 1 |
+| `deer` | 사슴 (사냥감) | 30 | 24 / 96 | 90 / 120 | 64 | 96 | 4 | 5분 | 온전한 가죽 2 + 고기 2 | 손상된 가죽 1 + 고기 1 |
+| `lamp_fox` | 등불 여우 (희귀) | 46 (M11b: 40에서) | 30 / 124 | 90 / 100 | 96 | 48 | 1 | 8분 | 온전한 가죽 2 + 고기 1 | (아처만) |
+| `silver_stag` | 은빛 사슴 (희귀) | 56 | 26 / 112 | 100 / 100 | 88 | 64 | 1 | 10분 | 온전한 가죽 3 + 고기 2 | (아처만) |
+| `ash_owl` | 재 올빼미 (희귀) | 44 (M11b: 36에서) | 28 / 128 | 80 / 110 | 104 | 48 | 1 | 8분 | 온전한 가죽 1 + 고기 1 | (아처만) |
+
+- 맞춘 숫자(시험이 본다): 걷기 < 플레이어 걷기 72 < 달아남 < 대시 240. 경계 반경 > 검의 26px(칼이 닿기 전에 달아남), 경계 반경 < 활의 160px(활은 경계 밖에서 닿는다). 희귀 셋은 HP가 어떤 사냥감보다 높고 어떤 사냥감보다 먼저 달아난다. 토끼는 사슴보다 HP가 낮고 빠르고 먼저 달아난다
+- ~~희귀 셋은 표와 그림만 있다~~ (**M11b**: 희귀 구역에서 나타나고 아처만 다룬다. 아래 "M11b")
+
+### 행동 (`combat/creatures.gd`, 임시값 "M11a 생물 행동")
+
+- **시계**: 무리는 세계에 하나(지상 아레나가 쥠, `Arena.herd`)이고 게임 틱마다 한 번 돈다(`Main.step_creatures`: 내 플레이어가 던전에 있어도, 농사·상점처럼). 벽시계가 아니라 자기 틱을 센다
+- **서성임**: 멈춰 있다가(`CREATURE_IDLE_TICKS_MIN`~`MAX`, 자기 난수열) 집에서 `wander_px` 안의 한 점으로 걷는다. 설 수 없는 점이면 그냥 더 서 있는다. 집 = 내려온 자리
+- **달아남**: 산(다운·사망 아님) 플레이어가 경계 반경 안에 들거나 맞으면 곧바로 가장 가까운 플레이어(맞으면 공격자)에게서 반대쪽으로 `flee_speed`로 `flee_ticks` 동안 달린다(8방향, 막히면 ±45°·±90°를 차례로). 걷는 플레이어를 앞지른다
+- **쉼**: 그 뒤 `rest_ticks` 서서 숨을 고른다. 쉬는 동안 곁에 와도 움직이지 않고 맞아야만 다시 달아난다. 걸어서 붙은 칼은 이때 닿는다(토끼·사슴 모두 시험이 잼: 달리기는 간격을 벌리고, 쉼이 끝나기 전에 걷는 사람이 검이 닿는 거리에 든다). 그래서 활이 자연스럽고 근접은 가능하지만 느리다(● 공용 수행 "낮은 효율")
+- **길**: 플레이어의 충돌(`Movement.step`: 지형 벽·건설 벽·닫힌 문·막는 설치물·상인·맵 끝, 미끄러짐 포함)을 그대로 쓴다. 열린 문은 지나간다. **슬라이스에 물 지형이 없다**(지시의 "물"은 해당 없음). 거기에 더해 발 상자가 **제단 빛 안이나 오염 칸 위로 들어가지 않는다**(`Creatures.can_walk`). 몸끼리는 막지 않는다(이단·플레이어처럼)
+- **제단이 옮겨 와 빛이 덮으면**: 설 수 있는 땅까지 가장 가까운 직선으로 걸어 나가고 집도 옮긴다(`_walk_clear`, `_way_clear`). M11 검토: 빛은 오염을 덮을 수 있어서(`ALTAR_LIGHT_MAY_COVER_CORRUPTION`) 나가는 길에 오염 칸이 있을 수 있다. 깨끗한 쪽이 있으면 그쪽으로 나가고, 없으면 건너가며, 오염 칸 위에 멈추지 않는다. 빛 밖에서 오염 칸 위에 있게 되면 빛을 지나지 않고 걸어 나간다. 제단의 발자국 아래에는 있을 수 없다(제단이 산 생물 위에 놓이지 않는다: 임시값 "M11a 막는 몸"). 제단을 들면 빛이 없으니 그 자리를 지나갈 수 있다
+- **이단**: 서로 모른다. 이단의 규칙은 플레이어만 읽고 칼도 플레이어만 치며, 생물의 규칙은 이단을 읽지 않는다(시험). 생물은 공격하지 않는다
+
+### 자리 (`Creatures.spawn_ok`, 임시값 "M11a 생물 자리")
+
+- 세계가 시작할 때 사냥감을 상한까지 채운다(시드마다 같은 자리, 플레이어 없음). 하나가 죽으면 그 종류의 `respawn_ticks` 뒤(게임 시계) 빈 자리를 채운다. 그때 자리를 못 찾으면 `CREATURE_SPAWN_RETRY_TICKS`(1초) 뒤 다시. `--test-creature`로 상한이 찼으면 그 차례는 사라진다
+- 되는 칸(라이브 월드를 읽음: 지은 것·정화한 땅이 바로 반영): 지상, 풀(흙·재 아님), 설 수 있음, 문간 아님, 빛 반경 + 5칸(`CREATURE_SPAWN_LIGHT_CLEARANCE_TILES`, 제단 가운데에서 12칸) 밖, 오염 칸에서 3칸(`CREATURE_SPAWN_ASH_CLEARANCE_TILES`, 체비셰프) 밖, 맵 끝에서 2칸(`CREATURE_SPAWN_EDGE_TILES`) 안, 다시 나올 때는 모든 플레이어에게서 160px(`CREATURE_SPAWN_MIN_PLAYER_PX`) 밖. 지도 전체에서 무작위 칸을 32번(`CREATURE_SPAWN_TRIES`) 뽑는다
+- **던전에는 없다**: 무리는 지상 지도에서만 차고 `spawn_ok`도 거부한다
+- **결정성**: 월드 시드와 `CREATURE_SALT`로 시드한 자기 생성기, 자기 번호. 이단의 스폰 난수·`Arena.next_id`·기도 방향·생성기를 읽지도 움직이지도 않는다. 월드를 편집하지 않는다(떨어뜨림만). 시험: M11 전 main에서 잰 이단 digest 셋(시드 1·2·7 지상·던전)과 기도 방향 81개를 그대로 고정하고, 무리가 옆에서 돌고 맞고 죽어도 같다는 것을 본다
+
+### 사냥 (`Arena.hunted`·`hit_creature`, `Creatures.hit`)
+
+이단을 칠 수 있는 공격은 모두 생물을 친다. 공격 길마다 이단 줄 옆에 생물 줄이 있다:
+
+- **기본 공격 다섯**: 검·곡괭이·낫(근접 호), 활(화살), 성광(빛 탄). 화살은 먼저 만난 것에서 멈춘다(`stopped_by` "creature", 생물이 앞이면 뒤의 이단은 안 맞음). 곡괭이를 벽에 겨눈 스윙은 채굴이고 낫을 작물에 겨눈 스윙은 수확이다(예전 그대로)
+- **피해 스킬 아홉**: 꿰뚫는 화살(생물마다 한 번, `pierced`에 생물 번호를 음수로), 땅 울리기(밀기 포함), 내려치기(기절), 부채 사격, 성광 폭발, 내리찍기, 휩쓸기(둔화), 화살비, 낙석(기절). 기절·둔화는 이단과 같은 숫자로 생물에도 건다(임시값 "M11a 기절·둔화": 싸게 되어서). **도발·위협은 닿지 않는다**(`hit_creature`는 위협을 건드리지 않고 도발은 이단만 센다)
+- **던진 독**: 생물에도 걸린다(임시값 "M11a 독": M6 규칙 그대로, 독으로 죽으면 던진 사람의 클래스가 마지막 타격). 맞은 생물은 던진 사람에게서 달아난다
+- **열정·1티어**: 피해가 생물에 닿기 전에 이미 계산되어 그대로 붙는다(`Prayer.zeal_damage`, `Gear.attack_damage`). 1티어 마모는 공격 한 번에 한 번으로 이단과 같다(`Main._attack`, `Skills.wear_weapon`)
+- **화살 맞음**: 사람 몸 상자 대신 종류마다 그림 크기의 상자(`hit_radius_px`·`hit_height_px`, `Combat.shot_hits_box`: `shot_hits_body`와 같은 규칙). 토끼는 12px라 수평으로 쏜 화살(그려진 높이 14px)은 머리 위로 지나간다: 커서를 토끼에 두고 쏘면 맞는다(M4-fix의 조준 규칙)
+- **맞은 표시**: 이단과 같은 번쩍임(`Player.HIT_FLASH`, 6틱)과 HP 막대(다치면, 이단의 색과 크기). 독·기절·둔화 표시는 머리 위 `EffectMarks`
+- 벽 뒤의 생물은 칼·화살·원 모두 닿지 않는다(이단과 같은 시야 선). 아군 쏘기 없음은 그대로. 시험 플래그 없이 M4 규칙을 탄다
+
+### 떨어뜨림 (`Creatures.drops_for`·`_put_drops`, 임시값 "M11a 드롭 자리")
+
+- **마지막 타격의 클래스**가 정한다(● §3.4). 아처(`Config.HUNTER_CLASS`) = `drops_hunter`, 그 밖 = `drops_other`, 운 없음(표 위). 화살·화살비·독은 쏜 사람의 클래스다. 쏜 사람이 나갔으면(노드가 없음) 아무도 아닌 것으로 쳐서 그 밖의 줄
+- **온전한 가죽** `hide_fine`은 아처만, **손상된 가죽** `hide_worn`은 그 밖과 상점(같은 아이템, 임시값 "M11a 일반 가죽"), **고기** `meat`. 셋 다 등급 없음, 묶음 99
+- 보통 드롭 길(`EditLog.WorldEdit.drop_put`, `Main.step_creatures`가 월드에 넣음): 누구나 F로 줍는다. 칸은 죽은 발 칸, 안 되면 사망 가방의 규칙으로 가장 가까운 빈 칸(`Creatures.drop_cell` = `WorldItems.bag_cell`: 문간은 F가 문을 움직여 영영 못 줍게 되므로 피함, 채집물·다른 드롭 칸도 피함). 줄이 둘이면 8px(`CREATURE_DROP_SPREAD_PX`) 떨어져 둘 다 보인다. 맵의 드롭이 `MAX_DROPS`(256)면 넘치는 것은 사라지고 센다(`drops_lost`)
+- 콘솔: `EVENSONG_HUNT killed kind=hare by=archer at=62,62 drops=hide_fine:1+meat:1`
+
+### 고기 (`Potions.is_drink`·`is_food`, `ItemDB.Kind.FOOD`, 임시값 "M11a 고기")
+
+- M6의 마시기 길을 그대로 탄다: 들고 좌클릭 → `DRINK_ANIM` → 3프레임째에 HP 12(`MEAT_HEAL_HP`, 회복 물약 30보다 적음) → 하나 줄어듦. HP가 가득이면 거부(아무것도 안 씀), 그 전에 맞으면 끊기고 아무것도 안 씀, 다운이면 안 됨, 기도 중 거부. 먹은 회복은 마신 회복처럼 위협이 된다(M9a)
+- 물약이 아니다: `is_potion`·`effect_of`는 그대로라 던질 수 없고(`Potions.WHY_NOT_POTION`) 터지지 않고 레시피에 들지 않는다. 호스트의 마시기 길도 같은 함수를 쓴다(`SessionHost._potion_in`·`_action_op_name`)
+
+### 상점 (`SHOP_SELLS`·`SHOP_BUYS`, 임시값 "M11a 상점 값")
+
+- 파는 것 두 줄을 끝에 더했다(● §3.0 R11 "상점의 일반 가죽·고기", 항목 번호는 그대로): 손상된 가죽(= 일반 가죽) 10·재고 3, 고기 6·재고 4. 13항목이라 창이 네 줄이 됐다(M8a 배치 그대로, 위로 20px 높아짐)
+- 사는 것: 손상된 가죽 3, 온전한 가죽 7, 고기 2. 온전한 가죽은 팔지 않는다(● 아처만). 파는 값보다 늘 낮고, `test_shop.gd`의 이익 고리 시험이 새 항목까지 그대로 돈다(M11a에는 새 레시피가 없다)
+
+### 그림 (코드 그림 자리 표시, 구현 표 "M11a 생물 그림")
+
+- **생물** (`actors/creature_view.gd`, 데이터로 움직이는 클래스 하나): 종류마다 남·동·북 글자 지도(`MAPS`, 서 = 동 반전, ● R19)와 둘째 걷기 프레임의 다리 줄(`STEPS`), 1px 어두운 테, 따뜻한 팔레트(`PALETTE`, 브리프 §4의 재빛 검정·갈색 단계, 여우는 04-env 구리색, 은빛 사슴과 재 올빼미는 따뜻한 회색). 걸으면 프레임 둘이 번갈아 나오고 둘째는 1px 위(작은 걷기 흔들림). 죽으면 그림이 뒤집혀 45틱 누워 있다. **PixelLab·힉스필드를 쓰지 않았다**(사람이 승인하지 않음): 나중에 시트가 오면 `CreatureView.image`만 바꾸면 된다(README 구현 표 줄). 이단처럼 엔티티 y 정렬, 액터 빛층
+- **가죽 아이콘**: `art/items/item_leather_a_v02.png`(무두질해 펼친 가죽 = 온전한 가죽), `item_leather_c_v03.png`(어둡게 접은 가죽 = 손상된 가죽). 우리 그림(04-env 묶음 2 #52, #54, c는 손질 v03)의 바이트 사본이고 `test_actors.gd`가 md5로 본다(105개)
+- **고기 아이콘**: 코드 그림(`ItemIcons.MAPS` `meat`: 뼈 달린 붉은 고기)
+- 480×270 1배: 토끼(높이 13px)는 플레이어 무릎~허리, 사슴(24px)은 플레이어 어깨쯤이라 크기로 갈린다. 아래 "측정"의 M11a 스크린샷
+
+### 시험 도구 (구현 "M11a 봇·시험 플래그")
+
+- `--test-creature=<종류>:<수>[,...]`, `--test-no-creatures`, 봇 `aimprey`·`hunt`·`waitprey`·`creature` (위 "명령줄 인자"). 재료는 `--give=hide_fine:3,hide_worn:2,meat:5`
+- 스크린샷: 위 "스크린샷"의 M11a
+
+### 그 밖
+
+- 희귀 구역·포획·올가미·컬렉션·희귀 장비·컬렉션 창은 M11b(아래), 세션의 생물은 M11c. 약초사 인계·가축·덫·공격하는 생물·다른 구역은 만들지 않는다(슬라이스 밖 또는 2차)
+- 월드 저장이 없으므로(M13) 생물은 세계가 시작할 때마다 다시 찬다
+
+### 시험 (M11a)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=creatures,hunting < /dev/null   # 약 22초
+timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=creatures < /dev/null   # 창, 약 3초
+```
+
+- `test_creatures.gd` (1,223 checks): 표(다섯 종류·순서, 맞춘 숫자 전부, 정확한 떨어뜨림), 지도(줄 길이·색·프레임·히트 상자 = 그림 크기), 자리 24시드(따로 적은 규칙으로 모두), 하나씩 거부(플레이어·벽·문·설치물·오염 여유·흙·빛 여유·맵 끝, 라이브 월드), 던전 없음, 상한·다시 나옴(1틱 전 없음·그 틱 있음, 상한 안 넘음, 자리가 없으면 다시 시도, 플레이어에게서 떨어져), 서성임(반경 안·걷기 속도·아무도 없으면 안 달아남), 달아남·쉼(반경 경계 ±1px, 속도, 쉬는 동안 안 움직임, 맞으면 움직임, 다운 안 놀람, 가까운 쪽), 걷는 사람 추격(버스트가 앞서고 쉬는 동안 칼이 닿음), 장애물(건설 벽·닫힌 문·열린 문·맵 끝·갇힘), 빛·오염(달리기·서성임·옮겨 온 빛), 생성 월드 두 시드에서 50초 달리기, 기절·둔화·밀기·독, 결정성(같은 시드 같은 digest, 다른 시드 다름, 서로의 생성기를 안 움직임), **M11 전 main의 이단·기도 digest 고정**(무리 없이, 무리가 사냥당하는 옆에서), 1분 뒤 월드 해시 = 골든, 이단과 서로 모름(칼·위협·도발), 그림(방향·반전·프레임·흔들림·번쩍임·막대·표시·시체·`CombatView`의 노드 수명, 아레나 기본은 무리 없음)
+- `test_hunting.gd` (329 checks): 아이템, 기본 공격 다섯, 빗나감, 이단과 같이 맞음·위협은 이단 피해만, 앞에 있는 생물이 화살을 받음, 토끼 키 상자, 벽, 1티어 피해, 피해 스킬 아홉(정확한 피해)과 기절·둔화·밀기·도발 없음, 꿰뚫기 한 번씩, 던진 독(독으로 죽으면 던진 사람의 클래스), 열정(칼·화살·스킬), 다섯 클래스 × 토끼·사슴의 정확한 떨어뜨림, 희귀 셋, 마지막 타격만 셈(양쪽), 화살의 주인, 사라진 주인, 시체, 드롭 상한, 문간·채집물 피하기, 줍기, 고기(거부·틀 하나하나·끊김·던지기 없음·호스트 길), 상점, 플래그와 봇, main.tscn(무리·시계·화살 처치·드롭·보기·1티어 마모·던전에 있어도 도는 시계·건설이 보는 몸·`--test-creature`·무리 없는 아레나)
+- 바꾼 기존 시험(M11a가 일부러 바꿔서): `test_items.gd`(아이템 57개, 종류 FOOD, 끝의 세 줄), `test_actors.gd`(그림 사본 105개, main.tscn 엔티티에서 생물 노드를 뺌), `test_shop.gd`(파는 것 13), `test_net_market.gd`(늦은 참가의 재고 문자열 13칸), `check_render.gd` `shop_panel`(창 네 줄). 스모크 `shop=67,50/13/9`, 새 필드 `herd=10/5 hunt=2/1`
+- 일부러 깨 본 것: 아래 "측정"의 M11a
+
+### 알려진 문제·자리 표시 (M11a)
+
+- 모든 숫자·이름과 문서가 정하지 않은 규칙(경계·쉼·집으로 안 돌아감·열린 문을 지남·문간 드롭 옮김·기절·둔화·독이 생물에 걸림)은 임시값이다. 사람이 볼 것: 활이 자연스럽고 근접은 가능하지만 느린지(1.5초 달리기·2초 쉼), 토끼가 너무 작거나 빠르지 않은지, 고기 HP 12, 상점 값
+- 생물 그림은 자리 표시(코드 그림): 승인 뒤 시트로 바꾼다. 사슴과 은빛 사슴은 같은 뼈대다
+- ~~희귀 셋은 M11b 전까지 플래그로만 나오고, 아처가 아닌 클래스도 지금은 칠 수 있다~~ (M11b에서 켬)
+- 달아나는 생물은 다른 생물·플레이어와 겹칠 수 있다(몸끼리 막지 않음). 달아나는 길찾기는 없다: 벽 구석에 몰리면 서서 쉰다(그때 칼이 닿는다)
+- 활은 달리는 토끼를 맞추기 어렵다(화살 220px/s, 토끼 112px/s, 조준 도움 없음). 쉬는 순간을 노린다
+- 생물은 자기 칸 밖 소리·시야가 없다: 벽 뒤에서 다가가도 경계 반경 안이면 달아난다
+
+## M11b: 희귀 구역 · 포획 · 컬렉션
+
+혼자 할 때 먼저(M11b 지시, M5a~M11a처럼). **세션(`--host`/`--join`)에는 없다**(M11c에서 켠다): 호스트의 아레나에는 무리가 없어 희귀 구역이 놓이지 않고, `Player.capture_on`이 꺼져 있어 올가미 클릭은 아무 일도 하지 않고, 컬렉션이 없으니(`WorldData.collection` null) 베네핏은 어느 것도 켜지지 않고 K는 `EVENSONG_COLLECTION none here`만 찍는다. 전송 형식 v12·월드 해시·스냅샷 형식·이단과 기도의 난수열은 그대로다. 세션에서 달라지는 것은 아이템 표 끝의 세 줄, 레시피 표 끝의 세 줄(같은 빌드끼리)이다: 희귀 갑옷은 아이템이라 호스트가 입히고 방어 6도 듣는다(희귀 재료가 `--give`로만 생기니 재료부터 없다), 아처는 레시피로 올가미를 만들 수 있지만 쓸 곳이 없다. 호스트를 잃고 혼자 계속하는 클라이언트는 그때부터 생긴다(`Main._go_offline_combat`).
+
+문서의 ●(§2, §3, §4)는 그대로 따른다. **구역의 자리·크기, 포획의 숫자, 어떤 항목이 몇 개인지, 베네핏의 문턱과 효과, 레시피, 이름은 문서에 없거나 ○다**: 모두 자리 표시이고 표 하나씩(`Config` "M11b")에 있다.
+
+### 희귀 구역 (`world/rare_zone.gd`, 임시값 "M11b 구역 자리")
+
+- 지상에 **정확히 하나**, `WorldData.rare_zone`. 시드로 정한다(`RareZone.place`, 자기 난수열 `RARE_ZONE_SALT`): 무작위 가운데 256번(`RARE_ZONE_TRIES`), 없으면 맵을 칸마다 훑는다. 32시드에서 자리가 모두 달랐고 모두 찾았다. 시드 1 = (114, 63)
+- 규칙(`site_ok`): 반지름 9칸, 가운데가 제단 가운데에서 30칸 밖, 맵 끝에서 2칸 안, 원의 둘레 네모를 3칸 키운 안에 오염 없음, 원의 칸 85% 이상이 설 수 있는 풀
+- **타일을 고치지 않는다**: 월드 해시는 그대로이고 무리가 1분 돌아도 골든 해시다(시험). 놓는 것은 무리(`Creatures.setup`)이고 생성기가 아니다. 그래서 `--test-no-creatures`에서도 구역은 있다
+- **누구나 걸어 들어간다**(임시값 "M11b 구역 접근"): 문서의 "구역별 클래스 잠금"·"접근"을 "여기서 사냥·포획은 아처만"으로 읽었다. 몸을 막는 잠금이 필요한지는 **사람이 정한다**
+- 그림(`world/rare_zone_view.gd`, 뷰에만): 원 위에 희미한 금빛(알파 0.1, 마지막 16px은 디더로 사라짐), 둘레에 등불 돌 16개(막힌 칸이면 안쪽으로 두 칸까지 옮기고, 없으면 뺀다). 돌은 땅처럼 저녁에 어두워지고 불꽃 3픽셀은 unshaded. 땅과 엔티티 사이에 그린다(돌을 밟고 지나간다)
+
+### 희귀 생물 (`Creatures`, 임시값 "M11a 생물 표", "M11b 구역 안의 생물")
+
+- 세 종류 하나씩이 구역 안(테두리에서 16px 안쪽)에 내려와 `CreatureSim.bound`가 된다. 걷기·달아남·밀림·서성임 모두 발 상자가 구역을 벗어나지 않는다(`can_walk`). 테두리로 달리면 거기서 멈춘다
+- 죽거나 잡히면 표의 시간(8~10분, 게임 시계) 뒤에 다시 구역 안에서 나온다. 플레이어에서 160px 밖이어야 하므로(M11a 규칙) 구역 가운데에 서 있으면 다시 나오지 않는다
+- **제단을 구역으로 옮기면**: 빛에서 걸어 나가되 구역은 벗어나지 않는다. 구역(9칸)이 빛(7칸)보다 커서 언제나 고리가 남는다. 그 고리도 막혀 있으면 빛 안에 서 있는다(둘 다 지킬 수 없을 때 구역을 지킴)
+- `--test-creature`·봇 `creature`로 놓은 것은 묶이지 않는다(M11a의 시험 도구 그대로)
+- 구역이 없는 맵(시험의 작은 맵)에는 희귀 생물이 없다. 사냥감은 구역 안에도 산다
+
+### 아처만 (● game-concept §4, `Creatures.shut_out`·`Arena.creature_open`, 임시값 "M11b 아처 아닌 타격")
+
+- 아처가 아닌 사람의 타격은 희귀 생물에게 **아무 일도 하지 않는다**: 피해·번쩍임·달아남·기절·둔화·밀기·독 모두 없다. 거부 표시(상점 창의 빨강으로 × `EffectMarks.Kind.REFUSED`, 30틱)만 뜨고 콘솔에 `EVENSONG_HUNT refused kind=lamp_fox by=paladin: archer only`
+- 공격 길마다 먼저 묻는다: 근접, 화살·빛 탄, 땅 울리기, 무기 스킬의 호, 성광 폭발, 화살비·낙석, 던진 독. 화살·빛 탄은 몸에 멈춘다(지나가지 않음). 주인이 사라진 화살도 "아무도 아님"이라 거부
+- 아처는 사냥감처럼 모든 공격이 든다. **잡지 않고 죽이면** 가죽·고기만 나오고 항목도 희귀 재료도 없다(킬 수에는 든다)
+
+### 올가미와 잡기 (`items/capture.gd`, 임시값 "M11b 올가미")
+
+- 올가미를 고르고 희귀 생물을 **좌클릭** 한 번(누르고 있어도 반복 안 함). 대상은 마우스 아래의 산 생물: 몸 가운데에서 히트 상자 + 6px(`CAPTURE_GRAB_PX`) 안의 가장 가까운 것
+- **거부(아무것도 안 씀)**: 아처가 아님, 올가미 없음, 아무것도 없음, 사냥감(포획 불가), 닿지 않음(발끼리 40px `CAPTURE_REACH_PX`, 벽이 가로막아도), HP가 30%(`CAPTURE_HP_PCT`) 넘음. 다운·사망·기도 중·제단 듦·창 열림은 클릭이 올가미까지 오지 않는다(`Capture.refusal`이 같은 말을 한번 더). 거부되면 생물에 빨간 ×, 콘솔 `EVENSONG_CAPTURE refused: too healthy`
+- 되면 던지는 동작(`CAPTURE_ANIM`: 새 몸 그림 없음)이 돌고 **클릭한 순간부터 생물이 잡혀 선다**(`Creatures.hold`): 닿았던 것은 닿은 채로. 3프레임째(18틱)에 `Capture.land`가 전부 다시 검사하고 올가미 하나를 쓰고 생물을 데려간다. **주사위 없음**
+- 그 사이 끊기면 아무것도 안 쓴다: 아처가 맞음(동작이 끊기고, 잡힘은 맞는 프레임 2틱 뒤(`CAPTURE_HOLD_SLACK_TICKS`)에 저절로 풀림), 생물이 죽음, 올가미가 사라짐
+- 잡히면: 생물은 그 틱에 사라지고(시체·드롭 없음) 자리는 표의 시간을 기다린다. 희귀 재료 1개가 가방으로(자리 없으면 그 칸에 드롭), 항목 등록. 잡기는 킬이 아니다. 금빛 고리 터짐(`Arena.BurstKind.CAPTURE`, 표 끝에 붙임)
+- 표시: 희귀 생물의 HP 막대에 상아색 눈금(30% 자리), HP가 그 아래면 발밑에 깜박이는 금빛 고리, 잡혀 있는 동안 던진 곳까지 점선 밧줄(`CreatureView`, unshaded)
+- **잡히는 HP**(임시값 "M11b 잡히는 HP"): 화살은 한 발이 크다. 처음 값(여우 40, 올빼미 36)은 올빼미가 12·24·36으로 12 → 0이 되어 활로는 **잡을 수 없었다**(36의 30%는 10.8). 그래서 M11b가 여우 46, 올빼미 44로 올렸다. 활 12, 베네핏 13, 1티어 18, 1티어 + 베네핏 20 어느 것으로도 세 종류 모두 눈금 안에 든다(시험이 잰다). 열정이 붙은 조합까지 다 되지는 않는다(예: 1티어 + 열정 20% = 22, 올빼미 44는 22 → 0): 부채 사격(8) 같은 작은 타격이 그 길이다
+- ○ **덫**은 만들지 않았고(임시값 "M11b 덫"), ○ **약초사 인계**도 2차다(임시값 "M11b 인계")
+
+### 올가미·희귀 갑옷 레시피 (`Config.COLLECTION_RECIPES`, 임시값 "M11b 레시피")
+
+- **올가미** 2개: 기본 작업대, 널판 또는 통나무 1 + 손상된 또는 온전한 가죽 1, **아처 전용**(약초사의 독 물약과 같은 규칙. 창의 작은 표식은 화살 모양). 입력이 여럿일 수 있게 `Ingredient.others`를 더했다: 앞의 것부터 쓴다(둘 다 있으면 손상된 가죽과 널판을 쓰고 온전한 가죽은 남는다), 창은 가진 것을 보여 준다. 해금은 각 입력 중 하나를 본 적 있으면
+- **희귀 갑옷** 1개: 모루, 희귀 재료 3 + 온전한 가죽 2, 누구나. 첫 획득 해금(M6)이라 희귀 재료를 처음 얻으면 나타난다. **잡기 셋이면 만든다**(● 희귀 재료가 필수)
+- 수리: 모루, 온전한 가죽 2(`GEAR_REPAIR_RARE`, 누구나). 표 끝에 붙여 예전 레시피 번호는 그대로다
+- 방어 6, 내구도 140(1티어 4, 100), 갑옷 칸 하나, 마모·죽음·수리 규칙은 1티어 갑옷 그대로. 모습은 바뀌지 않는다(● R21). 상인은 팔지도 사지도 않는다
+
+### 희귀 재료 (`Config.RARE_MATERIAL`, 임시값 "M11b 희귀 재료")
+
+`rare_essence`(자리 표시 이름 희귀 정수), 재료, 묶음 99, 코드 아이콘. 상인이 12에 산다(팔지는 않음). `test_shop.gd`의 이익 고리 시험이 새 레시피와 함께 돈다: 올가미와 희귀 갑옷은 돈만으로 만들 수 없고(상인은 나무도 재료도 팔지 않음) 그는 그 둘을 사지 않는다.
+
+### 컬렉션 (`items/collection.gd`, 임시값 "M11b 컬렉션 항목", "M11b 등록")
+
+월드의 것이다(● 월드마다 독립): `WorldData.collection` 하나를 지상과 던전의 데이터가 같이 가리킨다(`Main._share_collection`, 아레나를 만들 때). 죽어도, 지도를 옮겨도 그대로이고 플레이어의 것이 아니라 잃을 것이 없다. 다른 월드는 빈 컬렉션이다. 저장이 없어(M13) 프로세스가 끝나면 사라지고, 스냅샷에는 M11c가 넣는다.
+
+| 칸 | 항목 | 단위 | 등록 |
+|---|---|---|---|
+| 1 | `hunt_hare` 토끼 | 생물 | 누구든 죽임 |
+| 2 | `hunt_deer` 사슴 | 생물 | 누구든 죽임 |
+| 3 | `take_lamp_fox` 등불 여우 | 생물 | 잡음 |
+| 4 | `take_silver_stag` 은빛 사슴 | 생물 | 잡음 |
+| 5 | `take_ash_owl` 재 올빼미 | 생물 | 잡음 |
+| 6 | `first_hide_fine` 첫 온전한 가죽 | 자원 | 월드의 누군가가 처음 가짐 |
+| 7 | `first_rare_essence` 첫 희귀 재료 | 자원 | 월드의 누군가가 처음 가짐 |
+| 8 | `hunted_ten` 열 마리 | 업적 | 어떤 생물이든 10번 죽임(잡기는 안 셈) |
+
+- 자원 항목은 틱마다 플레이어 인벤토리의 `seen`을 본다(`note_inventory`): 줍기·상자·`--give` 어느 길이든 든다. `--give=hide_fine`도 등록한다(시험 도구)
+
+### 베네핏 (`Config.COLLECTION_BENEFITS`, 임시값 "M11b 베네핏")
+
+| 범위 | 문턱 | 효과 |
+|---|---|---|
+| 클래스(아처) | 3항목 | 화살 피해 +10%(가까운 정수로 반올림, 최소 1): 기본 공격의 화살(활·1티어 활), 꿰뚫는 화살, 부채 사격, 화살비. 1티어 다음, 열정 앞에 곱한다. 활 12 → 13, 1티어 18 → 20, 꿰뚫기 16 → 18, 부채 8 → 9. 활 + 열정 20%: 14 → 16. 아처의 칼·빛 탄, 다른 클래스의 화살에는 없음 |
+| 전체 클래스 | 5항목 | 갑옷 방어 +1(`Gear.after_armor`의 `extra`, 갑옷이 없어도, 부서져도). 칼 12 → 맨몸 11, 1티어 7, 희귀 5. 독에는 없음(갑옷 규칙 그대로), 최소 피해 `ARMOR_MIN_DAMAGE` 그대로 |
+| 월드 | 8항목 | 상인 재고가 10분에서 **7분**마다. 이미 돌던 시계는 그대로라 5분째면 2분 뒤, 8분째면 다음 틱에 한 번(`Shop.step`). `Collection.world_benefit()`은 M12가 읽을 깃발(제단 진행은 만들지 않음) |
+
+### 컬렉션 창 (`ui/collection_panel.gd`, 임시값 "M11b 컬렉션 창")
+
+**K**(입력 액션 `collection`). 코드 그림, 글자 없음(HUD에 폰트 없음). 코덱스·채색 필사본 UI는 2차다. 칸 8개(2줄 × 4): 등록 전 어두운 그림자, 등록 후 생물(동쪽 그림)이나 아이템 아이콘과 금빛 테, 왼쪽 위에 단위 점(생물 구리, 자원 상아, 업적 금), 업적 칸에 킬 점 10개. 머리에 "n/8", 아래에 베네핏 표식 셋(화살·방패·등잔)과 문턱 숫자: 켜지면 금빛 테. 다른 창처럼 플레이어가 서고(`ui_locked`), K·Tab·Esc로 닫고, 다운되면 닫히고, 기도 중·다른 창이 열려 있으면 안 열리고, 게임은 멈추지 않는다.
+
+### 그림 (코드 그림 자리 표시, 임시값 "M11b 그림 자리 표시")
+
+구역 그림(`RareZoneView.image`·`tint_image`), 아이콘 `snare`·`rare_essence`·`armor_rare`·`tally`·`benefit_*`(`ItemIcons.MAPS`), 눈금·고리·밧줄(`CreatureView`), 거부 ×(`EffectMarks`), 터짐(`BURST_COLOURS`), 창(`CollectionPanel`). **PixelLab·힉스필드를 쓰지 않았다**(사람이 승인하지 않음). 그림 파일은 새로 없다(M11a의 가죽 둘 그대로).
+
+### 시험 도구 (구현 "M11b 봇·시험 플래그")
+
+`--test-at-zone`, `--test-near-creature`, `--test-collection`, 봇 `huntrare`·`snare`·`collection` (위 "명령줄 인자"). 재료는 `--give=snare:4,rare_essence:3,hide_fine:2`.
+
+### 시험 (M11b)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=rare_zone,capture,collection,shop < /dev/null   # 약 8초
+timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=rare_zone,capture_marks,collection_panel < /dev/null   # 창, 약 3초
+```
+
+- `test_rare_zone.gd` (9,479 checks): 숫자, 32시드 자리(따로 적은 규칙으로: 멀리, 맵 끝, 오염 없음, 85% 트임, 시드마다 다르고 같은 시드 같음, 월드 해시 그대로), 규칙 하나씩의 경계(허용 칸과 그 옆 칸), 맵을 훑는 마지막 길, 원의 계산, 희귀 스폰(세 종류 하나씩, 묶임, 구역 안, 같은 시드 같은 자리), 구역이 없을 때, 다시 나옴, 긴 추격(3시드 3,000틱, 모든 틱에 구역 안), 테두리 달리기·서성임·밀기, 빛이 덮을 때, 시험 플래그의 생물, 그림(돌·불꽃·금빛·돌 자리·옮겨짐·빠짐), main.tscn
+- `test_capture.gd` (814 checks): 아이템, 아처가 아닌 네 클래스 × 희귀 셋의 타격, 공격 길 여덟과 꿰뚫기(피해·번쩍임·달아남·밀기·기절·둔화·독 없음, 거부 표시), 주인 없음, 아처는 모든 길이 듦, 사냥감은 누구나, 대상 고르기, 거부 하나씩(클래스·없음·사냥감·건강·1px 밖·벽·꺼짐), 상태 여섯(다운·사망·기도·제단·창·동작 중), 문턱 ±1, 잡기(틱까지: 프레임, 잡힘, 충돌 1틱 전 아무 일 없음, 그 틱에 올가미 하나·재료 하나·항목 하나, 드롭 없음, 킬 아님, 다시 나옴), 마지막 올가미, 쉼이 끝나도 잡힘, 가득 찬 가방, 끊김 셋, 희귀 생물 죽이기, 잡히는 HP, 표시, 봇, main.tscn
+- `test_collection.gd` (536 checks): 표, 항목마다 등록과 다른 것을 건드리지 않음, 문턱(항목 하나하나), 화살 피해(기본 공격 10가지, 스킬 10가지, 열정·1티어 조합, 다른 클래스·칼·빛 탄 없음, 생물에 닿는 값), 방어(클래스 다섯, 갑옷 없음·1티어·희귀·부서짐, 최소 피해, 독, 기어 끔), 재고(7분 틱까지, 돌던 시계, 8분째, 안 도는 상점, 시험 훅), 두 월드, 레시피(입력 조합 넷 × 클래스, 쓰는 순서, 해금), 희귀 갑옷(방어·마모·죽음·부서짐·수리), 창 배치, main.tscn(죽음·던전·월드 교체·상점 시계), 창(열고 닫기·입력 막기·멈추지 않음·다른 창·다운·기도·봇), **한 바퀴**(진짜 화살로 사냥 → 줍기 → 올가미 → 희귀 셋 → 희귀 갑옷 → 8/8)
+- 바꾼 기존 시험(M11b가 일부러 바꿔서): `test_items.gd`(아이템 60개, 종류별 수), `test_creatures.gd`(사냥감 수를 사냥감만 셈, 희귀는 구역 안), `test_hunting.gd`(모든 클래스가 치는 큰 표적을 은빛 사슴에서 사슴으로: 희귀는 이제 아처 것), `test_workbench.gd`(체인 표에서 뺌, 아처 레시피는 아처로), `test_crafting.gd`·`test_building.gd`(레시피 34개), `test_shop.gd`(입력이 여럿이면 가장 싼 것으로, 수리 7개, 돈만으로 못 만듦)
+- 스모크 필드는 위 "스모크", 일부러 깨 본 것은 아래 "측정"의 M11b
+
+### 알려진 문제·자리 표시 (M11b)
+
+- 모든 숫자·이름과 문서가 정하지 않은 규칙은 임시값이다. 사람이 볼 것: **구역을 몸으로 막을지**(임시값 "M11b 구역 접근"), 희귀 생물을 쫓아 잡는 데 걸리는 시간, 도달 40px, 베네핏이 혼자 놀 이유가 되는지, 금빛 땅이 너무 희미하지 않은지
+- 활을 누르고 있으면 날아가는 다음 화살이 눈금 아래 생물을 죽인다(실제 봇 실행에서 처음에 그랬다: 올빼미·여우가 죽고 사슴만 잡힘). 규칙대로이고 한 발씩 쏘면 된다. 봇은 100틱에 한 번 쏜다
+- 희귀 생물의 HP는 다시 나올 때까지 차지 않는다(M11a의 생물과 같음): 다친 채 쫓을 수 있다
+- 구역 가운데에 서 있으면 희귀 생물이 다시 나오지 않는다(플레이어 160px 규칙, 구역 반지름 144px)
+- 돌은 땅과 엔티티 사이에 그려 몸이 위로 지나간다. 나무 그늘 등과 어울림은 그림이 오면 다시 본다
+- 항목 등록을 알리는 화면 표시는 없다(콘솔과 창만). 사람이 원하면 더한다
+- 창은 플레이어를 세운다(다른 창과 같은 규칙). 읽기만 하는 창이라 걸으며 보게 할 수도 있다
+
+## M11c: 세션의 사냥 · 포획 · 컬렉션
+
+M11a·M11b가 혼자 할 때 더한 것을 세션으로 가져왔다. ● 호스트 권한(game-concept §13)대로 **생물, 그 죽음과 드롭, 포획, 컬렉션, 베네핏은 모두 호스트가 정한다**. 규칙은 M11a·M11b의 것 하나다(`Creatures`·`Capture`·`Collection`을 호스트가 그대로 부름). 클라이언트가 보내는 새것은 하나뿐이다: **올가미를 어느 생물에게 던졌는지**(CAPTURE). 문서에 없는 새 규칙은 세션에서만 생기는 것들이고 [임시값](#임시값-사람-확인-필요)의 "M11c" 줄, 고른 것은 [구현에서 고른 값](#구현에서-고른-값-설계-결정-아님)의 "M11c" 줄이다. 다른 구역, 덫, 약초사 인계, 가축, 공격하는 생물, 보스·제단 업그레이드(M12), Steam·저장(M13), 코덱스 UI, 새 그림 파일은 M11c가 아니다. PixelLab·힉스필드를 부르지 않았다.
+
+### 호스트 (`net/session_host.gd`)
+
+- **무리**: 지상 `Arena.herd`(`_setup_combat`). 월드 시드와 `CREATURE_SALT`의 자기 난수열, 혼자 할 때와 같은 `Creatures`. 매 틱 전투 다음에 한 번 돈다(`_step_creatures`: 혼자 할 때 Main의 순서 그대로, 지상에 아무도 없어도 게임 시계로). 그래서 **기본 공격·스킬 15개·독·열정·1티어 마모가 코드 변경 없이 호스트에서 생물을 친다**(공격 길이 모두 Arena). 호스트 로그에 `hunt hit slot=… kind=… id=… amount=… hp=…`, `hunt killed slot=… kind=… by=<클래스> at=… drops=…`, `hunt refused slot=… kind=… by=…: archer only`. 멤버마다 `creature_hits`·`creature_kills`·`creature_refused`·`captures`
+- **죽음·드롭**: 마지막 타격의 클래스가 정한다(● §3.4). 드롭은 보통 드롭 편집이라(`EditLog.Kind.DROP_PUT`, `_step_creatures`가 `apply_world_edit`) 지상의 모든 기기에 같은 것이 놓이고 늦은 참가자는 스냅샷으로 받는다. 같은 틱의 두 근접 타격은 슬롯 순서(M3b 규칙). 화살은 쏜 순서대로 돌아서, 같은 틱에 닿아도 먼저 쏜 화살이 먼저다(M11 검토: 팔라딘이 먼저 쏘면 슬롯이 뒤여도 손상된 가죽)
+- **희귀 구역**: 호스트의 무리가 놓는다(`Creatures.setup`). 타일 편집이 없다. **클라이언트는 자기 생성기로 다시 고르지 않는다**(FastNoiseLite 부동소수라 ARM64가 다른 월드를 만들 수 있다, M1의 이유 그대로): 지상 스냅샷으로 받는다
+- **몸**: 살아 있는 생물은 호스트에서도 막는 조각·설치·문 닫기의 몸이다(`creature_feet`, M11a의 규칙, 혼자 할 때 `Main._other_bodies`와 같은 곳). 클라이언트의 건설 유령은 자기가 그리는 생물을 본다(`SessionBots.creature_feet`)
+- **컬렉션**: 월드에 하나(`_setup_collection`: 모든 지도 데이터에 같은 객체, 혼자 할 때 `Main._share_collection`의 규칙). 호스트가 매 틱 멤버의 인벤토리를 보고(`_note_collection`, `Collection.note_inventory`) 로그에 `collection entry=… unit=… count=n/8`, `collection benefit=<class|all|world> at=n`
+- **베네핏은 호스트의 숫자다**: 화살 +10%(`Collection.arrow_damage`: 호스트의 Arena·Skills), 방어 +1(`Player.take_hit`: 호스트의 `Collection.defence_bonus`, 던전에서도 같은 객체), 재고 7분(`_step_shop`이 `Shop.step(collection())`). 클라이언트는 어느 것도 계산하지 않는다: 맞은 HP는 묶음으로, 재고는 편집으로, 켜진 표시는 컬렉션 메시지로 온다
+
+### 요청 (`NetProtocol.Op.CAPTURE`, `SessionHost._capture`·`_capture_land`)
+
+- **CAPTURE**(새 요청, 9B: 지도, 핫바 칸, 목표 타일(바라보기만 정함, USE처럼), 조준, 생물 번호 u16): 올가미를 들고 좌클릭. 클라이언트는 이 기기가 그리는 생물에게 `Capture.refusal`을 먼저 돌리고(M11b 그대로), 거부면 아무것도 보내지 않고 이 기기에 거부 표시만 남긴다(`NetCombat.mark_refused`). 호스트의 차례: 다른 지도 `wrong map`·다운/사망 `down`·제단 듦·기도 중(`run_frame`의 앞 거부, 예산 안 씀), 같은 프레임의 대시(스킬과 같게 대시가 이김, 예산 안 씀), **요청 예산** `rate`, 그다음 **호스트 자기 상태로 `Capture.refusal`**(`archer only`, `no snare`, `nothing there`(없는 번호·지난 번호·생물 없는 지도), `prey cannot be captured`, `out of reach`(40px, 벽), `too healthy`), 그 요청이 말한 칸의 올가미(`no snare`), 목표 타일이 손 닿는 곳(`WorldItems.WHY_REACH`), 동작 중 `busy`. 거부면 아무것도 쓰지 않고 그 생물에 거부 표시(묶음으로 모두에게)
+- 받으면 프레임이 던지기를 재생하고, 동작이 **시작될 때** 생물을 붙들고(`Capture.begin`), **타격 프레임에** `Capture.land`(모두 다시 검사, 주사위 없음): 올가미 하나, 생물, 재료(`inventory_dirty`로 주인에게), 항목, `Arena.BurstKind.CAPTURE`(샷 이벤트로 지상의 모두에게). 안 들어가는 재료는 보통 드롭(편집). 그 사이에 생물이 죽었거나 던지기가 끊기면 아무것도 쓰지 않는다
+- 붙드는 시간: 호스트에서는 혼자 할 때보다 12틱 길다(구현 "M11c 붙드는 여유"). 붙듦은 호스트 틱으로 줄고 던지기는 클라이언트 프레임으로 가서, 손실·지터로 프레임이 몇 틱 늦으면 달아나던 생물이 풀려 버린다
+- 두 아처가 한 생물에게: 둘 다 던질 수 있고(붙든 것이지 잡은 것이 아니다) 먼저 닿은 쪽(슬롯 순서)이 잡는다. 다른 쪽은 `the creature is gone`, 아무것도 안 씀
+
+### 전송 형식 버전 13 (`NetProtocol.VERSION`)
+
+- 새 요청 **CAPTURE**(9B). 받는 쪽은 지도 밖, 핫바 밖, 생물 번호 0을 거부한다(패킷 통째로). 낡은 번호는 호스트가 `nothing there`로 거부
+- **생물 묶음**(새 RPC `_rpc_wild`, 새 채널 `CH_CREATURE` 4 unreliable ordered, 신뢰 판 `_rpc_wild_keyframe` 채널 0): u32 틱, u8 개수, 생물마다 **10B**: u16 번호, u16 x, u16 y(발, 1/4px), u8 바라보기·걷기·상태, u8 종류(3비트)·독·기절·둔화·거부, u8 HP, u8 번쩍임(4비트)·붙든 사람(4비트: 슬롯 + 1). 받는 쪽은 크기, 개수(64), 번호 0, 번호 두 번, 쓰지 않는 비트, 없는 종류·상태, 종류의 HP 초과, 번쩍임·슬롯 범위, 산 것의 HP 0, 시체의 HP·표시·걷기·붙듦을 거부한다. 빠진 생물 = 사라졌거나 시야 밖
+- **컬렉션 메시지**(새 RPC `_rpc_tally`, 채널 0 reliable, **6B**): u16 항목 비트, u32 킬 수. 표에 없는 비트는 거부. 절대값이라 잃을 것도 겹칠 것도 없다
+- 샷 멈춤 이유에 `creature`(M11a의 화살이 지금까지 "spent"로 나갔을 자리)
+- **스냅샷**: 상점 뒤에 구역 u8 + (u16 x, u16 y, u8 반지름), 컬렉션 u8 + 6B. 지상만(던전 스냅샷은 0 둘. 있으면 거부). 구역이 맵을 벗어나거나 반지름 0, 표에 없는 항목도 거부. **내용 해시**: 있을 때만 태그 101·102 뒤에 더한다: 생성된 월드에는 둘 다 없어(무리가 놓음, 세션이 붙임) **골든 해시 세 개가 그대로**. 한 객체를 공유하는 던전의 해시는 컬렉션을 넣지 않는다(지도를 떠날 때의 해시가 뒤의 사냥으로 달라지면 안 된다)
+- RPC 23개(새 셋). **`_rpc_hello`(6)·`_rpc_refused`(13)의 번호는 그대로다**: 새 이름이 모두 `_rpc_refused` 뒤에 정렬된다(`_rpc_tally` < `_rpc_vespers`, `_rpc_wild`·`_rpc_wild_keyframe` < `_rpc_world`). `test_net.gd` `RPC_STABLE`이 지킨다. 실제 프로세스로 잰 것: 아래 "측정"의 M11c(v12 main 86f0b9a 빌드 ↔ 이 판, 양쪽 방향 `refused: version` 코드 3)
+
+### 생물 묶음: 새 묶음, 보이는 상자 (정한 것, 잰 것과 이유)
+
+- **새 묶음 vs 적 묶음에 종류 바이트**: 새 묶음으로 정했다. 적 묶음에 넣으면 하나 19B(이단 18B + 종류)라 13마리 255B, 20Hz로 5.1KB/s를 **이단과 함께** 지도의 모두에게 같은 내용으로 보내고, 종류 바이트 하나가 이단만 있는 싸움도 늘린다. 새 묶음은 10B(번호 u16, 위치 1/4px u16, 비트로 접은 표시)로 13마리 135B이고, 이단 싸움의 바이트는 v12 그대로다
+- **보이는 상자**: 무리는 거의 늘 누군가 걷는다(시드 1의 자연 무리 2분: 2,400 묶음 틱 중 2,367틱에 바뀜). 지도 전체를 보내면 "아무것도 안 바뀌면 안 보낸다"가 뜻이 없어져 서 있는 사람에게도 끝없이 간다. 그래서 **클라이언트마다** 자기 플레이어 둘레 `NET_CREATURE_VIEW_PX`(가로 ±340, 세로 ±200px: 화면 480×270, 21:9 화면의 가로 640, 여유 20px) 안의 것만, 그 내용이 바뀌었을 때만 보낸다(멤버마다 `StateBroadcast`: M4b의 묶음·키프레임·조용함 규칙 그대로). 멀리서 서성이는 무리는 0바이트, 곁의 생물이 서면 키프레임 하나 뒤 0바이트
+- **잰 것**: 아래 "측정"의 M11c(상한 13마리 모두 시야에서 움직임: 한 클라이언트 2,700B/s = 20 × 135B, 실제 세션 `herd`의 평균 약 1,270~1,500B/s)
+- 클라이언트는 이단처럼 100ms 뒤를 그린다(`NetCombat.sample_creature`: 묶음 사이 lerp). HP·표시·붙듦은 호스트의 것이고, 번쩍임은 그린 시각만큼 줄어든다. 올가미 줄은 붙든 사람의 슬롯 쪽, 이 기기에 그려진 몸으로 간다
+
+### 늦은 참가 · 지도 들어옴
+
+- 스냅샷에 구역과 컬렉션이 있고, welcome 뒤와 **모든** 지도 들어옴 뒤에 컬렉션 메시지가 한 번 더 간다(`send_collection_snapshot`: 스냅샷을 찍은 뒤 조각이 가는 동안 바뀌었을 수 있다). 지상으로 들어오면 그 시야의 생물이 신뢰 키프레임으로 오고(`send_combat_snapshot` → `_creature_snapshot`) 그 내용이 그 사람의 묶음 기준이 된다
+- 던전에 있는 사람도 컬렉션 메시지를 받는다(창은 어디서나 열리므로 `remote_peers`에게). 클라이언트는 세션 내내 `Collection` 객체 하나를 지도 데이터에 번갈아 건다(`SessionClient._keep_collection`: 열린 창이 그대로 읽는다)
+- 던전에는 무리가 없다(거울 아레나에 `herd` 없음). 내려가는 도중 늦게 온 묶음은 건너뛴다(`NetCombat.on_creatures`)
+
+### 예측 (정한 것과 이유)
+
+- **자기 몸 동작만 예측한다**: 올가미의 던지기는 USE처럼 프레임 시작에 재생된다(지연 없이 손맛). 생물, 올가미 수, 재료, 항목은 호스트의 인벤토리와 메시지로 온다. 이유: 잡히는지는 호스트만 안다(HP, 다른 아처, 그 사이의 화살). 틀리게 예측한 사라짐을 되돌리는 것이 왕복 뒤에 보이는 것보다 나쁘다. 호스트가 거부한 던지기(드물다: 쉬는 생물은 서 있고, 달아나는 생물은 시야보다 늦다)는 M2b의 거부된 사용처럼 다음 상태가 지운다(`action_corrections`)
+- 고기 먹기, 활, 근접은 M2b·M4b·M6b 그대로다(동작만 예측, 효과는 호스트). 몸이 닿지 않으므로 생물이 예측을 막지 않는다(`Movement`는 몸끼리 막지 않음, M11a)
+
+### 클라이언트 (`core/main.gd`, `net/session_client.gd`, `net/net_combat.gd`, `net/session_bots.gd`)
+
+- 키는 혼자 할 때 그대로: 무기·스킬로 사냥, 올가미 좌클릭, 고기 좌클릭, K = 이 기기의 컬렉션 사본 창(호스트의 항목을 그대로 보여 주고 메시지가 오면 다시 그림). 이 기기의 사본은 **표시만** 한다
+- 호스트를 잃고 혼자 계속하면(`Main._go_offline_combat`) 컬렉션과 구역은 이 기기의 것으로 남고 무리는 새로 찬다(호스트의 무리는 호스트의 것이었다). 올가미는 혼자 할 때의 규칙으로(M11b의 `_connect_capture`)
+- 봇: `aimprey`·`hunt`·`waitprey`·`huntrare`·`snare`가 세션에서도 돈다(이 기기의 무리: 호스트는 자기 것, 클라이언트는 보이는 것). 새로: `waitseen:<n>[,<틱>]`, `creature:<종류>,<x>,<y>[,<%>]`(호스트: %를 주면 그만큼 다쳐 쉬는 생물), `collection`. 호스트의 `--test-creature`·`--test-near-creature`·`--test-collection`도 듣는다. 세션 시험은 모두 `--test-no-creatures`로 뜬다(`_launch`): M2b~M10b 세션은 하던 것만 본다(M4b의 `--test-no-spawns`처럼)
+
+### 시험 (M11c)
+
+```bash
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_wild < /dev/null   # 한 프로세스 (약 10초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_hunt,net_herd < /dev/null   # 실제 세션 hunt·snare / wilds·herd (약 50초 + 55초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_hunt,net_herd --net-exe=build/evensong.console.exe < /dev/null   # 자식을 내보낸 exe로
+timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=wild_net < /dev/null   # 창
+```
+
+- `test_net_wild.gd` (한 프로세스, `test_net_combat.gd`의 리그를 이어 씀): 전송(CAPTURE 왕복·9B·잘림·범위 밖; 생물 묶음 왕복·15B·모든 잘림·한 바이트 더·64 상한·범위 밖 여덟·번호·시체 넷·`creature_of`; 컬렉션 왕복·6B·`take_state` 절대값), 스냅샷(생성된 월드 = 골든, 구역·컬렉션·킬이 해시를 움직임, 왕복·같은 해시, 깨진 것 열 가지, 던전은 없고 해시도 안 움직이고 위조는 거부), 악의 클라이언트(아처 아님, 다치지 않음, 눈금 +1HP, 사냥감, 없는 번호, 40px + 1, 먼 목표 타일, 다른 지도(예산 안 씀), 던전, 올가미 없는 칸·빈 칸, 대시, 동작 중, 벽, 올가미 없음, 제단 듦, 기도 중, 다운, 사망, 지난 번호: 모두 아무것도 안 씀; 예산 넘는 스팸), 잡기(정확히 타격 틱에, 하나·하나·항목 둘, 모든 기기, 샷 이벤트), 끊김, 두 아처, 가득 찬 인벤토리, 마지막 타격(양쪽, 모든 기기의 드롭·같은 월드), 희귀 거부(모든 기기의 표시), 시야(상자 경계 ±¼px, 시야 밖 300틱 0바이트, 들어옴·서면 조용함·나감, 던전 0, 돌아오면 키프레임), 보간(호스트의 그때 자리에서 3.5px 안, 표시, 시체), 늦은 참가(컬렉션·구역·해시·생물·거부 없는 로그), 지도 들어옴(던전에서 듣기, 흐름 중의 변화), 베네핏(실제 화살 13, 던전의 방어, 재고 7분, 샷 멈춤 `creature`), 몸, 레시피(세션의 제작·입기·방어 6), 클라이언트의 클릭(이 기기 거부·던지기 예측·호스트 잡기·교정 0), 호스트 자신의 클릭, 공격 길(칼·피해 스킬·독), 트래픽, 버전 12 거부
+- `test_net_hunt.gd` (실제 세션): `hunt` — 호스트(팔라딘, 활) + c1(아처, HP 40). 사슴 셋: 호스트의 화살 + c1의 처치 = 온전한 가죽 둘·고기 둘, c1의 화살 + 호스트의 처치 = 손상된 가죽·고기, 쉬는 셋째를 c1이 아는 칸에서 쏴 줍고(`pick`) 고기 먹고(HP 52) 상인에게 가서 온전한 가죽을 7에 팔고 일반 가죽·고기를 산다. 모든 기기의 드롭·월드·인벤토리가 호스트와 같다. `snare` — 호스트(팔라딘, 활, 항목 둘) + c1(아처, 올가미 셋, 왕복 90ms·손실 5%) + c2(성직자) + 늦은 c3(광부). 호스트의 화살 = 거부(모든 기기의 표시), c1이 걸어가 클릭 = 잡힘(호스트 로그, 항목 3번째·클래스 베네핏·재료 항목 4번째), c1의 다음 화살 13(호스트의 숫자), c2의 K = 사본 창, c3이 컬렉션·구역·시야의 사슴을 가지고 시작
+- `test_net_herd.gd` (실제 세션): `wilds` — 호스트(성직자) + c1(아처) + c2(팔라딘, 활)이 자연의 무리 속에서 시드 1의 구역(114,63)까지 걸어간다. c2의 화살은 희귀 생물에게 아무것도 못 한다(`hunt refused`, c1 화면에도 표시), c1이 쏘고 잡는다. `herd` — 13마리 사이를 셋이 걷는 12초: 트래픽
+- 바꾼 기존 시험(M11c가 규칙을 일부러 바꿔서): 버전 검사 다섯(13), `test_net.gd` RPC 표(23개, `_rpc_wild`·`_rpc_wild_keyframe`·`_rpc_tally`, `CH_CREATURE`), 스냅샷 크기 넷(`test_net.gd`·`test_net_build.gd`·`test_world_items.gd`, `test_net_shop.gd`의 상점 자리: 끝의 두 바이트), `test_net_maps.gd`(지도 들어옴 뒤 `tally`), `test_net_combat.gd`(세션의 지상 아레나에 무리, 던전엔 없음), `test_creatures.gd`·`test_rare_zone.gd`(해시가 구역을 덮으므로 "월드 편집 없음"은 구역을 빼고 골든과 비교), `test_capture.gd`(올가미 프레임은 이제 CAPTURE). 리그 둘이 새 메시지 셋을 잡고 `--test-no-creatures`로 뜬다. `_check_agreement`가 모든 세션에서 컬렉션·구역을 호스트와 비교한다
+- 일부러 깨 보기: 아래 "측정"의 M11c
+
+### 알려진 문제 (M11c)
+
+- 포획 판정은 호스트 시간이다(M4b, 되감기 없음): 달리는 생물에게 화면에서 닿았어도 호스트에서는 더 멀 수 있다(`out of reach`, 호스트 로그와 거부 표시). 쉬는 생물은 서 있으므로 차이가 없다. 여유를 둘지는 사람이 해 보고 정한다(임시값 "M11c 포획 판정")
+- 시야 밖의 생물은 이 기기에 없다: 상자 경계를 넘는 순간 나타나고 사라진다. 상자는 맵 끝에서 카메라처럼 멈추므로(M11 검토) 16:9와 21:9의 화면은 맵 어디서나 상자 안이다(가로 480·640 vs 680). 그보다 넓은 화면(32:9 등)에서는 보일 수 있다
+- 활을 쏜 사람이 화살이 날아가는 동안 세션을 떠나면 그 화살의 주인은 없다(M11a 규칙): 사냥감은 손상된 가죽, 희귀 생물은 거부
+- 호스트가 없어져 혼자 계속하면 무리는 새로 차고 그 세션의 부상·다시 나옴 대기는 사라진다
+- 항목 등록을 알리는 화면 표시는 M11b처럼 없다(콘솔과 창만). 세션에서는 다른 사람이 등록해도 창을 열어야 안다
+- 모든 공격 조합을 세션에서 다시 재지는 않았다: 공격 길은 호스트의 Arena 하나라 M11a의 시험을 믿고, 세션에서는 칼·1티어 마모·활·꿰뚫는 화살·던진 독만 잰다
+- M11 검토: 오염 칸에 몰린 생물은 깨끗한 땅이 320px 안에 안 보이면 빛에서 곧장 밖으로 간다. 벽이나 맵 끝이 막으면 거기 멈춘다(사냥은 된다). 생성된 오염 구역은 그만큼 크지 않아 건설 벽으로 가두거나 시험에서 칠해야 생긴다
+- M11 검토: 생물 번호는 65535에서 돌아가며 산 번호를 건너뛴다. M13의 저장이 `next_id`를 이어 쓰면 그대로 맞다
+- M11 검토, 고치지 않음: 그림의 구별(토끼·여우, 어두운 올빼미, 1배의 포획 고리)은 자리 표시 그림의 일이라 코드를 바꾸지 않고 사람 확인에 넣었다("혼자 M11 해 보기" 6). `_capture_land`의 `_changed`는 지워도 달라지는 것이 없다: 던지는 동안 플레이어의 동작이 돌아 같은 틱에 어차피 활동으로 센다(동등한 변이)
+
 ## 빛과 제단 (G2)
 
 - **규칙은 하나**: `SafeZone.is_in_safe_zone(pos)` = 제단 가운데에서 반경(임시 7타일 = 112px) 안 (경계 포함). 게임 로직은 `GameWorld.is_in_safe_zone()`로 이것을 부르고, 빛 텍스처는 같은 함수를 텍셀 가운데마다 불러 만든다
@@ -2857,7 +3274,7 @@ func run() -> Array[String]:
 | M2b 다시 참가 | `SessionHost` | 다시 참가해도 인벤토리가 이어지지 않는다(새 참가자는 빈 인벤토리, 나간 사람의 인벤토리는 사라짐) | 문서에 없음 (M1에 다시 참가 기억이 없음, 저장은 M2 밖) |
 | M6a 키 | `project.godot` 입력 `skill_1`(새), `toggle_inventory`·`move_up`/`move_down`·`interact`·`ui_cancel`(제작 창이 열린 동안, `Main._crafting_input`), `Player.make_frame` | Tab = 작업대 2칸 안이면 제작 창(+ 인벤토리), 아니면 M2a 그대로 인벤토리. 창이 열린 동안 W / S(↑ / ↓) = 줄 고르기, F 또는 Enter = 만들기, 마우스 올리기 = 고르기·좌클릭 = 만들기, Tab 또는 Esc = 닫기, 캐릭터는 서 있음(Q/E는 됨). 물약을 고르고 좌클릭 = 마시기(누르고 있어도 한 번). **1 = 약제 투척**(고른 물약을 마우스 쪽으로). 우클릭은 쓰지 않음. **M6b**: 세션에서도 같은 키(창이 열린 동안 세션의 입력도 서 있음, 만들기는 호스트에게 가는 요청). M7a: 값 그대로, 작업대 셋도 같은 Tab이고 작업대 없는 곳의 Tab은 손 레시피가 해금된 뒤 손 제작 창(+ 인벤토리, 혼자 할 때만: "M7a 기본 작업대 얻기"). **M7b에서 바뀜**: 우클릭 = 철거("M7b 키"). **M7c에서 바뀜**: 손 제작 창은 세션에서도. **M7-fix에서 바뀜**: 손 제작 창은 새 키 C("M7-fix 손 제작 창"), Tab은 위 M6a 값 그대로(작업대 2칸 안 = 제작 창, 아니면 인벤토리) | ○ gameplay-design §1 키 초안("Tab 인벤토리·제작", "1 2 3 스킬", "우클릭 보조 동작 (클래스별)", "F 상호작용 (… 작업대 …)"), ○ §2.2 추천 "1. 정체성 스킬 — 약초사 약제 투척". 1을 던지기에 쓴 것은 초안의 "1 = 스킬"과 맞추고, 우클릭(클래스 보조 동작)은 비워 둠. 창이 열린 동안 W/S·F를 창이 가져가는 것과 Enter·Esc는 초안에 없음 **M9a**: 키 1은 정체성 슬롯(약초사 = 이 투척, 다른 클래스 = 그 정체성 스킬), 2·3·R을 더함(아래 "M9a 슬롯·키"). 세션에서는 M9c까지 이 줄 그대로 |
 | M6a 작업대 손 닿음 | `STATION_REACH_TILES`, `Crafting.station_near` | 발 칸에서 작업대 자리까지 2칸(체비셰프) 안, 가장 가까운 작업대. 멀어지거나 다운되거나 지도를 옮기면 창이 닫힘 | ○ gameplay-design §3.5 "작업대 근처에서 Tab" (거리 없음) |
-| M6a 레시피 해금 | `RECIPES_UNLOCK_ON_FIRST_GET`, `Inventory.seen` | **켬**: 입력 아이템을 모두 한 번이라도 인벤토리에 넣어 본 플레이어에게 그 레시피가 보인다(아무 등급, 없어져도 남음, 저장 없음). 끄면 처음부터 모두 보임. 기본값 이유: 문서가 내놓은 유일한 규칙이고, 슬라이스의 입력은 야생 약초라 줍기가 고리의 첫걸음이어서 비용이 없다(해 보고 사람이 정하게) | ○ gameplay-design §3.5 "레시피는 재료를 처음 획득했을 때 해금 (그라운디드 분석기 방식)" |
+| M6a 레시피 해금 | `RECIPES_UNLOCK_ON_FIRST_GET`, `Inventory.seen` | **켬**: 입력 아이템을 모두 한 번이라도 인벤토리에 넣어 본 플레이어에게 그 레시피가 보인다(아무 등급, 없어져도 남음, 저장 없음). **(M11b: 입력 한 줄이 "여럿 중 하나"일 수 있다. 그러면 그중 하나면 된다, 올가미의 나무와 가죽. "M11b 레시피")** 끄면 처음부터 모두 보임. 기본값 이유: 문서가 내놓은 유일한 규칙이고, 슬라이스의 입력은 야생 약초라 줍기가 고리의 첫걸음이어서 비용이 없다(해 보고 사람이 정하게) | ○ gameplay-design §3.5 "레시피는 재료를 처음 획득했을 때 해금 (그라운디드 분석기 방식)" |
 | M6a 자리가 없을 때 | `Crafting.refusal`, `craft` | 입력을 뺀 뒤에도 출력이 들어갈 자리가 없으면 거부하고 아무것도 바꾸지 않음(땅에 떨어뜨리지 않음). 입력은 뒤 칸부터 뺌 | 문서에 없음 |
 | M6a 조제대 | `ALCHEMY_FOOTPRINT`, `WorldData.PLACEABLE_ALCHEMY`, `WorldItems.place`·`place_rect`, `FixtureView` | 3×1 자리, 막음, 04-env `alchemy_table_v05` 그림(불투명 맨 아래 줄이 자리 아래 변, 뒤 판·병이 위 칸에 걸침). 목표 칸 = 자리 아래 줄 가운데, 세 칸 모두 빈 바닥·드롭 없음, 몸(놓는 사람·다른 플레이어·이단의 발)과 겹치지 않음, 다른 조제대에 닿지 않음. **M6-fix**: 사람이 나타나는 자리도 덮지 않음, 놓으면 영구(아래 "M6-fix 조제대가 비워 두는 자리") | ○ game-concept §9.7 "조제는 연금술대 자리의 조제대", ○ brief §5.7 범위 표 "약초사 조제대" (크기·놓는 규칙은 문서에 없음) |
 | M6a 조제대 얻기 | `ItemDB` `alchemy_table`(종류 "놓는 것", 묶음 99, 아이콘 코드), `--give` | 디버그 아이템을 `--give=alchemy_table`로 받아 횃불처럼 놓는다. 생성기·F5 묶음에는 없음(지상 해시 그대로). 세션에서는 호스트가 `alchemy table offline only`로 거부(M6b). **M6b에서 바뀜**: 세션에서도 놓는다(호스트가 `WorldItems.place`로 검사, 그 지도의 편집). 얻는 길(디버그 아이템)은 그대로 | 문서에 없음. 다른 길: 제단 둘레에 하나 생성(지상 해시 갱신), 상인(M8), 작업대에서 만들기(M7). **M8a**: 상인은 팔지 않는다(● §3.0 R11 대체 수단 열에 없음), 이 줄 그대로 |
@@ -2916,8 +3333,8 @@ func run() -> Array[String]:
 | M7a 제련 | `Config.STATION_RECIPES`의 `ingot_*` 줄 | 모루에서 광석 1 → 주괴 1(구리·철 따로). 새 화로 없음 | 문서에 없음(화로가 문서에 없어서 모루 = 대장간에 둠). 시드 1 던전의 광맥 칸은 47개(구리가 철보다 많다)라 1 : 1 |
 | M7a 작업대 자리·그림 | `WORKBENCH_FOOTPRINT` 3×1, `ANVIL_FOOTPRINT` 2×1, `RELIC_BENCH_FOOTPRINT` 3×1, `FixtureView.FURNITURE` | 그림이 서는 자리(그림 너비 42·28·44px). 놓기 규칙은 조제대 그대로(빈 바닥, 발 없음, 사람이 나타나는 자리 아님, 같은 종류끼리 안 붙음, 다른 종류는 붙어도 됨, 던전도 됨). 막는다. 다시 줍거나 부술 수 없음 | 문서에 없음 (● R37 "건설 벽은 돌만"은 건설이라 M7b) |
 | M7a 1티어 무기 | `GEAR_T1_BASE`, `GEAR_T1_DAMAGE_PCT`, `Gear.base`·`attack_damage` | 클래스 기본 무기마다 하나(`sword_t1`·`bow_t1`·`holy_light_t1`·`pickaxe_t1`·`sickle_t1`): 같은 몸 동작·같은 공격 모양·같은 맞는 프레임, 피해 **150%**(검 14 → 21, 활 12 → 18, 성광 10 → 15, 곡괭이 10 → 15, 낫 8 → 12). 1티어 곡괭이는 곡괭이와 똑같이 캐고(채굴력 그대로), 1티어 낫은 낫처럼 거둔다. 누구나 어떤 무기든(M4a 그대로). 모습은 기본 무기 그대로 | ● gameplay-design §3.5·§3.0 R11 "1티어는 누구나 모루에서"(수치·아이템은 문서에 없음), ● game-concept §12 R21 기본 외형만 |
-| M7a 갑옷 | `ARMOR_T1_DEFENCE` 4, `ARMOR_MIN_DAMAGE` 1, `Inventory.armor`, `Gear.equip`·`unequip`·`after_armor` | 한 벌(`armor_t1`). 인벤토리 밖 **갑옷 칸 하나**(핫바 왼쪽에 보임). 핫바에서 고르고 좌클릭 = 입기(입던 것과 맞바꿈), 열린 인벤토리의 갑옷 칸 클릭 = 벗기(빈 칸이 없으면 거부). 입고 있고 부서지지 않았으면 이단의 칼 한 번에 4를 덜 받음(12 → 8, 1 밑으로는 안 내려감). 독은 덜지 않음 | ○ gameplay-design §2.4 "HP + 방어력(피해 감소)"(숫자·칸 없음). 외형 칸 분류(● game-concept §3 R21: 모자·상의 …)는 꾸미기라 쓰지 않았다 |
-| M7a 내구도가 있는 것 | `GEAR_DURABILITY`, `ItemDB.ItemDef.durability`, `ItemStack.durability` | **1티어 장비만**(무기 120, 갑옷 100). M2~M4의 기본 도구·무기(곡괭이·괭이·낫·물뿌리개·검·활·성광)는 닳지 않는다 | ● §2.6 R12 "장착 장비는 유지하되 내구도 손상"(무엇이 닳는지·수치는 없음). 고른 이유: 기본 도구는 만드는 레시피가 없어서(상인 M8 전) 닳으면 클래스가 기본 공격·곡괭이를 잃는다 |
+| M7a 갑옷 | `ARMOR_T1_DEFENCE` 4, `ARMOR_MIN_DAMAGE` 1, `Inventory.armor`, `Gear.equip`·`unequip`·`after_armor` | 한 벌(`armor_t1`). **(M11b: 둘째 벌 `armor_rare`, 방어 6, "M11b 희귀 갑옷". 항목 5개의 방어 +1은 "M11b 베네핏")** 인벤토리 밖 **갑옷 칸 하나**(핫바 왼쪽에 보임). 핫바에서 고르고 좌클릭 = 입기(입던 것과 맞바꿈), 열린 인벤토리의 갑옷 칸 클릭 = 벗기(빈 칸이 없으면 거부). 입고 있고 부서지지 않았으면 이단의 칼 한 번에 4를 덜 받음(12 → 8, 1 밑으로는 안 내려감). 독은 덜지 않음 | ○ gameplay-design §2.4 "HP + 방어력(피해 감소)"(숫자·칸 없음). 외형 칸 분류(● game-concept §3 R21: 모자·상의 …)는 꾸미기라 쓰지 않았다 |
+| M7a 내구도가 있는 것 | `GEAR_DURABILITY`, `ItemDB.ItemDef.durability`, `ItemStack.durability` | **1티어 장비만**(무기 120, 갑옷 100). **(M11b: 2티어 `armor_rare`도, 140)** M2~M4의 기본 도구·무기(곡괭이·괭이·낫·물뿌리개·검·활·성광)는 닳지 않는다 | ● §2.6 R12 "장착 장비는 유지하되 내구도 손상"(무엇이 닳는지·수치는 없음). 고른 이유: 기본 도구는 만드는 레시피가 없어서(상인 M8 전) 닳으면 클래스가 기본 공격·곡괭이를 잃는다 |
 | M7a 사용 마모 | `GEAR_WEAR_PER_ATTACK` 1, `GEAR_WEAR_PER_HIT` 1, `Gear.wear_weapon`·`wear_armor` | 무기: 맞는 프레임의 공격마다 1(맞든 빗나가든. 1티어 곡괭이의 채굴·1티어 낫의 수확은 안 닳음). 갑옷: 맞은 칼(실제로 들어간 것)마다 1. 독·무적 중의 칼은 안 닳음 | 문서에 없음 |
 | M7a 사망 마모 | `GEAR_DEATH_WEAR_PCT` 20, `Gear.wear_on_death` | 죽으면 지닌 내구도 있는 것 모두(입은 갑옷과 인벤토리의 1티어 무기)가 제자리에 남고 최대치의 20%(올림)를 잃는다(0 밑은 없음). 가방 규칙(M4a)은 그대로: 장비는 가방에 안 들어감 | ● §2.6 R12 "장착 장비는 유지하되 내구도 손상"(양은 없음). "장착"을 지닌 장비 전부로 읽음(핫바·가방 칸의 무기도) |
 | M7a 부서진 장비 | `GEAR_BROKEN_UNUSABLE` | **끔**: 내구도 0이어도 쓸 수 있고 기본 아이템처럼(부서진 1티어 검 = 기본 검 14, 부서진 갑옷 = 방어 0). 켜면 부서진 것은 좌클릭이 아무것도 안 함(`broken`). M7-fix: 켜면 세션의 호스트도 그 USE를 `broken`으로 거부(`Gear.unusable`, 시험은 `Gear.broken_unusable`로 켬) | 문서에 없음 |
@@ -2952,7 +3369,7 @@ func run() -> Array[String]:
 | M7-fix 이단 스폰 칸과 건설 | `Arena.terrain_blocked`·`terrain_can_stand`·`in_doorway`·`spawn_ok`, `Arena.sync_world` | 스폰 칸(지상: 오염 구역 둘레, 던전: 도착점에서 14걸음 넘게)은 지도의 지형으로만 정한다: 던전 벽(캔 대로)과 그 앞면, 생성기가 놓은 막는 설치물(제단·입구·계단·이단의 제단·나무·그루터기). 건설 벽·문·바닥·랜턴·작업대·창고는 보지 않아 건설로는 다시 계산하지 않는다. 이단을 놓을 때 산 월드를 본다: 설 수 있음(건설 벽·작업대 위 안 됨)과 문간(문 칸·앞면 칸, 열림·닫힘) 아님 | 문서에 없음 (M4a 스폰 줄의 규칙을 건설에 맞춤. M7b는 던전의 도착점부터 닫힌 문을 벽으로 걸어 문 하나 고리로 던전 스폰이 0이 되었다(이단의 제단을 부숴 멈추는 길 `SHRINE_STOPS_SPAWNS`를 비켜 감). 결과: 막힌 벽 너머·건설 방 안에도 이단이 날 수 있다(플레이어 둘레 `HERETIC_SPAWN_MIN_PLAYER_PX` 밖, 빛 밖) |
 | M7-fix 오염 위 건설 | `Building.refusal` (오염을 보지 않음) | 재·오염 땅 위에도 조각을 놓는다(지금 동작을 적음). 밭(일구기)·제단 놓기는 오염을 거부한다 | 문서에 없음 (검토 지적: 정해 두지 않았다) |
 | M7-fix 바닥 조각의 층 (**사람이 정함 2026-10-26**, 더는 임시값이 아님) | `WorldData.Layer.FLOOR_PIECE`(M7-rf. M7-fix 때는 `Walls.KIND_FLOOR` 벽 바이트) | **바닥 쪽 (사람이 정함 2026-10-26)**: 바닥 조각은 바닥 레이어의 건설 쪽 절반인 새 바이트(일곱째 레이어, 구현 표 "M7-rf 바닥 조각의 바이트")이고 벽·문이 그 위에 선다(● gameplay-design §3.1 레이어, ● §3.3 R37 "건설 벽은 바닥 위 별도 층"). 철거는 위 조각 먼저, 벽 종류 6은 은퇴. 문서에는 R40에서. 아래 "M7-rf". **M7-fix 때의 값(그대로 남김)**: 바닥 조각은 벽 레이어 바이트의 막지 않는 종류라 한 칸에 벽이나 바닥 조각 하나. 그래서 **바닥 조각 위에 벽·문을 지을 수 없다**(먼저 바닥을 철거해야 함) | ● gameplay-design §3.1 레이어 "바닥 / 벽(파괴 가능) / 광맥 / 식생 / 오염 / 설치물", ● §3.3 R37 "건설 벽은 바닥 위 별도 층". 바닥 조각을 바닥 쪽에 두는 것이 ●에 더 가깝지만 바닥 레이어는 dual grid 지형(코너 키, 스냅샷 검사)이라 M7b가 벽 바이트를 골랐다(구현 표 "M7b 바닥 조각의 자리"). 물음: **바닥 조각 위에 벽을 세울 수 있어야 하나**(그러면 바닥 조각용 바이트나 레이어를 더함: 스냅샷·해시·편집이 바뀜). → 사람: 바닥 쪽으로 옮김 |
-| M7-rf 수리 비용 | `GEAR_REPAIR_COST_ANYONE` 2 (`Crafting` `repair_*` 레시피의 재료 수) | 누구나 모루에서 하는 수리 한 번에 그 장비의 재료(`GEAR_REPAIR_MATERIAL`: 철 주괴 또는 구리 주괴) **2개**(M7a의 1개보다 비싸게). 하나면 `missing inputs`. 고치는 것은 그대로(지닌 것 중 가장 닳은 하나를 가득). **기술자의 수리(기술자가 올 때, 슬라이스 밖)는 이보다 싸게 하려는 것**이다 | 사람의 결정(2026-10-26): "누구나 수리하되 더 비싸게"(● §3.0 R11 "공용 수행 = 누구나, 낮은 효율", ● §2.6 R12 기술자 수리 = 기술자 일감). 숫자는 결정·문서에 없다 |
+| M7-rf 수리 비용 | `GEAR_REPAIR_COST_ANYONE` 2 (`Crafting` `repair_*` 레시피의 재료 수) | 누구나 모루에서 하는 수리 한 번에 그 장비의 재료(`GEAR_REPAIR_MATERIAL`: 철 주괴 또는 구리 주괴) **2개**(M7a의 1개보다 비싸게). **(M11b: `armor_rare`의 재료는 온전한 가죽 2, `GEAR_REPAIR_RARE`)** 하나면 `missing inputs`. 고치는 것은 그대로(지닌 것 중 가장 닳은 하나를 가득). **기술자의 수리(기술자가 올 때, 슬라이스 밖)는 이보다 싸게 하려는 것**이다 | 사람의 결정(2026-10-26): "누구나 수리하되 더 비싸게"(● §3.0 R11 "공용 수행 = 누구나, 낮은 효율", ● §2.6 R12 기술자 수리 = 기술자 일감). 숫자는 결정·문서에 없다 |
 | M7-rf 벽 아래 바닥 | `BUILD_FLOOR_UNDER_WALL` 끔(시험은 `Building.floor_under_wall`로 켬), `Building.WHY_FLOOR_FIRST` | 서 있는 건설 벽·문(열린 문도) 칸에 바닥 조각을 놓으면 거부: `lay the floor first`(바닥을 먼저 깔고 그 위에 짓는다). **검토에서 넓힘**: 그 벽·문의 아래 칸(벽의 앞면 칸, 문의 문간, 열린 문의 문간도)도 거부(거기 그려지는 것이 그 벽의 앞면이나 문이라 바닥 조각이 숨음. M7b와 이 줄의 처음 값은 앞면 칸·문간에 됐다). 켜면 벽·문 아래와 앞면 칸·문간에 밀어 넣을 수 있다(그 밖의 규칙 그대로; 시험이 켜고 봄: 편집 하나, 그림 칸 하나, 스냅샷, 우클릭은 벽·문 먼저 그다음 바닥 조각) | 사람의 결정(바닥 조각은 바닥 쪽, 벽·문이 그 위에)이 이 경우를 정하지 않았다. 지시의 권장(거부, 분명한 이유)을 골랐다. 앞면 칸·문간은 검토가 찾은 같은 경우(보이지 않는 곳에 까는 바닥)라 함께 정할 수 있게 같은 줄 |
 | M7-rf 위에 선 것 | `Building.built_at`, `Building.WHY_ON_TOP` | 바닥 조각 위에 우클릭으로 내려가지 않는 것(랜턴 말고 모든 설치물: 작업대·모루·성물 제작대·조제대·창고·제단·횃불·사망 가방)이 서 있으면 그 칸의 우클릭은 아무것도 내리지 않는다: `something stands on it`. 그것이 없어지면(가방을 되찾음 등) 바닥 조각이 걷힌다 | 사람이 정한 "위 조각 먼저"(●, 2026-10-26)에서 나온 것: 위의 것이 철거되지 않으면 그 아래 바닥 조각도 걷히지 않는다(M7b와 M7-rf 처음 값은 위의 것을 두고 바닥 조각만 빼냈다: 검토 둘이 결정과 어긋난다고 봄). 거부 이유 글과 "가방·횃불도 위의 것"은 문서에 없어 임시값 |
 | M8a 화폐 (**M8 줄 모두: 사람이 그대로 둠 2026-11-01**, 값 그대로. 아래 "M8a: 상인 · 화폐 · 상점") | `ItemDB` `money`(종류 MONEY, 표 끝 번호 53), `STACK_MONEY` 250, `MONEY_NAME` "은화", `ItemIcons.MAPS["money"]` | 인벤토리 아이템 하나, 묶음 250, 등급 없음, 쓰기 없음. 이름은 자리 표시 "은화"(로그·README). 사망 가방은 M4a 그대로 묶음마다 절반(올림) | ● gameplay-design §3.0 R41 "재화는 화폐다(자원 교환·봉헌이 아니다). 화폐의 이름, 얻는 길, 값은 정하지 않았다". 아이템인 까닭은 구현 표 "M8a 화폐 = 아이템". 묶음: 지시의 예 999 대신 250(드롭·창고 칸·스냅샷·인벤토리 전송의 개수가 1바이트) |
@@ -2961,10 +3378,10 @@ func run() -> Array[String]:
 | M8a 상인이 막음 | `MERCHANT_BLOCKS` 켬, `WorldData.placeable_blocks` | 켬: 걷기를 막는다(플레이어·이단). 끄면 지나가지만 그 칸에 놓기·짓기는 여전히 안 됨(설치물 칸) | 문서에 없음 |
 | M8a 상인은 다치지 않음·이단이 노리지 않음 | 체력 없음(`Merchant`·`MerchantView`에 HP가 없고 맞는 몸이 아님), `Arena`(이단은 플레이어만 노림), `Arena.PLAYER_PLACED` | 그는 맞지도 죽지도 않는다. 이단은 그를 노리거나 공격하지 않고 막는 칸으로만 본다(그를 지나 플레이어를 쫓거나 집으로 감) | 문서에 없음 (지시의 기본값 "cannot be hurt, heretics ignore him". M8 검토: 이 줄이 표에 없었다) |
 | M8a 늘 있음 | `Main.setup_shop` | 늘 그 자리에 있다(방문 일정 없음) | ○ "순례 상인"(찾아오는 상인을 떠올리게 함, 일정은 나중 결정) |
-| M8a 파는 것 | `SHOP_SELLS`, `SHOP_GRADE` 1 (값은 모두 `config.gd`의 이웃한 두 표: 파는 값·재고 `SHOP_SELLS`, 사는 값 `SHOP_BUYS`. 두 쪽의 아이템이 달라 표 둘) | 회복·버프 물약(일반) 12 · 재고 3, 성수 40 · 2, 횃불 3 · 10, 구리광석 8 · 5, 1티어 검 30 · 활 24 · 성광 30 · 곡괭이 30 · 낫 24 · 갑옷 45, 재고 1씩. 물약은 일반 등급만, 독 물약 없음 | ● §3.0 R11 대체 수단 열(아이템이 있는 것만: 약초사·성직자 포션, 팔라딘 성수 "소량·비쌈", 기술자 키트의 횃불, 광부 "저급 광석 소량", 룬마스터 "1티어 장비"), "성능 상한" = 일반 등급·1티어로 읽음. 값·재고는 ● R41 "값은 정하지 않았다". 없는 것: 발판·가죽·고기·부적·열쇠(그 시스템이 슬라이스에 없다) |
-| M8a 화폐 얻기 | `SHOP_BUYS` | 상인이 사들임: 돌 1, 버섯 1, 야생 약초 2, 통나무 2, 널판 1, 구리광석 3, 철광석 4, 구리 주괴 3, 철 주괴 4, 물약 4, 1티어 검·곡괭이·갑옷 8, 활·성광·낫 6(등급 상관없음). 사는 값 < 파는 값, 만든 것 ≤ 재료(레시피·수리 모두) = 이익 고리 없음(`test_shop.gd`). 이단의 동전 없음 | ● R41 "얻는 길 … 정하지 않았다". 다른 길: 이단이 떨굼, 제단 봉헌·기도, 일감 |
+| M8a 파는 것 (**M11a가 두 줄을 끝에 더함**: 아래 "M11a 상점 값") | `SHOP_SELLS`, `SHOP_GRADE` 1 (값은 모두 `config.gd`의 이웃한 두 표: 파는 값·재고 `SHOP_SELLS`, 사는 값 `SHOP_BUYS`. 두 쪽의 아이템이 달라 표 둘) | 회복·버프 물약(일반) 12 · 재고 3, 성수 40 · 2, 횃불 3 · 10, 구리광석 8 · 5, 1티어 검 30 · 활 24 · 성광 30 · 곡괭이 30 · 낫 24 · 갑옷 45, 재고 1씩. 물약은 일반 등급만, 독 물약 없음 | ● §3.0 R11 대체 수단 열(아이템이 있는 것만: 약초사·성직자 포션, 팔라딘 성수 "소량·비쌈", 기술자 키트의 횃불, 광부 "저급 광석 소량", 룬마스터 "1티어 장비"), "성능 상한" = 일반 등급·1티어로 읽음. 값·재고는 ● R41 "값은 정하지 않았다". 없는 것: 발판·가죽·고기·부적·열쇠(그 시스템이 슬라이스에 없다) |
+| M8a 화폐 얻기 (**M11a가 가죽 둘·고기를, M11b가 희귀 재료를 더함**) | `SHOP_BUYS` | 상인이 사들임: 돌 1, 버섯 1, 야생 약초 2, 통나무 2, 널판 1, 구리광석 3, 철광석 4, 구리 주괴 3, 철 주괴 4, 물약 4, 1티어 검·곡괭이·갑옷 8, 활·성광·낫 6(등급 상관없음). 사는 값 < 파는 값, 만든 것 ≤ 재료(레시피·수리 모두) = 이익 고리 없음(`test_shop.gd`). 이단의 동전 없음 | ● R41 "얻는 길 … 정하지 않았다". 다른 길: 이단이 떨굼, 제단 봉헌·기도, 일감 |
 | M8a 닳은 장비 팔기 | `SHOP_SELL_WORN_SCALED` 켬, `Shop.pays_for_stack` | 값 × 남은 내구도 비율(내림: 60/120 검 4), 0이면 `다 닳아 값이 없다`. 끄면 닳은 것은 모두 거부 | 문서에 없음 |
-| M8a 재고 채우기 | `SHOP_RESTOCK_TICKS` 10분(36,000틱), `Shop.step` | 세계에 재고 하나. 상점이 센 게임 틱으로 10분마다 모든 재고가 상한으로(벽시계 아님, 모든 지도의 시간). 0이면 다시 차지 않음 | ● R11 "지속 공급이 안 된다"(어떻게 돌아오는지는 문서에 없다) |
+| M8a 재고 채우기 | `SHOP_RESTOCK_TICKS` 10분(36,000틱), `Shop.step` | 세계에 재고 하나. 상점이 센 게임 틱으로 10분마다 모든 재고가 상한으로(벽시계 아님, 모든 지도의 시간). **(M11b: 항목 8개의 월드 베네핏이면 7분, `Collection.restock_ticks`, "M11b 베네핏")** 0이면 다시 차지 않음 | ● R11 "지속 공급이 안 된다"(어떻게 돌아오는지는 문서에 없다) |
 | M8a 상인이 산 것 | `Shop.sell` | 사라진다(그의 재고가 되지 않음) | 문서에 없음 |
 | M8a 상점 열기·닫기 | `REACH_TILES` 1, `STATION_REACH_TILES` 2(창고 것 그대로), `Merchant.at`·`still_at`, `Main.open_shop`·`_check_crafting` | 상인 칸을 겨누고 옆 칸에서 F, 창이 열린 동안 서 있음, 다운·다른 지도·2칸 넘게 떨어지면 닫힘 | 문서에 없음 (창고의 규칙을 빌림) |
 | M8a 사고팔기 규칙 | `Shop.buy`·`buy_refusal`·`sell`·`sellable`·`take_money` | 사기는 하나씩 원자적(다 팔림·돈 부족·자리 없음이면 아무것도 안 바뀜, 값을 내서 빈 칸에 들어가면 됨), 돈은 뒤 칸부터. 팔기는 하나 또는 묶음(받을 돈이 들어가는 만큼, 다 팔면 그 칸도 셈) | 문서에 없음 |
@@ -2975,7 +3392,7 @@ func run() -> Array[String]:
 | M8b 세션의 상인 | `SessionHost._setup_shop`·`settle_merchant`·`_put_altar` | 호스트가 열 때 지상에 상인(M8a 자리 규칙)과 세계의 상점 하나를 두고, 제단을 놓을 때마다 같은 규칙으로 옮김(든 동안 기다림). 자리·옮김·막음·늘 있음은 M8a 줄 그대로 | ● §3.0 R11 "제단 곁 상인 NPC"(세션에서의 모습은 문서에 없다: M8a 규칙을 그대로) |
 | M8b 사고팔기 지도·거리 | `SessionHost._shop_refusal`, `STATION_REACH_TILES` 2, `Merchant.still_at` | BUY·SELL은 지상에서만(`the merchant stays on the surface`), 요청의 칸에 상인이 있을 때(`no merchant there`), 그에게서 2칸 안일 때(열린 창이 닫히지 않는 거리 = M8a "상점 열기·닫기"의 규칙, `out of reach`), 다운·사망이면 `down`. 요청 예산은 줍기와 같음(`rate`) | 문서에 없음 (M8a 창의 규칙을 호스트 검사로) |
 | M8b 든 사람의 거래 | `SHOP_WHILE_CARRYING` 켬, `SessionHost._blocked_while_carrying`, `Main.open_shop` | 켬: 제단을 든 사람도 상점을 열고 사고판다(M8a 혼자 할 때와 같음: 알려진 문제였던 것을 세션에서도 그대로). 끄면 든 동안 창이 열리지 않고 호스트가 BUY·SELL을 `carrying the altar`로 거부 | 문서에 없음 |
-| M8b 재고 시계 | `SessionHost._step_shop`, `Shop.step`, `Shop.restock_ticks` | 호스트의 게임 틱(모든 지도의 시간)으로만 센다. 보내지 않는다(농장·숲 타이머처럼). 호스트를 잃고 혼자 계속하는 클라이언트는 받은 재고에서 시계를 0부터. 값(10분)은 "M8a 재고 채우기" 그대로 | ● R11 "지속 공급이 안 된다"(어떻게·누구의 시계로는 문서에 없다) |
+| M8b 재고 시계 | `SessionHost._step_shop`, `Shop.step`, `Shop.restock_ticks` | 호스트의 게임 틱(모든 지도의 시간)으로만 센다. 보내지 않는다(농장·숲 타이머처럼). 호스트를 잃고 혼자 계속하는 클라이언트는 받은 재고에서 시계를 0부터. 값(10분, **M11b: 항목 8개면 7분**)은 "M8a 재고 채우기" 그대로 | ● R11 "지속 공급이 안 된다"(어떻게·누구의 시계로는 문서에 없다) |
 | M8b 상인 막기 여유 | `BLOCK_CLEARANCE_PX` 24(M7c 값 그대로), `Merchant.spot_refusal`의 `predicted`, `SessionHost.clients_feet_on`, `Main.settle_merchant`, `Merchant.target` | 제단을 놓아 상인이 옮길 때 클라이언트의 발에서 24px 안의 칸은 건너뛴다(`someone is too close`). 호스트 자신의 플레이어는 보지 않고, 혼자 할 때는 `--test-ally`만(M7c와 같음). 여유 밖 칸이 하나도 없으면 여유 없이(가까운 칸에 섬) | 문서에 없음 (M8 검토: 자동으로 옮기는 막는 칸이 걸어오는 클라이언트의 예측을 끌어당김, 탐침 고침 1 → 시험 0. M7c "막기 여유"를 그대로 씀. 다른 길: 무시하고 알려진 문제로, 또는 옮김을 몇 틱 늦춤) |
 | M9a 슬롯·키 | `SKILL_KITS`, `SKILL_BY_WEAPON`, `project.godot` 입력 `skill_2`·`skill_3`·`skill_signature`(새, R), `skill_1`(M6a), `Skills.Slot`, `Player.pressed_skill_slot` | 1 = 정체성(클래스마다 고정), 2 = 무기 스킬(든 클래스 무기의 것), 3 = 선택(잠김), R = 시그니처. 정체성 다섯 만듦, 무기 스킬 다섯(검 내려치기·활 부채 사격·성광 성광 폭발·곡괭이 내리찍기·낫 휩쓸기)·시그니처 다섯(수호의 맹세·화살비·축복·낙석·회복 안개)은 이름만(M9b) | ● gameplay-design §2.2 R42 슬롯 넷·슬라이스 "5클래스 × 고정 2 + 무기군 5 = 15", ○ §1 키 초안 "1 2 3 스킬, R 시그니처". 스킬 이름은 M9 지시의 자리 표시 |
 | M9a 선택 슬롯 | `Skills.WHY_LOCKED`, `SkillIcons.LOCK_MAP` | 키 3은 아무것도 하지 않고 거부 표시, HUD에 재의 검은 칸과 자물쇠. 선택 스킬·해금 없음 | ● §2.2 R42 슬라이스 수에 선택 스킬이 없다(선택 = 해금 풀 3~4개 ○, 해금 = 컬렉션 베네핏은 M11) |
@@ -3047,6 +3464,41 @@ func run() -> Array[String]:
 | M10 검토 묵상의 열정 | `MEDITATION_ZEAL_BLOCKS_PRAYER` 끔, `Prayer.zeal_blocks`·`zeal_blocks_meditation`, `SkillState.zeal_from_prayer`·`add_zeal(…, from_prayer)`, 열정 사건의 u8(10B) | 기도의 열정만 새 기도(시작·참여)를 막는다. 묵상의 작은 열정은 묵상만 막고 기도는 막지 않는다(먼저 와서 묵상한 성직자·사람이 2분 동안 큰 의식에서 잠기던 것). 기도의 열정이 묵상의 것 위에 오면 기도의 것(더 센 %·더 긴 시간). 켜면 M10a처럼 어떤 열정이든 막음 | ● R45 "효과가 남은 동안은 다시 기도할 수 없다", 누가 막는지는 ○. 위 "M10a 효과가 남은 동안"을 바꿈 |
 | M10 검토 묵상 범위 | (상수 없음) `Prayer.tap` | 성직자가 아닌 사람의 탭은 기도가 없으면 성직자가 곁에 있어도 묵상(혼자 할 때·세션 같음). 그 사람이 묵상 중에 성직자가 시작하면 묵상이 끊기고 다음 탭으로 참여 | ● R45 / gameplay-design §3.0 "누구나 제단에서 짧은 묵상 → 소형 버프"와 "성직자가 없거나 혼자일 때"를 "누구나"로 읽음, ○. 사람이 확인 |
 | M10 검토 늦은 참여 | `PRAYER_JOIN_LAG_TICKS` 30, `Prayer.late_join_ok`·`join_lag_ticks`(호스트만; 혼자 할 때 0) | 호스트는 모이기가 끝난 뒤 차례 0의 처음 30틱 안에 닿은 참여를 받는다(그 기도에서 떠난 사람은 아님): 클라이언트는 모이기 끝을 한 방향 늦게 보고 그 탭은 한 방향 늦게 닿는다. 그 사람은 차례 순서의 끝(차례 0은 성직자의 것 그대로) | 문서에 없음. "M10b 답 판정"의 참여 쪽(검토: 모이기 마지막 왕복 동안의 탭이 `the turns have begun`) |
+| M11a 생물 표 (**M11b가 HP 둘을 고침**: 등불 여우 40 → 46, 재 올빼미 36 → 44, 아래 "M11b 잡히는 HP") | `CREATURES` (종류마다 `rare`·`hp`·`walk_speed`·`flee_speed`·`flee_ticks`·`rest_ticks`·`alert_px`·`wander_px`·`cap`·`respawn_ticks`·`hit_radius_px`·`hit_height_px`·`drops_hunter`·`drops_other`) | 위 "M11a"의 표: 토끼·사슴 + 희귀 셋(등불 여우·은빛 사슴·재 올빼미), 이름은 자리 표시 | game-concept §3 ● 희귀 생물 포획·사냥, §12 "항목 5~10개", gameplay-design §3.0 ● R11·§3.4 ●(가죽). 종류·이름·숫자는 문서에 없음 |
+| M11a 생물 행동 | `CREATURE_IDLE_TICKS_MIN` 90·`MAX` 300, `CREATURE_CORPSE_TICKS` 45, `Creatures._step_one`·`bolt`·`_walk`·`can_walk`·`_walk_clear` | 서성이고, 경계 반경 안이나 맞으면 버스트로 달아나고, 쉰다. 공격 없음. 빛·오염에 들지 않음(옮겨 온 빛에서는 걸어 나감. **M11 검토: 그 길이 오염에 닿아도 그 위에 멈추지 않음**). 집으로 일부러 돌아가지 않음(다음 서성임이 집 쪽으로 데려감) | 지시. 문서에 없음. ● R11 "수율 낮음"(공용 수행의 낮은 효율)을 달리기로 읽음 |
+| M11a 생물 자리 | `CREATURE_SPAWN_LIGHT_CLEARANCE_TILES` 5, `CREATURE_SPAWN_ASH_CLEARANCE_TILES` 3, `CREATURE_SPAWN_EDGE_TILES` 2, `CREATURE_SPAWN_MIN_PLAYER_PX` 160, `Creatures.spawn_ok` | 풀 위, 설치물 없는 칸(**M11 검토: 막지 않는 횃불·죽음 주머니도**), 빛에서 5칸 밖, 오염에서 3칸 밖, 맵 끝에서 2칸 안, 다시 나올 때 플레이어에서 160px 밖. 지상만 | game-concept §9.3 안전 반경, gameplay-design §3.1 ○ 지상 = 사냥. 숫자는 문서에 없음 |
+| M11a 일반 가죽 | `SHOP_SELLS` `hide_worn` | ● R11 "상점의 일반 가죽"과 "다른 클래스는 손상"을 **같은 아이템**(손상된 가죽)으로 읽음. 사람이 둘을 가르면 아이템 하나를 더한다 | gameplay-design §3.0 ● R11, §3.4 ●. 같은 것인지는 문서에 없음 |
+| M11a 고기 | `MEAT_HEAL_HP` 12, `Potions.is_drink`·`is_food`, `ItemDB.Kind.FOOD` | 좌클릭으로 먹음(M6 마시기 길), HP 12, 가득이면 거부 | 문서에 없음. ● R11은 고기를 얻는 길만 말한다 |
+| M11a 상점 값 | `SHOP_SELLS` 끝 두 줄, `SHOP_BUYS` 세 줄 | 손상된 가죽 10·재고 3, 고기 6·재고 4. 사는 값: 손상된 가죽 3, 온전한 가죽 7, 고기 2 | ● R41 값은 정하지 않음, ● R11 대체 수단 |
+| M11a 기절·둔화 | `Creatures.stun`·`slow`·`push`, `Arena.melee_skill`·`_land_strike`·`slam` | 스킬의 기절·둔화·밀기는 이단과 같은 숫자로 생물에도(두 번째는 긴 쪽, 강한 쪽). 도발·위협은 닿지 않음 | 지시 "싸게 되면". 문서에 없음 |
+| M11a 독 | `Creatures.poison`, `Arena._splash` | 던진 독이 생물에도 걸림(M6 규칙, 던진 사람에게서 달아남, 독으로 죽으면 던진 사람의 클래스). 약초사가 독으로 사냥하면 손상 | 지시 "싸게 되면". 문서에 없음 |
+| M11a 드롭 자리 | `Creatures.drop_cell`, `WorldItems.bag_cell`, `CREATURE_DROP_SPREAD_PX` 8 | 죽은 발 칸, 안 되면 가장 가까운 빈 칸(문간·채집물·다른 드롭 피함) | 문서에 없음 |
+| M11a 막는 몸 | `Main._other_bodies`·`_on_place_requested`·`altar_bodies`·`creatures_on`, `SessionHost._altar_place`·`_set_altar_down`, `AltarMove.covers_a_body` | 생물도 이단처럼 "거기 서 있는 몸": 막는 조각·설치물을 그 위에 놓지 못하고 문이 닫히지 않는다. **M11 검토: 제단의 발자국도(클릭·유령·내려놓기, 혼자 할 때와 호스트. 아니면 그 아래 생물이 영영 갇힌다)**. 상인은 넣지 않았다(한 칸이라 걸어 나간다) | 문서에 없음 |
+| M11a 물 | (상수 없음) | 슬라이스의 지상에 물이 없어 생물의 물 규칙은 해당 없음 | 지시의 "water" |
+| M11a 그림 자리 표시 | `CreatureView`, `ItemIcons` `meat` | 생물 다섯과 고기는 코드 그림. PixelLab·힉스필드 생성 안 함 | 사람이 생물 생성을 승인하지 않음(M11 지시) |
+| ~~M11a 세션~~ (**M11c에서 켬**, 아래 "M11c 세션") | `Arena.herd` null(호스트), 상점 13항목, 고기는 세션에서도 먹음 | 생물은 M11c. 그때까지 세션의 공격 길은 M10 그대로 | M11a 지시 |
+| M11b 구역 자리 | `RARE_ZONE_RADIUS_TILES` 9, `RARE_ZONE_MIN_ALTAR_TILES` 30, `RARE_ZONE_EDGE_TILES` 2, `RARE_ZONE_ASH_CLEARANCE_TILES` 3, `RARE_ZONE_MIN_OPEN_PCT` 85, `RareZone.site_ok` | 지상에 하나, 시드로. 위 "M11b" | game-concept §12 "컬렉션은 아처 구역 1개". 크기·거리·규칙은 문서에 없음 |
+| M11b 구역 접근 | `RareZone`(막는 것 없음), `Creatures.shut_out` | **해석**: 문서의 "구역별 클래스 잠금"·"접근"을 "누구나 걸어 들어가되 사냥·포획은 아처만"으로 읽음. **몸을 막는 잠금을 원하는지 사람이 정한다** | game-concept §2 "구역별로 특정 클래스만 접근 가능", §4 ● "희귀 생물 포획·사냥은 아처만" |
+| M11b 구역 안의 생물 | `CreatureSim.bound`, `Creatures.can_walk`·`_walk_clear`, `RARE_SPAWN_INSET_PX` 16 | 구역을 벗어나지 않음, 테두리에서 16px 안쪽에 내려옴, 빛이 덮으면 구역 안에서만 피함. 플레이어 160px 규칙 그대로 | 지시. 문서에 없음 |
+| M11b 잡히는 HP | `CAPTURE_HP_PCT` 30, `CREATURES` 여우 46·올빼미 44 | HP가 30% 이하면 잡힘. 여우·올빼미 HP를 올린 이유: 처음 값으로는 활로 올빼미를 잡을 수 없었다(위 "M11b"). 은빛 사슴 56 그대로 | ○ gameplay-design §3.4 "HP를 일정 이하로". 숫자는 문서에 없음 |
+| M11b 아처 아닌 타격 | `Creatures.shut_out`·`refuse`, `Arena.creature_open`, `CREATURE_REFUSED_SHOW_TICKS` 30 | 피해·달아남·상태 이상 없음, 거부 ×, 화살은 몸에 멈춤, 주인 없는 화살도 거부 | ● §4 "아처만". 어떻게 보이는지는 문서에 없음 |
+| M11b 올가미 | `CAPTURE_REACH_PX` 40, `CAPTURE_GRAB_PX` 6, `CAPTURE_ANIM` 던지기, `CAPTURE_IMPACT_FRAME` 3, `CAPTURE_HOLD_SLACK_TICKS` 2, `STACK_SNARE` 20, `Capture.refusal`·`land` | 클릭 + 닿음 + HP면 반드시 잡힘(주사위 없음), 클릭부터 잡혀 섬, 맞는 프레임에 하나 씀, 끊기면 안 씀, 묶음 20 | ○ §3.4 "아처 전용 도구(올가미·덫) … 포획 시도". 숫자·규칙은 문서에 없음 |
+| M11b 레시피 | `COLLECTION_RECIPES`, `Ingredient.others`, `GEAR_REPAIR_RARE` | 위 "M11b": 올가미 2 = 널판 또는 통나무 1 + 가죽 1(아처만, 기본 작업대), 희귀 갑옷 = 희귀 재료 3 + 온전한 가죽 2(누구나, 모루), 수리 = 온전한 가죽 2 | ● §4 희귀 재료 → 특정 장비, ○ §3.4 올가미, ○ §3.5 해금. 재료와 수는 문서에 없음 |
+| M11b 덫 | (없음) | 만들지 않음. 올가미 하나로 둠. 필요하면 사람이 정한다 | ○ §3.4 "올가미·덫" |
+| M11b 인계 | (없음) | 약초사에게 인계·사육은 만들지 않음(2차) | ○ §3.4 "약초사에게 인계 가능", game-concept §11 가축·사육 2차 |
+| M11b 희귀 재료 | `RARE_MATERIAL` `rare_essence`, `CAPTURE_MATERIAL_COUNT` 1, `SHOP_BUYS` 12 | 잡기 하나에 하나, 세 종류가 같은 재료, 이름은 자리 표시, 상인은 사기만 | ● §4. 무엇인지는 문서에 없음 |
+| M11b 희귀 사냥 | `Creatures.drops_for`, `CREATURES` `drops_hunter` | 죽이면 가죽·고기만(M11a 표), 항목·재료 없음, 킬 수에는 듦 | 지시. ● §4는 "포획·사냥"을 아처에게 줄 뿐 |
+| M11b 컬렉션 항목 | `COLLECTION_ENTRIES` | 위 "M11b"의 여덟. 이름은 자리 표시 | ● §4 단위 자원·생물·업적, game-concept §12 항목 5~10개 |
+| M11b 등록 | `Collection.note_kill`·`note_capture`·`note_inventory` | 사냥감은 누가 죽여도, 희귀는 잡기만, 자원은 처음 가질 때(`Inventory.seen`, `--give` 포함), 업적은 모든 생물의 킬 10(잡기 제외). 등록은 사라지지 않음 | 지시. 문서에 없음 |
+| M11b 베네핏 | `COLLECTION_BENEFITS` 3·5·8, `COLLECTION_CLASS` archer, `COLLECTION_ARROW_PCT` 10, `COLLECTION_DEFENCE` 1, `COLLECTION_RESTOCK_TICKS` 7분, `Collection.arrow_hit`·`defence_bonus`·`restock_ticks`·`world_benefit` | 위 "M11b"의 표. 화살: 반올림·최소 1, 1티어 다음 열정 앞. 재고: 돌던 시계 유지 | ● §4 범위 클래스·전체·월드. 문턱·효과는 문서에 없음. 월드 베네핏의 제단 진행(○ §4)은 M12 |
+| M11b 희귀 갑옷 | `ARMOR_DEFENCE` 6, `GEAR_DURABILITY` 140, `ItemDB` `armor_rare` | 방어 6, 내구도 140, 누구나 입음, 상인 없음, 모습 그대로(● R21). `ARMOR_T1_DEFENCE` 4는 그대로 | ● §4 "특정 장비", ○ §2.4 방어력. 숫자는 문서에 없음 |
+| M11b 컬렉션 창 | 입력 액션 `collection` K, `CollectionPanel`, `Main.toggle_collection` | 위 "M11b". 서서 봄, 멈추지 않음, 코드 그림 | ○ §4 UI = 코덱스(2차). 키는 문서에 없음 |
+| M11b 그림 자리 표시 | `RareZoneView`, `CollectionPanel`, `ItemIcons` 새 지도, `CreatureView` 표시 | 모두 코드 그림. PixelLab·힉스필드 생성 안 함. 나중에 그림이 오면 `RareZoneView.image`·`tint_image`, `CreatureView.image`, `ItemIcons.MAPS`만 바꾼다 | 사람이 생성을 승인하지 않음(M11 지시) |
+| ~~M11b 세션~~ (**M11c에서 켬**) | `Player.capture_on` 끔, `WorldData.collection` null | 전부 M11c. 그때까지 세션의 규칙은 M11a 그대로 | M11b 지시 |
+| M11c 세션 | `SessionHost._setup_combat`·`_step_creatures`·`_capture`·`_setup_collection` | 생물·포획·컬렉션·베네핏은 호스트가 정한다. 규칙은 M11a·M11b 그대로 | ● game-concept §13 |
+| M11c 포획 판정 | `SessionHost._capture`, `Capture.refusal`, `CAPTURE_REACH_PX` 40 | 호스트 시간, 호스트의 자리로 본다. 왕복 여유 없음(M4b "판정"과 같음). 쉬는 생물에게는 차이가 없고 달리는 생물에게는 화면에서 닿아도 거부될 수 있다. 여유를 둘지 사람이 정한다 | ○ §3.4, ● §13 |
+| M11c 예측 | `Prediction`(그대로), `Op.CAPTURE`의 `anim` | 자기 몸 동작만 예측한다. 생물·올가미·재료·항목은 호스트에서 온다 | ● §13 호스트 권한, M2b의 규칙 |
+| M11c 세션의 이벤트 알림 | (없음) | 다른 사람이 항목을 등록해도 화면에 알리지 않는다(M11b처럼 콘솔과 창만). 사람이 원하면 더한다 | ○ §4 |
 
 ### 구현에서 고른 값 (설계 결정 아님)
 
@@ -3333,10 +3785,33 @@ func run() -> Array[String]:
 | M10 검토 다시 보냄 흉내 | `LinkSim.delay`·`RESEND_MARGIN_MS` 50·`RESEND_MAX` 8·`resent`·`held_max_ms`, 따로 시드한 생성기 | `--net-loss` 확률로 reliable(기도) 메시지의 첫 보냄을 잃고 왕복 + 50ms 뒤 다시(또 잃으면 두 배, 많아야 8번), 순서 지킴 | 시험 전용. ENet의 재전송 시간(왕복 + 흔들림의 4배 + 서비스 틱)을 흉내: 실제 세션 시험이 잃은 차례 사건의 늦음을 보게 |
 | M10 검토 기도 메시지 잘림 | `NetProtocol.encode_prayer`(`push_error`) | 사건 255개를 넘으면 오류 줄 `EVENSONG_NET prayer message cut`(가장 새 것이 잘림) | 조용히 자르던 것(검토). 닿기 어려운 수라 상태 스냅샷은 다음 일 |
 | M10 검토 손실 회선 보간 | `tests/test_net_session.gd` `INTERP_STARVED_MAX_LOSSY` 0.2 | `--net-loss` > 0인 클라이언트의 보간 굶음 상한 20%(그 밖 10%, `lag` 세션은 뺌) | 시험. M10b가 끈 검사를 느슨하게 되살림(litany c1: 102 중 12) |
+| M11a 스폰 시도·흐름 | `CREATURE_SPAWN_TRIES` 32, `CREATURE_SPAWN_RETRY_TICKS` 60, `CREATURE_ARRIVE_PX` 1.5, `CREATURE_SALT` 0xC2EA7, `Creatures.STEPS`·`FLEE_TURNS` | 지도 전체에서 무작위 칸 32번, 없으면 1초 뒤. 자기 생성기 | 다른 난수열을 건드리지 않으려고. 칸 목록을 캐시하지 않아 라이브 월드를 바로 읽는다 |
+| M11a 무리의 자리 | `Arena.herd`·`hunted`·`hit_creature`·`creature_at`·`creature_in_circle`, `Main.ensure_combat`·`step_creatures`, `CombatView.sync_creatures` | 지상 아레나가 무리를 쥐고(공격 길이 한곳), 무리의 틱은 Main이 돌린다(아레나는 플레이어가 있는 지도만 돈다, 게임 시계가 필요) | M11c가 호스트 아레나에 무리를 주면 공격 길이 그대로 쓴다 |
+| M11a 킬러 찾기 | `Creatures.class_of`·`_player_of`(`instance_from_id`) | 마지막 타격의 노드 번호로 클래스를 읽음. 사라진 노드 = "" | 화살·지연 타격이 이미 주인 번호를 지닌다 |
+| M11a 화살 멈춤 | `Arena._step_shot`, `Shot.stopped_by` "creature", `pierced`의 음수 번호 | `SHOT_STOPS`(전송 표)에는 넣지 않음(세션에 생물이 없다, M11c). **M11c가 "creature"를 넣었다(전송 형식 v13)** | 전송 형식 v12 그대로(M11c까지) |
+| M11a 생물 그림 | `CreatureView.MAPS`·`STEPS`·`PALETTE`·`image`·`texture`·`frame_size`·`picture_offset`, `BAR_HEIGHT` 2·`BAR_GAP` 2·`MARK_GAP` 6 | 글자 지도 → 캐시한 텍스처, 그림 아래 가운데 = 발. **시트로 바꿀 때 `image`·`frame_size`만 바꾼다** | 상인 때처럼 자리 표시를 한 클래스에 모아 값싸게 교체 |
+| M11a 봇·시험 플래그 | `NetBot` `aimprey`·`hunt`·`waitprey`·`creature`, `NetBot.prey`·`Aiming.PREY`, `NetBot.Action.creature`·`creature_cell`, `--test-creature`(`CliOptions.TEST_CREATURES_MAX` 16, `CREATURE_TEST_RING_PX` 104, `Creatures.spot_near`, `Main.put_test_creatures`), `--test-no-creatures` | 위 "명령줄 인자" | 스크린샷과 시험 |
+| M11a 그림 검사 `creatures` | `tools/check_render.gd` | 위 "그림 검사" | 코드 그림이 지도의 글자 그대로 그려지는지 |
+| M11b 구역 고르기 | `RARE_ZONE_TRIES` 256, `RARE_ZONE_SALT` 0x51A4E, `RareZone.place` | 무작위 256번, 없으면 칸마다 | 자리가 있으면 반드시 찾고, 어떤 다른 난수열도 건드리지 않으려고 |
+| M11b 놓는 곳 | `Creatures.setup` → `WorldData.rare_zone`, `GameWorld.show_rare_zone` | 생성기가 아니라 무리가 놓음 | 골든 해시를 그대로 두려고. M11c가 스냅샷에 싣는다 |
+| M11b 컬렉션의 자리 | `WorldData.collection`, `Main._share_collection`·`world_collection`·`note_collection` | 지상·던전 데이터가 한 객체를 가리킴, 해시에 안 넣음(**M11c**: 지상의 스냅샷과 해시에 넣음, 위 "M11c 스냅샷·해시") | 어느 규칙이든 플레이어의 `data`에서 닿게. M8b의 `shop`과 같은 모양 |
+| M11b 잡기의 흐름 | `InputFrame.capture_id`(전송 안 함, **M11c**: CAPTURE로 보냄), `Player.action_capture`·`herd_provider`·`capture_on`·`capture_refused`, `Capture.begin`·`land` | 프레임이 대상을 싣고, 시작에 잡고, 맞는 프레임에 데려감 | M11c가 호스트에서 같은 함수를 부를 수 있게 |
+| M11b 표시 값 | `CreatureView.GLOW_*`·`ROPE_*`·`NOTCH_COLOUR`·`glow_pixels`·`rope_pixels`·`notch_x`, `RareZoneView.TINT`·`EDGE_PX`·`STONE`, `RARE_ZONE_MARKERS` 16 | 고리 점 20개 15틱마다 교대, 밧줄 4px에 2px, 돌 16개, 금빛 0.1 | 코드 그림 자리 표시 |
+| M11b 봇·시험 플래그 | `NetBot` `huntrare`·`snare`·`collection`, `RARE_SHOT_TICKS` 100, `SNARE_MARGIN_PX` 12, `--test-at-zone`, `--test-near-creature`(`CAPTURE_TEST_NEAR_PX` 28, `Creatures.rest`), `--test-collection` | 위 "명령줄 인자" | 스크린샷과 시험 |
+| M11b 그림 검사 | `tools/check_render.gd` `rare_zone`·`capture_marks`·`collection_panel` | 위 "그림 검사" | 코드 그림이 표대로 그려지는지 |
+| M11c 새 묶음 | `_rpc_wild`·`_rpc_wild_keyframe`, `CH_CREATURE` 4, `CREATURE_SIZE` 10, `CREATURE_POS_UNITS` 4, `CREATURE_ID_MAX` 65535, `CREATURE_BATCH_MAX` 64, `NetProtocol.creature_of`, `encode_creatures` | 적 묶음과 따로. 이유와 잰 것은 위 "M11c" | 이단 싸움의 바이트가 그대로이고 생물 13마리가 135B |
+| M11c 시야 상자 | `NET_CREATURE_VIEW_PX` (340, 200), `SessionHost.in_view`, `NetMember.creature_cast`, `StateBroadcast.sent` | 클라이언트마다 자기 플레이어 둘레의 것만. **M11 검토: 상자는 맵 끝에서 카메라처럼 멈춘다**(`PlayerCamera.clamp_center`) | 무리는 거의 늘 걷는다. 멀리서 걷는 것에 0바이트 |
+| M11c 붙드는 여유 | `NET_CAPTURE_HOLD_SLACK_TICKS` 12, `Capture.begin`의 `slack` | 호스트는 12틱 더 붙든다 | 붙듦은 호스트 틱, 던지기는 클라이언트 프레임이라 손실·지터로 늦을 수 있다 |
+| M11c 컬렉션 메시지 | `_rpc_tally`, `COLLECTION_SIZE` 6, `Collection.bits`·`take_state`, `SessionClient._keep_collection`, `SessionHost._send_collection`·`send_collection_snapshot` | 절대값 6B, 바뀔 때마다 모두에게, welcome·지도 들어옴 뒤 한 번 더, 클라이언트는 객체 하나를 세션 내내 | 스냅샷이 조각으로 가는 동안 바뀔 수 있고, 창은 어느 지도에서나 열린다 |
+| M11c 스냅샷·해시 | `WorldSnapshot.ZONE_BYTES`·`COLLECTION_BYTES`, `WorldData.ZONE_HASH_TAG` 101·`COLLECTION_HASH_TAG` 102 | 구역·컬렉션은 있을 때만, 컬렉션은 지상의 해시만 | 골든 해시 그대로. 던전의 해시가 사냥으로 움직이지 않게 |
+| M11c 로그·결과 | `Arena.Hit.creature`, `Creatures.Kill.by`, `SessionHost.hunt_result`, `SessionClient.hunt_result`, `NetCombat.creature_hp`·`creature_marks`·`kinds_seen`, `hunt` 로그 줄 | 위 "M11c" | 세션 시험과 사람의 콘솔 |
+| M11c 봇·시험 | `NetBot` `waitseen`, `creature`의 %, `SessionBots._creatures_for_bot`·`creature_feet`, `NetSession.bot_collection`, `Creatures.put_ring`·`put_resting`·`mirror`·`feet`, `_launch`의 `creatures` | 위 "명령줄 인자" | 세션 시험 |
+| M11c 그림 검사 | `tools/check_render.gd` `wild_net` | 위 "그림 검사" | 전선에서 받은 그림 = 호스트의 그림 |
+| M11 검토 벗어나기 | `CREATURE_CLEAR_REACH_PX` 320, `CREATURE_CLEAR_STEP_PX` 8, `Creatures.CLEAR_TURNS`, `_way_clear` | 설 수 없는 곳의 생물이 여덟 방향을 8px씩 320px까지 보고 설 수 있는 땅이 가장 가까운 쪽으로 간다. 없으면 빛에서 곧장 밖으로 | 생성된 오염 구역은 반지름 5~8칸 + 가장자리 노이즈 3칸이라 안 어디서든 깨끗한 땅이 11칸(176px) 안이고, 빛 안의 생물도 112px를 더해 닿는다. 틱당 비용은 벗어나는 생물에게만 |
 
 ## 그림 출처
 
-`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 103개 전부 md5 비교, M3a에서 19개, M4a에서 9개, M6a에서 2개, M5a에서 4개, M5b에서 4개, M7a에서 9개, M7b에서 6개, M8 그림에서 1개 더함). 도구 아이콘 7개(M7b: 도끼)는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
+`art/`의 파일은 모두 `assets/concept`의 우리 파일 그대로다 (`test_actors.gd`가 저장소에서 돌 때 105개 전부 md5 비교, M11a에서 2개, M3a에서 19개, M4a에서 9개, M6a에서 2개, M5a에서 4개, M5b에서 4개, M7a에서 9개, M7b에서 6개, M8 그림에서 1개 더함). 도구 아이콘 7개(M7b: 도끼)는 파일이 아니라 코드다(`items/item_icons.gd`, 임시값).
 
 | 파일 | 원본 |
 |---|---|
@@ -3380,8 +3855,72 @@ func run() -> Array[String]:
 | `env/build_stone_candA_v02.png` (M7b) | `04-env/` (건설 벽·문·바닥 시트 128×72, ● R37 돌 후보 candA를 손질 2에서 문 12px·바닥 한 단 어둡게 한 v02. 시트 배치·조립 규칙은 04-env/prompts.md "건설 벽·문·바닥 후보") |
 | `env/prop_lantern_post_c_v03_lit.png`, `env/prop_lantern_post_c_v03_emissive.png` (M7b) | `04-env/` (돌 받침 랜턴 기둥 c, 손질 2에서 42px로 늘린 v03의 켜짐판과 빛 마스크. 건설 조명) |
 | `npcs/merchant_v02_idle.png` (M8 그림) | `03-pixel/` (순례 상인 숨쉬기 idle 4프레임 × 줄 남·동·북, 32칸, 발 y=31, 기본 몸 idle과 같은 배치. PixelLab 15차 + 손질(남쪽 얼굴 고정·발 맞춤·가로 맞춤·외곽선), PR #71. 채택 후보) |
+| `items/item_leather_a_v02.png`, `items/item_leather_c_v03.png` (M11a) | `04-env/` (우리 그림: 묶음 2 #52 무두질해 펼친 가죽, #54 접은 어두운 가죽의 손질 v03. 온전한 가죽·손상된 가죽 아이콘) |
 
 ## 측정 (이 데스크탑, `.godot/`을 지운 상태에서)
+
+M11 검토 (2026-11-07, 브랜치 `feat/slice-m11`, 검토 반영: 아래 "검토 반영 (M11)"):
+
+| 단계 | 결과 |
+|---|---|
+| 기준 (시작 전, M11c b85e41e) | 58파일 47,635 checks |
+| `git merge origin/main` | 이미 최신(main 86f0b9a 그대로) |
+| 임포트 두 번 (`.godot/` 지운 뒤) | 종료 0, 오류 줄 0. 새 `.import`·`.uid` 없음 |
+| 전체 테스트, 두 번 (마지막 코드, `game/**/*.gd` sha256 같음, 둘 다 `.godot/`을 지우고 다시 임포트한 뒤) | A: 58파일 통과·0 실패, 47,723 checks, 921.9초. B: 58파일 통과·0 실패, 47,723 checks, 959.3초. 오류 묶음은 위 "전체 테스트"의 일부러 낸 8개뿐 |
+| `net_session --net-full` | 통과, 922 checks, 104.7초 |
+| 내보낸 exe의 세션 | `--net-exe=build/evensong.console.exe`로 `net_session` 621, `net_hunt` 231, `net_herd` 197, `net_market` 156, `net_bazaar` 121, `net_rites` 339, `net_vigil` 187, `net_litany` 301 checks 모두 통과(8파일 2,153 checks, 423.4초) |
+| 내보내기 | Windows Desktop, Windows ARM64 둘 다 종료 0, 오류 줄 0 |
+| 내보낸 exe `--smoke` | `EVENSONG_SMOKE ok exported=true godot=4.7.2-stable (official) display=headless base=480x270 seed=1 world=128x96 hash=0da8e0d26ded cells=12513 chunks=20 gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=325B items=60 actions=9 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 chain=28/7 gear=21/8/96 chest=16 build=3/1/2 trees=30/4 shop=67,50/13/9 skills=15/15 pick=true taunt=1 slam=16 rock=24/60 ward=6 mist=4 prayer=6/3/21 faith=30 zeal_hit=17 meditate=5 herd=13/5 hunt=2/1 wild_wire=11B/10B/135B/6B zone_snapshot=11B rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8 zone=(1016.0, 760.0)/112 light=226x226 enet_port=63419 snapshot=663B/86056B combat_wire=26B potion_wire=40B/47B fields_wire=17B/11B builds_wire=85B/637B/38B shop_wire=8B/11B/8B/663B skills_wire=15B/16B/18B/123B landed=5 events=6 prayer_wire=3B/6B/166B/15B lit=6 lag=30 net=v13 checks=508` (M11c의 줄과 `enet_port`만 다름) |
+| 그림 검사 (전체) | 42부분 ok, `failed_parts=0`. 그리는 것이 바뀌지 않아 스크린샷은 다시 찍지 않았다 |
+| 일부러 깨 보기 | 게임의 사본에서(작업 트리는 건드리지 않음) 고친 것을 하나씩 되돌리고 검토의 변이를 다시 넣어 31개: 30개 잡힘, 동등 1개(`_capture_land`의 `_changed`). 첫 판 33개에서 7개가 살아남았다. 코드가 필요 없던 것 셋은 코드를 지웠고(`_walk_clear`의 빛 검사, 광선의 구역 검사: `can_walk`가 이미 본다, 빛이 없을 때 보던 쪽), 시험의 빈틈 셋은 시험을 고쳤다(빛을 가로지르는 길, 벽 뒤의 땅, 잡기 범위가 겹치는 둘). 끝의 판은 고친 코드의 새 사본에서 처음부터 다시 돌렸다 |
+| `_way_clear` 비용 (에디터 빌드, 지도 전체가 오염) | 호출 한 번 약 4.0ms(여덟 방향을 320px까지 다 봄). 벗어나는 생물에게만 틱마다 돌고, 가까운 땅을 찾으면 그 거리에서 멈춘다. 다 보는 경우는 깨끗한 땅이 320px 안에 없을 때뿐이라 생성된 월드에서는 생기지 않는다 |
+
+M11c (2026-11-07, 브랜치 `feat/slice-m11`):
+
+| 단계 | 결과 |
+|---|---|
+| 기준 (시작 전, M11b 556ef85) | 55파일 46,594 checks |
+| 임포트 (`.godot/` 지운 뒤) | 종료 0, 오류 줄 0. 새 `.uid` 셋(시험), 새 그림 파일 없음 |
+| 전체 테스트, 두 번 (마지막 코드, 둘째는 `.godot/`을 지우고 다시 임포트한 뒤) | A: 58파일 통과·0 실패, 47,635 checks, 897.8초. B: 58파일 통과·0 실패, 47,635 checks, 914.5초 |
+| `net_session --net-full` | 통과, 922 checks, 101.2초 (진짜 상한: 호스트 + 클라이언트 8, 열 번째 거부) |
+| 새 시험 | `test_net_wild.gd` 484 checks, `test_net_hunt.gd` 230 checks, `test_net_herd.gd` 196 checks |
+| 내보낸 exe의 세션 | `--net-exe=build/evensong.console.exe`로 `net_session` 621, `net_hunt` 231, `net_market` 156, `net_bazaar` 121, `net_rites` 339, `net_vigil` 187, `net_litany` 301, `net_herd` 197 checks 모두 통과. 처음 돌렸을 때 `wilds` 한 번이 시험의 셈 때문에 실패했다: 날아가던 화살이 눈금 아래의 은빛 사슴을 죽여(M11b의 알려진 문제. 세션은 HP가 조금 늦게 보여 봇이 한 발 더 쏘기 쉽다) 무리가 11이었다. 규칙대로라 시험을 고치고(둘째 시도, 무리 = 13 - 잡은 수 - 죽은 수) 내보낸 exe로 세 번, 에디터 빌드로 한 번 더 통과. 이 고침은 `test_net_herd.gd`만이고 위 전체 테스트 두 번 뒤의 일이다 |
+| 내보내기 | Windows Desktop, Windows ARM64 둘 다 종료 0, 오류 줄 0 (`game/build/evensong.exe`, `game/build/arm64/evensong.exe`) |
+| 내보낸 exe `--smoke` | `EVENSONG_SMOKE ok exported=true godot=4.7.2-stable (official) display=headless base=480x270 seed=1 world=128x96 hash=0da8e0d26ded cells=12513 chunks=20 gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=325B items=60 actions=9 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 chain=28/7 gear=21/8/96 chest=16 build=3/1/2 trees=30/4 shop=67,50/13/9 skills=15/15 pick=true taunt=1 slam=16 rock=24/60 ward=6 mist=4 prayer=6/3/21 faith=30 zeal_hit=17 meditate=5 herd=13/5 hunt=2/1 wild_wire=11B/10B/135B/6B zone_snapshot=11B rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8 zone=(1016.0, 760.0)/112 light=226x226 enet_port=60033 snapshot=663B/86056B combat_wire=26B potion_wire=40B/47B fields_wire=17B/11B builds_wire=85B/637B/38B shop_wire=8B/11B/8B/663B skills_wire=15B/16B/18B/123B landed=5 events=6 prayer_wire=3B/6B/166B/15B lit=6 lag=30 net=v13 checks=508` |
+| main과 비교 | `hash=0da8e0d26ded`, `dungeon hash=8dda0ad69ad9`, `dungeon_seeds=acc0a9bc2359`, `skills=15/15`, `prayer=6/3/21`, `prayer_wire=3B/6B/166B/15B lit=6 lag=30` 그대로. 바뀐 것: `dungeon_map` 323B → 325B와 `snapshot` 662B/86054B → 663B/86056B(스냅샷의 구역·컬렉션 표시 2B), `shop=67,50/13/9`(M11a), `items=60`·`chain=28/7`(M11a·M11b), `net=v13`, 새 필드 `herd`·`hunt`·`wild_wire`·`zone_snapshot`·`rare_zone`·`rare`·`capture`·`collection`, `checks` 477 → 508 |
+| 버전 거부 (실제 프로세스, main 86f0b9a v12 ↔ 이 판 v13) | v13 호스트 + v12 클라이언트: 클라이언트 `ended reason="refused: version" code=3`, 호스트 `refused … reason=version`. v12 호스트 + v13 클라이언트: 같음. 두 쪽 모두 `ERROR: The rpc node checksum failed`는 그대로 찍힌다(M10 검토에 적은 Godot의 경고) |
+| 생물 트래픽 (전선의 내용 바이트, ENet 머리 제외) | 묶음 5B + 10B × 보이는 수, 20Hz. 상한 13마리가 모두 시야에서 움직임: 135B × 20 = **2,700B/s**(한 프로세스 시험이 정확히 잼, `CAPS_MAX_BPS` 2,800). 실제 세션 `herd`(셋이 13마리 사이를 걷는 16초): 클라이언트 하나에 평균 약 1,270~1,500B/s(`HERD_MAX_BPS` 2,900). 사슴 한 마리만 곁에서 걸음: 15B × 20 = 300B/s, 서면 키프레임 하나 뒤 0. **시드 1의 자연 무리 2분**: 2,400 묶음 틱 중 무리 전체의 묶음이 바뀌는 틱 2,367(거의 늘), 제단에 선 클라이언트의 상자 안이 바뀌는 틱 239. 컬렉션 메시지 6B(킬·등록마다), CAPTURE 11B(프레임 머리 포함) |
+| 그림 검사 (전체) | 42부분 ok, `failed_parts=0`. `wild_net`: creatures=12 drawn=2263 mismatches=0 bytes=125 zone_mismatches=0 panel_mismatches=0 |
+| 두 창 | `shots/m11c_host.png`·`m11c_client.png`(위 "스크린샷"), 두 로그 오류 줄 0 |
+| 일부러 깨 보기 | 게임 코드의 사본에서(작업 트리는 건드리지 않음) 90개 시도: 89개 잡힘, 동등 1개(`NetCombat.reset`의 `creature_tick = -1`: 호스트 틱은 늘기만 해서 돌아올 때의 키프레임이 늘 더 새롭다). 첫 판에서 산 것 둘은 시험의 빈틈이라 고치고 다시 잡았다: 던전 스냅샷의 구역(위조한 원이 맵 밖이라 다른 줄이 거부하고 있었다. 맵 안의 원으로), 지도 들어옴 뒤의 컬렉션 메시지(지상 스냅샷이 한 조각이라 순서가 드러나지 않았다. 작은 조각으로 스트림 중에 변화를 넣음). RPC 이름을 한 곳만 바꾼 첫 변이는 컴파일 실패라 세지 않고 모든 자리를 바꿔 다시 돌렸다. 대부분 `net_wild`가 잡고, 세션 봇의 무리·K·키프레임 RPC·봇의 생물은 `net_hunt`, RPC 번호·채널은 `net`이 잡는다. 첫 판의 82개는 뒤에 시험을 더한 다음 다시 돌리지 않았다(시험을 더했을 뿐이다) |
+
+M11b (2026-11-07, 브랜치 `feat/slice-m11`):
+
+| 단계 | 결과 |
+|---|---|
+| 기준 (시작 전, M11a 969d56a) | 52파일 35,472 checks |
+| 임포트 (`.godot/` 지운 뒤) | 종료 0, 오류 줄 0. 새 `.uid` 여덟(스크립트 다섯, 시험 셋), 새 그림 파일 없음 |
+| 전체 테스트, 두 번 (마지막 코드, 둘째는 `.godot/`을 지우고 다시 임포트한 뒤) | A: 55파일 통과·0 실패, 46,594 checks, 807.4초. B: 55파일 통과·0 실패, 46,594 checks, 777.4초 |
+| 새 시험 | `test_rare_zone.gd` 9,479 checks, `test_capture.gd` 814 checks, `test_collection.gd` 536 checks |
+| 스모크 | `hash=0da8e0d26ded`, `dungeon hash=8dda0ad69ad9`, `dungeon_seeds=acc0a9bc2359` 그대로, `net=v12`, `items=60`, `herd=13/5`, 새 필드 `rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8` |
+| 난수열 | M11a가 고정한 이단 digest 셋과 기도 방향 81개가 그대로 통과(`test_creatures.gd`): 희귀 생물이 무리에 더해져도 다른 난수열은 움직이지 않는다 |
+| 희귀 구역 | 32시드에서 32곳이 모두 달랐다. 1분 뒤 시드 1 월드 해시 = 골든 |
+| 그림 검사 (전체) | 41부분 ok, `failed_parts=0`. `rare_zone`: tint=57527 off=71296 stones=777 wrong=0 flames=0/39 dusk=273/273. `capture_marks`: ring=[0, 0] drawn=409 rope=0 dusk=0/20 cross=0 prey=0 stray=0. `collection_panel`: place=true px=6229 wrong=0 dim=82/82 full=0 |
+| 실제 프로세스 (봇, 플래그로 낮추지 않은 자연 생물, 시드 1) | 희귀 셋 잡기: `ash_owl`, `silver_stag`, `lamp_fox`, 4/8, 클래스 베네핏이 3에서 켜짐. 한 바퀴: 킬 10 → 희귀 셋 → 8/8, 베네핏이 정확히 3·5·8에서 켜지고 모루에서 희귀 갑옷을 만들어 입음. 첫 시도(활을 누르고 있음)는 날아가던 화살이 올빼미·여우를 죽이고 사슴만 잡았다: 그래서 봇이 한 발씩 쏜다. 둘째 시도의 "모루가 안 놓임"은 대본 잘못이었다(던지기 42틱이 끝나기 전의 클릭은 규칙대로 무시됨) |
+| 일부러 깨 본 것 | 140가지, 138가지 잡힘, 2가지는 동등함(`game/` 사본에서 깨므로 작업 트리는 건드리지 않음): 구역 규칙(시드·제단·끝·오염·트임·흙·칸 훑기), 그림(돌 자리·불꽃·금빛), 묶임(스폰·걷기·빛·밀기), 아처만(공격 길마다 하나씩, 주인 없음, 표시), 잡힘(무시·영원), 잡기(거부 하나씩, 다시 검사, 올가미 안 씀, 재료, 넘침, 대상, 충돌 틱), 항목과 베네핏(등록·문턱·반올림·클래스·재고), 갑옷, 상점, 레시피(입력 여럿의 해금·셈·쓰는 순서·클래스), Main의 연결과 창, 표 값. 처음 돌렸을 때 11가지가 살아남았다: 시험 구멍 8가지를 메웠고(흙 위의 돌, 테두리 너머로 뻗은 빛, 스폰이 꺼진 때의 구역, 플래그의 킬, 누른 채 반복, 그리고 그림 검사 셋: 코드의 상수를 그대로 비교하던 금빛과 ×를 값으로 적고, 킬 수를 항목 수와 다르게 함) 그 8가지가 이제 잡힌다. 1가지는 쓸모없는 조건이라 코드에서 지웠다(`restock_ticks`의 `base <= 0`: `mini`가 이미 그렇게 한다). 동등한 2가지: 금빛의 테두리 밖 검사(디더 값이 이미 음수), 서성임 목적지의 구역 검사(걷는 걸음마다 다시 검사해 구역을 벗어나지 않고 테두리에서 멈춘다) |
+
+M11a (2026-11-07, 브랜치 `feat/slice-m11`):
+
+| 단계 | 결과 |
+|---|---|
+| 기준 (시작 전, main 86f0b9a) | 50파일 33,843 checks (M10 검토 측정). 코드를 건드리기 전에 이단 digest와 기도 방향을 재서(아래) 시험에 고정 |
+| 임포트 (`.godot/` 지운 뒤) | 종료 0, 오류 줄 0. 새 `.import` 둘(가죽), 새 `.uid` 다섯(스크립트 셋, 시험 둘) 커밋 |
+| 전체 테스트, 두 번 (마지막 코드, 둘째는 `.godot/`을 지우고 다시 임포트한 뒤) | A: 52파일 통과·0 실패, 35,472 checks, 837.5초. B: 52파일 통과·0 실패, 35,472 checks, 804.9초. `net_session` 110.4·92.0초(파일 제한 120초 안) |
+| 새 시험 | `test_creatures.gd` 1,223 checks, `test_hunting.gd` 329 checks. 기존 시험에 더한 것: `test_net_combat.gd`(세션의 아레나에 무리 없음), `test_net_potions.gd`(호스트가 고기를 먹음) |
+| 스모크 | `hash=0da8e0d26ded`, `dungeon hash=8dda0ad69ad9`, `dungeon_seeds=acc0a9bc2359` 그대로, `net=v12`, `items=57`, `shop=67,50/13/9`, 새 필드 `herd=10/5 hunt=2/1` |
+| 고정한 난수열 (M11 코드 전에 main에서 잼) | 이단 digest(12,000틱, 위치 md5·`next_id`·스폰 수·생성기 상태): 시드 1 지상 `9ee2138cb9ec/5/4/-8311685836597912239`·던전 `d1349cf7a2de/7/6/-4578117944051683751`, 시드 2·7도 `test_creatures.gd`에. 기도 방향 81개(시드 1·2·7 × 기도 1·2·3). 무리 없이도, 무리가 옆에서 돌고 300틱마다 하나씩 죽어도 같다 |
+| 그림 검사 (전체) | 37부분 ok, `failed_parts=0`, 약 6초. `creatures`: 40화면 불일치 0, 시체·번쩍임(225픽셀)·막대·표시 0, 저녁 225/225 어두워짐. `shop_panel`: 항목 13, 네 줄 |
+| 일부러 깨 본 것 | 65가지(시험이 실패하는 것을 보고 바이트까지 되돌림, 변형마다 파일 sha256 비교, 끝에 `game/**/*.gd` 전체 sha256 같음): 떨어뜨림(클래스 무시·누구나 아처·독의 주인 잊음·문간·상한), 공격 길 하나씩(근접·화살·꿰뚫기(매번·없음)·밀기·땅 울리기·근접 스킬·기절·둔화·성광 폭발·낙석·독·원의 벽·열정 빠짐), 위협 더함, `Arena.next_id` 먹음, 아레나의 시드를 씀, 빛 규칙·오염 규칙 없음, 옮겨 온 빛 안 나감·못 알아챔, 쉼이 안 붙듦, 달리기가 안 끝남, 다운된 사람에 놀람, 맞아도 안 달아남, 다시 나옴 1틱 늦음, 상한 무시(둘), 자리 규칙 다섯(오염 여유·흙·문간·빛 여유·플레이어), 던전에 생물, 희귀가 벌써 나옴, 드롭 칸, 표의 달리기 속도, 고기(Main·호스트 셋·표·던지기·가득 찬 HP), 상점 둘(사는 값 = 파는 값, 온전한 가죽을 팖), 게임 시계, 드롭이 월드에 안 들어감, 건설의 몸, 세션의 무리, 그림(반전·번쩍임·막대·흔들림·빛층), 창 검사(1px 어긋남·반전·시체·번쩍임·막대·흔들림 2px). **같은 동작 1개**: `Player.impact_tick_of`의 `is_drink`를 `is_potion`으로 바꿔도 고기는 같은 틱에 닿는다(마시기 3프레임 = 곡괭이 3프레임, 지금 값에서 같음). 처음 놓친 셋(독의 주인이 약초사면 드롭이 같음, 시드 비교가 상수끼리, `try_spawn`의 상한)과 창 검사 하나(기대값이 같은 함수를 씀)는 시험을 고쳐 잡았다 |
 
 M10 검토 (2026-11-03, 검토 반영: 아래 "검토 반영 (M10)"):
 
@@ -4144,6 +4683,8 @@ M9b = 혼자 할 때의 무기 스킬 다섯(키 2, 든 클래스 무기: 1티�
 M10a = 혼자 할 때의 집단 기도(성직자의 F 탭으로 시작, 모이기 3초 동안 원 안의 탭으로 참여, 차례 9번 = 등잔 9개, W A S D 답, 결과로 열정이 오르내림·바닥, 방해, 끝에 신앙 30), 묵상(누구나·성직자 혼자, 3초, 열정 5%), 열정(5분, 사망하면 없어짐, 기본 공격·피해 스킬 아홉), F 탭과 누르고 있기, 기도 중 거부, 코드 그림(원·등잔·화살표·HUD 차례·고리·열정 칼), 시험 동료 여럿과 대본·봇. 세션의 기도(M10b), 다른 기도(가호·인도), 임시 제단, 성물·성지·봉헌, 기도 화면 그림(5단계 제단화 UI), 사냥·컬렉션(M11), 보스·제단 업그레이드(M12), Steam·저장(M13), 새 적·아이템·그림 파일은 M10a가 아니다.
 M10b = 세션의 기도: 위 M10a를 호스트가 정함(PRAY·ANSWER 요청, 기도 메시지, 답 판정의 여유, 늦은 참가의 사건들, 클라이언트 사본, 전송 형식 v12).
 M10 검토 = 위 둘의 검토 반영: 버전 거부(RPC 번호), HUD 등잔 칸, 혼자·모이기 혼자·묵상의 열정·늦은 참여(임시값), 불티, 다시 보냄 흉내, 슬롯 물려받기, 시험.
+M11a = 혼자 할 때의 사냥: 생물 표 다섯(사냥감 둘이 나타남, 희귀 셋은 표·그림만), 지상의 무리(게임 시계, 자기 난수열, 상한·다시 나옴, 서성임·달아남·쉼), 모든 공격 길이 생물을 침, 마지막 타격 클래스의 떨어뜨림, 온전한·손상된 가죽·고기, 먹기, 상점 두 항목. 희귀 구역·포획·올가미·컬렉션·희귀 장비·컬렉션 창(M11b), 세션의 생물(M11c), 약초사 인계·가축·덫(2차)은 M11a가 아니다.
+M11c = 세션의 사냥·포획·컬렉션: 호스트의 무리(자기 난수열), 모든 공격 길, CAPTURE 요청, 시야 상자 안의 생물 묶음, 컬렉션 메시지, 스냅샷과 해시의 구역·컬렉션, 베네핏은 호스트의 숫자, 몸 동작만 예측, 전송 형식 v13.
 M5b = 혼자 할 때의 정화(성수 3×3은 누구나, 팔라딘 F 채널링 반지름 3·3초, 정화된 칸 = 풀, 스폰 칸과 시든 작물이 따라감)와 제단 옮기기(F 2초로 들기, 좌클릭으로 놓기, 들고 있는 동안 안전 반경 없음, 다운이면 가까이 내려놓기, 빛·안전 반경·이단·부활 자리·비워 두는 자리·밭의 빛이 따라감). 세션(M5c), 오염 확산·재오염·원천 봉인·반경 확장, 상점 성수(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 새 적, 나무·건설(M7), 저장은 M5b가 아니다.
 
 | 단계 | 내용 | 상태 |
@@ -4186,6 +4727,22 @@ M5b = 혼자 할 때의 정화(성수 3×3은 누구나, 팔라딘 F 채널링 �
 | M10a 집단 기도 · 묵상 · 열정 | `Prayer`(시작·참여·차례·답·등잔·방해·끝·열정 공식·신앙·전투·묵상, 결정적 방향), 열정(스킬 상태, 기본 공격·피해 스킬 아홉, 독 빼고, 사망하면 없어짐), F 탭(20틱)과 누르고 있기(들기·소생)·기도 중 거부, 원·등잔(04-env 켠·끈 그림 칸)·화살표·HUD 차례·고리·열정 칼(코드 그림), `--test-ally` 여럿·`--test-pray`·봇 넷, 스모크, 창 그림 검사 둘, 시험 둘 | **끝** (세션은 M10b) |
 | M10b 세션의 기도 | 호스트가 지상 제단의 기도 하나를 돌림(답은 요청, 여유 30틱, 기도 시계 = 호스트 틱), 새 요청 PRAY(1B: 혼자 할 때의 탭 규칙을 호스트 상태로)·ANSWER(4B: 기도 번호·차례·키; 남의·지난·안 열린 차례, 두 번째 답, 다른 기도, 예산 밖은 거부), 기도 중 다른 요청 거부·제단 들기 거부, 맞음 = `Prayer.on_hurt`, 기도 메시지(새 RPC, 사건 열한 종류, 기도는 지상에·열정은 모두에게), 늦은 참가·지상 들어옴 = 그 기도의 사건들, 클라이언트 사본(`NetPrayer`: 원·등잔·표시·내 차례의 창은 사건이 온 때부터·보낸 키·열정), 그리는 함수 하나(`Main.show_prayer_from`), 기도 메시지의 지연 흉내, 봇 `answer:wrong`·`hurt`, 전송 형식 v12, 시험 셋(한 프로세스 + 실제 세션 셋), 창 그림 검사 `prayer_net`, 두 창 그림 | 완료 |
 | M10 검토 반영 | 버전 거부가 다시 닿음(새 RPC 이름 `_rpc_vespers`, hello·refused의 RPC 번호를 지키는 시험, v11 exe와 실제 프로세스로 확인), 제단 가까이 있는 사람의 HUD 등잔 아홉 칸(몸이 아래 줄 등잔을 가림), "혼자" = 참여할 수 있는 동행이 없음·모이기가 혼자로 끝나면 멈추고 묵상·묵상의 열정은 기도를 막지 않음(열정의 출처, 열정 사건 10B)·세션의 모이기 끝 직후 참여(새 임시값 다섯), 참여·떠남·묵상 표시를 불티로, 링크 흉내의 다시 보냄과 답 판정의 실제 한계, 슬롯 물려받기, 기도 메시지 잘림 오류 줄, 손실 회선 보간 검사를 느슨하게 되살림, 시험이 보지 않던 가지의 시험, M10 그림 여섯 다시 찍음 | 끝남. 아래 "검토 반영 (M10)" |
+| M11a 사냥 · 생물 · 가죽 · 고기 | 생물 표 다섯(사냥감 둘이 나타남, 희귀 셋은 표·그림만), 지상의 무리(게임 시계, 자기 난수열, 상한·다시 나옴, 서성임·달아남·쉼, 벽·오염·빛), 모든 공격 길(기본 다섯·피해 스킬 아홉·독·열정·1티어), 맞은 표시, 마지막 타격 클래스의 떨어뜨림(보통 드롭 길), 아이템 셋(가죽 그림 둘, 고기 코드 아이콘), 먹기(M6 길), 상점 두 항목, 플래그·봇, 코드 그림 보기 | **끝** (희귀 구역·포획·컬렉션·희귀 장비·컬렉션 창은 M11b, 세션은 M11c) |
+| M11c 세션의 사냥 · 포획 · 컬렉션 | 호스트의 무리와 드롭, CAPTURE, 생물 묶음(10B, 시야 상자, 조용함), 컬렉션 메시지(6B)와 스냅샷·해시, 호스트 숫자의 베네핏, 몸 동작만 예측, 늦은 참가·지도 들어옴, 전송 형식 v13(v12와 양쪽 거부), 실제 세션 넷, 내보낸 exe | 끝남(사람의 확인이 남음: 위 "M11 해 보기") |
+| M11 검토 반영 | 제단이 생물을 덮지 않음(`altar_bodies`, 호스트도), 빛·오염에서 벗어나기(`_walk_clear`·`_way_clear`), 맵 끝에서 멈추는 시야 상자, 떠난 사람의 올가미 줄, 번호 돌림, 스폰의 설치물, 거짓 통과 시험 다섯, 빠진 시험 열둘, README 줄 | 완료 |
+
+### 검토 반영 (M11, 2026-11-07)
+
+M11(브랜치 `feat/slice-m11`, M11a + M11b + M11c) 검토 에이전트들의 지적 14개(겹친 것: 오염 위에 멈춤 둘, README 줄 둘, 살아남은 변이 셋)와 처리. 하나씩 코드·탐침으로 확인한 뒤 고쳤다. 고친 것마다 그 고침을 되돌리면 실패하는 시험이 있다(아래 "측정"의 M11 검토). 전송 형식 v13·월드 해시는 그대로다.
+
+- 고침 (높음, 시험): **통과만 하던 검사 다섯.** `test_net_wild.gd`의 "no news for its log"는 `on_tally`가 이미 비운 `fresh`를 보고 있어 늦은 참가자가 스냅샷의 항목을 새 소식으로 찍어도 통과했다: 클라이언트의 `collection` 로그 줄을 센다(`CaptureSession.logged`). "and what is in it"은 `put_test(3, 12)`라 킬이 해시를 움직여서 `bits()`를 해시에서 빼도 통과했다: 항목만 넣고 재고 그다음 킬을 잰다. `bare.size() % 1`은 지웠다. `test_net_hunt.gd`의 항목 검사(`begins_with ... or contains`)는 정확한 문자열로, 값 10 검사(아무 줄의 `price=10`)는 사는 줄 안에서 본다
+- 고침 (중간): **제단이 쉬거나 기절했거나 붙들린 생물 위에 놓였다.** `AltarMove`가 플레이어와 이단만 몸으로 세서 발자국 안에 든 생물이 갇혔다(`Movement.step`은 겹친 한 칸만 봐주고 다음 칸은 막으므로 못 나옴). 빛 안에 머물고, 공격이 닿지 않고, 산 수로 세여 그 종류가 다시 나오지 않고, 희귀 생물이면 항목이 막혔다. 생물도 몸으로 센다: `Main.altar_bodies`(클릭·내려놓기), 유령, `SessionHost._altar_place`·`_set_altar_down`. 유령의 캐시 열쇠에는 생물의 칸이 아니라 "발자국 위에 있는가"만 넣었다: 생물의 칸은 자주 바뀌고 봉쇄 검사는 약 24ms다(M7c)
+- 고침 (중간): **새 빛에서 나간 생물이 오염 칸 위에 멈춰 얼어붙었다**(겹친 지적 둘). 빛에서 나가는 길은 벽 규칙만 봐서 오염 칸에 설 수 있고, 거기서는 모든 걸음을 `can_walk`가 막아 달아나지도 서성이지도 못했다. `_step_one`이 `can_walk`로 보고, `_walk_clear`가 `_way_clear`로 설 수 있는 땅이 가장 가까운 직선을 골라 걷는다(빛 밖에 있으면 빛을 지나지 않음, 깨끗한 쪽이 있으면 오염을 밟지 않음). 한 걸음씩 고르는 대신 멀리 보는 것은, 빛 안에서는 어느 걸음도 깨끗하지 않아 걸음 단위로는 고를 수 없기 때문이다
+- 고침 (중간): **시야 상자가 플레이어 둘레라 맵 끝에서 화면과 어긋났다.** 카메라는 맵 끝에서 멈추므로 화면이 발에서 옆으로 최대 440px까지 간다(상자는 340). 16:9에서도, 기본 시드의 희귀 구역(114,63) 안에서도 화면 안의 생물이 안 그려지고 안 보이는 채로 맞았다. 상자 중심을 `PlayerCamera.clamp_center`로 맵 안에 넣었다. 네 모서리·네 변·구역의 자리에서 16:9와 21:9 화면의 네 귀퉁이를 재고, 실제 클라이언트로도 본다
+- 고침 (낮음): 떠난 사람의 슬롯을 다른 사람이 받으면 붙들린 생물의 줄이 그 사람에게 그려졌다(`_holder_slot`: 그 슬롯의 플레이어가 아직 그 사람일 때만). 번호가 65535에서 돌아가 산 생물과 겹치면 묶음 전체가 거부됐다(`_take_id`, 지금은 약 347시간이라 닿지 않지만 M13 저장을 생각해). 스폰이 횃불·죽음 주머니 칸에 내려왔다(`spawn_ok`, Config 주석대로)
+- 고침 (낮음, 시험): 살아남은 변이의 자리에 시험을 더했다: 혼자 할 때 설치물 몸(생물 위), 호스트를 잃은 뒤의 올가미(`_go_offline_combat`), 두 번째 던진 사람의 독, 독으로 죽은 시체가 곁의 플레이어에게서 달아나지 않음, 시체를 지나는 화살, `target_at`의 가까운 쪽(목록 순서 반대로), 시야 밖으로 나갔다 그려지기 전에 돌아온 생물, 달아나는 중에 더 가까운 놀람, 동료의 가방, 환영 키프레임의 시야, `NetCombat.reset`의 트랙, 손 닿지 않는 포획의 거부 표시
+- 고침 (낮음, 문서): `--test-creature` 줄, `--net-lag` 줄, "같은 틱의 두 타격"(화살은 쏜 순서), 시야 상자의 알려진 문제, M11a 화살 멈춤 줄에 M11c 메모. M11이 넘어선 옛 줄에 메모(M6a 레시피 해금, M7a 갑옷, M7a 내구도, M7-rf 수리 비용, M8a 재고 채우기, M8b 재고 시계). `CREATURE_BATCH_MAX`를 "M11c 새 묶음" 줄에
+- 고치지 않음: 그림의 구별은 자리 표시 그림의 일이라 사람 확인에 넣었다("혼자 M11 해 보기" 6). `_capture_land`의 `_changed`는 지워도 달라지는 것이 없다(위 "알려진 문제 (M11c)")
 
 ### 검토 반영 (M10, 2026-11-03)
 

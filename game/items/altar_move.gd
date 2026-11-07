@@ -17,8 +17,8 @@ extends RefCounted
 ##   - left click puts it down: the 3x3 footprint's near edge on the target tile (its centre two tiles from the feet
 ##     tile, place_rect) where place_refusal allows: on the map with its nine spawn slots standable, open ground (no
 ##     placeable: not over the entrance or a table; no corruption; nothing growing or lying there), nobody's feet under
-##     it, not over a spot where players appear (the entrance's arrival point), and no live heretic inside its new light
-##     (heretics never stand in the light, M4a);
+##     it (M11 review: a live creature's neither: a body the footprint walled in could never walk out), not over a spot where players
+##     appear (the entrance's arrival point), and no live heretic inside its new light (heretics never stand in the light, M4a);
 ##   - the carrier can not travel, channel, use items or throw (the click is the altar's); when it goes down the altar is
 ##     set down at the nearest allowed place around it (set_down_rect; M5-fix: set_down_fallback, never over anything);
 ##   - M5-fix: its light may cover corruption (Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION; false: light_corruption_refusal);
@@ -110,11 +110,20 @@ static func slot_feet(rect: Rect2i) -> Array[Vector2]:
 
 
 ## Why the altar may not go down on footprint `rect` ("" = it may), with `bodies` = the players' feet (the carrier's
-## too) and `heretics` = the live heretics' feet on the map. See the class comment for the list.
+## too) and the live creatures' (M11 review), and `heretics` = the live heretics' feet on the map. See the class comment for the list.
 static func place_refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2] = [], heretics: Array[Vector2] = []) -> String:
 	if data.map_id != Config.MAP_SURFACE:
 		return WHY_SURFACE
 	return _refusal(data, rect, bodies, heretics, WorldItems.reserved_feet(data), Merchant.tile_of(data))
+
+
+## Whether footprint `rect` lies on any of `feet` (place_refusal's WHY_BODY test alone).
+static func covers_a_body(rect: Rect2i, feet: Array[Vector2]) -> bool:
+	var px: Rect2 = Rect2(Vector2(rect.position * Config.TILE), Vector2(rect.size * Config.TILE))
+	for b: Vector2 in feet:
+		if px.intersects(Movement.feet_box(b)):
+			return true
+	return false
 
 
 ## place_refusal with the spots where players appear given (`reserved`, WorldItems.reserved_feet: M5-fix, a search
@@ -140,9 +149,8 @@ static func _refusal(data: WorldData, rect: Rect2i, bodies: Array[Vector2], here
 			if data.get_value(WorldData.Layer.VEGETATION, c) != 0:
 				return WHY_GROWING
 	var px: Rect2 = Rect2(Vector2(rect.position * Config.TILE), Vector2(rect.size * Config.TILE))
-	for b: Vector2 in bodies:
-		if px.intersects(Movement.feet_box(b)):
-			return WorldItems.WHY_BODY
+	if covers_a_body(rect, bodies):
+		return WorldItems.WHY_BODY
 	for r: Vector2 in reserved:
 		if px.intersects(Movement.feet_box(r)):
 			return WorldItems.WHY_RESERVED

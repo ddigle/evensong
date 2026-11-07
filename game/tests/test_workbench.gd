@@ -71,6 +71,16 @@ static func inv_text(inv: Inventory) -> String:
 	return "%s | sel %d | armor %s" % [inv.describe(), inv.selected, str(inv.armor)]
 
 
+## M11b's rows: tests/test_collection.gd.
+static func _is_m11b(r: Crafting.Recipe) -> bool:
+	return r.id == Capture.SNARE or r.id == &"armor_rare"
+
+
+## A class that may craft `r` (`other` unless it is a class's).
+static func crafter(r: Crafting.Recipe, other: String) -> String:
+	return r.classes[0] if not r.classes.is_empty() else other
+
+
 ## Every input of `r` (its count) into a fresh inventory (seen, so unlocked).
 static func inv_for(r: Crafting.Recipe, times: int = 1) -> Inventory:
 	var inv: Inventory = Inventory.new()
@@ -82,7 +92,7 @@ static func inv_for(r: Crafting.Recipe, times: int = 1) -> Inventory:
 func _check_recipes() -> void:
 	var chain: Array[Crafting.Recipe] = []
 	for r: Crafting.Recipe in Crafting.recipes():
-		if r.station != Crafting.ALCHEMY and not r.is_repair() and not _is_m7b(r):  # M7b's rows: test_building.gd
+		if r.station != Crafting.ALCHEMY and not r.is_repair() and not _is_m7b(r) and not _is_m11b(r):  # M7b's rows: test_building.gd
 			chain.append(r)
 	check_eq(chain.size(), WANT.size(), "M7a: %d chain recipes" % WANT.size())
 	for r: Crafting.Recipe in chain:
@@ -175,7 +185,7 @@ func _check_atomic() -> void:
 			continue
 		var inv: Inventory = inv_for(r)
 		inv.add(&"mushroom_a", 3)  # something the recipe does not touch
-		var o: Crafting.Outcome = Crafting.craft(r, "miner", inv)
+		var o: Crafting.Outcome = Crafting.craft(r, crafter(r, "miner"), inv)
 		check(o.ok(), "%s crafts from its inputs (%s)" % [r.id, o.why])
 		for i: Crafting.Ingredient in r.inputs:
 			check_eq(inv.count_of(i.item), 0 if i.item != r.output else r.out_count, "%s used every %s" % [r.id, i.item])
@@ -195,7 +205,7 @@ func _check_atomic() -> void:
 					inv2.remove(slot, 1)
 					break
 			var before: String = inv_text(inv2)
-			var o2: Crafting.Outcome = Crafting.craft(r, "paladin", inv2)
+			var o2: Crafting.Outcome = Crafting.craft(r, crafter(r, "paladin"), inv2)
 			check_eq(o2.why, Crafting.WHY_MISSING, "%s one %s short: missing inputs" % [r.id, short.item])
 			check_eq(inv_text(inv2), before, "%s one %s short: nothing changed" % [r.id, short.item])
 		# No room: every slot full; the inputs in full stacks that stay non-empty after the craft (no slot frees).
@@ -206,7 +216,7 @@ func _check_atomic() -> void:
 			full.add(&"herb_clump", Config.STACK_GATHERABLE)
 		var out_room: int = full.room_for(r.output)
 		var before_full: String = inv_text(full)
-		var o3: Crafting.Outcome = Crafting.craft(r, "cleric", full)
+		var o3: Crafting.Outcome = Crafting.craft(r, crafter(r, "cleric"), full)
 		if out_room >= r.out_count:
 			check(o3.ok(), "%s: room in an output stack (%s)" % [r.id, o3.why])
 		else:

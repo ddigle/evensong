@@ -184,7 +184,7 @@ func _check_recipes() -> void:
 	check_eq(Crafting.index_of(&"torch"), 19, "the chain keeps 6-19")
 	check_eq(Crafting.index_of(&"repair_sickle_t1"), 25, "the repairs keep 20-25")
 	check_eq(Crafting.index_of(&"stone_wall"), 26, "the build pieces come after (26-30)")
-	check_eq(Crafting.recipe_count(), 31, "31 recipes")
+	check_eq(Crafting.recipe_count(), 34, "34 recipes (M11b: the snare, the rare armour and its repair after the 31)")
 	# At a workbench with stones: the pieces; by hand: the workbench (logs) and the axe (stones).
 	var inv: Inventory = inv_with([[&"stone_a", 20], [&"planks", 10], [&"log", 4]])
 	var shown: Array[StringName] = []

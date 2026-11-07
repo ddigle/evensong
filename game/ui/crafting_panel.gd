@@ -11,6 +11,8 @@ extends Node2D
 ## the alchemy table's stays 60 px), a repair row shows the worn item and its material -> the item with a full
 ## durability bar (Hud.draw_durability), the hand panel (Crafting.HAND) is headed by the log, and rows beyond what fits
 ## the view scroll (the selection stays in view; a 1 px gold notch at the top / bottom edge says more rows are there).
+## M11b: an input of several items shows the one the player holds (Crafting.shown_input); a class's recipe shows that class's mark
+## (the herbalist's pouch, the archer's arrow; both PLACEHOLDERS).
 ##
 ## Mouse: hovering a row selects it, a left click crafts it (craft_requested). Keys (Main, PROVISIONAL README
 ## "M6a 키"): W / S or the arrows move the selection, F or Enter crafts, Tab or Esc closes. Main does the
@@ -34,6 +36,7 @@ const MARGIN: int = 4
 const DIM: Color = Color(0.102, 0.090, 0.078, 0.62)      # #1a1714 (§4 base) over a row that cannot be crafted
 const ARROW: Array = ["1....", "11...", "111..", "11...", "1...."]
 const MARK: Array = ["111", "1.1", "111", "111", "111"]   # the herbalist's pouch, 3x5
+const ARCHER_MARK: Array = [".1.", "111", ".1.", ".1.", "1.1"]   # M11b: the archer's arrow, 3x5
 const MARK_OK: Color = Color8(0xf4, 0xc9, 0x5d)           # §4 faith gold
 const MARK_NO: Color = Color8(0xa3, 0x49, 0x2c)           # rust
 
@@ -227,11 +230,12 @@ func _draw() -> void:
 		else:
 			for j: int in r.inputs.size():
 				var ing: Crafting.Ingredient = r.inputs[j]
-				_slot(input_slot(i, j), ing.item, ing.count, ing.grade)
+				_slot(input_slot(i, j), Crafting.shown_input(inventory, ing), ing.count, ing.grade)
 		_pixels(ARROW, arrow_at(i), Hud.DIGIT)
 		_slot(output_slot(i), r.output, r.out_count, r.out_grade, Gear.max_durability(r.output) if r.is_repair() else -1)
 		if not r.classes.is_empty():
-			_pixels(MARK, output_slot(i) + Vector2i(Hud.SLOT + 2, (ROW - 5) / 2), MARK_OK if r.allows(class_id) else MARK_NO)
+			_pixels(ARCHER_MARK if r.classes.has(Config.HUNTER_CLASS) else MARK, output_slot(i) + Vector2i(Hud.SLOT + 2, (ROW - 5) / 2),
+				MARK_OK if r.allows(class_id) else MARK_NO)
 		if not Crafting.refusal(r, class_id, inventory).is_empty():
 			draw_rect(Rect2(row_rect(i)), DIM)
 		if i == selected:

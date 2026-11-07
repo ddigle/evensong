@@ -146,6 +146,19 @@ extends RefCounted
 ## or a meditation is under way (Prayer.blocks_lift). What happened goes out at the end of the tick as prayer events
 ## (_send_prayer: to the surface's clients) and each player's zeal as it is given or ends early (to every client); a welcome and an
 ## entry to the surface get the prayer under way since its start, the meditations and the zeals (send_prayer_snapshot).
+##
+## M11c (hunting, the rare zone, capture, the collection: M11a / M11b offline first, here the host decides): the surface's Arena holds the
+## world's herd (combat/creatures.gd, its own random stream from the world seed), stepped every tick after the arenas (the offline Main's
+## order) whoever is on the surface, so every attack path hits creatures on the host's state and clock. A kill's drops are ordinary drop
+## edits, whoever's class the killing blow was. CAPTURE (a click with the snare) pays the request budget and runs the offline
+## Capture.refusal on the host's own state of that player and that creature id (_capture): class, a snare in that hotbar slot, the creature,
+## its reach, its HP, up, not carrying, not praying; the action's start holds the creature (Capture.begin), its impact frame takes it
+## (_capture_land: Capture.land). The world's one Collection is on every map's data (_setup_collection): the host tells it what the
+## members hold (_note_collection), its arrow and defence benefits are read where the hits are worked out, the restock in _step_shop.
+## What clients get: on a state batch tick the creatures within Config.NET_CREATURE_VIEW_PX of their player, while those change, then a
+## reliable keyframe (_send_creatures, one StateBroadcast per member: a herd wandering elsewhere sends nothing), and a keyframe on
+## arriving on the surface (send_combat_snapshot); the collection, absolute, to every client on any change (_send_collection) and right
+## after a welcome or a map entry (send_collection_snapshot).
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -253,6 +266,17 @@ var prayer_msgs_sent: int = 0
 var prayer_bytes_sent: int = 0
 var answer_ticks: Array[int] = []
 var _answer_keys: Vector2i = Vector2i.ZERO
+## M11c: creature batches and keyframes sent and their bytes, kills and captures, refused captures by reason, collection messages, the
+## collection's revision last sent.
+var creature_batches_sent: int = 0
+var creature_keyframes_sent: int = 0
+var creature_bytes_sent: int = 0
+var hunt_kills: int = 0
+var hunt_refused: int = 0
+var captures: int = 0
+var capture_refusals: Dictionary[String, int] = {}
+var collection_msgs_sent: int = 0
+var _collection_sent: int = -1
 
 
 func _init(p_session: NetSession) -> void:
@@ -267,8 +291,11 @@ func on_opened() -> void:
 	s.local.player.party_provider = _local_party  # M9c: the near-cursor pick of its own frames (Main may set the same)
 	s.local.player.farming_on = true  # M5c: and farms, purifies, carries the altar
 	s.local.player.purify_on = true
+	s.local.player.capture_on = true  # M11c: its click runs through Capture.refusal here too, then the CAPTURE request (run_frame)
+	s.local.player.herd_provider = _local_herd
 	_equip(s.local)
 	_setup_combat()
+	_setup_test_creatures()  # M11c
 	_setup_farms()
 	_setup_forests()  # M7c
 	_setup_shop()  # M8b: after the test pieces (the merchant's tile keeps off them)
@@ -418,6 +445,7 @@ func _welcome(st: Stream) -> void:
 	var catch_up: int = _catch_up(st)
 	send_combat_snapshot(st.peer, st.map)
 	send_prayer_snapshot(st.peer, st.map)  # M10b
+	send_collection_snapshot(st.peer)  # M11c
 	_record_stream(st, catch_up)
 	s.log_event("welcomed", "peer=%d slot=%d chunks=%d bytes=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
 		st.peer, st.slot, st.snapshot.chunk_count(), st.snapshot.bytes.size(), st.ticks, st.edit_position, catch_up,
@@ -445,6 +473,7 @@ func _enter_map(st: Stream) -> void:
 	var catch_up: int = _catch_up(st)
 	send_combat_snapshot(st.peer, st.map)
 	send_prayer_snapshot(st.peer, st.map)  # M10b: the surface's prayer (another map: nothing, the zeals reach every client)
+	send_collection_snapshot(st.peer)  # M11c: what changed while the map's snapshot was on its way
 	map_entries += 1
 	_record_stream(st, catch_up)
 	s.log_event("entered", "peer=%d slot=%d map=%s chunks=%d bytes=%d raw=%d ticks=%d edit_position=%d catch_up_edits=%d stream_ms=%d" % [
@@ -549,6 +578,8 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_sell(m, frame)
 	elif frame.op == NetProtocol.Op.SKILL:
 		_skill(m, frame)  # M9c
+	elif frame.op == NetProtocol.Op.CAPTURE:
+		_capture(m, frame)  # M11c
 	elif frame.op == NetProtocol.Op.USE and WorldItems.placeable_in(p.inventory, frame.slot) != WorldData.PLACEABLE_NONE:
 		_place(m, frame)
 	elif frame.op == NetProtocol.Op.USE and not Building.piece_in(p.inventory, frame.slot).is_empty():
@@ -586,6 +617,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		# M6-fix: a use, a drink or a throw counts as done when its action started (a dash pressed in the same frame
 		# wins over it: nothing starts, no potion is used).
 		m.count_done(_action_op_name(frame))
+		if frame.op == NetProtocol.Op.CAPTURE:
+			var herd: Creatures = herd_on(m.map_id)  # M11c: the snare holds it from the throw's start to the impact frame
+			Capture.begin(p, herd, herd.by_id(p.action_capture) if herd != null else null, Config.NET_CAPTURE_HOLD_SLACK_TICKS)
 	if p.action_anim >= 0 and p.action_tick == 0:
 		m.count_action(p.action_anim)
 		s.log_event("action", "slot=%d item=%s action=%s target=%d,%d aim=%d" % [m.slot, p.action_item,
@@ -593,8 +627,10 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if p.action_anim >= 0 and p.action_tick == Player.impact_tick_of(p.action_item, p.action_anim):
 		if Skills.is_skill(p.action_item):
 			_skill_impact(m)  # M9c: a skill's impact frame
-		elif Potions.is_potion(p.action_item):
-			_potion(m)  # M6b: the drink's effect frame, the throw's release frame
+		elif Capture.is_snare(p.action_item):
+			_capture_land(m)  # M11c: the snare's impact frame
+		elif Potions.is_drink(p.action_item):
+			_potion(m)  # M6b: the drink's effect frame, the throw's release frame (M11a: the meat's too)
 		else:
 			_impact(m)
 	if events & PlayerSim.DASHED:
@@ -785,6 +821,7 @@ func _place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if a != null:
 		for h: HereticSim in a.heretics:
 			bodies.append(h.pos)
+	bodies.append_array(creature_feet(m.map_id))  # M11c: M11a's rule (offline Main._on_place_requested)
 	var extra: Array[Vector2] = []
 	if m.map_id == Config.MAP_SURFACE:
 		extra = carried_reserved_feet()
@@ -815,7 +852,7 @@ static func _potion_in(p: Player, slot: int) -> bool:
 	if slot < 0 or slot >= p.inventory.hotbar_size:
 		return false
 	var st: ItemStack = p.inventory.stack_at(slot)
-	return st != null and Potions.is_potion(st.id)
+	return st != null and Potions.is_drink(st.id)  # M11a: the meat is eaten the same way
 
 
 ## M6b: a USE of a potion = a drink (Config.DRINK_ANIM): in reach (the target tile only sets the facing, as for a
@@ -890,7 +927,9 @@ static func _action_op_name(frame: NetProtocol.InputFrame) -> String:
 		return "throw"
 	if frame.op == NetProtocol.Op.SKILL:
 		return "skill"
-	return "drink" if Potions.is_potion(frame.item) else "use"
+	if frame.op == NetProtocol.Op.CAPTURE:
+		return "capture"
+	return "drink" if Potions.is_drink(frame.item) else "use"
 
 
 ## M9 review: the player a SKILL / THROW frame says its sender picked (frame.pick, a member slot), or null.
@@ -1238,6 +1277,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 		if m.respawn_pending and not streams.has(m.peer_id):
 			_respawn(m)
 	_step_arenas()
+	_step_creatures()  # M11c: after the combat (its kills' drops lie down this tick), like offline Main
 	_check_carriers()  # M5c: a carrier who went down this tick sets the altar down
 	_step_prayer()  # M10b: after the combat and the carriers (a hit this tick is the prayer's), like offline Main
 	_step_farms()  # M5c: after the players and the arenas, like offline (Main: players, combat, farms)
@@ -1261,6 +1301,8 @@ func tick(action: NetBot.Action, now: int) -> void:
 		if ha != null:
 			var h: HereticSim = ha.spawn_heretic(Arena.spawn_feet(hc))
 			s.log_event("heretic", "map=%d id=%d at=%d,%d" % [s.local.map_id, h.id, hc.x, hc.y])
+	if not action.creature.is_empty():
+		_put_bot_creature(action)  # M11c, test only (bot "creature")
 	if action.hurt_slot >= 0:
 		# M10b, test only (bot "hurt"): a member takes a hit now (Player.take_hit: the prayer hears it like a heretic's).
 		var hit: NetMember = s.members.get(action.hurt_slot, null)
@@ -1278,8 +1320,10 @@ func tick(action: NetBot.Action, now: int) -> void:
 	if batch_tick:
 		_send_states()
 	_send_enemies(batch_tick)
+	_send_creatures(batch_tick)  # M11c
 	_send_shot_events()
 	_send_prayer()  # M10b
+	_send_collection()  # M11c
 	_send_inventories()
 	if batch_tick:
 		_send_skills()  # M9c
@@ -1437,8 +1481,10 @@ func _on_member_revived(m: NetMember) -> void:
 
 ## One Arena (and its view, and its enemy broadcast) per map this host has, like offline (Main.setup_combat);
 ## spawns from the world seed unless --test-no-spawns; the test heretics (--test-heretic on the surface,
-## --test-dungeon-heretic) and the shrine's test HP (--test-shrine-hp).
+## --test-dungeon-heretic) and the shrine's test HP (--test-shrine-hp). M11c: the world's collection first, and the surface's arena
+## holds the herd (natural creatures unless --test-no-creatures), which places the rare zone.
 func _setup_combat() -> void:
+	_setup_collection()
 	for map: int in s.worlds:
 		var w: GameWorld = s.worlds[map]
 		if w == null or w.data == null:
@@ -1448,6 +1494,10 @@ func _setup_combat() -> void:
 		a.logging = true
 		a.threat_on = true  # M9c: threat in sessions (M9a's offline rule)
 		a.spawning = not s.options.test_no_spawns
+		if map == Config.MAP_SURFACE:
+			a.herd = Creatures.new()
+			a.herd.setup(w.data, w.data.world_seed, not s.options.test_no_creatures)
+			w.show_rare_zone()
 		arenas[map] = a
 		enemy_casts[map] = StateBroadcast.new()
 		var v: CombatView = CombatView.new()
@@ -1530,6 +1580,13 @@ func _flush_hits(map: int) -> void:
 	for h: Arena.Hit in a.hits:
 		var m: NetMember = member_of(h.by_id)
 		var slot: int = m.slot if m != null else -1
+		if not h.creature.is_empty():
+			# M11c: a blow on a creature (its death is the herd's line, _step_creatures).
+			if m != null:
+				m.count_combat("creature_hits")
+			s.log_event("hunt", "hit slot=%d kind=%s id=%d amount=%d hp=%d%s" % [slot, h.creature, h.heretic_id, h.amount, h.hp_after,
+				" KILLED" if h.killed else ""])
+			continue
 		if m != null:
 			m.count_combat("poison_hits" if h.poison else "hits")
 			if h.killed:
@@ -1572,6 +1629,8 @@ func send_combat_snapshot(peer: int, map: int) -> void:
 		return
 	s.send_enemy_keyframe(peer, NetProtocol.encode_enemies(s.tick, map, a.shrine_hp_now(), a.enemy_states(s.tick)))
 	enemy_keyframes_sent += 1
+	if map == Config.MAP_SURFACE:
+		_creature_snapshot(peer)  # M11c
 	var flying: Array[NetProtocol.ShotEvent] = []
 	for shot: Arena.Shot in a.shots:
 		if not shot.done:
@@ -1860,6 +1919,7 @@ func _purified(m: NetMember, r: Purify.Result, what: String, cell: Vector2i) -> 
 static func _blocked_while_carrying(op: int) -> bool:
 	return op == NetProtocol.Op.USE or op == NetProtocol.Op.THROW or op == NetProtocol.Op.CHANNEL or op == NetProtocol.Op.SKILL \
 		or op == NetProtocol.Op.TRAVEL or op == NetProtocol.Op.ALTAR_LIFT or op == NetProtocol.Op.DEMOLISH \
+		or op == NetProtocol.Op.CAPTURE \
 		or (not Config.SHOP_WHILE_CARRYING and (op == NetProtocol.Op.BUY or op == NetProtocol.Op.SELL))
 
 
@@ -1946,7 +2006,9 @@ func _altar_place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_refuse_op(m, frame, WorldItems.WHY_REACH)
 		return
 	var rect: Rect2i = AltarMove.place_rect(p.sim_position, frame.cell)
-	var why: String = AltarMove.place_refusal(p.data, rect, bodies_on(m.map_id), heretic_feet(m.map_id))
+	var bodies: Array[Vector2] = bodies_on(m.map_id)
+	bodies.append_array(creature_feet(m.map_id))  # M11 review: a creature under the footprint could never walk out
+	var why: String = AltarMove.place_refusal(p.data, rect, bodies, heretic_feet(m.map_id))
 	if not why.is_empty():
 		_refuse_op(m, frame, why)
 		return
@@ -1981,6 +2043,7 @@ func _set_altar_down(m: NetMember, leaving: bool = false) -> bool:
 	for q: Player in players_on(m.map_id):
 		if not (leaving and q == p):
 			bodies.append(q.sim_position)
+	bodies.append_array(creature_feet(m.map_id))  # M11 review
 	var rect: Rect2i = AltarMove.set_down_fallback(p.data, p.sim_position, altar_home, bodies, heretic_feet(m.map_id),
 		leaving and not Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES)
 	if not rect.has_area():
@@ -2031,6 +2094,12 @@ func clients_feet_on(map: int) -> Array[Vector2]:
 	return out
 
 
+## M11c: the feet of the live creatures on map `map` (M11a: they count as bodies for blocking pieces, placing and closing doors).
+func creature_feet(map: int) -> Array[Vector2]:
+	var herd: Creatures = herd_on(map)
+	return herd.feet() if herd != null else ([] as Array[Vector2])
+
+
 ## The feet of the live heretics on map `map`.
 func heretic_feet(map: int) -> Array[Vector2]:
 	var out: Array[Vector2] = []
@@ -2040,6 +2109,18 @@ func heretic_feet(map: int) -> Array[Vector2]:
 			if h.alive():
 				out.append(h.pos)
 	return out
+
+
+## M11c results: the herd (alive, killed, captured, refused blows), the batches sent, the captures and why some were refused, the
+## world's collection, the rare zone.
+func hunt_result() -> Dictionary:
+	var herd: Creatures = herd_on(Config.MAP_SURFACE)
+	var col: Collection = collection()
+	return {"alive": herd.alive_count() if herd != null else 0, "stats": herd.stats if herd != null else {}, "kills": hunt_kills,
+		"refused": hunt_refused, "captures": captures, "capture_refusals": capture_refusals, "batches": creature_batches_sent,
+		"keyframes": creature_keyframes_sent, "bytes": creature_bytes_sent, "collection_msgs": collection_msgs_sent,
+		"collection": col.describe() if col != null else "none",
+		"zone": s.world.data.rare_zone.describe() if s.world.data.rare_zone != null else "none"}
 
 
 ## M5c results: per map the farm's counters; the tiles purified; the altar's lifts and puts and where it was last picked up.
@@ -2067,6 +2148,7 @@ func others_on(map: int, p: Player) -> Array[Vector2]:
 func bodies_but(map: int, p: Player) -> Array[Vector2]:
 	var out: Array[Vector2] = others_on(map, p)
 	out.append_array(heretic_feet(map))
+	out.append_array(creature_feet(map))  # M11c: M11a's rule (offline Main._other_bodies)
 	return out
 
 
@@ -2334,7 +2416,7 @@ func _step_shop() -> void:
 	if sh == null:
 		return
 	var before: PackedByteArray = sh.stock_bytes()
-	if not sh.step():
+	if not sh.step(collection()):  # M11c: the world benefit's shorter period
 		return
 	restocks += 1
 	for i: int in sh.changed_since(before):
@@ -2421,6 +2503,8 @@ func _refuse_shop(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> v
 func _refuse_early(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
 	if frame.op == NetProtocol.Op.BUY or frame.op == NetProtocol.Op.SELL:
 		_refuse_shop(m, frame, why)
+	elif frame.op == NetProtocol.Op.CAPTURE:
+		_refuse_capture(m, frame, why)  # M11c
 	else:
 		_refuse_op(m, frame, why)
 
@@ -2562,6 +2646,263 @@ func shop_result() -> Dictionary:
 	return {"buys": buys, "sales": sales, "restocks": restocks, "merchant_moves": merchant_moves,
 		"merchant": "%d,%d" % [at.x, at.y] if at != Walls.NO_CELL else "none", "stock": sh.describe() if sh != null else "none",
 		"refused": shop_refusals}
+
+
+# --- hunting, capture, the collection (M11c) ---------------------------------------------------------------------------------
+
+## The world's collection (the surface's WorldData.collection; null before _setup_collection).
+func collection() -> Collection:
+	return s.world.data.collection if s.world != null and s.world.data != null else null
+
+
+## One Collection for the world, on every map's data (offline Main._share_collection's rule). A world that came with one keeps it.
+func _setup_collection() -> void:
+	if s.world == null or s.world.data == null:
+		return
+	if s.world.data.collection == null:
+		s.world.data.collection = Collection.new()
+	for map: int in s.worlds:
+		var w: GameWorld = s.worlds[map]
+		if w != null and w.data != null:
+			w.data.collection = s.world.data.collection
+
+
+## The test flags offline Main reads in _apply_test_options: --test-creature around the host's own player, --test-near-creature beside it,
+## --test-collection. They go in before anyone joins.
+func _setup_test_creatures() -> void:
+	var herd: Creatures = herd_on(Config.MAP_SURFACE)
+	if herd == null:
+		return
+	var feet: Vector2 = s.local.player.sim_position
+	herd.put_ring(s.options.test_creatures, feet)
+	if not s.options.test_near_creature.is_empty():
+		var kind: StringName = s.options.test_near_creature[0]
+		var pct: int = s.options.test_near_creature[1]
+		herd.put_resting(kind, feet + Vector2(Config.CAPTURE_TEST_NEAR_PX, 0.0), pct)
+	if s.options.test_collection >= 0 and collection() != null:
+		collection().put_test(s.options.test_collection, s.options.test_collection_kills)
+
+
+## M11c, test only (bot "creature"): a creature on a tile of the surface now, out of breath at the given percent when it has one.
+func _put_bot_creature(action: NetBot.Action) -> void:
+	var herd: Creatures = herd_on(Config.MAP_SURFACE)
+	if herd == null:
+		return
+	var feet: Vector2 = Arena.spawn_feet(action.creature_cell)
+	var c: CreatureSim = herd.put_resting(action.creature, feet, action.creature_pct) if action.creature_pct > 0 \
+		else herd.spawn(action.creature, feet)
+	s.log_event("creature", "id=%d kind=%s hp=%d at=%d,%d" % [c.id, c.kind, c.hp, action.creature_cell.x, action.creature_cell.y])
+
+
+## The herd of map `map` (null: none there).
+func herd_on(map: int) -> Creatures:
+	var a: Arena = arenas.get(map, null)
+	return a.herd if a != null else null
+
+
+## The herd of the host's own player's map (Player.herd_provider).
+func _local_herd() -> Creatures:
+	return herd_on(s.local.map_id) if s.local != null else null
+
+
+## One tick of the world's creatures (the game clock, whoever is on the surface: the offline Main's rule): the kills' drops and a
+## capture's overflow go out as world edits, the kills and refused blows to the log, the collection hears what the members hold.
+func _step_creatures() -> void:
+	var herd: Creatures = herd_on(Config.MAP_SURFACE)
+	if herd == null:
+		return
+	for e: EditLog.WorldEdit in herd.step(players_on(Config.MAP_SURFACE)):
+		apply_world_edit(e, Config.MAP_SURFACE)
+		_changed = true
+	for k: Creatures.Kill in herd.kills:
+		var by: NetMember = member_of(k.by)
+		hunt_kills += 1
+		if by != null:
+			by.count_combat("creature_kills")
+		s.log_event("hunt", "killed slot=%d kind=%s by=%s at=%d,%d drops=%s" % [by.slot if by != null else -1, k.kind,
+			k.who if not k.who.is_empty() else "?", k.at.x, k.at.y, Creatures.describe_drops(k.drops)])
+	herd.kills.clear()
+	for r: Creatures.Kill in herd.refusals:
+		var who: NetMember = member_of(r.by)
+		hunt_refused += 1
+		if who != null:
+			who.count_combat("creature_refused")
+		s.log_event("hunt", "refused slot=%d kind=%s by=%s: archer only" % [who.slot if who != null else -1, r.kind,
+			r.who if not r.who.is_empty() else "?"])
+	herd.refusals.clear()
+	_note_collection()
+	if views.has(Config.MAP_SURFACE) and is_instance_valid(views[Config.MAP_SURFACE]):
+		views[Config.MAP_SURFACE].sync_creatures()
+
+
+## What the members hold counts (Collection.note_inventory), then the log hears what was registered and which benefit lit.
+func _note_collection() -> void:
+	var col: Collection = collection()
+	if col == null:
+		return
+	for slot: int in s.slots():
+		col.note_inventory(s.members[slot].player.inventory)
+	var fresh: Array[StringName] = col.take_fresh()
+	var at: int = col.count() - fresh.size()
+	for id: StringName in fresh:
+		at += 1
+		var unit: String = Collection.row_of(id)["unit"]
+		s.log_event("collection", "entry=%s unit=%s count=%d/%d" % [id, unit, at, Collection.total()])
+		for which: StringName in Config.COLLECTION_BENEFITS:
+			if Config.COLLECTION_BENEFITS[which] == at:
+				s.log_event("collection", "benefit=%s at=%d" % [which, at])
+
+
+## CAPTURE (a click with the snare at a creature): a dash pressed in the same frame refuses it (the dash wins, as for a skill), the request
+## budget ("rate"), then the offline rule on the host's own state (Capture.refusal: up, not carrying, not praying, an archer, a
+## snare, the creature with that id alive, rare, in reach, its HP low enough), the snare in the hotbar slot the request names, its
+## target tile in reach (it only turns the player, like a USE's), not busy. The frame then plays the throw (run_frame's step); its start
+## holds the creature, its impact frame takes it (_capture_land). Refused: nothing is spent, the creature shows the refused mark.
+func _capture(m: NetMember, frame: NetProtocol.InputFrame) -> void:
+	var p: Player = m.player
+	if frame.dash:
+		_refuse_capture(m, frame, Skills.WHY_BUSY)
+		return
+	if not m.take_op():
+		_refuse_capture(m, frame, "rate")
+		return
+	var herd: Creatures = herd_on(m.map_id)
+	var c: CreatureSim = herd.by_id(frame.capture_id) if herd != null else null
+	var why: String = Capture.refusal(p, c)
+	var st: ItemStack = p.inventory.stack_at(frame.slot) if frame.slot < p.inventory.hotbar_size else null
+	if why.is_empty() and (st == null or not Capture.is_snare(st.id)):
+		why = Capture.WHY_NO_SNARE
+	if why.is_empty() and not WorldItems.in_reach(p.sim_position, frame.cell):
+		why = WorldItems.WHY_REACH
+	if why.is_empty() and busy(p):
+		why = WHY_BUSY
+	if not why.is_empty():
+		if c != null:
+			c.refused_ticks = Config.CREATURE_REFUSED_SHOW_TICKS
+		_refuse_capture(m, frame, why)
+		return
+	frame.anim = Config.CAPTURE_ANIM
+	frame.item = st.id
+
+
+## Member `m`'s snare reaches its impact frame: Capture.land on its map's herd (the offline rule, everything checked again): one snare
+## and the creature are gone, the entry registers (Creatures.capture), the material goes into its inventory (what does not fit lies
+## down: an edit of _step_creatures), the catch shows. Refused (it died meanwhile, ...): nothing is spent.
+func _capture_land(m: NetMember) -> void:
+	var p: Player = m.player
+	var r: Capture.Landed = Capture.land(p, herd_on(m.map_id), p.action_capture)
+	if not r.ok():
+		var n: int = capture_refusals.get(r.why, 0)
+		capture_refusals[r.why] = n + 1
+		m.count_refused(r.why)
+		s.log_event("capture", "slot=%d refused on landing: %s" % [m.slot, r.why])
+		return
+	var a: Arena = arenas.get(m.map_id, null)
+	if a != null:
+		a.add_burst(Arena.BurstKind.CAPTURE, r.at, float(Config.TILE), 0, p.get_instance_id())
+	captures += 1
+	m.count_combat("captures")
+	m.inventory_dirty = true
+	_changed = true
+	s.log_event("capture", "slot=%d caught kind=%s at=%d,%d material=%d dropped=%d snares=%d" % [m.slot, r.kind, roundi(r.at.x),
+		roundi(r.at.y), r.given, r.dropped, p.inventory.count_of(Capture.SNARE)])
+
+
+## A refused CAPTURE: counted by reason (the results) and like any refused request (_refuse_op).
+func _refuse_capture(m: NetMember, frame: NetProtocol.InputFrame, why: String) -> void:
+	var n: int = capture_refusals.get(why, 0)
+	capture_refusals[why] = n + 1
+	_refuse_op(m, frame, why)
+
+
+## The states of `herd`'s creatures now (their list's order); a snare's thrower by its slot.
+func _creature_states(herd: Creatures) -> Array[NetProtocol.CreatureState]:
+	var out: Array[NetProtocol.CreatureState] = []
+	for c: CreatureSim in herd.list:
+		out.append(NetProtocol.creature_of(c, _holder_slot(c.held_by)))
+	return out
+
+
+## The slot of the player with node instance id `id` (a snare's thrower) while that player is still there: _slot_by_id keeps those who left
+## (the prayer's events), and M11 review: their slot may be someone else's by now. NetProtocol.NO_SLOT otherwise.
+func _holder_slot(id: int) -> int:
+	var slot: int = _slot_by_id.get(id, NetProtocol.NO_SLOT)
+	var m: NetMember = s.members.get(slot, null)
+	return slot if m != null and m.player.get_instance_id() == id else NetProtocol.NO_SLOT
+
+
+## Those of `all` that a player whose feet are at `feet` on a map of `area` can see (Config.NET_CREATURE_VIEW_PX, a box like the screen).
+## M11 review: at the map's edge the camera stops and the player walks on past the middle of the screen: the box stops there too.
+static func in_view(all: Array[NetProtocol.CreatureState], feet: Vector2, area: Rect2) -> Array[NetProtocol.CreatureState]:
+	var box: Vector2 = Config.NET_CREATURE_VIEW_PX
+	var centre: Vector2 = PlayerCamera.clamp_center(feet, area, box * 2.0)
+	var out: Array[NetProtocol.CreatureState] = []
+	for e: NetProtocol.CreatureState in all:
+		if absf(e.pos.x - centre.x) <= box.x and absf(e.pos.y - centre.y) <= box.y:
+			out.append(e)
+	return out
+
+
+## Each client on the surface: on a batch tick the creatures in its view while they changed, a reliable keyframe once they stop (its own
+## StateBroadcast: M4b's rule per client, since two players see different creatures).
+func _send_creatures(batch_tick: bool) -> void:
+	var herd: Creatures = herd_on(Config.MAP_SURFACE)
+	if not batch_tick or herd == null:
+		return
+	var peers: Array[int] = peers_on(Config.MAP_SURFACE)
+	if peers.is_empty():
+		return
+	var all: Array[NetProtocol.CreatureState] = _creature_states(herd)
+	var area: Rect2 = s.world_of(Config.MAP_SURFACE).map_rect_px()
+	for peer: int in peers:
+		var m: NetMember = s.members[roster.slot_of(peer)]
+		var payload: PackedByteArray = NetProtocol.encode_creatures(s.tick, in_view(all, m.player.sim_position, area))
+		m.creature_cast.note_activity(s.tick)
+		match m.creature_cast.decide_encoded(s.tick, payload):
+			StateBroadcast.Send.BATCH:
+				s.send_wild(peer, payload)
+				creature_batches_sent += 1
+				creature_bytes_sent += payload.size()
+			StateBroadcast.Send.KEYFRAME:
+				s.send_wild_keyframe(peer, payload)
+				creature_keyframes_sent += 1
+				creature_bytes_sent += payload.size()
+
+
+## A member who just arrived on the surface (welcome, map entry): the creatures in its view, reliable.
+func _creature_snapshot(peer: int) -> void:
+	var herd: Creatures = herd_on(Config.MAP_SURFACE)
+	var slot: int = roster.slot_of(peer)
+	if herd == null or not s.members.has(slot):
+		return
+	var m: NetMember = s.members[slot]
+	var area: Rect2 = s.world_of(Config.MAP_SURFACE).map_rect_px()
+	var payload: PackedByteArray = NetProtocol.encode_creatures(s.tick, in_view(_creature_states(herd), m.player.sim_position, area))
+	s.send_wild_keyframe(peer, payload)
+	m.creature_cast.sent(payload)
+	creature_keyframes_sent += 1
+	creature_bytes_sent += payload.size()
+
+
+## The collection to every client when it changed (absolute; a client on any map, since its panel shows it there too).
+func _send_collection() -> void:
+	var col: Collection = collection()
+	if col == null or col.revision == _collection_sent:
+		return
+	_collection_sent = col.revision
+	var payload: PackedByteArray = NetProtocol.encode_collection(col)
+	for peer: int in remote_peers():
+		s.send_tally(peer, payload)
+		collection_msgs_sent += 1
+
+
+## A member who just arrived (welcome, map entry): the collection as it is now, after the snapshot that may be older.
+func send_collection_snapshot(peer: int) -> void:
+	var col: Collection = collection()
+	if col == null:
+		return
+	s.send_tally(peer, NetProtocol.encode_collection(col))
+	collection_msgs_sent += 1
 
 
 # --- the group prayer and meditation (M10b) -------------------------------------------------------------------------------

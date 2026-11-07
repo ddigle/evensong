@@ -100,6 +100,9 @@ const ART_SOURCES: Dictionary[String, String] = {
 	"res://art/env/crops_v03_sheet.png": "assets/concept/04-env/crops_v03_sheet.png",
 	# M5b: holy water's icon and the ash smears purification shows for a moment.
 	"res://art/items/item_holy_water_a_v02.png": "assets/concept/04-env/item_holy_water_a_v02.png",
+	# M11a: the two hides.
+	"res://art/items/item_leather_a_v02.png": "assets/concept/04-env/item_leather_a_v02.png",
+	"res://art/items/item_leather_c_v03.png": "assets/concept/04-env/item_leather_c_v03.png",
 	"res://art/env/decal_ashcreep_1_v01.png": "assets/concept/04-env/decal_ashcreep_1_v01.png",
 	"res://art/env/decal_ashcreep_2_v01.png": "assets/concept/04-env/decal_ashcreep_2_v01.png",
 	"res://art/env/decal_ashcreep_3_v01.png": "assets/concept/04-env/decal_ashcreep_3_v01.png",
@@ -863,5 +866,6 @@ func _check_main_scene() -> void:
 	check_eq(dummy_classes, PackedStringArray(["paladin", "miner", "archer", "herbalist"]), "dummies are the other classes")
 	var items: int = world.items.plants.size() + world.items.drops.size()
 	var trees: int = Forest.tree_cells(world.data).size()
-	check_eq(world.entities.get_child_count() - items - trees, 1 + 1 + 4 + 1 + 1,
+	var creatures: int = main.combat_views[Config.MAP_SURFACE].creatures.size()  # M11a: the herd's views
+	check_eq(world.entities.get_child_count() - items - trees - creatures, 1 + 1 + 4 + 1 + 1,
 		"entities: altar + player + 4 dummies (old ones freed) + the dungeon entrance (M3a) + the merchant (M8a) besides the %d gatherables and drops (M2b) and the %d trees (M7b)" % [items, trees])

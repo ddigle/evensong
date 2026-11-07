@@ -90,11 +90,23 @@ extends RefCounted
 ##   --test-pray=<letters>[,...]  one script per --test-ally in order: the ally joins every prayer's gather and answers its own
 ##                                turns by the letters (c right, w wrong, l late = no answer, q quit as its turn opens; past
 ##                                the end the last letter), so one process shows a prayer of several
+## M11a (offline screenshot / test flags; M11c: a session host's too: --test-creature, --test-near-creature around its own player,
+## --test-collection, --test-no-creatures):
+##   --test-creature=<kind>:<n>[,...]   that many creatures of that kind (Config.CREATURES) around the local player on the surface
+##                                at the start, Config.CREATURE_TEST_RING_PX from its feet, past the caps
+##   --test-no-creatures          no creature spawns or respawns by itself (the test creatures still come)
+## M11b (offline screenshot / test flags):
+##   --test-at-zone=<dx>,<dy>     the local player stands this many tiles from the rare zone's middle tile
+##   --test-near-creature=<kind>:<pct>   one creature of that kind out of breath Config.CAPTURE_TEST_NEAR_PX east of the local player, at
+##                                pct percent of its HP (a snare's reach)
+##   --test-collection=<n>[,<kills>]     the first n entries of Config.COLLECTION_ENTRIES registered, that many kills counted
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
 
 const DEFAULT_FRAMES: int = 10
+## M11a: most creatures one --test-creature entry puts down.
+const TEST_CREATURES_MAX: int = 16
 
 var smoke: bool = false
 var host: bool = false
@@ -167,6 +179,14 @@ var test_wear: int = 0
 ## M7b test flag: [tile (Vector2i), piece (StringName: a build piece's item id, or &"door_open")] per piece put down at the
 ## start without the building rules.
 var test_build: Array[Array] = []
+## M11a test flags: [kind (StringName), n] per entry; natural creature spawns off.
+var test_creatures: Array[Array] = []
+var test_no_creatures: bool = false
+## M11b test flags: tiles from the zone's middle (null = none); [kind, percent] ([] = none); entries (-1 = none) and kills.
+var test_at_zone: Variant = null
+var test_near_creature: Array = []
+var test_collection: int = -1
+var test_collection_kills: int = 0
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -179,6 +199,22 @@ static func current() -> CliOptions:
 	if _current == null:
 		_current = parse(OS.get_cmdline_user_args())
 	return _current
+
+
+## M11a: --test-creature=<kind>:<n>[,...]: [kind, n] rows; a kind outside Config.CREATURES or a count outside 1..16 is an error.
+static func _parse_creatures(value: String, raw: String, errors: PackedStringArray) -> Array[Array]:
+	var out: Array[Array] = []
+	for part: String in value.split(",", false):
+		var kv: PackedStringArray = part.split(":")
+		if kv.size() != 2 or not Config.CREATURES.has(StringName(kv[0])) or not kv[1].is_valid_int() or kv[1].to_int() < 1 \
+				or kv[1].to_int() > TEST_CREATURES_MAX:
+			errors.append("%s: expected --test-creature=<%s>:<1..%d>[,...]" % [raw, "|".join(Config.CREATURES.keys()),
+				TEST_CREATURES_MAX])
+			return []
+		out.append([StringName(kv[0]), kv[1].to_int()])
+	if out.is_empty():
+		errors.append("%s: expected --test-creature=<kind>:<n>[,...]" % raw)
+	return out
 
 
 static func parse(argv: PackedStringArray) -> CliOptions:
@@ -365,6 +401,31 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.test_dungeon_heretics = _parse_tiles(value, raw, o.errors)
 			"test-no-spawns":
 				o.test_no_spawns = true
+			"test-no-creatures":
+				o.test_no_creatures = true
+			"test-creature":
+				o.test_creatures = _parse_creatures(value, raw, o.errors)
+			"test-at-zone":
+				var zone_xy: PackedStringArray = value.split(",")
+				if zone_xy.size() != 2 or not zone_xy[0].is_valid_int() or not zone_xy[1].is_valid_int():
+					o.errors.append("%s: expected --test-at-zone=<dx>,<dy>" % raw)
+				else:
+					o.test_at_zone = Vector2i(zone_xy[0].to_int(), zone_xy[1].to_int())
+			"test-near-creature":
+				var near: PackedStringArray = value.split(":")
+				if near.size() != 2 or not Config.CREATURES.has(StringName(near[0])) or not near[1].is_valid_int() \
+						or near[1].to_int() < 1 or near[1].to_int() > 100:
+					o.errors.append("%s: expected --test-near-creature=<%s>:<1..100>" % [raw, "|".join(Config.CREATURES.keys())])
+				else:
+					o.test_near_creature = [StringName(near[0]), near[1].to_int()]
+			"test-collection":
+				var col: PackedStringArray = value.split(",")
+				if col.size() > 2 or not col[0].is_valid_int() or col[0].to_int() < 0 or col[0].to_int() > Collection.total() \
+						or (col.size() == 2 and (not col[1].is_valid_int() or col[1].to_int() < 0)):
+					o.errors.append("%s: expected --test-collection=<0..%d>[,<kills>]" % [raw, Collection.total()])
+				else:
+					o.test_collection = col[0].to_int()
+					o.test_collection_kills = col[1].to_int() if col.size() == 2 else 0
 			"test-start-hp":
 				for part: String in value.split(",", false):
 					var kv: PackedStringArray = part.split(":")

@@ -59,6 +59,8 @@ var fields: FieldView
 var purify_view: PurifyView
 ## M7b: the built pieces (world/build_view.gd), above the decals, below the purification view and the entities.
 var builds: BuildView
+## M11b: the rare zone's picture (show_rare_zone, once the herd has placed it).
+var rare_view: RareZoneView
 ## M7b: edits applied since this world was loaded. M7c: chest slot edits applied (an open chest panel redraws on them).
 var revision: int = 0
 var chest_edits: int = 0
@@ -150,7 +152,18 @@ func load_data(p_data: WorldData) -> void:
 		camera.position = camera.clamp_to_bounds(data.altar_center_px())
 		camera.reset_smoothing()
 	overlay.setup(data)
+	if rare_view != null:
+		rare_view.setup(data)  # M11b
 	generated.emit()
+
+
+## M11b: shows this map's rare zone (data.rare_zone; the herd places it when the world starts): above the fields, below the decals.
+func show_rare_zone() -> void:
+	if rare_view == null:
+		rare_view = RareZoneView.new()
+		add_child(rare_view)
+		move_child(rare_view, decals.get_index())
+	rare_view.setup(data)
 
 
 func _place_altar() -> void:

@@ -166,12 +166,13 @@ func left_of(item: StringName) -> int:
 
 
 ## One game tick: the clock runs on; every Config.SHOP_RESTOCK_TICKS (0 = never; M8b: restock_ticks, the test hook) the stock
-## comes back. Returns whether it did.
-func step() -> bool:
+## comes back. Returns whether it did. M11b: `world` = the world's collection: its world benefit shortens the period
+## (Collection.restock_ticks). The clock already running is kept: past the shorter period, the stock comes back on the next tick.
+func step(world: Collection = null) -> bool:
 	if restock_ticks <= 0:
 		return false
 	clock += 1
-	if clock < restock_ticks:
+	if clock < (world.restock_ticks(restock_ticks) if world != null else restock_ticks):
 		return false
 	clock = 0
 	restocks += 1

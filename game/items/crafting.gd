@@ -42,6 +42,8 @@ extends RefCounted
 ## cheaper repair is the class-only tier and comes with the engineer (not in the slice).
 ## M7b: the build pieces at the basic workbench and the axe by hand (Config.BUILD_RECIPES, PROVISIONAL README "임시값" M7b),
 ## appended after the repairs (26..30), anyone's.
+## M11b: the snare (the archer's, like the herbalist's poison potion) and the rare armour (Config.COLLECTION_RECIPES), and the rare armour's
+## repair, appended after those. An Ingredient may take any of several items (`others`: the snare's wood and hide).
 
 ## Station kinds. M7a: the workbench, the anvil, the relic bench, and HAND (no station).
 const ALCHEMY: StringName = &"alchemy"
@@ -72,17 +74,24 @@ const WHY_NOTHING_TO_REPAIR: String = "nothing to repair"
 const WHY_NO_REPAIR: String = "repair is the engineer's work"
 
 
-## One input of a recipe: `count` of `item` at `grade` (-1 = any grade).
+## One input of a recipe: `count` of `item` at `grade` (-1 = any grade). M11b: `others` = items that do as well (taken after `item`).
 class Ingredient:
 	extends RefCounted
 	var item: StringName
 	var count: int
 	var grade: int
+	var others: Array[StringName] = []
 
 	func _init(p_item: StringName, p_count: int, p_grade: int = -1) -> void:
 		item = p_item
 		count = p_count
 		grade = p_grade
+
+	## Every item that does, the first taken first.
+	func items() -> Array[StringName]:
+		var out: Array[StringName] = [item]
+		out.append_array(others)
+		return out
 
 
 class Recipe:
@@ -173,17 +182,26 @@ static func _build_potions() -> void:
 static func _build_chain() -> void:
 	_add_rows(Config.STATION_RECIPES)
 	for item: StringName in Config.GEAR_REPAIR_MATERIAL:
-		var rr: Recipe = Recipe.new()
-		rr.id = StringName("repair_%s" % item)
-		rr.station = ANVIL
-		rr.repair = item
-		rr.inputs.append(Ingredient.new(Config.GEAR_REPAIR_MATERIAL[item], Config.GEAR_REPAIR_COST_ANYONE))
-		rr.output = item
-		_recipes.append(rr)
+		_add_repair(item, Config.GEAR_REPAIR_MATERIAL[item])
 	_add_rows(Config.BUILD_RECIPES)  # M7b
+	_add_rows(Config.COLLECTION_RECIPES)  # M11b
+	for rare_item: StringName in Config.GEAR_REPAIR_RARE:
+		_add_repair(rare_item, Config.GEAR_REPAIR_RARE[rare_item])
 
 
-## Recipes from rows [station, output, count, [[input, count], ...]] (Config.STATION_RECIPES, BUILD_RECIPES), anyone's.
+## One repair recipe for `item`, at the anvil, from `material`.
+static func _add_repair(item: StringName, material: StringName) -> void:
+	var rr: Recipe = Recipe.new()
+	rr.id = StringName("repair_%s" % item)
+	rr.station = ANVIL
+	rr.repair = item
+	rr.inputs.append(Ingredient.new(material, Config.GEAR_REPAIR_COST_ANYONE))
+	rr.output = item
+	_recipes.append(rr)
+
+
+## Recipes from rows [station, output, count, [[input, count], ...]] (Config.STATION_RECIPES, BUILD_RECIPES), anyone's. M11b: a fifth column
+## names the classes that may craft it (empty = anyone), and an input may be [[item, item, ...], count] (any of them).
 static func _add_rows(rows: Array) -> void:
 	for row: Array in rows:
 		var r: Recipe = Recipe.new()
@@ -196,9 +214,18 @@ static func _add_rows(rows: Array) -> void:
 		r.id = out_item
 		var pairs: Array = row[3]
 		for pair: Array in pairs:
-			var in_item: StringName = pair[0]
+			var names: Array = pair[0] if pair[0] is Array else [pair[0]]
+			var in_item: StringName = names[0]
 			var in_count: int = pair[1]
-			r.inputs.append(Ingredient.new(in_item, in_count))
+			var ing: Ingredient = Ingredient.new(in_item, in_count)
+			for k: int in range(1, names.size()):
+				var other: StringName = names[k]
+				ing.others.append(other)
+			r.inputs.append(ing)
+		if row.size() > 4:
+			var only: Array = row[4]
+			for class_id: String in only:
+				r.classes.append(class_id)
 		_recipes.append(r)
 
 
@@ -255,7 +282,10 @@ static func unlocked(r: Recipe, inv: Inventory) -> bool:
 	if not Config.RECIPES_UNLOCK_ON_FIRST_GET:
 		return true
 	for i: Ingredient in r.inputs:
-		if not inv.has_seen(i.item):
+		var seen_one: bool = false
+		for id: StringName in i.items():
+			seen_one = seen_one or inv.has_seen(id)
+		if not seen_one:
 			return false
 	return not r.is_repair() or inv.has_seen(r.repair)
 
@@ -364,6 +394,22 @@ static func have(inv: Inventory, item: StringName, grade: int) -> int:
 	return inv.count_of(item, grade)
 
 
+## M11b: how many `inv` holds of what will do for input `i`.
+static func have_input(inv: Inventory, i: Ingredient) -> int:
+	var n: int = 0
+	for id: StringName in i.items():
+		n += have(inv, id, i.grade)
+	return n
+
+
+## M11b: the item a panel shows for input `i`: the first one `inv` holds, else the first one.
+static func shown_input(inv: Inventory, i: Ingredient) -> StringName:
+	for id: StringName in i.items():
+		if have(inv, id, i.grade) > 0:
+			return id
+	return i.item
+
+
 ## Why a player of `class_id` with `inv` may not craft `r` now ("" = it may). Checks the class, the inputs
 ## and the room for the output after the inputs are out. M7a: a repair needs a worn one of its item (no room needed).
 static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
@@ -376,7 +422,7 @@ static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
 	if not r.allows(class_id):
 		return r.class_refusal()
 	for i: Ingredient in r.inputs:
-		if have(inv, i.item, i.grade) < i.count:
+		if have_input(inv, i) < i.count:
 			return WHY_MISSING
 	if r.is_repair():
 		return "" if Gear.most_worn(inv, r.repair) != null else WHY_NOTHING_TO_REPAIR
@@ -413,16 +459,18 @@ static func craft(r: Recipe, class_id: String, inv: Inventory) -> Outcome:
 	return o
 
 
-## Takes `r`'s inputs out of `inv` (checked before): each from the last matching slot first.
+## Takes `r`'s inputs out of `inv` (checked before): each from the last matching slot first. M11b: an input of several items takes the
+## first of them while there is any.
 static func _take_inputs(r: Recipe, inv: Inventory) -> void:
 	for i: Ingredient in r.inputs:
 		var need: int = i.count
-		for slot: int in range(inv.size() - 1, -1, -1):
-			if need == 0:
-				break
-			var s: ItemStack = inv.stack_at(slot)
-			if s != null and s.id == i.item and (i.grade < 0 or s.grade == i.grade):
-				need -= inv.remove(slot, mini(need, s.count))
+		for id: StringName in i.items():
+			for slot: int in range(inv.size() - 1, -1, -1):
+				if need == 0:
+					break
+				var s: ItemStack = inv.stack_at(slot)
+				if s != null and s.id == id and (i.grade < 0 or s.grade == i.grade):
+					need -= inv.remove(slot, mini(need, s.count))
 
 
 ## A detached copy of `inv` (stacks, selection, what it has seen; M7a: the worn armour) to try a craft on.
