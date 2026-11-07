@@ -1471,6 +1471,7 @@ const SKILL_STUN_FRAME: int = 1
 const NET_SKILLS_COPY_STEPS: int = 8
 ## IMPL (M11c): a client gets the creatures within this box around its player (half width, half height, px): the view is VIEW_SIZE at
 ## 16:9, wider on a 21:9 screen (aspect expand: half width 320), and 20 px of margin. So a herd wandering far off sends it nothing.
+## M11 review: the box stops at the map's edge as the camera does (SessionHost.in_view), so a view that fits in it always lies inside it.
 const NET_CREATURE_VIEW_PX: Vector2 = Vector2(340.0, 200.0)
 ## IMPL (M11c): on a host a snare holds a creature this many ticks more than offline: the hold counts host ticks, the throw a client's
 ## frames, which a lost packet or the input jitter buffer (NET_INPUT_JITTER_FRAMES) can bring a few ticks late. Only a fleeing creature
@@ -1516,6 +1517,10 @@ const CREATURE_SALT: int = 0xC2EA7
 const CREATURE_ARRIVE_PX: float = 1.5
 const CREATURE_DROP_SPREAD_PX: int = 8
 const CREATURE_TEST_RING_PX: float = 104.0
+## IMPL (M11 review): a creature that stands where it may not (Creatures._walk_clear) looks along each of the eight ways, CREATURE_CLEAR_STEP_PX at a
+## time, this far for ground it may stand on; farther than that it goes straight out of the light.
+const CREATURE_CLEAR_REACH_PX: float = 320.0
+const CREATURE_CLEAR_STEP_PX: float = 8.0
 ## IMPL (M11b): random centres RareZone.place tries before it walks every tile (RARE_ZONE_SALT with the world seed: its own stream); a
 ## rare creature keeps its feet box this far inside the zone when it is put down; a click of no use on a rare creature marks it this many
 ## ticks; a held creature waits this many ticks past the snare's impact frame (the hold ends by itself when the throw is cut off);

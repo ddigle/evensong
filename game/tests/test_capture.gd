@@ -34,6 +34,7 @@ func run() -> Array[String]:
 	_check_arrows_land()
 	_check_marks()
 	await _check_main()
+	await _check_after_host_lost()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -302,6 +303,11 @@ func _check_target() -> void:
 	check_eq(Capture.target_at(a.herd, mid + Vector2(reach + 1.0, 0.0)), null, "a px past it")
 	var c2: CreatureSim = held_still(a, &"ash_owl", Vector2(216, 200))
 	check_eq(Capture.target_at(a.herd, Creatures.aim_point(c2)), c2, "the nearer of two")
+	# M11 review: two whose grabs overlap: the nearer, whichever the list has first.
+	var near_a: CreatureSim = held_still(a, &"silver_stag", Vector2(300, 300))
+	var near_b: CreatureSim = held_still(a, &"silver_stag", Vector2(306, 300))
+	check_eq(Capture.target_at(a.herd, Creatures.aim_point(near_a) - Vector2(2.0, 0.0)), near_a, "the nearer, first in the list")
+	check_eq(Capture.target_at(a.herd, Creatures.aim_point(near_b) + Vector2(2.0, 0.0)), near_b, "the nearer, last in the list")
 	var c3: CreatureSim = held_still(a, &"lamp_fox", Vector2(400, 200))
 	check_eq(Capture.target_at(a.herd, Creatures.aim_point(c3)), c3, "one alone")
 	c3.hp = 0
@@ -737,6 +743,58 @@ func _check_marks() -> void:
 	check_eq(CombatView.BURST_COLOURS.size(), Arena.BurstKind.size(), "colours per burst")
 
 
+## M11 review: a client that lost the host plays on alone: its snare leaves the session's mirror herd for the offline one and takes a creature.
+func _check_after_host_lost() -> void:
+	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
+	add_node(main)
+	await await_frames(2)
+	main.arenas[Config.MAP_SURFACE].spawning = false
+	main.spawn("archer")
+	var p: Player = main.player
+	p.local_input = false
+	# What a session left behind: the mirror's herd on the provider, no refusal handler. And the three signals _go_offline_combat connects.
+	var mirror: Creatures = Creatures.mirror(main.world.data)
+	p.herd_provider = func() -> Creatures: return mirror
+	p.capture_refused.disconnect(main._on_capture_refused)
+	p.died.disconnect(main._on_died.bind(p))
+	p.respawn_due.disconnect(main._on_respawn_due.bind(p))
+	p.hurt.disconnect(main._on_hurt.bind(p))
+	check_eq(p.herd_here(), mirror, "the session's mirror herd")
+	main._go_offline_combat()
+	var herd: Creatures = main.arenas[Config.MAP_SURFACE].herd
+	check_eq(p.herd_here(), herd, "offline: the snare is on the world's herd")
+	check(p.capture_refused.is_connected(main._on_capture_refused), "offline: a refusal shows")
+	herd.spawning = false
+	var fox: CreatureSim = null
+	for c: CreatureSim in herd.list:
+		if c.kind == &"lamp_fox":
+			fox = c
+	if not check(fox != null, "offline: the fox"):
+		return
+	p.teleport(fox.pos + Vector2(-Config.CAPTURE_TEST_NEAR_PX, 0.0))
+	herd.rest(fox)
+	fox.state_ticks = -100000
+	fox.hp = 4
+	p.inventory.add(Capture.SNARE, 1)
+	var slot: int = -1
+	for i: int in p.inventory.size():
+		var s: ItemStack = p.inventory.stack_at(i)
+		if s != null and s.id == Capture.SNARE:
+			slot = i
+	p.inventory.select(slot)
+	var mouse: Vector2 = Creatures.aim_point(fox)
+	p.begin_tick()
+	p.tick_controls(Vector2i.ZERO, mouse, true, true, true, TICK)
+	check_eq(p.action_anim, Config.CAPTURE_ANIM, "offline: the click throws the snare")
+	for t: int in Capture.impact_tick():
+		p.begin_tick()
+		p.tick_controls(Vector2i.ZERO, mouse, true, false, false, TICK)
+		main.step_combat(TICK)
+		main.step_creatures()
+	check_eq(herd.by_id(fox.id), null, "offline: it took the fox")
+	check(main.world_collection().has(&"take_lamp_fox"), "offline: the entry")
+
+
 func _check_main() -> void:
 	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
 	add_node(main)
@@ -774,6 +832,16 @@ func _check_main() -> void:
 	check_eq(p.inventory.count_of(Capture.SNARE), 2, "main: too healthy: nothing spent")
 	check_eq(fox.refused_ticks, Config.CREATURE_REFUSED_SHOW_TICKS, "main: the refused mark")
 	check_eq(p.action_anim, -1, "main: no throw")
+	# Out of reach: the same mark, the reason does not matter (M11 review).
+	var stood: Vector2 = p.sim_position
+	fox.refused_ticks = 0
+	p.teleport(fox.pos + Vector2(-Config.CAPTURE_REACH_PX - 1.0, 0.0))
+	p.begin_tick()
+	p.tick_controls(Vector2i.ZERO, mouse, true, true, true, TICK)
+	check_eq(fox.refused_ticks, Config.CREATURE_REFUSED_SHOW_TICKS, "main: out of reach: the refused mark")
+	check_eq(p.inventory.count_of(Capture.SNARE), 2, "main: nothing spent")
+	p.teleport(stood)
+	await await_frames(1)
 	fox.hp = 4
 	p.begin_tick()
 	p.tick_controls(Vector2i.ZERO, mouse, true, true, true, TICK)

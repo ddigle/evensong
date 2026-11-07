@@ -24,6 +24,7 @@ func run() -> Array[String]:
 	_check_recipes()
 	_check_rare_armour()
 	_check_panel_layout()
+	await _check_ally_bag()
 	await _check_main()
 	await _check_panel()
 	await _check_loop()
@@ -640,6 +641,17 @@ static func press(main: Main, action: StringName) -> void:
 	e.action = action
 	e.pressed = true
 	main._unhandled_input(e)
+
+
+## M11 review: what an ally holds counts too.
+func _check_ally_bag() -> void:
+	var main: Main = await _main()
+	var col: Collection = main.world_collection()
+	var ally: Player = main.add_ally("miner", false)
+	ally.inventory.add(Config.RARE_MATERIAL, 1)
+	check(not col.has(&"first_rare_essence"), "main: not yet")
+	main.step_creatures()
+	check(col.has(&"first_rare_essence"), "main: the first material, in an ally's bag")
 
 
 func _check_main() -> void:

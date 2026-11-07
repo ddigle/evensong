@@ -374,6 +374,7 @@ func _check_light_on_zone() -> void:
 			fail("a light past the rim drove it out at tick %d" % t2)
 			break
 	check(c2.pos != from, "it did move")
+	check(Combat.box_outside_light(d2, SafeZone.for_world(d2), c2.pos), "round the altar to the part of the zone the light leaves free (%s)" % c2.pos)
 
 
 ## A test flag's rare creature (past the rules) is no zone creature: M11a's --test-creature stays what it was.

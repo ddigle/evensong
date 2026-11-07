@@ -2513,10 +2513,14 @@ func _show_altar_ghost(p: Player) -> void:
 	# state). The host still decides the put down with the full rule (SessionHost._altar_place).
 	var bodies: Array[Vector2] = bodies_on(w.map_id)
 	var heretics: Array[Vector2] = heretics_on(w.map_id)
+	var wild: Array[Vector2] = creatures_on(w.map_id)
 	_altar_ghost_ticks += 1
-	var key: Array = [rect, w.revision, _altar_ghost_ticks / GHOST_RECHECK_TICKS, _cells_of(bodies), _cells_of(heretics)]
+	# M11 review: of the creatures only whether one is under it: their tiles change far oftener than the seal check can afford.
+	var key: Array = [rect, w.revision, _altar_ghost_ticks / GHOST_RECHECK_TICKS, _cells_of(bodies), _cells_of(heretics),
+		AltarMove.covers_a_body(rect, wild)]
 	if key != _altar_ghost_key:
 		_altar_ghost_key = key
+		bodies.append_array(wild)
 		_altar_ghost_ok = AltarMove.place_refusal(w.data, rect, bodies, heretics).is_empty()
 	ghost.show_at(rect, _altar_ghost_ok)
 
@@ -2556,6 +2560,20 @@ func bodies_on(map_id: int) -> Array[Vector2]:
 	return out
 
 
+## M11 review: the feet of the live creatures on map `map_id`, as this machine has them.
+func creatures_on(map_id: int) -> Array[Vector2]:
+	if _in_session():
+		return net.bots.creature_feet() if map_id == net.local_map() else ([] as Array[Vector2])
+	return arenas[map_id].herd.feet() if arenas.has(map_id) and arenas[map_id].herd != null else ([] as Array[Vector2])
+
+
+## M11 review: the bodies an altar's footprint may not cover (AltarMove.place_refusal's `bodies`): the players' and the creatures'.
+func altar_bodies(map_id: int) -> Array[Vector2]:
+	var out: Array[Vector2] = bodies_on(map_id)
+	out.append_array(creatures_on(map_id))
+	return out
+
+
 func heretics_on(map_id: int) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	if _in_session():
@@ -2578,7 +2596,7 @@ func place_altar(p: Player, cell: Vector2i) -> String:
 	if w == null or not p.carrying_altar:
 		return AltarMove.WHY_NO_ALTAR
 	var rect: Rect2i = AltarMove.place_rect(p.sim_position, cell)
-	var why: String = AltarMove.place_refusal(w.data, rect, bodies_on(w.map_id), heretics_on(w.map_id))
+	var why: String = AltarMove.place_refusal(w.data, rect, altar_bodies(w.map_id), heretics_on(w.map_id))
 	if not why.is_empty():
 		print("EVENSONG_ALTAR place refused at=%d,%d who=%s: %s" % [rect.position.x, rect.position.y, p.name, why])
 		return why
@@ -2594,7 +2612,7 @@ func set_altar_down(p: Player) -> bool:
 	var w: GameWorld = _world_of(p)
 	if w == null:
 		return false
-	var rect: Rect2i = AltarMove.set_down_fallback(w.data, p.sim_position, w.last_altar_rect, bodies_on(w.map_id),
+	var rect: Rect2i = AltarMove.set_down_fallback(w.data, p.sim_position, w.last_altar_rect, altar_bodies(w.map_id),
 		heretics_on(w.map_id))
 	if not rect.has_area():
 		p.altar_set_down_failed = true

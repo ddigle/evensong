@@ -73,6 +73,13 @@ class CaptureSession:
 	func send_prayer(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "prayer", payload])  # M10b
 
+	## M11 review: what it logged, as "event text".
+	var logged: PackedStringArray = []
+
+	func log_event(event: String, text: String) -> void:
+		logged.append("%s %s" % [event, text])
+		super(event, text)
+
 	func send_wild(peer: int, payload: PackedByteArray) -> void:
 		wire.append([peer, "wild", payload])  # M11c
 
@@ -134,6 +141,8 @@ class Client:
 	var batches: Array[NetProtocol.EnemyBatch] = []
 	## M10b: every prayer event delivered to it, decoded.
 	var prayer_events: Array[NetProtocol.PrayerEvent] = []
+	## M11 review: every creature keyframe delivered to it, decoded.
+	var wild_keys: Array[NetProtocol.CreatureBatch] = []
 
 
 class Rig:
@@ -409,6 +418,8 @@ func _deliver(c: Client, kind: String, payload: PackedByteArray) -> void:
 			c.prayer_events.append_array(NetProtocol.decode_prayer(payload).events)
 			c.s.client.on_prayer(payload)  # M10b
 		"wild", "wild_key":
+			if kind == "wild_key":
+				c.wild_keys.append(NetProtocol.decode_creatures(payload))
 			c.s.client._apply_wild(payload, kind == "wild_key")  # M11c
 		"tally":
 			c.s.client.on_tally(payload)

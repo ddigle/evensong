@@ -20,6 +20,7 @@ func run() -> Array[String]:
 	_check_items()
 	_check_basic_attacks()
 	_check_walls()
+	_check_corpses()
 	_check_tier1()
 	_check_skills()
 	_check_piercing()
@@ -263,6 +264,26 @@ func _check_walls() -> void:
 	check(a.creature_in_circle(c.pos + Vector2(10.0, 0.0), 64.0, c), "and reaches it on its side")
 
 
+## M11 review: a corpse is no target: a shot flies on through it to what stands behind.
+func _check_corpses() -> void:
+	var d: WorldData = open_world()
+	var a: Arena = arena_for(d)
+	var y: float = 12.8 * Config.TILE
+	var r: Player = player(d, "archer", Vector2(10.0 * Config.TILE, y))
+	var party: Array[Player] = [r]
+	var dead: CreatureSim = held(a, &"deer", Vector2(14.0 * Config.TILE, y))
+	var live: CreatureSim = held(a, &"deer", Vector2(18.0 * Config.TILE, y))
+	var aim: int = aim_of(r, live)
+	a.herd.hit(dead, dead.hp, 0)
+	check(not dead.alive(), "it lies there")
+	check(Creatures.shot_hits(Creatures.aim_point(dead), dead), "its box is still where it lay")
+	check_eq(a.creature_at(Creatures.aim_point(dead)), null, "but a shot there hits nobody")
+	a.player_attack(r, &"bow", aim, party)
+	for t: int in 60:
+		a.step(party)
+	check(live.hp < live.hp_max(), "the arrow flew through the corpse to the deer behind it")
+
+
 func _check_tier1() -> void:
 	var d: WorldData = open_world()
 	var a: Arena = arena_for(d)
@@ -403,6 +424,19 @@ func _check_poison() -> void:
 	check(a2.herd.poison(c2, 20, 60, r.get_instance_id()), "poisoned")
 	run_world(a2, [] as Array[Player], Config.POISON_INTERVAL_TICKS + 1)
 	check_eq(drops_of(d2), "hide_fine:1+meat:1", "a death by an archer's poison is the archer's")
+	# M11 review: a second splash takes the poison over: its thrower's class is the one that counts, either way round.
+	for pair: Array in [["archer", "herbalist", "hide_worn:1"], ["herbalist", "archer", "hide_fine:1+meat:1"]]:
+		var first_class: String = pair[0]
+		var second_class: String = pair[1]
+		var d3: WorldData = open_world()
+		var a3: Arena = arena_for(d3)
+		var by_first: Player = player(d3, first_class, Vector2(200, 200))
+		var by_second: Player = player(d3, second_class, Vector2(200, 220))
+		var c3: CreatureSim = held(a3, &"hare", Vector2(240, 200))
+		a3.herd.poison(c3, 20, 60, by_first.get_instance_id())
+		a3.herd.poison(c3, 20, 60, by_second.get_instance_id())
+		run_world(a3, [] as Array[Player], Config.POISON_INTERVAL_TICKS + 1)
+		check_eq(drops_of(d3), pair[2], "%s's poison, then %s's: the second's drops" % [first_class, second_class])
 
 
 func _check_zeal() -> void:
@@ -725,6 +759,60 @@ func _check_cli_and_bot() -> void:
 
 # --- main.tscn ---------------------------------------------------------------------------------------------------
 
+## M11a's rule through offline Main: a live creature is a body. M11 review: under the altar's footprint too, the way players are.
+func _check_main_bodies(main: Main, herd: Creatures) -> void:
+	main.spawn("paladin")
+	var p: Player = main.player
+	p.local_input = false
+	var at: Vector2 = main.world.data.altar_center_px() + Vector2(-Config.safe_radius_px() - 80.0, 0.0)
+	var feet_cell: Vector2i = Aim.feet_cell(at)
+	p.teleport(Arena.spawn_feet(feet_cell))
+	# A blocking station on its tile: refused; with it gone, it goes down.
+	var target: Vector2i = feet_cell + Vector2i(0, 1)
+	var deer: CreatureSim = herd.spawn(&"deer", Arena.spawn_feet(target))
+	herd.rest(deer)
+	deer.state_ticks = -100000
+	p.inventory.add(&"alchemy_table", 1)
+	var slot: int = slot_of(p.inventory, &"alchemy_table")
+	main._on_place_requested(slot, target)
+	check_eq(p.inventory.count_of(&"alchemy_table"), 1, "main: a station is not put down on a creature")
+	check_eq(main.world.data.get_value(WorldData.Layer.PLACEABLE, target), WorldData.PLACEABLE_NONE, "main: nothing there")
+	herd.list.erase(deer)
+	main._on_place_requested(slot, target)
+	check_eq(p.inventory.count_of(&"alchemy_table"), 0, "main: with the creature gone it goes down")
+	for x: int in range(target.x - 1, target.x + 2):
+		main.world.apply_edit(EditLog.WorldEdit.new(WorldData.Layer.PLACEABLE, Vector2i(x, target.y), WorldData.PLACEABLE_NONE))
+	# The altar: lifted, then put down on a resting creature: refused, the ghost says so.
+	main.pick_up_altar(p)
+	check(p.carrying_altar, "main: carried")
+	var rect: Rect2i = AltarMove.place_rect(p.sim_position, target)
+	p.aim_cell = target
+	main._show_altar_ghost(p)
+	check(main._altar_ghost_ok, "main: the ghost is green on open ground")
+	var deer2: CreatureSim = herd.spawn(&"deer", Arena.spawn_feet(rect.get_center()))
+	herd.rest(deer2)
+	deer2.state_ticks = -100000
+	check(main.altar_bodies(Config.MAP_SURFACE).has(deer2.pos), "main: its feet count")
+	check_eq(main.creatures_on(Config.MAP_DUNGEON), [] as Array[Vector2], "main: no creature down there")
+	main._show_altar_ghost(p)
+	check(not main._altar_ghost_ok, "main: the ghost goes red at once over a creature")
+	check_eq(main.place_altar(p, target), WorldItems.WHY_BODY, "main: the altar is not put down on a creature")
+	check(p.carrying_altar, "main: still carried")
+	# Going down, the same: a creature stands where it would have come down.
+	herd.list.erase(deer2)
+	var would: Rect2i = AltarMove.set_down_fallback(main.world.data, p.sim_position, main.world.last_altar_rect, main.bodies_on(Config.MAP_SURFACE),
+		main.heretics_on(Config.MAP_SURFACE))
+	var deer3: CreatureSim = herd.spawn(&"deer", Arena.spawn_feet(would.get_center()))
+	herd.rest(deer3)
+	deer3.state_ticks = -100000
+	check(main.set_altar_down(p), "main: the carrier's set down")
+	check(main.world.data.altar_rect != would, "main: not on the place it would have taken")
+	check(not AltarMove.covers_a_body(main.world.data.altar_rect, [deer3.pos] as Array[Vector2]), "main: not on the creature (%s)" % main.world.data.altar_rect)
+	herd.list.erase(deer3)
+	main.step_creatures()
+	await await_frames(1)
+
+
 func _check_main() -> void:
 	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
 	add_node(main)
@@ -793,6 +881,7 @@ func _check_main() -> void:
 		main.step_combat(TICK)
 	check_eq(deer.hp, hp - Gear.attack_damage(st, Combat.attack_for(&"sword_t1").damage), "main: a tier-1 sword's damage on a creature")
 	check_eq(st.durability, dur - Config.GEAR_WEAR_PER_ATTACK, "main: it wears one swing's wear, as on a heretic")
+	await _check_main_bodies(main, herd)
 	# The dungeon: the local player away, the herd's clock runs on.
 	main.spawn("paladin")
 	main.player.local_input = false

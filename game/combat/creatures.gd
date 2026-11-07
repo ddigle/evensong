@@ -8,9 +8,9 @@ extends RefCounted
 ## None attacks. An unalarmed creature stands, then walks to a spot near home; a player up inside its alert radius, or a hit, makes
 ## it bolt (a burst faster than a player walks) straight away, then it stops and rests, when a walking player catches it. Fleeing
 ## and wandering share the player's collision (Movement.step: walls, built pieces, fixtures, closed doors, the map's edge; the
-## slice has no water) and keep out of the altar's light and off corrupted tiles (can_walk); a creature the altar's new light
-## lands on walks out of it. It ignores heretics and they ignore it: nothing here reads them, and Arena's heretic rules take
-## players only.
+## slice has no water) and keep out of the altar's light and off corrupted tiles (can_walk); a creature that stands where can_walk says
+## no (the altar's new light lies on it, and the light may cover corruption) walks to ground it may stand on (_walk_clear). It ignores
+## heretics and they ignore it: nothing here reads them, and Arena's heretic rules take players only.
 ##
 ## Spawning: at the start every prey kind up to its cap, and a dead one's place is taken Config row `respawn_ticks` of game time
 ## later (a Respawn waits; a try that finds no tile waits Config.CREATURE_SPAWN_RETRY_TICKS more). spawn_ok reads the live world,
@@ -55,6 +55,8 @@ const STEPS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 1), 
 	Vector2i(0, -1), Vector2i(1, -1)]
 ## Steps of STEPS tried around the way it wants to go, in order.
 const FLEE_TURNS: Array[int] = [0, 1, -1, 2, -2]
+## Every way of STEPS around the one straight out, in order (_way_clear: between two as near, the straighter).
+const CLEAR_TURNS: Array[int] = [0, 1, -1, 2, -2, 3, -3, 4]
 
 var data: WorldData
 var safe: SafeZone
@@ -193,8 +195,8 @@ func _step_one(c: CreatureSim, players: Array[Player]) -> void:
 		c.stun_ticks -= 1
 		return
 	c.state_ticks += 1
-	if not Combat.box_outside_light(data, safe, c.pos):
-		_leave_light(c)
+	if not can_walk(c.pos):
+		_walk_clear(c)
 		return
 	var near: Player = _nearest_alarm(c, players)
 	match c.state:
@@ -293,11 +295,12 @@ func _walk(c: CreatureSim, dir: Vector2, speed: float, turns: Array[int]) -> boo
 	return false
 
 
-## The altar's new light lies on it: it walks straight out, by the walls' rule alone (every step inside the light is one can_walk
-## refuses). M11b: one bound to the rare zone stays in it (the light may cover it: it stands where the zone ends).
-func _leave_light(c: CreatureSim) -> void:
-	var away: Vector2 = c.pos - safe.center
-	var i: int = dir_of(away if away.length_squared() > 0.0001 else Vector2.DOWN)
+## `c` stands where can_walk says no: the altar's new light lies on it, or corrupted ground is under it (the light may cover corruption, so
+## the way out of one can end there). It goes the shortest straight way to ground it may stand on (_way_clear), by the walls' rule alone
+## (every step on that way is one can_walk refuses), and home moves with it. M11b: one bound to the rare zone stays in it (the light may
+## cover it: it stands where the zone ends).
+func _walk_clear(c: CreatureSim) -> void:
+	var i: int = _way_clear(c)
 	for t: int in FLEE_TURNS:
 		var way: Vector2i = STEPS[posmod(i + t, STEPS.size())]
 		var next: Vector2 = Movement.step(data, c.pos, way, Config.NET_TICK, c.num_f("flee_speed"))
@@ -307,6 +310,30 @@ func _leave_light(c: CreatureSim) -> void:
 			c.facing = Movement.facing_for(way, c.facing)
 			c.home = c.pos
 			return
+
+
+## The index in STEPS of the way whose straight line from `c` first reaches ground it may stand on, within Config.CREATURE_CLEAR_REACH_PX
+## and not through anything that blocks (nor through the light, when it stands outside it). None: straight out of the light.
+func _way_clear(c: CreatureSim) -> int:
+	var lit: bool = not Combat.box_outside_light(data, safe, c.pos)
+	var out: Vector2 = c.pos - safe.center
+	var straight: int = dir_of(out if out.length_squared() > 0.0001 else Vector2.DOWN)
+	var best: int = straight
+	var best_px: float = Config.CREATURE_CLEAR_REACH_PX + 1.0
+	for t: int in CLEAR_TURNS:
+		var i: int = posmod(straight + t, STEPS.size())
+		var along: Vector2 = Vector2(STEPS[i]).normalized()
+		var px: float = Config.CREATURE_CLEAR_STEP_PX
+		while px < best_px:
+			var q: Vector2 = c.pos + along * px
+			if not Movement.can_stand(data, q) or (not lit and not Combat.box_outside_light(data, safe, q)):
+				break
+			if can_walk(q, c):
+				best = i
+				best_px = px
+				break
+			px += Config.CREATURE_CLEAR_STEP_PX
+	return best
 
 
 ## The index in STEPS of the way nearest vector `v`.
@@ -399,6 +426,8 @@ func spawn_ok(feet: Vector2, players: Array[Player], in_zone: bool = false) -> b
 		return false
 	if data.terrain_at(cell) != Terrain.GRASS or not Movement.can_stand(data, feet) or Arena.in_doorway(data, feet):
 		return false
+	if data.get_value(WorldData.Layer.PLACEABLE, cell) != WorldData.PLACEABLE_NONE:
+		return false  # M11 review: a fixture that blocks nothing either (a torch, a death bag)
 	if not can_walk(feet) or near_corruption(cell):
 		return false
 	if data.altar_rect.has_area():
@@ -434,11 +463,20 @@ func spot_near(from: Vector2, angle: float) -> Variant:
 	return null
 
 
+## The next id no creature here has: an id on the wire is a u16 from 1 (M11c), so they wrap, and a batch naming one twice would be refused whole
+## (M11 review: past a creature that outlived a whole round of ids).
+func _take_id() -> int:
+	while by_id(next_id) != null:
+		next_id = next_id % NetProtocol.CREATURE_ID_MAX + 1
+	var id: int = next_id
+	next_id = next_id % NetProtocol.CREATURE_ID_MAX + 1
+	return id
+
+
 ## Puts a creature of `kind` at feet `feet` (its home), past the rules (try_spawn's end, the test flags). Returns it.
 func spawn(kind: StringName, feet: Vector2) -> CreatureSim:
 	var c: CreatureSim = CreatureSim.new()
-	c.id = next_id
-	next_id = next_id % NetProtocol.CREATURE_ID_MAX + 1  # M11c: an id on the wire is a u16 from 1
+	c.id = _take_id()
 	c.kind = kind
 	c.pos = feet
 	c.home = feet

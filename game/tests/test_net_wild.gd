@@ -12,6 +12,8 @@ extends "res://tests/test_net_combat.gd"
 ##     non-archer on every machine; who gets what (the view box, nothing while nothing changes, another map, a keyframe on returning,
 ##     interpolation); a late joiner and a map entry; the benefits with the host's numbers; bodies; a client's own click; traffic at the
 ##     caps; a version 12 hello is refused
+##   - M11 review: the box at the map's edge, a creature back in view before its going was drawn, what a welcome's keyframe holds, the altar
+##     and creatures on the host's rule, a snare's thrower gone and its slot taken
 
 const ARCHER: String = "archer"
 const PALADIN: String = "paladin"
@@ -42,11 +44,15 @@ func run() -> Array[String]:
 	await _check_killing_blow()
 	await _check_rare_refused()
 	await _check_view_and_quiet()
+	await _check_view_at_the_edge()
+	await _check_back_in_view()
 	await _check_interpolation()
 	await _check_late_join()
 	await _check_map_entry()
 	await _check_benefits()
 	await _check_bodies()
+	await _check_altar_bodies()
+	await _check_holder_left()
 	await _check_recipes()
 	await _check_attack_paths()
 	await _check_client_click()
@@ -101,6 +107,15 @@ func _land(r: Rig, m: NetMember) -> void:
 		r.host.run_frame(m, NetProtocol.InputFrame.new())
 		if m.player.action_anim < 0:
 			return
+
+
+## How many lines of `event` client `c` logged.
+static func _logged(c: Client, event: String) -> int:
+	var n: int = 0
+	for line: String in c.s.logged:
+		if line.begins_with(event + " "):
+			n += 1
+	return n
 
 
 ## The creatures client `c` draws now, by id.
@@ -317,7 +332,6 @@ func _check_snapshot() -> void:
 	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	check_eq(data.content_hash(), SurfaceGen.GOLDEN_HASH, "a generated world has no zone and no collection: its golden hash")
 	var bare: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check_eq(bare.size() % 1, 0, "bytes")
 	check(bare[bare.size() - 1] == 0 and bare[bare.size() - 2] == 0, "no zone, no collection: a 0 each")
 	var d2: WorldData = WorldSnapshot.decode_raw(bare)
 	check(d2 != null and d2.rare_zone == null and d2.collection == null, "and none on the other side")
@@ -330,12 +344,12 @@ func _check_snapshot() -> void:
 	data.collection = Collection.new()
 	var empty: String = data.content_hash()
 	check(empty != with_zone, "the collection too")
-	data.collection.put_test(3, 12)
+	data.collection.put_test(3, 0)
+	var entries_only: String = data.content_hash()
+	check(entries_only != empty, "and its entries")
+	data.collection.kills = 12
 	var filled: String = data.content_hash()
-	check(filled != empty, "and what is in it")
-	data.collection.kills += 1
-	check(data.content_hash() != filled, "the kills too")
-	data.collection.kills -= 1
+	check(filled != entries_only, "and its kills")
 	var raw: PackedByteArray = WorldSnapshot.raw_bytes(data)
 	check_eq(raw.size(), bare.size() + WorldSnapshot.ZONE_BYTES + WorldSnapshot.COLLECTION_BYTES, "5 + 6 B more")
 	var back: WorldData = WorldSnapshot.decode_raw(raw)
@@ -806,12 +820,13 @@ func _check_view_and_quiet() -> void:
 	var e: NetProtocol.CreatureState = _state(1, HARE)
 	e.pos = Vector2(1000.0 + box.x, 500.0 + box.y)
 	var one: Array[NetProtocol.CreatureState] = [e]
-	check_eq(SessionHost.in_view(one, Vector2(1000.0, 500.0)).size(), 1, "on the box's corner: seen")
+	var map: Rect2 = Rect2(0.0, 0.0, 4000.0, 4000.0)
+	check_eq(SessionHost.in_view(one, Vector2(1000.0, 500.0), map).size(), 1, "on the box's corner: seen")
 	e.pos.x += 0.25
-	check_eq(SessionHost.in_view(one, Vector2(1000.0, 500.0)).size(), 0, "a quarter px past it: not")
+	check_eq(SessionHost.in_view(one, Vector2(1000.0, 500.0), map).size(), 0, "a quarter px past it: not")
 	e.pos.x -= 0.25
 	e.pos.y += 0.25
-	check_eq(SessionHost.in_view(one, Vector2(1000.0, 500.0)).size(), 0, "south of it: not")
+	check_eq(SessionHost.in_view(one, Vector2(1000.0, 500.0), map).size(), 0, "south of it: not")
 	var r: Rig = _rig(PALADIN)
 	await await_frames(1)
 	var herd: Creatures = r.host.herd_on(Config.MAP_SURFACE)
@@ -881,6 +896,68 @@ func _check_view_and_quiet() -> void:
 	check_eq(c.s.local_map(), Config.MAP_SURFACE, "the client is back")
 	check(c.s.client.combat.arena.herd != null and c.s.client.combat.creature_last != null \
 		and c.s.client.combat.creature_last.creatures.size() == 1, "its keyframe brought the deer")
+	_free_rig(r)
+
+
+## M11 review: the camera stops at the map's edge, so the player walks on past the middle of the screen. Every corner of the screen is
+## in the box there, at every edge and corner of the map, at 16:9 and 21:9.
+func _check_view_at_the_edge() -> void:
+	var area: Rect2 = Rect2(Vector2.ZERO, Vector2(128 * Config.TILE, 96 * Config.TILE))
+	var e: NetProtocol.CreatureState = _state(1, HARE)
+	var one: Array[NetProtocol.CreatureState] = [e]
+	var missed: int = 0
+	var points: int = 0
+	var w: float = area.size.x
+	var h: float = area.size.y
+	for view: Vector2 in [Vector2(Config.VIEW_SIZE), Vector2(640.0, 270.0)]:
+		for feet: Vector2 in [Vector2(w - 2.0, h / 2.0), Vector2(2.0, h / 2.0), Vector2(w / 2.0, 2.0), Vector2(w / 2.0, h - 2.0),
+				Vector2(2.0, 2.0), Vector2(w - 2.0, 2.0), Vector2(2.0, h - 2.0), Vector2(w - 2.0, h - 2.0), Vector2(w - 96.0, 1008.0)]:
+			var centre: Vector2 = PlayerCamera.clamp_center(feet, area, view)
+			for sx: float in [-1.0, 1.0]:
+				for sy: float in [-1.0, 1.0]:
+					e.pos = (centre + Vector2(sx, sy) * view / 2.0).clamp(area.position, area.end)
+					points += 1
+					if SessionHost.in_view(one, feet, area).is_empty():
+						missed += 1
+	check_eq(missed, 0, "every corner of every screen is in the box (%d points)" % points)
+	# And a real client: inside the rare zone of the default seed, near the east edge, a deer at the screen's west side.
+	var r: Rig = _rig(PALADIN)
+	await await_frames(1)
+	var herd: Creatures = r.host.herd_on(Config.MAP_SURFACE)
+	var feet2: Vector2 = Vector2(w - 96.0, 1008.0)
+	var c: Client = _join(r, 101, ARCHER, feet2)
+	var screen_west: float = PlayerCamera.clamp_center(feet2, area, Vector2(Config.VIEW_SIZE)).x - Config.VIEW_SIZE.x / 2.0
+	var deer: CreatureSim = herd.put_resting(DEER, Vector2(screen_west + 24.0, 1008.0), 100)
+	check(feet2.x - deer.pos.x > Config.NET_CREATURE_VIEW_PX.x, "farther from the feet than the box's half width")
+	_tick(r, 9)
+	check(_drawn(r, c).has(deer.id), "on its screen, so it is drawn")
+	_free_rig(r)
+
+
+## M11 review: a creature out of the box and back before its going was drawn stays in the picture.
+func _check_back_in_view() -> void:
+	var r: Rig = _rig(PALADIN)
+	await await_frames(1)
+	var herd: Creatures = r.host.herd_on(Config.MAP_SURFACE)
+	var f: Vector2 = spot(r)
+	var c: Client = _join(r, 101, ARCHER, f)
+	var near: Vector2 = f + Vector2(60, 0)
+	var deer: CreatureSim = herd.put_resting(DEER, near, 100)
+	_tick(r, 9)
+	var tracks: Dictionary[int, NetCombat.CreatureTrack] = c.s.client.combat.creatures
+	check(_drawn(r, c).has(deer.id), "in view: drawn")
+	deer.pos = f + Vector2(600, 0)
+	_tick(r, 3)
+	var track: NetCombat.CreatureTrack = tracks.get(deer.id, null)
+	if not check(track != null and track.gone_at >= 0, "a batch without it: its going is noted"):
+		_free_rig(r)
+		return
+	check(float(r.s.tick) - SessionClient.interp_delay_ticks() < float(track.gone_at), "and not drawn yet")
+	deer.pos = near
+	_tick(r, 3)
+	check_eq(track.gone_at, -1, "back in a batch: it has not gone after all")
+	_tick(r, ceili(SessionClient.interp_delay_ticks()) + 3)
+	check(_drawn(r, c).has(deer.id), "still drawn when its going would have come")
 	_free_rig(r)
 
 
@@ -964,12 +1041,16 @@ func _check_late_join() -> void:
 	var first: Client = _join(r, 101, ARCHER, f)
 	r.host.collection().put_test(4, 7)
 	var fox: CreatureSim = herd.put_resting(FOX, f + Vector2(24, 0), 30)
+	var far_off: CreatureSim = herd.put_resting(DEER, f + Vector2(600, 0), 100)
 	_tick(r, 6)
 	check_eq(first.s.client.collection.count(), 4, "the first client heard the change")
 	var late: Client = _join(r, 102, CLERIC, f + Vector2(-30, 0))
 	_tick(r, 2)
 	check_eq(late.s.client.collection.describe(), r.host.collection().describe(), "the late joiner has the whole collection")
-	check_eq(late.s.client.collection.take_fresh().size(), 0, "no news for its log")
+	check_eq(_logged(late, "collection"), 0, "what its snapshot held is no news for its log")
+	if check(not late.wild_keys.is_empty(), "a keyframe on joining"):
+		var first_key: Array[NetProtocol.CreatureState] = late.wild_keys[0].creatures
+		check(first_key.size() == 1 and first_key[0].id == fox.id, "of what it sees, not the whole herd (%d, the deer %d is far off)" % [first_key.size(), far_off.id])
 	check_eq(late.surface.data.collection, late.s.client.collection, "on its world, one object")
 	check(late.surface.data.rare_zone != null, "the zone")
 	check_eq(late.surface.data.rare_zone.describe(), r.surface.data.rare_zone.describe(), "the host's")
@@ -990,6 +1071,9 @@ func _check_late_join() -> void:
 	late.s.client._apply_wild(PackedByteArray([1, 2]), false)
 	check_eq(late.s.bad_messages, bad_before + 2, "a short creature batch too")
 	late.s.bad_messages = bad_before
+	r.host.collection().register(&"take_ash_owl")
+	_tick(r, 3)
+	check_eq(_logged(late, "collection"), 1, "what is new is news")
 	_free_rig(r)
 
 
@@ -1000,8 +1084,12 @@ func _check_map_entry() -> void:
 	var f: Vector2 = spot(r)
 	var c: Client = _join(r, 101, ARCHER, f)
 	var m: NetMember = member_of_peer(r, 101)
+	var seen: CreatureSim = herd.put_resting(DEER, f + Vector2(40, 0), 100)
+	_tick(r, 6)
+	check(c.s.client.combat.creatures.has(seen.id), "a creature in view has its track")
 	r.host.move_to_map(m, Config.MAP_DUNGEON)
 	_tick(r, 8)
+	check(c.s.client.combat.creatures.is_empty(), "no track comes along to the dungeon (M11 review)")
 	check_eq(c.dungeon.data.collection, c.s.client.collection, "the dungeon's data has the same object")
 	check_eq(r.dungeon.data.collection, r.surface.data.collection, "on the host too")
 	# A kill on the surface while it is down: it hears (its panel shows it there).
@@ -1112,6 +1200,72 @@ func _check_bodies() -> void:
 	m.op_budget = NetMember.OP_BUDGET_MAX
 	r.host.run_frame(m, _op(NetProtocol.Op.USE, Config.MAP_SURFACE, target, slot))
 	check_eq(m.ops_done.get("place", 0), 1, "with the creature dead it goes down (%s)" % m.ops_refused)
+	_free_rig(r)
+
+
+## M11 review: a footprint walls in what stands under it, so the altar keeps off creatures on the host's rule too, a click's and a fallback's.
+func _check_altar_bodies() -> void:
+	var r: Rig = _rig(PALADIN)
+	await await_frames(1)
+	var herd: Creatures = r.host.herd_on(Config.MAP_SURFACE)
+	var f: Vector2 = spot(r)
+	await _join_quiet(r, 101, ARCHER, f)
+	var m: NetMember = member_of_peer(r, 101)
+	var data: WorldData = r.surface.data
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		r.host.apply_world_edit(e)
+	m.player.set_carrying_altar(true)
+	var aim: Vector2i = Aim.feet_cell(f) + Vector2i(1, 0)
+	var rect: Rect2i = AltarMove.place_rect(f, aim)
+	var deer: CreatureSim = herd.put_resting(DEER, Arena.spawn_feet(rect.get_center()), 100)
+	deer.state_ticks = -100000
+	var bodies: Array[Vector2] = [deer.pos]
+	check(AltarMove.covers_a_body(rect, bodies), "it stands under the footprint")
+	check_eq(AltarMove.place_refusal(data, rect, [f] as Array[Vector2]), "", "and the place is free but for it")
+	var place: NetProtocol.InputFrame = _op(NetProtocol.Op.ALTAR_PLACE, Config.MAP_SURFACE, aim)
+	r.host.run_frame(m, place)
+	check_eq(m.refused(WorldItems.WHY_BODY), 1, "the host refuses it")
+	check(m.player.carrying_altar and not data.altar_rect.has_area(), "still carried")
+	# Without the creature the same click puts it down.
+	herd.list.erase(deer)
+	m.op_budget = NetMember.OP_BUDGET_MAX
+	r.host.run_frame(m, _op(NetProtocol.Op.ALTAR_PLACE, Config.MAP_SURFACE, aim))
+	check_eq(data.altar_rect, rect, "with the creature gone it goes down there")
+	# Going down, the same: a creature stands where it would have come down.
+	for e2: EditLog.WorldEdit in AltarMove.pickup_edits(data):
+		r.host.apply_world_edit(e2)
+	m.player.set_carrying_altar(true)
+	var no_one: Array[Vector2] = []
+	var would: Rect2i = AltarMove.set_down_fallback(data, f, r.host.altar_home, r.host.bodies_on(Config.MAP_SURFACE), no_one)
+	var deer2: CreatureSim = herd.put_resting(DEER, Arena.spawn_feet(would.get_center()), 100)
+	deer2.state_ticks = -100000
+	check(r.host._set_altar_down(m), "the carrier's set down")
+	check(data.altar_rect != would, "not on the place it would have taken")
+	check(not AltarMove.covers_a_body(data.altar_rect, [deer2.pos] as Array[Vector2]), "not on the creature (%s)" % data.altar_rect)
+	_free_rig(r)
+
+
+## M11 review: the thrower left and its slot went to someone else: the rope is nobody's, not the newcomer's.
+func _check_holder_left() -> void:
+	var r: Rig = _rig(PALADIN)
+	await await_frames(1)
+	var herd: Creatures = r.host.herd_on(Config.MAP_SURFACE)
+	var f: Vector2 = spot(r)
+	var c: Client = _join(r, 101, ARCHER, f)
+	var m: NetMember = member_of_peer(r, 101)
+	var fox: CreatureSim = herd.put_resting(FOX, f + Vector2(24, 0), 30)
+	herd.hold(fox, 120, Combat.body_point(f), m.player.get_instance_id())
+	_tick(r, 1)
+	var slot: int = m.slot
+	check_eq(r.host._creature_states(herd)[0].holder, slot, "its slot, while it is there")
+	c.ticking = false
+	r.host.on_peer_disconnected(101)
+	_tick(r, 1)
+	check_eq(r.host._creature_states(herd)[0].holder, NetProtocol.NO_SLOT, "gone: nobody's")
+	await _join_quiet(r, 102, CLERIC, f + Vector2(0, 30))
+	check_eq(member_of_peer(r, 102).slot, slot, "the newcomer has its slot")
+	check(fox.held(), "the hold runs on")
+	check_eq(r.host._creature_states(herd)[0].holder, NetProtocol.NO_SLOT, "the rope is not the newcomer's")
 	_free_rig(r)
 
 
@@ -1362,7 +1516,7 @@ func _check_traffic() -> void:
 		for s: CreatureSim in nat.list:
 			states.append(NetProtocol.creature_of(s, NetProtocol.NO_SLOT))
 		whole.decide_encoded(t, NetProtocol.encode_creatures(t, states))
-		box.decide_encoded(t, NetProtocol.encode_creatures(t, SessionHost.in_view(states, at)))
+		box.decide_encoded(t, NetProtocol.encode_creatures(t, SessionHost.in_view(states, at, Rect2(Vector2.ZERO, Vector2(nat.data.size * Config.TILE)))))
 	note("the natural herd, two minutes, %d batch ticks: the whole herd's batch changes on %d, a client at the altar's on %d" % [checks, whole.batches, box.batches])
 	check(whole.batches * 10 >= checks * 9, "someone is nearly always walking: a batch of the whole herd would rarely rest")
 	check(box.batches * 4 < whole.batches, "a client at the altar gets far fewer")

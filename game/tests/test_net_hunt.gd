@@ -117,13 +117,13 @@ func _session_hunt() -> void:
 	check(_line_with(lines, "hunt hit slot=0 kind=deer id=2 ").length() > 0 and _line_with(lines, "hunt hit slot=1 kind=deer id=2 ").length() > 0, "hunt: the same deer, the second")
 	var hh: Dictionary = host.result.get("hunt", {})
 	check_eq(_num(hh, "kills"), 3.0, "hunt: three kills in the results")
-	check(str(hh.get("collection", "")).begins_with("2/8 kills=3 hunt_deer,first_hide_fine") or str(hh.get("collection", "")).contains("first_hide_fine"), "hunt: the entries (%s)" % hh.get("collection"))
+	check_eq(str(hh.get("collection", "")), "2/8 kills=3 hunt_deer,first_hide_fine", "hunt: the entries")
 	# What c1 did with it, by the existing paths.
 	check_eq(_count_lines(lines, "host pickup slot=1 item=hide_fine count=2"), 1, "hunt: c1 picked up the whole hides")
 	check_eq(_count_lines(lines, "host pickup slot=1 item=meat count=2"), 1, "hunt: and the meat")
 	check(_line_with(lines, "host drink slot=1 map=0 item=meat grade=none hp=52").length() > 0, "hunt: c1 ate a meat: 40 + 12")
 	check(_line_with(lines, "shop slot=1 sell item=hide_fine count=1 got=7").length() > 0, "hunt: sold a whole hide for 7")
-	check(_line_with(lines, "shop slot=1 buy item=hide_worn").length() > 0 and _line_with(lines, "price=10").length() > 0, "hunt: bought the shop's 일반 가죽 for 10")
+	check(_line_with(lines, "shop slot=1 buy item=hide_worn").contains(" price=10 "), "hunt: bought the shop's 일반 가죽 for 10")
 	check(_line_with(lines, "shop slot=1 buy item=meat").length() > 0, "hunt: and a meat")
 	var players: Array = c1.result.get("players", [])
 	var inventory: String = ""

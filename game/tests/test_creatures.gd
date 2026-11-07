@@ -38,11 +38,14 @@ func run() -> Array[String]:
 	_check_caps_and_respawn()
 	_check_wander()
 	_check_bolt_and_rest()
+	_check_new_alarm()
 	_check_chase()
 	_check_obstacles()
 	_check_light_and_corruption()
+	_check_walk_clear()
 	_check_long_chase()
 	_check_status()
+	_check_ids()
 	_check_determinism()
 	_check_streams_unchanged()
 	_check_ignored_by_heretics()
@@ -295,6 +298,11 @@ func _check_spawn_refusals() -> void:
 	d.set_value(WorldData.Layer.WALL, below, was)
 	d.set_value(WorldData.Layer.PLACEABLE, open, WorldData.PLACEABLE_WORKBENCH)
 	check(not h.spawn_ok(feet, no_players()), "not on a fixture")
+	d.set_value(WorldData.Layer.PLACEABLE, open, WorldData.PLACEABLE_TORCH)
+	check(Movement.can_stand(d, feet), "a torch blocks nobody")
+	check(not h.spawn_ok(feet, no_players()), "not on a torch either (M11 review)")
+	d.set_value(WorldData.Layer.PLACEABLE, open, WorldData.PLACEABLE_BAG)
+	check(not h.spawn_ok(feet, no_players()), "nor on a death bag")
 	d.set_value(WorldData.Layer.PLACEABLE, open, WorldData.PLACEABLE_NONE)
 	var clear: int = Config.CREATURE_SPAWN_ASH_CLEARANCE_TILES
 	var ash: Vector2i = open + Vector2i(clear, -clear)
@@ -466,6 +474,25 @@ func _check_bolt_and_rest() -> void:
 
 ## ● the common tier (R11): a walking player falls behind the burst, then catches the creature resting: the bow's reach is the natural
 ## way, melee the slower one.
+## M11 review: a running creature runs from the nearest alarm, not from the first one.
+func _check_new_alarm() -> void:
+	var d: WorldData = open_world()
+	var h: Creatures = herd_on(d)
+	var c: CreatureSim = h.spawn(&"hare", Vector2(400, 300))
+	var first: Player = player(d, "paladin", c.pos + Vector2(-20.0, 0.0))
+	var second: Player = player(d, "paladin", Vector2(1200, 300))
+	var party: Array[Player] = [first, second]
+	steps(h, party, 2)
+	check_eq(c.state, CreatureSim.State.FLEE, "the first alarm bolts it")
+	check(c.pos.x > 400.0, "away from it, east")
+	first.teleport(Vector2(1200, 800))
+	second.teleport(c.pos + Vector2(20.0, 0.0))
+	var x: float = c.pos.x
+	steps(h, party, 5)
+	check_eq(c.flee_from, second.sim_position, "it runs from the nearest now")
+	check(c.pos.x < x, "west")
+
+
 func _check_chase() -> void:
 	for kind: StringName in [&"hare", &"deer"]:
 		var d: WorldData = open_world(Vector2i(120, 80))
@@ -613,6 +640,99 @@ func _check_light_and_corruption() -> void:
 	check_eq(on_ash, 0, "wandering beside it neither")
 
 
+## An open map with its altar on `rect`.
+static func lit_world(rect: Rect2i, size: Vector2i = Vector2i(100, 60)) -> WorldData:
+	var d: WorldData = open_world(size)
+	for y: int in range(rect.position.y, rect.end.y):
+		for x: int in range(rect.position.x, rect.end.x):
+			d.set_value(WorldData.Layer.PLACEABLE, Vector2i(x, y), WorldData.PLACEABLE_ALTAR)
+	d.refresh_altar_rect()
+	return d
+
+
+## M11 review: the altar's light may cover corruption (Config.ALTAR_LIGHT_MAY_COVER_CORRUPTION), so the way out of a new light can run over
+## corrupted ground. A creature never stays where can_walk says no, and it can always run afterwards.
+func _check_walk_clear() -> void:
+	# A corrupted ring around the rim: the only way out crosses it.
+	var d: WorldData = lit_world(Rect2i(46, 29, 3, 3))
+	var centre: Vector2 = d.altar_center_px()
+	var r: float = Config.safe_radius_px()
+	for y: int in d.size.y:
+		for x: int in d.size.x:
+			var from: float = (Vector2(x + 0.5, y + 0.5) * Config.TILE).distance_to(centre)
+			if from >= r - 8.0 and from <= r + 80.0:
+				d.set_value(WorldData.Layer.CORRUPTION, Vector2i(x, y), 1)
+	var h: Creatures = herd_on(d)
+	var c: CreatureSim = h.spawn(&"hare", centre + Vector2(48.0, 4.0))
+	check(in_light(d, c.pos), "the new light lies on it")
+	steps(h, no_players(), 400)
+	check(not in_light(d, c.pos), "it left the light (%s)" % c.describe())
+	check(not on_corruption(d, c.pos), "and did not stop on the ring (%s)" % c.describe())
+	check(h.can_walk(c.pos), "it stands where it may")
+	check(h.can_walk(c.home), "and so does its home")
+	var at: Vector2 = c.pos
+	h.hit(c, 1, 0)
+	steps(h, no_players(), 30)
+	check(c.pos.distance_to(at) > 30.0, "a hit bolts it (%.1f px)" % c.pos.distance_to(at))
+	var stepped_on: int = 0
+	for t: int in 1200:
+		steps(h, no_players(), 1)
+		if on_corruption(d, c.pos) or in_light(d, c.pos):
+			stepped_on += 1
+	check_eq(stepped_on, 0, "and from then on the rules hold")
+	# Corruption past the rim on one side, as far as the eye sees: it goes out by the clean side and never touches it.
+	var d2: WorldData = lit_world(Rect2i(46, 29, 3, 3))
+	var rim: int = ceili((centre.x + r) / Config.TILE)
+	for y2: int in d2.size.y:
+		for x2: int in range(rim, d2.size.x):
+			d2.set_value(WorldData.Layer.CORRUPTION, Vector2i(x2, y2), 1)
+	var h2: Creatures = herd_on(d2)
+	var c2: CreatureSim = h2.spawn(&"hare", centre + Vector2(r - 8.0, 0.0))
+	var on_ash: int = 0
+	for t2: int in 300:
+		steps(h2, no_players(), 1)
+		if on_corruption(d2, c2.pos):
+			on_ash += 1
+	check_eq(on_ash, 0, "corruption on one side: out by the clean side, not a step on it")
+	check(h2.can_walk(c2.pos), "and out of the light (%s)" % c2.describe())
+	# On corruption with no light at all (the altar carried): it walks off too.
+	var d3: WorldData = open_world()
+	for y3: int in range(20, 30):
+		for x3: int in range(30, 40):
+			d3.set_value(WorldData.Layer.CORRUPTION, Vector2i(x3, y3), 1)
+	var h3: Creatures = herd_on(d3)
+	var c3: CreatureSim = h3.spawn(&"deer", Vector2(35 * Config.TILE, 25 * Config.TILE))
+	check(not h3.can_walk(c3.pos), "it starts on corrupted ground")
+	steps(h3, no_players(), 200)
+	check(h3.can_walk(c3.pos), "with no light it walks off it too (%s)" % c3.describe())
+	# Standing outside the light, it does not take the way through it, even when that is the only clean ground in reach.
+	var d4: WorldData = lit_world(Rect2i(46, 29, 3, 3))
+	for y4: int in d4.size.y:
+		for x4: int in d4.size.x:
+			var west_of_it: bool = float(x4 + 1) * Config.TILE < centre.x - r - 16.0
+			if not west_of_it and (Vector2(x4 + 0.5, y4 + 0.5) * Config.TILE).distance_to(centre) > r - 8.0:
+				d4.set_value(WorldData.Layer.CORRUPTION, Vector2i(x4, y4), 1)
+	var h4: Creatures = herd_on(d4)
+	var c4: CreatureSim = h4.spawn(&"hare", centre + Vector2(103.0, 64.0))
+	check(not in_light(d4, c4.pos) and on_corruption(d4, c4.pos), "it starts on the corruption just outside the rim")
+	var lit: int = 0
+	for t4: int in 300:
+		steps(h4, no_players(), 1)
+		if in_light(d4, c4.pos):
+			lit += 1
+	check_eq(lit, 0, "its way never runs through the light, though clean ground lies straight across it")
+	# Clean ground nearest behind a wall is no way out: it goes the longer way round the other side.
+	var d5: WorldData = open_world()
+	for y5: int in d5.size.y:
+		for x5: int in range(30, 37):
+			d5.set_value(WorldData.Layer.CORRUPTION, Vector2i(x5, y5), 1)
+	wall(d5, Rect2i(37, 0, 1, d5.size.y))
+	var h5: Creatures = herd_on(d5)
+	var c5: CreatureSim = h5.spawn(&"hare", feet_at(Vector2i(35, 25)))
+	steps(h5, no_players(), 120)
+	check(h5.can_walk(c5.pos) and c5.pos.x < 30.0 * Config.TILE, "the wall's side is no way (%s)" % c5.describe())
+
+
 ## A long run on generated worlds: a player keeps appearing beside creatures, so they bolt in every direction, through a world of
 ## trees, the altar, the entrance and the corruption zones.
 func _check_long_chase() -> void:
@@ -693,6 +813,37 @@ func _check_status() -> void:
 	check_eq(c4.hp, c4.hp_max() - 6, "every interval for its time")
 	check(not c4.poisoned(), "and it ended")
 	check(not h.poison(CreatureSim.new(), 0, 0, 0), "nothing to poison with")
+	# Killed by poison beside a player: a corpse does not run (M11 review).
+	var c5: CreatureSim = h.spawn(&"deer", Vector2(700, 300))
+	var near: Player = player(d, "paladin", c5.pos + Vector2(20.0, 0.0))
+	c5.hp = 1
+	h.poison(c5, 2, 90, 0)
+	c5.poison_timer = 1
+	var spot: Vector2 = c5.pos
+	steps(h, [near] as Array[Player], 1)
+	check(not c5.alive(), "the poison killed it")
+	check_eq(c5.pos, spot, "it lies where it died")
+
+
+## M11 review: ids wrap at the wire's u16 and never meet a creature that still has one (a batch naming an id twice is refused whole).
+func _check_ids() -> void:
+	var h: Creatures = herd_on(open_world())
+	var first: CreatureSim = h.spawn(&"hare", Vector2(200, 200))
+	var second: CreatureSim = h.spawn(&"hare", Vector2(240, 200))
+	check_eq([first.id, second.id], [1, 2], "from 1")
+	h.next_id = NetProtocol.CREATURE_ID_MAX
+	var last: CreatureSim = h.spawn(&"hare", Vector2(280, 200))
+	check_eq(last.id, NetProtocol.CREATURE_ID_MAX, "up to the wire's largest")
+	var wrapped: CreatureSim = h.spawn(&"hare", Vector2(320, 200))
+	check_eq(wrapped.id, 3, "then round, past the two still alive")
+	check_eq(h.next_id, 4, "and on from there")
+	h.hit(first, first.hp, 0)
+	h.next_id = 1
+	check_eq(h.spawn(&"hare", Vector2(360, 200)).id, 4, "a corpse still has its id")
+	steps(h, no_players(), Config.CREATURE_CORPSE_TICKS)
+	check_eq(h.by_id(1), null, "gone")
+	h.next_id = 1
+	check_eq(h.spawn(&"hare", Vector2(400, 200)).id, 1, "then the id is free again")
 
 
 # --- determinism ----------------------------------------------------------------------------------------

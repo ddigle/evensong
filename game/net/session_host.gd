@@ -2006,7 +2006,9 @@ func _altar_place(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 		_refuse_op(m, frame, WorldItems.WHY_REACH)
 		return
 	var rect: Rect2i = AltarMove.place_rect(p.sim_position, frame.cell)
-	var why: String = AltarMove.place_refusal(p.data, rect, bodies_on(m.map_id), heretic_feet(m.map_id))
+	var bodies: Array[Vector2] = bodies_on(m.map_id)
+	bodies.append_array(creature_feet(m.map_id))  # M11 review: a creature under the footprint could never walk out
+	var why: String = AltarMove.place_refusal(p.data, rect, bodies, heretic_feet(m.map_id))
 	if not why.is_empty():
 		_refuse_op(m, frame, why)
 		return
@@ -2041,6 +2043,7 @@ func _set_altar_down(m: NetMember, leaving: bool = false) -> bool:
 	for q: Player in players_on(m.map_id):
 		if not (leaving and q == p):
 			bodies.append(q.sim_position)
+	bodies.append_array(creature_feet(m.map_id))  # M11 review
 	var rect: Rect2i = AltarMove.set_down_fallback(p.data, p.sim_position, altar_home, bodies, heretic_feet(m.map_id),
 		leaving and not Config.ALTAR_SET_DOWN_WHEN_CARRIER_LEAVES)
 	if not rect.has_area():
@@ -2816,16 +2819,26 @@ func _refuse_capture(m: NetMember, frame: NetProtocol.InputFrame, why: String) -
 func _creature_states(herd: Creatures) -> Array[NetProtocol.CreatureState]:
 	var out: Array[NetProtocol.CreatureState] = []
 	for c: CreatureSim in herd.list:
-		var holder: int = _slot_by_id.get(c.held_by, NetProtocol.NO_SLOT)
-		out.append(NetProtocol.creature_of(c, holder))
+		out.append(NetProtocol.creature_of(c, _holder_slot(c.held_by)))
 	return out
 
 
-## Those of `all` that a player whose feet are at `feet` can see (Config.NET_CREATURE_VIEW_PX, a box like the screen).
-static func in_view(all: Array[NetProtocol.CreatureState], feet: Vector2) -> Array[NetProtocol.CreatureState]:
+## The slot of the player with node instance id `id` (a snare's thrower) while that player is still there: _slot_by_id keeps those who left
+## (the prayer's events), and M11 review: their slot may be someone else's by now. NetProtocol.NO_SLOT otherwise.
+func _holder_slot(id: int) -> int:
+	var slot: int = _slot_by_id.get(id, NetProtocol.NO_SLOT)
+	var m: NetMember = s.members.get(slot, null)
+	return slot if m != null and m.player.get_instance_id() == id else NetProtocol.NO_SLOT
+
+
+## Those of `all` that a player whose feet are at `feet` on a map of `area` can see (Config.NET_CREATURE_VIEW_PX, a box like the screen).
+## M11 review: at the map's edge the camera stops and the player walks on past the middle of the screen: the box stops there too.
+static func in_view(all: Array[NetProtocol.CreatureState], feet: Vector2, area: Rect2) -> Array[NetProtocol.CreatureState]:
+	var box: Vector2 = Config.NET_CREATURE_VIEW_PX
+	var centre: Vector2 = PlayerCamera.clamp_center(feet, area, box * 2.0)
 	var out: Array[NetProtocol.CreatureState] = []
 	for e: NetProtocol.CreatureState in all:
-		if absf(e.pos.x - feet.x) <= Config.NET_CREATURE_VIEW_PX.x and absf(e.pos.y - feet.y) <= Config.NET_CREATURE_VIEW_PX.y:
+		if absf(e.pos.x - centre.x) <= box.x and absf(e.pos.y - centre.y) <= box.y:
 			out.append(e)
 	return out
 
@@ -2840,9 +2853,10 @@ func _send_creatures(batch_tick: bool) -> void:
 	if peers.is_empty():
 		return
 	var all: Array[NetProtocol.CreatureState] = _creature_states(herd)
+	var area: Rect2 = s.world_of(Config.MAP_SURFACE).map_rect_px()
 	for peer: int in peers:
 		var m: NetMember = s.members[roster.slot_of(peer)]
-		var payload: PackedByteArray = NetProtocol.encode_creatures(s.tick, in_view(all, m.player.sim_position))
+		var payload: PackedByteArray = NetProtocol.encode_creatures(s.tick, in_view(all, m.player.sim_position, area))
 		m.creature_cast.note_activity(s.tick)
 		match m.creature_cast.decide_encoded(s.tick, payload):
 			StateBroadcast.Send.BATCH:
@@ -2862,7 +2876,8 @@ func _creature_snapshot(peer: int) -> void:
 	if herd == null or not s.members.has(slot):
 		return
 	var m: NetMember = s.members[slot]
-	var payload: PackedByteArray = NetProtocol.encode_creatures(s.tick, in_view(_creature_states(herd), m.player.sim_position))
+	var area: Rect2 = s.world_of(Config.MAP_SURFACE).map_rect_px()
+	var payload: PackedByteArray = NetProtocol.encode_creatures(s.tick, in_view(_creature_states(herd), m.player.sim_position, area))
 	s.send_wild_keyframe(peer, payload)
 	m.creature_cast.sent(payload)
 	creature_keyframes_sent += 1
