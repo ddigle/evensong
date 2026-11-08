@@ -289,18 +289,21 @@ func _check_sheets() -> void:
 		check(CreatureView.corpse_texture(k) == CreatureView.corpse_texture(k), "%s: the corpse texture is kept" % k)
 		var icon: Image = CreatureView.icon(k)
 		check_eq(icon.get_size(), cells[7].get_used_rect().size, "%s: the panel's picture = the east standing one, cropped" % k)
-		# The PROVISIONAL hit boxes (Config.CREATURES, M11a: measured from the placeholder maps) are kept as they were, so they no longer match
-		# these pictures (README "M11 생물 그림": a human check). The rule that still holds: the box is never taller than what is drawn. M11a's
-		# rule checks (the box's height = the tallest picture +-2, its width <= the widest + 2) are OFF until the human sets new values (they
-		# would fail for all five); restore them then, with a check that the snare's click (Capture.target_at) reaches the drawn figure.
+		# The PROVISIONAL hit boxes (Config.CREATURES) follow M11a's rule on these pictures (README "M11 생물 그림"): the box's height is the
+		# tallest picture's (+-2), its width no more than the widest standing picture's + 2, and the snare's click (Capture.target_at: the
+		# box's middle, max(radius, height / 2) + CAPTURE_GRAB_PX) reaches the top of the drawn figure, antlers and ears included.
 		var c: CreatureSim = CreatureSim.new()
 		c.kind = k
 		var tall: int = CreatureView.height_of(k)
 		var east_w: int = cells[7].get_used_rect().size.x
 		var south_w: int = cells[0].get_used_rect().size.x
-		check(c.num_f("hit_height_px") <= tall, "%s: the hit box (%d) is no taller than the picture (%d)" % [k, c.num_i("hit_height_px"), tall])
-		note("%s: picture %d px tall, standing east %d / south %d px wide; hit box %d tall, %d wide (kept)" % [k, tall, east_w, south_w,
-			int(c.num_f("hit_height_px")), int(c.num_f("hit_radius_px") * 2.0)])
+		var box_h: float = c.num_f("hit_height_px")
+		var box_r: float = c.num_f("hit_radius_px")
+		check_between(box_h, tall - 2.0, tall + 2.0, "%s: the hit box's height is the picture's (%d)" % [k, tall])
+		check(box_r * 2.0 <= maxi(east_w, south_w) + 2.0, "%s: the hit box is no wider than the widest standing picture (%d)" % [k, maxi(east_w, south_w)])
+		check(float(tall) - box_h / 2.0 <= maxf(box_r, box_h / 2.0) + Config.CAPTURE_GRAB_PX, "%s: the snare's click reaches the picture's top" % k)
+		note("%s: picture %d px tall, standing east %d / south %d px wide; hit box %d tall, %d wide" % [k, tall, east_w, south_w,
+			int(box_h), int(box_r * 2.0)])
 	# Beside a player: the hare small, the deer large, the stag the tallest.
 	check(CreatureView.height_of(&"hare") < CreatureView.height_of(&"deer"), "the hare is smaller than the deer")
 	check(CreatureView.height_of(&"hare") < PLAYER_SHORTEST, "the hare is shorter than a player")

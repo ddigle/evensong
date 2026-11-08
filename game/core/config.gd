@@ -1165,25 +1165,25 @@ const PRAYER_JOIN_LAG_TICKS: int = 30
 ## way, melee the slower one, the ● common tier); `alert_px` (it bolts from a player up within this, feet to feet, wandering or
 ## idle; a hit makes it bolt at once, resting too); `wander_px` (how far from home it wanders); `cap` (alive at once) and
 ## `respawn_ticks` (game clock, from the death); `hit_radius_px` and `hit_height_px` (the drawn figure's box a shot must be
-## inside, Combat.shot_hits_body's rule at its size, measured from the M11a placeholder maps; M11 creature art kept them: the sheets'
-## pictures are taller and the owl narrower, README "M11 생물 그림" human check; the snare's click, Capture.target_at, and the gold ring go
-## by the same box); `drops_hunter` and `drops_other` ([item, count] rows by the killing blow's class: ● the archer's whole hide,
+## inside, Combat.shot_hits_body's rule at its size; M11a's rule, re-measured on the round-16 sheets: the height is the kind's tallest
+## picture, CreatureView.height_of, the width no more than its widest standing picture + 2 px, README "M11 생물 그림"; the snare's
+## click, Capture.target_at, and the gold ring go by the same box); `drops_hunter` and `drops_other` ([item, count] rows by the killing blow's class: ● the archer's whole hide,
 ## everyone else's damaged one and fewer, no dice).
 const CREATURES: Dictionary[StringName, Dictionary] = {
 	&"hare": {"rare": false, "hp": 10, "walk_speed": 28.0, "flee_speed": 112.0, "flee_ticks": 80, "rest_ticks": 120,
-		"alert_px": 72.0, "wander_px": 64.0, "cap": 6, "respawn_ticks": 3 * 60 * 60, "hit_radius_px": 8.0, "hit_height_px": 12.0,
+		"alert_px": 72.0, "wander_px": 64.0, "cap": 6, "respawn_ticks": 3 * 60 * 60, "hit_radius_px": 8.0, "hit_height_px": 20.0,
 		"drops_hunter": [[&"hide_fine", 1], [&"meat", 1]], "drops_other": [[&"hide_worn", 1]]},
 	&"deer": {"rare": false, "hp": 30, "walk_speed": 24.0, "flee_speed": 96.0, "flee_ticks": 90, "rest_ticks": 120,
-		"alert_px": 64.0, "wander_px": 96.0, "cap": 4, "respawn_ticks": 5 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 24.0,
+		"alert_px": 64.0, "wander_px": 96.0, "cap": 4, "respawn_ticks": 5 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 34.0,
 		"drops_hunter": [[&"hide_fine", 2], [&"meat", 2]], "drops_other": [[&"hide_worn", 1], [&"meat", 1]]},
 	&"lamp_fox": {"rare": true, "hp": 46, "walk_speed": 30.0, "flee_speed": 124.0, "flee_ticks": 90, "rest_ticks": 100,
-		"alert_px": 96.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 10.0, "hit_height_px": 14.0,
+		"alert_px": 96.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 10.0, "hit_height_px": 23.0,
 		"drops_hunter": [[&"hide_fine", 2], [&"meat", 1]], "drops_other": []},
 	&"silver_stag": {"rare": true, "hp": 56, "walk_speed": 26.0, "flee_speed": 112.0, "flee_ticks": 100, "rest_ticks": 100,
-		"alert_px": 88.0, "wander_px": 64.0, "cap": 1, "respawn_ticks": 10 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 25.0,
+		"alert_px": 88.0, "wander_px": 64.0, "cap": 1, "respawn_ticks": 10 * 60 * 60, "hit_radius_px": 12.0, "hit_height_px": 42.0,
 		"drops_hunter": [[&"hide_fine", 3], [&"meat", 2]], "drops_other": []},
 	&"ash_owl": {"rare": true, "hp": 44, "walk_speed": 28.0, "flee_speed": 128.0, "flee_ticks": 80, "rest_ticks": 110,
-		"alert_px": 104.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 8.0, "hit_height_px": 16.0,
+		"alert_px": 104.0, "wander_px": 48.0, "cap": 1, "respawn_ticks": 8 * 60 * 60, "hit_radius_px": 7.0, "hit_height_px": 22.0,
 		"drops_hunter": [[&"hide_fine", 1], [&"meat", 1]], "drops_other": []},
 }
 ## PROVISIONAL (not in the docs): an unalarmed creature stands between these many ticks (drawn from its own stream), then walks to a
