@@ -1165,7 +1165,8 @@ const PRAYER_JOIN_LAG_TICKS: int = 30
 ## way, melee the slower one, the ● common tier); `alert_px` (it bolts from a player up within this, feet to feet, wandering or
 ## idle; a hit makes it bolt at once, resting too); `wander_px` (how far from home it wanders); `cap` (alive at once) and
 ## `respawn_ticks` (game clock, from the death); `hit_radius_px` and `hit_height_px` (the drawn figure's box a shot must be
-## inside, Combat.shot_hits_body's rule at its size, measured from the view's maps); `drops_hunter` and `drops_other` ([item, count]
+## inside, Combat.shot_hits_body's rule at its size, measured from the M11a placeholder maps; M11 creature art kept them: the sheets'
+## pictures are taller and the owl narrower, README "M11 생물 그림" human check); `drops_hunter` and `drops_other` ([item, count]
 ## rows by the killing blow's class: ● the archer's whole hide, everyone else's damaged one and fewer, no dice).
 const CREATURES: Dictionary[StringName, Dictionary] = {
 	&"hare": {"rare": false, "hp": 10, "walk_speed": 28.0, "flee_speed": 112.0, "flee_ticks": 80, "rest_ticks": 120,
@@ -1202,6 +1203,11 @@ const CREATURE_SPAWN_MIN_PLAYER_PX: float = 160.0
 ## Config.DRINK_ANIM, DRINK_EFFECT_FRAME; refused at full HP like a healing potion, Config.DRINK_AT_FULL_HP). Well below the common
 ## healing potion (Config.POTION_HEAL_HP).
 const MEAT_HEAL_HP: int = 12
+## PROVISIONAL (M11 creature art, not in the docs; README "M11 생물 그림 달아날 때 걸음"): a fleeing creature steps its six walk frames this
+## many ticks each (wandering: CreatureSim.WALK_FRAME_TICKS 7, the heretic's). It runs about four times its walking speed (112 px/s against
+## 28 for the hare), so at 7 ticks a frame its legs would slide; at 4 one cycle is 0.4 s, about a body length a stride for the deer.
+## A picture only: nothing in the simulation, the hashes or on the wire reads it (a client has the state from the batch).
+const CREATURE_FLEE_FRAME_TICKS: int = 4
 
 # --- PROVISIONAL, M11b (the rare zone, capture, the collection, the rare material and gear; offline first) ------------------
 # Offline first (M11b, like M5a-M10a; M11c: a session's is the host's, the same tables). README "임시값" M11b. ● decided and followed as written: the

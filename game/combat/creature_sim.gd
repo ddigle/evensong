@@ -10,8 +10,12 @@ extends RefCounted
 enum State { IDLE, WANDER, FLEE, REST, DEAD }
 
 const STATE_NAMES: PackedStringArray = ["idle", "wander", "flee", "rest", "dead"]
-## IMPL: the view's walk frames take this many ticks each (the heretic's HereticSim.WALK_FRAME_TICKS).
+## IMPL: the view's walk frames take this many ticks each (the heretic's HereticSim.WALK_FRAME_TICKS); while it flees,
+## Config.CREATURE_FLEE_FRAME_TICKS (M11 creature art). The walk sheets have WALK_FRAMES frames a direction (PixelLab 16차).
 const WALK_FRAME_TICKS: int = 7
+const WALK_FRAMES: int = 6
+## The frame of a creature not walking: the sheet's standing picture (its rotation), not a walk frame (CreatureView.sheet).
+const STAND: int = -1
 
 var id: int = 0
 ## Its row of Config.CREATURES.
@@ -88,9 +92,14 @@ func speed_now(speed: float) -> float:
 	return speed * float(100 - clampi(slow_pct, 0, 100)) / 100.0
 
 
-## The walk frame shown now (0 or 1; 0 standing).
+## The frame shown now: STAND while it does not walk (a corpse too), else the walk's frame (0 .. WALK_FRAMES - 1) by its clock, each
+## WALK_FRAME_TICKS long, Config.CREATURE_FLEE_FRAME_TICKS while it flees (a client has the state and the walking bit from the batch and the
+## host's tick for the clock: the same frame).
 func frame() -> int:
-	return (clock / WALK_FRAME_TICKS) % 2 if walking else 0
+	if not walking:
+		return STAND
+	var each: int = Config.CREATURE_FLEE_FRAME_TICKS if state == State.FLEE else WALK_FRAME_TICKS
+	return (clock / each) % WALK_FRAMES
 
 
 ## Gone for good (it has lain long enough).
