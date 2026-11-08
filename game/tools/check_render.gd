@@ -4622,17 +4622,21 @@ static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
 
 # --- M11c ---------------------------------------------------------------------------------------------------------------
 
-## M11c: what a client draws from the wire is the host's picture to the pixel. The creatures: one of every kind, walking and standing,
+## M11c: what a client draws from the wire is the host's picture to the pixel. The creatures: one of every kind, walking, fleeing and standing,
 ## hurt, flashing, poisoned, stunned, slowed, refused, a corpse, one a snare holds with its rope and one a snare could take with its glow,
 ## drawn by a CombatView from the host's herd, then by another from a NetCombat mirror fed the encoded batch and sampled at that tick. The
 ## rare zone: from a surface snapshot decoded (RareZoneView on the data that came). The collection panel: on a copy fed the message.
+## M11 creature art review: the host's creatures take their clock from the herd (Creatures.spawn), which stands at the batch's tick like a
+## session host's (its herd counts host ticks); the tick is one where the walk frame, the flee frame and the ring's blink all differ from a
+## creature clock of 0, so a creature that kept its own clock (ticks since it came) would show here.
 func _check_wild_net() -> void:
 	world.lighting.set_evening(false)
 	var data: WorldData = world.data
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
 	var bg: Image = await _capture()
-	var tick: int = 7777
+	var tick: int = 7792
 	var herd: Creatures = Creatures.mirror(data)
+	herd.clock = tick
 	var arena: Arena = Arena.mirror(data)
 	arena.herd = herd
 	var keys: Array = Config.CREATURES.keys()
@@ -4641,7 +4645,6 @@ func _check_wild_net() -> void:
 		var kind: StringName = keys[i % keys.size()]
 		var c: CreatureSim = herd.spawn(kind, Vector2(origin + Vector2i(60 + 62 * (i % 6), 100 + 90 * (i / 6))))
 		c.facing = [RigData.Dir.SOUTH, RigData.Dir.EAST, RigData.Dir.NORTH, RigData.Dir.WEST][i % 4]
-		c.clock = tick
 		c.walking = i % 3 == 1
 		match i:
 			1:
@@ -4668,6 +4671,8 @@ func _check_wild_net() -> void:
 				c.hold_ticks = 9
 				c.held_from = Combat.body_point(holder)
 				c.held_by = 1
+			10:
+				c.state = CreatureSim.State.FLEE  # M11 creature art: its walk steps at the flee frame time
 	var states: Array[NetProtocol.CreatureState] = []
 	for c2: CreatureSim in herd.list:
 		states.append(NetProtocol.creature_of(c2, 0 if c2.held_by != 0 else NetProtocol.NO_SLOT))

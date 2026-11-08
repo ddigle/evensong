@@ -290,7 +290,9 @@ func _check_sheets() -> void:
 		var icon: Image = CreatureView.icon(k)
 		check_eq(icon.get_size(), cells[7].get_used_rect().size, "%s: the panel's picture = the east standing one, cropped" % k)
 		# The PROVISIONAL hit boxes (Config.CREATURES, M11a: measured from the placeholder maps) are kept as they were, so they no longer match
-		# these pictures (README "M11 생물 그림": a human check). The rule that still holds: the box is never taller than what is drawn.
+		# these pictures (README "M11 생물 그림": a human check). The rule that still holds: the box is never taller than what is drawn. M11a's
+		# rule checks (the box's height = the tallest picture +-2, its width <= the widest + 2) are OFF until the human sets new values (they
+		# would fail for all five); restore them then, with a check that the snare's click (Capture.target_at) reaches the drawn figure.
 		var c: CreatureSim = CreatureSim.new()
 		c.kind = k
 		var tall: int = CreatureView.height_of(k)
@@ -468,12 +470,25 @@ func _check_caps_and_respawn() -> void:
 	check_eq(hb.waiting.size(), 1, "and it waits for another try")
 	var due: int = hb.waiting[0].due
 	check(due > hb.clock and due <= hb.clock + Config.CREATURE_SPAWN_RETRY_TICKS, "the next try comes within the retry time")
+	var old_ids: Array[int] = []
+	for c0: CreatureSim in hb.list:
+		old_ids.append(c0.id)
 	box.layers[WorldData.Layer.WALL].fill(0)
 	steps(hb, [everywhere] as Array[Player], Config.CREATURE_SPAWN_RETRY_TICKS + 1)
 	check_eq(hb.alive_count(k1), left_before + 1, "a tile free again: it comes")
+	var came: int = 0
 	for c2: CreatureSim in hb.list:
-		if c2.clock <= Config.CREATURE_SPAWN_RETRY_TICKS + 2:
+		if not old_ids.has(c2.id):
+			came += 1
 			check(c2.pos.distance_to(everywhere.sim_position) >= Config.CREATURE_SPAWN_MIN_PLAYER_PX - 1.0, "a respawn comes away from players")
+		# M11 creature art review: a creature's clock is the herd's, however late it came (the walk frame and the ring's blink are the same
+		# on a session host, whose herd counts host ticks, and a client, which draws by the host tick).
+		check_eq(c2.clock, hb.clock, "creature %d: its clock is the herd's (%d), the respawn's too" % [c2.id, hb.clock])
+	check_eq(came, 1, "one respawn")
+	var late: CreatureSim = hb.spawn(&"hare", Vector2(100, 100))
+	check(hb.clock > 0 and late.clock == hb.clock, "a test creature put down late: the herd's clock too (%d)" % hb.clock)
+	steps(hb, [everywhere] as Array[Player], 3)
+	check_eq(late.clock, hb.clock, "and it steps with the herd")
 
 
 # --- wander, bolt, rest ---------------------------------------------------------------------------------
@@ -1107,6 +1122,7 @@ func _check_view() -> void:
 		check(v.body.region_enabled, "%s: a cell of the sheet" % name_of)
 		check_eq(v.body.region_rect, Rect2(rows[dir] * cell.x, 0, cell.x, cell.y), "%s: its standing cell (west: the east one)" % name_of)
 		check_eq(v.body.position, Vector2(-cell.x / 2, -cell.y), "%s: bottom middle on the feet" % name_of)
+		check(not v.body.centered, "%s: the offset is the cell's top-left (not centred)" % name_of)
 		check(not v.body.flip_v, "%s: right way up" % name_of)
 	c.facing = RigData.Dir.EAST
 	check_eq(v.body.light_mask, Config.LIGHT_LAYER_ACTORS, "the actors' hard light, like a heretic")
@@ -1142,6 +1158,14 @@ func _check_view() -> void:
 	c.clock = Config.CREATURE_FLEE_FRAME_TICKS - 1
 	v.show_sim(c)
 	check_eq(v.frame, 0, "a fleeing frame lasts CREATURE_FLEE_FRAME_TICKS")
+	# A hit makes it bolt at once, so the flash is mostly seen on the walk sheet.
+	c.flash_ticks = 2
+	c.clock = Config.CREATURE_FLEE_FRAME_TICKS * 3
+	v.show_sim(c)
+	check(v.body.texture == CreatureView.WALKS[&"deer"] and v.body.modulate == Player.HIT_FLASH, "fleeing: the flash on the walk frame too")
+	c.flash_ticks = 0
+	v.show_sim(c)
+	check_eq(v.body.modulate, Color.WHITE, "then no flash")
 	# Walking west: the east row mirrored; north: its own row.
 	c.state = CreatureSim.State.WANDER
 	c.clock = CreatureSim.WALK_FRAME_TICKS * 2
@@ -1165,10 +1189,12 @@ func _check_view() -> void:
 	check_eq(v.marks.shown, [EffectMarks.Kind.POISON, EffectMarks.Kind.STUN, EffectMarks.Kind.SLOW] as Array[int], "its marks")
 	check(v.marks.position.y + EffectMarks.MARK_Y < -CreatureView.height_of(&"deer"), "above its picture")
 	check(v.marks.position.y + EffectMarks.MARK_Y + EffectMarks.SIZE <= v._bar_top, "above its bar")
-	c.poison_ticks = 0
-	c.stun_ticks = 0
-	c.slow_ticks = 0
-	c.slow_pct = 0
+	check_eq(v.marks.position.y + EffectMarks.MARK_Y + EffectMarks.SIZE, float(v._bar_top - CreatureView.MARK_GAP), "MARK_GAP px over its bar")
+	check(v._bar_top - (v.marks.position.y + EffectMarks.MARK_Y + EffectMarks.SIZE) >= 2.0, "clear rows between its marks and its bar (they never touch)")
+	c.refused_ticks = 5
+	v.show_sim(c)
+	check(v.marks.shown.has(EffectMarks.Kind.REFUSED), "a refused blow: its cross too")
+	# (The poison, the stun, the slow and the refused cross stay on into its death below: a corpse shows none of them.)
 	# The bar sits over every picture of every kind (each cell measured here from the PNG), BAR_GAP px over the tallest.
 	for k3: StringName in SHEET_CELLS:
 		var s3: Vector2i = SHEET_CELLS[k3]
@@ -1194,17 +1220,28 @@ func _check_view() -> void:
 		v.show_sim(c)
 		var dn: String = RigData.DIR_NAMES[dir2]
 		check(v.body.texture == CreatureView.corpse_texture(&"deer") and not v.body.region_enabled, "dead %s: the corpse picture" % dn)
-		check_eq(v.body.position, Vector2(-lying.get_width() / 2, -lying.get_height()), "dead %s: bottom middle on the feet (its last row on the feet row)" % dn)
+		check_eq(v.position + v.body.position, Vector2(100, 201) + Vector2(-lying.get_width() / 2, -lying.get_height()),
+			"dead %s: bottom middle on the feet (its last row on the feet row)" % dn)
+		# Its node sorts past its kill's drops (ItemView: on the feet tile's bottom edge, 13 * 16 here), so it lies over them.
+		check_eq(v.position, Vector2(100, 13 * Config.TILE + CreatureView.CORPSE_SORT_PX), "dead %s: its node 1 px under its tile's bottom edge" % dn)
 		check_eq(v.rig.scale.x, -1.0 if dir2 == RigData.Dir.WEST else 1.0, "dead %s: the head west when it faced west" % dn)
 		check(not v.body.flip_v, "dead %s: not upside down" % dn)
 	check(not v.bar.visible, "no bar")
-	check(v.marks.shown.is_empty(), "no marks")
+	check(c.poison_ticks > 0 and c.stun_ticks > 0 and c.slow_ticks > 0 and c.slow_pct > 0 and c.refused_ticks > 0,
+		"it died poisoned, stunned, slowed and with a refused blow showing")
+	check(v.marks.shown.is_empty(), "no marks (not one of them over a corpse)")
+	c.poison_ticks = 0
+	c.stun_ticks = 0
+	c.slow_ticks = 0
+	c.slow_pct = 0
+	c.refused_ticks = 0
 	c.state = CreatureSim.State.IDLE
 	c.hp = c.hp_max()
 	c.facing = RigData.Dir.EAST
 	v.show_sim(c)
 	check(v.body.region_enabled and v.body.texture == CreatureView.ROTATIONS[&"deer"] and v.body.position == Vector2(-cell.x / 2, -cell.y),
 		"alive again: the standing cell")
+	check_eq(v.position, Vector2(100, 201), "alive again: the node back on the feet")
 	# CombatView keeps one node per creature, under the entities, and frees it with the creature.
 	var d: WorldData = open_world()
 	var a: Arena = Arena.new()
@@ -1224,9 +1261,12 @@ func _check_view() -> void:
 	view.sync()
 	check_eq(view.creatures.size(), 2, "sync keeps them")
 	a.herd.hit(hare, 1000, 0)
+	var drop_row: int = a.herd.kills[a.herd.kills.size() - 1].at.y
 	a.herd.step([] as Array[Player])
 	view.sync_creatures()
 	check_eq(view.creatures.size(), 2, "the corpse lies on")
+	check(view.creatures[hare.id].position.y > (drop_row + 1) * Config.TILE,
+		"the corpse sorts past its kill's drops (ItemView: on the drop tile's bottom edge), so it lies over them")
 	for t: int in Config.CREATURE_CORPSE_TICKS:
 		a.herd.step([] as Array[Player])
 	view.sync_creatures()

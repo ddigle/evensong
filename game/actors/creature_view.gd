@@ -9,7 +9,8 @@ extends Node2D
 ## six-frame cycle (CreatureSim.frame: the walk's frame time, faster while it flees, Config.CREATURE_FLEE_FRAME_TICKS). West = the east
 ## cells mirrored by the Rig's scale.x = -1 (● R19 as for the players; the sheet's own west cell is that mirror and is never drawn).
 ## The node sits on the feet (the cell's bottom row just above it, like Character), so the y-sorted Entities sorts it with the characters;
-## the light layer is the actors' (hard), like a heretic.
+## the light layer is the actors' (hard), like a heretic. A corpse's node sits lower, on its tile's bottom edge + CORPSE_SORT_PX (the picture
+## stays on the feet): its kill's drops lie on that edge (ItemView), and it lies over them for its time instead of under them.
 ##
 ## Shows: the walk, the hit flash and the HP bar once hurt (the heretic's colours and rule, Heretic.bar_fill; drawn in code, unshaded) BAR_GAP
 ## px over the kind's tallest picture (height_of: every cell of its two sheets, so the bar holds still while it turns and walks), the marks of
@@ -20,7 +21,8 @@ extends Node2D
 ## (Config.CAPTURE_HP_PCT); a creature a snare can take has a blinking gold ring at its feet (glow_pixels); one a snare holds has a dashed
 ## rope back to where it was thrown from (rope_pixels); a blow that did nothing to it shows the refused cross (EffectMarks).
 ## The sheets are read into Images once (_measure: the tops, the corpses, the CPU pictures image() and icon() give), never while it
-## walks: the body is a Sprite2D region of the imported sheet.
+## walks: the body is a Sprite2D region of the imported sheet. CombatView reads them when it is set up on a map with a herd (warm), so
+## the first creature does not read them mid-play (a session client's first batch).
 
 ## IMPL (M11 creature art): every kind's cell (W x H), as the art step packed the sheets (03-pixel prompts.md "PixelLab 16차").
 const CELLS: Dictionary[StringName, Vector2i] = {
@@ -63,6 +65,8 @@ const ROPE_COLOUR: Color = Color8(0xdc, 0xc4, 0x9a)
 const NOTCH_COLOUR: Color = Color8(0xef, 0xe3, 0xc6)
 const ROPE_DASH: int = 4
 const ROPE_LIT: int = 2
+## IMPL (M11 creature art review): how far below its tile's bottom edge a corpse sorts (past its drops on that edge, ItemView).
+const CORPSE_SORT_PX: int = 1
 
 ## The sheets as RGBA8 Images (key "<kind>/rot" or "<kind>/walk"), each kind's first opaque row over all its cells, and its corpse.
 ## Filled once by _measure.
@@ -171,6 +175,11 @@ static func corpse_offset(k: StringName) -> Vector2i:
 	return Vector2i(-s.x / 2, -s.y)
 
 
+## Where a corpse's node sits (its y-sort point) for feet `feet` (whole px): its tile's bottom edge + CORPSE_SORT_PX, past its kill's drops.
+static func corpse_sort_y(feet: Vector2) -> float:
+	return float((Aim.feet_cell(feet).y + 1) * Config.TILE + CORPSE_SORT_PX)
+
+
 ## The collection panel's picture of `k`: its east standing picture, cropped to what is drawn.
 static func icon(k: StringName) -> Image:
 	var img: Image = image(k, RigData.sheet_row(RigData.Dir.EAST), CreatureSim.STAND)
@@ -184,6 +193,11 @@ static func first_opaque_row(img: Image) -> int:
 			if img.get_pixel(x, y).a8 >= 128:
 				return y
 	return img.get_height()
+
+
+## Reads the sheets now (CombatView.setup on a map with a herd), not when the first creature comes.
+static func warm() -> void:
+	_measure()
 
 
 ## Reads every sheet once and keeps the tops (the bar) and the corpses.
@@ -206,7 +220,8 @@ static func _measure() -> void:
 func show_sim(c: CreatureSim) -> void:
 	sim_id = c.id
 	kind = c.kind
-	position = c.pos.round()
+	var feet: Vector2 = c.pos.round()
+	position = feet
 	row = RigData.sheet_row(c.facing)
 	frame = c.frame()
 	rig.scale = Vector2(-1.0 if RigData.is_mirrored(c.facing) else 1.0, 1.0)
@@ -219,6 +234,9 @@ func show_sim(c: CreatureSim) -> void:
 	if not dead and body.region_rect != cell:
 		body.region_rect = cell
 	body.position = Vector2(corpse_offset(kind) if dead else picture_offset(kind))
+	if dead:
+		position.y = corpse_sort_y(feet)
+		body.position.y += feet.y - position.y  # the picture stays on the feet
 	body.modulate = Player.HIT_FLASH if c.flash_ticks > 0 else Color.WHITE
 	var top: int = -height_of(kind) - BAR_GAP - BAR_HEIGHT - 2
 	var ratio: float = float(c.hp) / c.hp_max()

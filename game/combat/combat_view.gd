@@ -139,6 +139,8 @@ func setup(p_arena: Arena, p_entities: Node2D) -> void:
 	clear()
 	arena = p_arena
 	entities = p_entities
+	if arena != null and arena.herd != null:
+		CreatureView.warm()  # M11 creature art review: the sheets now, not on the first creature's frame
 
 
 func clear() -> void:

@@ -43,7 +43,9 @@ var poison_damage: int = 0
 var poison_ticks: int = 0
 var poison_timer: int = 0
 var poison_by: int = 0
-## Display: ticks since it was put down (walk frames), hit flash ticks left.
+## Display: the herd's game clock (Creatures.clock: set when it is put down, stepped with the herd, so on a session host it is the host
+## tick), for the walk frames and the ring's blink. A session client sets it to the host tick it draws (NetCombat.sample_creature): both
+## draw the same frame at the same host tick whenever the creature came. Hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0
 ## M11b: it came down in the rare zone and stays in it (Creatures.can_walk). A test flag's creature is not bound.
@@ -92,9 +94,9 @@ func speed_now(speed: float) -> float:
 	return speed * float(100 - clampi(slow_pct, 0, 100)) / 100.0
 
 
-## The frame shown now: STAND while it does not walk (a corpse too), else the walk's frame (0 .. WALK_FRAMES - 1) by its clock, each
-## WALK_FRAME_TICKS long, Config.CREATURE_FLEE_FRAME_TICKS while it flees (a client has the state and the walking bit from the batch and the
-## host's tick for the clock: the same frame).
+## The frame shown now: STAND while it does not walk (a corpse too), else the walk's frame (0 .. WALK_FRAMES - 1) by its clock (the herd's,
+## `clock`), each WALK_FRAME_TICKS long, Config.CREATURE_FLEE_FRAME_TICKS while it flees (a client has the state and the walking bit from
+## the batch and the host's tick for the clock: the same frame as the host's at that tick).
 func frame() -> int:
 	if not walking:
 		return STAND

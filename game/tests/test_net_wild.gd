@@ -461,6 +461,16 @@ func _check_host_herd() -> void:
 	r.host.move_to_map(member_of_peer(r, 101), Config.MAP_DUNGEON)
 	_tick(r, 10)
 	check_eq(herd.clock, at_home + 10, "with nobody on the surface too (the game clock, as offline)")
+	# M11 creature art review: the herd's clock is the host tick, and so is every creature's (CreatureSim.clock), one put down late too: a
+	# client draws the walk frame and the ring's blink by the host tick it draws, so both show the same frame.
+	check_eq(herd.clock, r.s.tick, "the herd's clock is the host tick")
+	var late: CreatureSim = herd.spawn(&"hare", herd.list[0].pos + Vector2(32, 0))
+	_tick(r, 3)
+	var off: int = 0
+	for c2: CreatureSim in herd.list:
+		if c2.clock != r.s.tick:
+			off += 1
+	check(late.clock == r.s.tick and off == 0, "every creature's clock is the host tick (%d), the late one too (%d); %d off" % [r.s.tick, late.clock, off])
 	_free_rig(r)
 
 
