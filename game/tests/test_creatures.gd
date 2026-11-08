@@ -1,6 +1,6 @@
 extends "res://tests/base_test.gd"
 ## M11a, the creatures (combat/creature_sim.gd, combat/creatures.gd, actors/creature_view.gd; every number PROVISIONAL, README "임시값"
-## M11a): the table (five kinds: two prey, three rare, the speeds, alert radii and drops the rules need), the code-drawn maps,
+## M11a): the table (five kinds: two prey, three rare, the speeds, alert radii and drops the rules need), the sheets (M11 creature art),
 ## spawning over many seeds (only on the surface, never in the light, on corruption or its margin, in walls, fixtures, doorways, soil
 ## or at the map's edge, never near a player on a respawn; the rare kinds wait for M11b), caps and respawns on the game clock,
 ## wander / bolt / rest (the burst beats a walking player, then walking catches it; every obstacle kind, corruption and the
@@ -32,7 +32,7 @@ const RARE_KINDS: int = 3
 
 func run() -> Array[String]:
 	_check_table()
-	_check_maps()
+	_check_sheets()
 	_check_spawn_rules()
 	_check_spawn_refusals()
 	_check_caps_and_respawn()
@@ -172,45 +172,144 @@ func _check_table() -> void:
 	check_eq(Config.HUNTER_CLASS, "archer", "● the archer leaves the hide whole")
 
 
-# --- the maps ---------------------------------------------------------------------------------------
+# --- the sheets (M11 creature art) ---------------------------------------------------------------------
 
-func _check_maps() -> void:
-	check_eq(CreatureView.MAPS.keys(), Config.CREATURES.keys(), "a picture for every kind, in the table's order")
-	check_eq(CreatureView.STEPS.keys(), Config.CREATURES.keys(), "a second frame for every kind")
-	for k: StringName in CreatureView.MAPS:
-		var maps: Array = CreatureView.MAPS[k]
-		var steps_of: Array = CreatureView.STEPS[k]
-		check_eq(maps.size(), 3, "%s: south, east, north" % k)
-		check_eq(steps_of.size(), 3, "%s: three second frames" % k)
+## M11 creature art: every kind's cell as the art step packed its two sheets (03-pixel prompts.md "PixelLab 16차"), written out here, and how
+## tall a player stands at the least (the base body's idle: south 27, east and north 29 px; README "M11 생물 그림").
+const SHEET_CELLS: Dictionary[StringName, Vector2i] = {&"hare": Vector2i(24, 24), &"deer": Vector2i(40, 36), &"lamp_fox": Vector2i(36, 24),
+	&"silver_stag": Vector2i(44, 44), &"ash_owl": Vector2i(16, 24)}
+const PLAYER_SHORTEST: int = 27
+
+
+static func _first_row(img: Image) -> int:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				return y
+	return img.get_height()
+
+
+static func _last_row(img: Image) -> int:
+	for y: int in range(img.get_height() - 1, -1, -1):
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				return y
+	return -1
+
+
+## The pixels where `a` and `b` differ, either drawn (the import's alpha-border fix gives the clear pixels around a picture colours of their
+## own, so clear against clear counts as the same).
+static func _drawn_diff(a: Image, b: Image) -> int:
+	var n: int = 0
+	for y: int in a.get_height():
+		for x: int in a.get_width():
+			var pa: Color = a.get_pixel(x, y)
+			var pb: Color = b.get_pixel(x, y)
+			if (pa.a8 > 0 or pb.a8 > 0) and pa.to_rgba32() != pb.to_rgba32():
+				n += 1
+	return n
+
+
+static func _opaque(img: Image) -> int:
+	var n: int = 0
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				n += 1
+	return n
+
+
+## Every cell of kind `k`, read here from the PNGs (not through CreatureView): per row (south, east, north) its standing cell, then its six
+## walk frames (index row * 7 + 0 standing, row * 7 + 1 + f walk frame f).
+static func _cells_of(k: StringName) -> Array[Image]:
+	var cell: Vector2i = SHEET_CELLS[k]
+	var rot: Image = LightGen.to_rgba8((load("res://art/creatures/%s_v02_rotations.png" % k) as Texture2D).get_image())
+	var walk: Image = LightGen.to_rgba8((load("res://art/creatures/%s_v02_walk.png" % k) as Texture2D).get_image())
+	var out: Array[Image] = []
+	for r: int in 3:
+		out.append(rot.get_region(Rect2i(Vector2i(r * cell.x, 0), cell)))
+		for f: int in 6:
+			out.append(walk.get_region(Rect2i(Vector2i(f * cell.x, r * cell.y), cell)))
+	return out
+
+
+func _check_sheets() -> void:
+	check_eq(CreatureView.CELLS.keys(), Config.CREATURES.keys(), "a sheet pair for every kind, in the table's order")
+	check_eq(CreatureView.ROTATIONS.keys(), Config.CREATURES.keys(), "a rotations sheet for every kind")
+	check_eq(CreatureView.WALKS.keys(), Config.CREATURES.keys(), "a walk sheet for every kind")
+	check_eq(CreatureSim.WALK_FRAMES, 6, "six walk frames a direction (the walk-6-frames templates)")
+	check_eq(CreatureView.ROTATION_CELLS, 4, "four standing cells: south, east, north, west")
+	for k: StringName in SHEET_CELLS:
+		var cell: Vector2i = SHEET_CELLS[k]
+		check_eq(CreatureView.cell_size(k), cell, "%s: its cell" % k)
+		check_eq(cell.x % 4 + cell.y % 4, 0, "%s: a cell of whole 4 px" % k)
+		var rot_tex: Texture2D = load("res://art/creatures/%s_v02_rotations.png" % k) as Texture2D
+		var walk_tex: Texture2D = load("res://art/creatures/%s_v02_walk.png" % k) as Texture2D
+		check(rot_tex != null and rot_tex == CreatureView.ROTATIONS[k], "%s: the rotations sheet loads (the view's)" % k)
+		check(walk_tex != null and walk_tex == CreatureView.WALKS[k], "%s: the walk sheet loads (the view's)" % k)
+		if rot_tex == null or walk_tex == null:
+			continue
+		check_eq(Vector2i(rot_tex.get_size()), Vector2i(cell.x * 4, cell.y), "%s: one row of four standing cells" % k)
+		check_eq(Vector2i(walk_tex.get_size()), Vector2i(cell.x * 6, cell.y * 3), "%s: three rows (south, east, north) of six frames" % k)
+		var cells: Array[Image] = _cells_of(k)
+		var top: int = cell.y
 		for r: int in 3:
-			var rows: Array = maps[r]
-			var first: String = rows[0]
-			var last: String = rows[rows.size() - 1]
-			check(last.contains("k"), "%s %d: the last row stands on the ground" % [k, r])
-			for line: String in rows:
-				check_eq(line.length(), first.length(), "%s %d: rows of one length" % [k, r])
-				for i: int in line.length():
-					var ch: String = line[i]
-					if ch != "." and not CreatureView.PALETTE.has(ch):
-						fail("%s %d: the colour %s has no palette row" % [k, r, ch])
-			var legs: Array = steps_of[r]
-			check(legs.size() < rows.size(), "%s %d: the second frame changes the legs only" % [k, r])
-			for line2: String in legs:
-				check(line2.length() <= first.length(), "%s %d: leg rows fit" % [k, r])
-			var a: Image = CreatureView.image(k, r, 0)
-			var b: Image = CreatureView.image(k, r, 1)
-			check_eq(a.get_size(), b.get_size(), "%s %d: both frames one size" % [k, r])
-			check(a.get_data() != b.get_data(), "%s %d: the second frame differs" % [k, r])
-		# The hit box stands for the drawn figure (a shot inside what is drawn hits it).
+			var stand: Image = cells[r * 7]
+			check_eq(CreatureView.image(k, r, CreatureSim.STAND).get_data(), stand.get_data(), "%s %d: image() standing = the rotation's cell" % [k, r])
+			check_eq(CreatureView.region(k, r, CreatureSim.STAND), Rect2i(Vector2i(r * cell.x, 0), cell), "%s %d: the standing cell" % [k, r])
+			check(_opaque(stand) > 60, "%s %d: the standing picture draws something" % [k, r])
+			check_eq(_last_row(stand), cell.y - 1, "%s %d: standing, the feet on the cell's bottom row" % [k, r])
+			top = mini(top, _first_row(stand))
+			var lowest: int = -1
+			for f: int in 6:
+				var img: Image = cells[r * 7 + 1 + f]
+				check_eq(CreatureView.image(k, r, f).get_data(), img.get_data(), "%s %d: image() walk frame %d = its cell" % [k, r, f])
+				check_eq(CreatureView.region(k, r, f), Rect2i(Vector2i(f * cell.x, r * cell.y), cell), "%s %d: walk frame %d's cell" % [k, r, f])
+				check(_opaque(img) > 60, "%s %d: walk frame %d draws something" % [k, r, f])
+				check_between(_last_row(img), cell.y - 3, cell.y - 1, "%s %d: walk frame %d's feet within 2 px of the floor" % [k, r, f])
+				lowest = maxi(lowest, _last_row(img))
+				top = mini(top, _first_row(img))
+				var next: Image = cells[r * 7 + 1 + (f + 1) % 6]
+				check(img.get_data() != next.get_data(), "%s %d: walk frame %d differs from the next (the cycle moves and loops)" % [k, r, f])
+			check_eq(lowest, cell.y - 1, "%s %d: walking, the feet on the cell's bottom row" % [k, r])
+		# West = east mirrored (● R19): the sheet's own west cell is exactly that mirror (it is never drawn).
+		var rot: Image = LightGen.to_rgba8(rot_tex.get_image())
+		var east: Image = rot.get_region(Rect2i(Vector2i(cell.x, 0), cell))
+		east.flip_x()
+		check_eq(_drawn_diff(rot.get_region(Rect2i(Vector2i(3 * cell.x, 0), cell)), east), 0, "%s: the sheet's west = east mirrored" % k)
+		check_eq(CreatureView.height_of(k), cell.y - top, "%s: its height = the tallest of its 21 cells" % k)
+		# The corpse: the south standing cell turned a quarter clockwise (on its side, the head east), cropped; it lies on the feet row.
+		var turned: Image = cells[0].duplicate() as Image
+		turned.rotate_90(CLOCKWISE)
+		turned = turned.get_region(turned.get_used_rect())
+		var corpse: Image = CreatureView.corpse_image(k)
+		check_eq(_drawn_diff(corpse, turned) if corpse.get_size() == turned.get_size() else -1, 0, "%s: the corpse = the south standing picture on its side" % k)
+		check_eq(corpse.get_size(), Vector2i(cells[0].get_used_rect().size.y, cells[0].get_used_rect().size.x), "%s: as long as it stood tall" % k)
+		check_eq(CreatureView.corpse_offset(k), Vector2i(-corpse.get_width() / 2, -corpse.get_height()), "%s: the corpse's bottom middle on the feet" % k)
+		check(CreatureView.corpse_texture(k) == CreatureView.corpse_texture(k), "%s: the corpse texture is kept" % k)
+		var icon: Image = CreatureView.icon(k)
+		check_eq(icon.get_size(), cells[7].get_used_rect().size, "%s: the panel's picture = the east standing one, cropped" % k)
+		# The PROVISIONAL hit boxes (Config.CREATURES) follow M11a's rule on these pictures (README "M11 생물 그림"): the box's height is the
+		# tallest picture's (+-2), its width no more than the widest standing picture's + 2, and the snare's click (Capture.target_at: the
+		# box's middle, max(radius, height / 2) + CAPTURE_GRAB_PX) reaches the top of the drawn figure, antlers and ears included.
 		var c: CreatureSim = CreatureSim.new()
 		c.kind = k
 		var tall: int = CreatureView.height_of(k)
-		check_between(c.num_f("hit_height_px"), tall - 2.0, tall + 2.0, "%s: the hit box's height is the picture's (%d)" % [k, tall])
-		var wide: int = maxi(CreatureView.frame_size(k, 0).x, CreatureView.frame_size(k, 1).x)
-		check(c.num_f("hit_radius_px") * 2.0 <= wide + 2.0, "%s: the hit box is no wider than the picture" % k)
-	# Beside a player: every kind is shorter than a player or about as tall, the hare small, the deer large.
-	check(CreatureView.height_of(&"hare") < 16, "the hare is small")
+		var east_w: int = cells[7].get_used_rect().size.x
+		var south_w: int = cells[0].get_used_rect().size.x
+		var box_h: float = c.num_f("hit_height_px")
+		var box_r: float = c.num_f("hit_radius_px")
+		check_between(box_h, tall - 2.0, tall + 2.0, "%s: the hit box's height is the picture's (%d)" % [k, tall])
+		check(box_r * 2.0 <= maxi(east_w, south_w) + 2.0, "%s: the hit box is no wider than the widest standing picture (%d)" % [k, maxi(east_w, south_w)])
+		check(float(tall) - box_h / 2.0 <= maxf(box_r, box_h / 2.0) + Config.CAPTURE_GRAB_PX, "%s: the snare's click reaches the picture's top" % k)
+		note("%s: picture %d px tall, standing east %d / south %d px wide; hit box %d tall, %d wide" % [k, tall, east_w, south_w,
+			int(box_h), int(box_r * 2.0)])
+	# Beside a player: the hare small, the deer large, the stag the tallest.
+	check(CreatureView.height_of(&"hare") < CreatureView.height_of(&"deer"), "the hare is smaller than the deer")
+	check(CreatureView.height_of(&"hare") < PLAYER_SHORTEST, "the hare is shorter than a player")
 	check(CreatureView.height_of(&"deer") > 20, "the deer is large")
+	for k2: StringName in SHEET_CELLS:
+		check(CreatureView.height_of(&"silver_stag") >= CreatureView.height_of(k2), "the silver stag is the tallest (%s)" % k2)
 
 
 # --- spawning -----------------------------------------------------------------------------------------
@@ -374,12 +473,25 @@ func _check_caps_and_respawn() -> void:
 	check_eq(hb.waiting.size(), 1, "and it waits for another try")
 	var due: int = hb.waiting[0].due
 	check(due > hb.clock and due <= hb.clock + Config.CREATURE_SPAWN_RETRY_TICKS, "the next try comes within the retry time")
+	var old_ids: Array[int] = []
+	for c0: CreatureSim in hb.list:
+		old_ids.append(c0.id)
 	box.layers[WorldData.Layer.WALL].fill(0)
 	steps(hb, [everywhere] as Array[Player], Config.CREATURE_SPAWN_RETRY_TICKS + 1)
 	check_eq(hb.alive_count(k1), left_before + 1, "a tile free again: it comes")
+	var came: int = 0
 	for c2: CreatureSim in hb.list:
-		if c2.clock <= Config.CREATURE_SPAWN_RETRY_TICKS + 2:
+		if not old_ids.has(c2.id):
+			came += 1
 			check(c2.pos.distance_to(everywhere.sim_position) >= Config.CREATURE_SPAWN_MIN_PLAYER_PX - 1.0, "a respawn comes away from players")
+		# M11 creature art review: a creature's clock is the herd's, however late it came (the walk frame and the ring's blink are the same
+		# on a session host, whose herd counts host ticks, and a client, which draws by the host tick).
+		check_eq(c2.clock, hb.clock, "creature %d: its clock is the herd's (%d), the respawn's too" % [c2.id, hb.clock])
+	check_eq(came, 1, "one respawn")
+	var late: CreatureSim = hb.spawn(&"hare", Vector2(100, 100))
+	check(hb.clock > 0 and late.clock == hb.clock, "a test creature put down late: the herd's clock too (%d)" % hb.clock)
+	steps(hb, [everywhere] as Array[Player], 3)
+	check_eq(late.clock, hb.clock, "and it steps with the herd")
 
 
 # --- wander, bolt, rest ---------------------------------------------------------------------------------
@@ -999,18 +1111,23 @@ func _check_view() -> void:
 	c.pos = Vector2(100.4, 200.6)
 	var v: CreatureView = CreatureView.new()
 	_nodes.append(v)
+	var cell: Vector2i = SHEET_CELLS[&"deer"]
 	var rows: Dictionary[int, int] = {RigData.Dir.SOUTH: 0, RigData.Dir.EAST: 1, RigData.Dir.NORTH: 2, RigData.Dir.WEST: 1}
 	for dir: int in rows:
 		c.facing = dir
 		v.show_sim(c)
-		check_eq(v.row, rows[dir], "%s: its sheet row" % RigData.DIR_NAMES[dir])
-		check_eq(v.position, Vector2(100, 201), "%s: on whole pixels at the feet" % RigData.DIR_NAMES[dir])
-		check_eq(v.rig.scale.x, -1.0 if dir == RigData.Dir.WEST else 1.0, "%s: west = east mirrored" % RigData.DIR_NAMES[dir])
-		check_eq(v.body.texture, CreatureView.texture(&"deer", rows[dir], 0), "%s: its picture" % RigData.DIR_NAMES[dir])
-		var s: Vector2i = CreatureView.frame_size(&"deer", rows[dir])
-		check_eq(v.body.position, Vector2(-s.x / 2, -s.y), "%s: bottom middle on the feet" % RigData.DIR_NAMES[dir])
+		var name_of: String = RigData.DIR_NAMES[dir]
+		check_eq(v.row, rows[dir], "%s: its sheet row" % name_of)
+		check_eq(v.position, Vector2(100, 201), "%s: on whole pixels at the feet" % name_of)
+		check_eq(v.rig.scale.x, -1.0 if dir == RigData.Dir.WEST else 1.0, "%s: west = east mirrored" % name_of)
+		check_eq(v.frame, CreatureSim.STAND, "%s: standing" % name_of)
+		check(v.body.texture == CreatureView.ROTATIONS[&"deer"], "%s: standing, the rotations sheet" % name_of)
+		check(v.body.region_enabled, "%s: a cell of the sheet" % name_of)
+		check_eq(v.body.region_rect, Rect2(rows[dir] * cell.x, 0, cell.x, cell.y), "%s: its standing cell (west: the east one)" % name_of)
+		check_eq(v.body.position, Vector2(-cell.x / 2, -cell.y), "%s: bottom middle on the feet" % name_of)
+		check(not v.body.centered, "%s: the offset is the cell's top-left (not centred)" % name_of)
+		check(not v.body.flip_v, "%s: right way up" % name_of)
 	c.facing = RigData.Dir.EAST
-	check(CreatureView.texture(&"deer", 1, 0) == CreatureView.texture(&"deer", 1, 0), "the texture is kept")
 	check_eq(v.body.light_mask, Config.LIGHT_LAYER_ACTORS, "the actors' hard light, like a heretic")
 	check(not v.bar.visible, "full HP: no bar")
 	check_eq(v.body.modulate, Color.WHITE, "no flash")
@@ -1021,18 +1138,51 @@ func _check_view() -> void:
 	check_eq(v.hp_ratio, 0.5, "half")
 	check_eq(v.body.modulate, Player.HIT_FLASH, "the heretic's flash")
 	c.flash_ticks = 0
-	# The walk: the second frame and a px of bob.
+	# The walk: the six-frame cycle of the walk sheet, a frame every WALK_FRAME_TICKS, looping; no bob (the sheet walks).
 	c.walking = true
-	c.clock = CreatureSim.WALK_FRAME_TICKS
+	c.state = CreatureSim.State.WANDER
+	for k: int in 13:
+		c.clock = CreatureSim.WALK_FRAME_TICKS * k
+		v.show_sim(c)
+		check_eq(v.frame, k % 6, "walking, tick %d: frame %d" % [c.clock, k % 6])
+		check(v.body.texture == CreatureView.WALKS[&"deer"], "walking: the walk sheet")
+		check_eq(v.body.region_rect, Rect2((k % 6) * cell.x, cell.y, cell.x, cell.y), "walking east, frame %d: its cell" % (k % 6))
+		check_eq(v.body.position, Vector2(-cell.x / 2, -cell.y), "walking: bottom middle on the feet, no bob")
+	c.clock = CreatureSim.WALK_FRAME_TICKS - 1
 	v.show_sim(c)
-	check_eq(v.frame, 1, "walking: the second frame")
-	check_eq(v.body.texture, CreatureView.texture(&"deer", 1, 1), "its picture")
-	var s2: Vector2i = CreatureView.frame_size(&"deer", 1)
-	check_eq(v.body.position, Vector2(-s2.x / 2, -s2.y - 1), "a px of bob")
+	check_eq(v.frame, 0, "a frame lasts WALK_FRAME_TICKS")
+	# Fleeing: the same cycle, a frame every CREATURE_FLEE_FRAME_TICKS.
+	check(Config.CREATURE_FLEE_FRAME_TICKS < CreatureSim.WALK_FRAME_TICKS, "it steps faster fleeing")
+	c.state = CreatureSim.State.FLEE
+	for k2: int in 7:
+		c.clock = Config.CREATURE_FLEE_FRAME_TICKS * k2
+		v.show_sim(c)
+		check_eq(v.frame, k2 % 6, "fleeing, tick %d: frame %d" % [c.clock, k2 % 6])
+	c.clock = Config.CREATURE_FLEE_FRAME_TICKS - 1
+	v.show_sim(c)
+	check_eq(v.frame, 0, "a fleeing frame lasts CREATURE_FLEE_FRAME_TICKS")
+	# A hit makes it bolt at once, so the flash is mostly seen on the walk sheet.
+	c.flash_ticks = 2
+	c.clock = Config.CREATURE_FLEE_FRAME_TICKS * 3
+	v.show_sim(c)
+	check(v.body.texture == CreatureView.WALKS[&"deer"] and v.body.modulate == Player.HIT_FLASH, "fleeing: the flash on the walk frame too")
+	c.flash_ticks = 0
+	v.show_sim(c)
+	check_eq(v.body.modulate, Color.WHITE, "then no flash")
+	# Walking west: the east row mirrored; north: its own row.
+	c.state = CreatureSim.State.WANDER
 	c.clock = CreatureSim.WALK_FRAME_TICKS * 2
+	c.facing = RigData.Dir.WEST
 	v.show_sim(c)
-	check_eq(v.frame, 0, "and back")
+	check(v.rig.scale.x == -1.0 and v.body.region_rect == Rect2(2 * cell.x, cell.y, cell.x, cell.y), "walking west: the east frame mirrored")
+	c.facing = RigData.Dir.NORTH
+	v.show_sim(c)
+	check(v.rig.scale.x == 1.0 and v.body.region_rect == Rect2(2 * cell.x, 2 * cell.y, cell.x, cell.y), "walking north: its row")
+	# A stop: the standing picture again.
 	c.walking = false
+	c.facing = RigData.Dir.EAST
+	v.show_sim(c)
+	check(v.frame == CreatureSim.STAND and v.body.texture == CreatureView.ROTATIONS[&"deer"], "a stop: the standing picture")
 	# The marks.
 	c.poison_ticks = 10
 	c.stun_ticks = 10
@@ -1041,17 +1191,60 @@ func _check_view() -> void:
 	v.show_sim(c)
 	check_eq(v.marks.shown, [EffectMarks.Kind.POISON, EffectMarks.Kind.STUN, EffectMarks.Kind.SLOW] as Array[int], "its marks")
 	check(v.marks.position.y + EffectMarks.MARK_Y < -CreatureView.height_of(&"deer"), "above its picture")
-	# Dead: the corpse, no bar, no marks.
+	check(v.marks.position.y + EffectMarks.MARK_Y + EffectMarks.SIZE <= v._bar_top, "above its bar")
+	check_eq(v.marks.position.y + EffectMarks.MARK_Y + EffectMarks.SIZE, float(v._bar_top - CreatureView.MARK_GAP), "MARK_GAP px over its bar")
+	check(v._bar_top - (v.marks.position.y + EffectMarks.MARK_Y + EffectMarks.SIZE) >= 2.0, "clear rows between its marks and its bar (they never touch)")
+	c.refused_ticks = 5
+	v.show_sim(c)
+	check(v.marks.shown.has(EffectMarks.Kind.REFUSED), "a refused blow: its cross too")
+	# (The poison, the stun, the slow and the refused cross stay on into its death below: a corpse shows none of them.)
+	# The bar sits over every picture of every kind (each cell measured here from the PNG), BAR_GAP px over the tallest.
+	for k3: StringName in SHEET_CELLS:
+		var s3: Vector2i = SHEET_CELLS[k3]
+		var hurt: CreatureSim = CreatureSim.new()
+		hurt.kind = k3
+		hurt.hp = 1
+		v.show_sim(hurt)
+		var bar_bottom: int = v._bar_top + CreatureView.BAR_HEIGHT + 1
+		var highest: int = 0
+		for img: Image in _cells_of(k3):
+			highest = mini(highest, -s3.y + _first_row(img))
+		check(v.bar.visible, "%s hurt: its bar" % k3)
+		check_eq(bar_bottom, highest - 1 - CreatureView.BAR_GAP, "%s: the bar's bottom row %d px over its tallest picture's top" % [k3, CreatureView.BAR_GAP])
+	# Dead: the south standing picture on its side (the head east; west mirrored), its lowest row on the feet row; no bar, no marks.
 	c.state = CreatureSim.State.DEAD
 	c.hp = 0
-	v.show_sim(c)
-	check(v.body.flip_v, "dead: the picture on its back")
+	c.walking = false
+	var lying: Image = CreatureView.corpse_image(&"deer")
+	var south_box: Rect2i = _cells_of(&"deer")[0].get_used_rect()
+	check_eq(lying.get_size(), Vector2i(south_box.size.y, south_box.size.x), "the deer's corpse: its south picture lying (25 x 14)")
+	for dir2: int in rows:
+		c.facing = dir2
+		v.show_sim(c)
+		var dn: String = RigData.DIR_NAMES[dir2]
+		check(v.body.texture == CreatureView.corpse_texture(&"deer") and not v.body.region_enabled, "dead %s: the corpse picture" % dn)
+		check_eq(v.position + v.body.position, Vector2(100, 201) + Vector2(-lying.get_width() / 2, -lying.get_height()),
+			"dead %s: bottom middle on the feet (its last row on the feet row)" % dn)
+		# Its node sorts past its kill's drops (ItemView: on the feet tile's bottom edge, 13 * 16 here), so it lies over them.
+		check_eq(v.position, Vector2(100, 13 * Config.TILE + CreatureView.CORPSE_SORT_PX), "dead %s: its node 1 px under its tile's bottom edge" % dn)
+		check_eq(v.rig.scale.x, -1.0 if dir2 == RigData.Dir.WEST else 1.0, "dead %s: the head west when it faced west" % dn)
+		check(not v.body.flip_v, "dead %s: not upside down" % dn)
 	check(not v.bar.visible, "no bar")
-	check(v.marks.shown.is_empty(), "no marks")
+	check(c.poison_ticks > 0 and c.stun_ticks > 0 and c.slow_ticks > 0 and c.slow_pct > 0 and c.refused_ticks > 0,
+		"it died poisoned, stunned, slowed and with a refused blow showing")
+	check(v.marks.shown.is_empty(), "no marks (not one of them over a corpse)")
+	c.poison_ticks = 0
+	c.stun_ticks = 0
+	c.slow_ticks = 0
+	c.slow_pct = 0
+	c.refused_ticks = 0
 	c.state = CreatureSim.State.IDLE
 	c.hp = c.hp_max()
+	c.facing = RigData.Dir.EAST
 	v.show_sim(c)
-	check(not v.body.flip_v, "alive again: right way up")
+	check(v.body.region_enabled and v.body.texture == CreatureView.ROTATIONS[&"deer"] and v.body.position == Vector2(-cell.x / 2, -cell.y),
+		"alive again: the standing cell")
+	check_eq(v.position, Vector2(100, 201), "alive again: the node back on the feet")
 	# CombatView keeps one node per creature, under the entities, and frees it with the creature.
 	var d: WorldData = open_world()
 	var a: Arena = Arena.new()
@@ -1071,9 +1264,12 @@ func _check_view() -> void:
 	view.sync()
 	check_eq(view.creatures.size(), 2, "sync keeps them")
 	a.herd.hit(hare, 1000, 0)
+	var drop_row: int = a.herd.kills[a.herd.kills.size() - 1].at.y
 	a.herd.step([] as Array[Player])
 	view.sync_creatures()
 	check_eq(view.creatures.size(), 2, "the corpse lies on")
+	check(view.creatures[hare.id].position.y > (drop_row + 1) * Config.TILE,
+		"the corpse sorts past its kill's drops (ItemView: on the drop tile's bottom edge), so it lies over them")
 	for t: int in Config.CREATURE_CORPSE_TICKS:
 		a.herd.step([] as Array[Player])
 	view.sync_creatures()

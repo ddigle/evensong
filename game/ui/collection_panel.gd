@@ -5,7 +5,8 @@ extends Node2D
 ## opens it; the player stands while it is open (Player.ui_locked), K, Tab or Esc close it, going down closes it, a prayer refuses it, and
 ## the game goes on behind it (no pause).
 ##   - Header: entries registered / all of them (the HUD's 3x5 digits), a gold underline.
-##   - One cell per Config.COLLECTION_ENTRIES row: the creature (CreatureView, its east picture) or the item (ItemIcons) once registered,
+##   - One cell per Config.COLLECTION_ENTRIES row: the creature (CreatureView.icon: its east standing picture from the PixelLab 16차 sheet,
+##     cropped to what is drawn; M11 creature art made the cell CELL 40 px, from 30, so the silver stag's 37 x 36 fits) or the item (ItemIcons) once registered,
 ##     its dark silhouette until then, and a corner dot for its unit (생물 copper, 자원 ivory, 업적 gold). A "kills" entry has a pip per
 ##     kill it needs.
 ##   - One mark per benefit (class, all, world): lit, framed gold, at its count (the digit beside it); dimmed before that.
@@ -14,7 +15,8 @@ extends Node2D
 const PAD: int = 4
 const HEADER: int = 14
 const COLUMNS: int = 4
-const CELL: int = 30
+## IMPL (M11 creature art, from 30): a cell holds the largest creature picture (the silver stag's east standing one, 37 x 36) inside its frame.
+const CELL: int = 40
 const CELL_GAP: int = 2
 const BENEFIT_GAP: int = 3
 const BENEFIT_H: int = 20
@@ -68,7 +70,7 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 
 
-## The picture of an entry's row: the creature's east view, the item's icon, or the tally of a "kills" row.
+## The picture of an entry's row: the creature's east standing picture (cropped), the item's icon, or the tally of a "kills" row.
 static func picture_of(row: Dictionary) -> Image:
 	var what: StringName = row["what"]
 	var how: String = row["how"]
@@ -76,7 +78,7 @@ static func picture_of(row: Dictionary) -> Image:
 		return ItemIcons.image_from_map(&"tally")
 	if how == "item":
 		return LightGen.to_rgba8(ItemIcons.texture_for(what).get_image())
-	return CreatureView.image(what, 1, 0)
+	return CreatureView.icon(what)
 
 
 ## `img` as a silhouette: every drawn pixel SILHOUETTE.

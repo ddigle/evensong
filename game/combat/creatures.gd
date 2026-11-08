@@ -481,6 +481,7 @@ func spawn(kind: StringName, feet: Vector2) -> CreatureSim:
 	c.pos = feet
 	c.home = feet
 	c.hp = c.hp_max()
+	c.clock = clock  # the herd's clock (CreatureSim.clock: the walk frame and the ring's blink match a session client's)
 	list.append(c)
 	_begin_idle(c)
 	count("spawned")

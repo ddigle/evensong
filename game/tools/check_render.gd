@@ -168,6 +168,8 @@ extends SceneTree
 ##   capture_marks (M11b) a rare creature low enough for a snare: the HP bar with its notch, the ring's dots in both phases under the body,
 ##            the rope to where it was thrown from, the refused cross, every pixel on its place; evening on: ring and rope keep their
 ##            colours; a hurt prey has neither ring nor notch.
+##   creatures (M11a; M11 creature art) every kind, direction (west = east mirrored), standing cell and six walk frames against the sheets
+##            cut here, the corpse, the flash, the HP bar over the tallest cell, a stun's mark, darker at dusk.
 ##   collection_panel (M11b) the panel half filled (the layout written out here): frames, the header's count, registered cells' pictures,
 ##            the others' silhouettes, the unit dots, the kills' pips, the benefit marks lit and dimmed, every opaque pixel on its place.
 ## Exit 0 = all ok, 1 = a mismatch (images saved to --out), 2 = run with --headless.
@@ -3400,10 +3402,34 @@ func _check_merchant() -> void:
 		_fail("merchant", line)
 
 
-## M11a: the creatures as a CreatureView draws them, against the CPU's picture (CreatureView.image, the rows of its maps): every kind in
-## every direction (west = east mirrored) and both walk frames (the second a px higher), bottom middle on the feet; the corpse (the
-## picture upside down); the hit flash (Player.HIT_FLASH on every drawn pixel); the HP bar (the heretic's colours: every px on its
-## place, over the picture's top row); a stun's mark over it; with the evening on the hard light darkens the picture.
+## M11 creature art: every kind's cell (W x H), written out here as the art step packed its sheets (03-pixel prompts.md "PixelLab 16차").
+const M11_CELLS: Dictionary[StringName, Vector2i] = {&"hare": Vector2i(24, 24), &"deer": Vector2i(40, 36), &"lamp_fox": Vector2i(36, 24),
+	&"silver_stag": Vector2i(44, 44), &"ash_owl": Vector2i(16, 24)}
+
+
+## M11 creature art: the cell of `kind` in sheet row `row` (south, east, north), cut here from the imported PNG itself (not through CreatureView):
+## frame -1 = the rotations sheet's standing cell (one row: south, east, north, west), else the walk sheet's frame (rows south, east, north).
+static func _m11_cell(kind: StringName, row: int, f: int) -> Image:
+	var s: Vector2i = M11_CELLS[kind]
+	var file: String = "res://art/creatures/%s_v02_%s.png" % [kind, "rotations" if f < 0 else "walk"]
+	var sheet: Image = LightGen.to_rgba8((load(file) as Texture2D).get_image())
+	return sheet.get_region(Rect2i(Vector2i(row * s.x, 0) if f < 0 else Vector2i(f * s.x, row * s.y), s))
+
+
+## The first row of `img` with an opaque pixel.
+static func _m11_top(img: Image) -> int:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			if img.get_pixel(x, y).a8 >= 128:
+				return y
+	return img.get_height()
+
+
+## M11 creature art: the creatures as a CreatureView draws them, against the sheets cut here: every kind in every direction (west = east
+## mirrored) standing (the rotations' cell) and on each of the six walk frames, the cell's bottom middle on the feet, no bob; every corpse
+## facing east and west (the south standing picture on its side, bottom middle on the feet); the hit flash (Player.HIT_FLASH on every
+## drawn pixel); the HP bar (the heretic's colours: every px on its place, 2 px over the kind's tallest cell, measured here); a stun's mark
+## over it; with the evening on the hard light darkens the picture.
 func _check_creatures() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
@@ -3421,22 +3447,20 @@ func _check_creatures() -> void:
 		c.kind = kind
 		c.hp = c.hp_max()
 		c.pos = Vector2(feet)
-		c.state = CreatureSim.State.IDLE
+		c.state = CreatureSim.State.WANDER
+		var s: Vector2i = M11_CELLS[kind]
 		for dir: int in dirs:
 			c.facing = dir
-			var row: int = RigData.sheet_row(dir)
-			var west: bool = RigData.is_mirrored(dir)
-			for f: int in 2:
-				c.walking = f == 1
-				c.clock = CreatureSim.WALK_FRAME_TICKS * f
+			var row: int = 1 if dir == RigData.Dir.WEST else dir  # written out: west shows the east row
+			var west: bool = dir == RigData.Dir.WEST
+			for f: int in range(-1, 6):
+				c.walking = f >= 0
+				c.clock = CreatureSim.WALK_FRAME_TICKS * maxi(f, 0)
 				v.show_sim(c)
-				var img: Image = CreatureView.image(kind, row, f)
+				var img: Image = _m11_cell(kind, row, f)
 				if west:
 					img.flip_x()
-				var size: Vector2i = img.get_size()
-				var off: Vector2i = Vector2i(-(size.x / 2), -size.y - f)  # written out: bottom middle on the feet, a px of bob
-				if west:
-					off.x = -off.x - size.x
+				var off: Vector2i = Vector2i(-(s.x / 2), -s.y)  # written out: bottom middle on the feet (even widths: the mirror lands on it)
 				var expected: Image = bg.duplicate() as Image
 				_paste_at(expected, img, feet - origin + off)
 				var got: Image = await _capture()
@@ -3448,26 +3472,41 @@ func _check_creatures() -> void:
 				if n > 0 or save_all:
 					_save(got, "creature_%s_%s_%d_got.png" % [kind, RigData.DIR_NAMES[dir], f])
 					_save(expected, "creature_%s_%s_%d_expected.png" % [kind, RigData.DIR_NAMES[dir], f])
-	# The corpse: the east picture upside down, on the same box.
-	c.kind = &"deer"
+	# The corpse: every kind's south standing picture turned a quarter clockwise (on its side, the head east), bottom middle on the feet;
+	# facing west, mirrored (the head west).
+	var corpse_wrong: int = 0
 	c.hp = 0
-	c.facing = RigData.Dir.EAST
 	c.walking = false
 	c.state = CreatureSim.State.DEAD
-	v.show_sim(c)
-	var corpse: Image = CreatureView.image(&"deer", 1, 0)
-	corpse.flip_y()
-	var want_corpse: Image = bg.duplicate() as Image
-	_paste_at(want_corpse, corpse, feet - origin + Vector2i(-(corpse.get_width() / 2), -corpse.get_height()))
-	var got_corpse: Image = await _capture()
-	var corpse_wrong: int = count_diff(got_corpse, want_corpse)
+	for kind2: StringName in Config.CREATURES:
+		c.kind = kind2
+		for dir2: int in [RigData.Dir.EAST, RigData.Dir.WEST]:
+			c.facing = dir2
+			v.show_sim(c)
+			var corpse: Image = _m11_cell(kind2, 0, -1)
+			corpse.rotate_90(CLOCKWISE)
+			corpse = corpse.get_region(corpse.get_used_rect())
+			var cx: int = -(corpse.get_width() / 2)
+			if dir2 == RigData.Dir.WEST:
+				corpse.flip_x()
+				cx = -cx - corpse.get_width()
+			var want_corpse: Image = bg.duplicate() as Image
+			_paste_at(want_corpse, corpse, feet - origin + Vector2i(cx, -corpse.get_height()))
+			var got_corpse: Image = await _capture()
+			var n_corpse: int = count_diff(got_corpse, want_corpse)
+			corpse_wrong += n_corpse
+			if n_corpse > 0 or save_all:
+				_save(got_corpse, "creature_corpse_%s_%s_got.png" % [kind2, RigData.DIR_NAMES[dir2]])
+	c.kind = &"deer"
+	c.facing = RigData.Dir.EAST
+	var stand: Image = _m11_cell(&"deer", 1, -1)
 	# The flash: every drawn pixel is the picture times Player.HIT_FLASH.
 	c.state = CreatureSim.State.IDLE
 	c.hp = c.hp_max()
 	c.flash_ticks = 3
 	v.show_sim(c)
-	var pic: Image = CreatureView.image(&"deer", 1, 0)
-	var at: Vector2i = feet - origin + Vector2i(-(pic.get_width() / 2), -pic.get_height())
+	var pic: Image = stand
+	var at: Vector2i = feet - origin + Vector2i(-20, -36)
 	var got_flash: Image = await _capture()
 	var flash_wrong: int = 0
 	var flash_px: int = 0
@@ -3481,24 +3520,28 @@ func _check_creatures() -> void:
 			var got_px: Color = got_flash.get_pixel(at.x + x, at.y + y)
 			if absf(want_px.r - got_px.r) > 0.02 or absf(want_px.g - got_px.g) > 0.02 or absf(want_px.b - got_px.b) > 0.02:
 				flash_wrong += 1
-	# The HP bar at half, the stun's mark over it.
+	# The HP bar at half, the stun's mark over it: 2 px over the deer's tallest cell (its 21 cells measured here).
 	c.flash_ticks = 0
 	c.hp = c.hp_max() / 2
 	c.stun_ticks = 10
 	v.show_sim(c)
 	var got_bar: Image = await _capture()
-	var top: int = -CreatureView.height_of(&"deer") - CreatureView.BAR_GAP - CreatureView.BAR_HEIGHT - 2
+	var highest: int = 36
+	for r: int in 3:
+		for f2: int in range(-1, 6):
+			highest = mini(highest, _m11_top(_m11_cell(&"deer", r, f2)))
+	var top: int = -(36 - highest) - 2 - 2 - 2
 	var left: Vector2i = feet - origin + Vector2i(-Heretic.BAR_SIZE.x / 2 - 1, top)
 	var want_bar: Dictionary[Vector2i, Color] = {}
 	for bx: int in Heretic.BAR_SIZE.x + 2:
-		for by: int in CreatureView.BAR_HEIGHT + 2:
+		for by: int in 4:
 			want_bar[left + Vector2i(bx, by)] = Heretic.BAR_BACK
 	var fill: int = Heretic.bar_fill(0.5)
 	for bx2: int in fill:
-		for by2: int in CreatureView.BAR_HEIGHT:
+		for by2: int in 2:
 			want_bar[left + Vector2i(1 + bx2, 1 + by2)] = Heretic.BAR_FILL
 	var bar_wrong: int = _count_wrong(got_bar, want_bar)
-	var mark_y: int = feet.y - origin.y + top - CreatureView.MARK_GAP - EffectMarks.SIZE
+	var mark_y: int = feet.y - origin.y + top - 6 - EffectMarks.SIZE
 	var mark: Dictionary[Vector2i, Color] = {}
 	_image_pixels(mark, EffectMarks.image(EffectMarks.Kind.STUN), Vector2i(feet.x - origin.x + EffectMarks.icon_offset(0, 1).x, mark_y))
 	var mark_wrong: int = _count_wrong(got_bar, mark)
@@ -3523,8 +3566,8 @@ func _check_creatures() -> void:
 	v.free()
 	var line: String = "screens=%d bad=%d drawn=%d corpse_wrong=%d flash=%d/%d bar_wrong=%d mark_wrong=%d dusk=%d/%d" % [screens, bad, drawn,
 		corpse_wrong, flash_wrong, flash_px, bar_wrong, mark_wrong, darker, body_px]
-	if screens == 40 and bad == 0 and drawn > 100 and corpse_wrong == 0 and flash_wrong == 0 and flash_px > 100 and bar_wrong == 0 \
-			and mark_wrong == 0 and body_px > 50 and darker * 10 >= body_px * 9:
+	if screens == 140 and bad == 0 and drawn > 300 and corpse_wrong == 0 and flash_wrong == 0 and flash_px > 300 and bar_wrong == 0 \
+			and mark_wrong == 0 and body_px > 200 and darker * 10 >= body_px * 9:
 		print("EVENSONG_RENDER creatures ok %s" % line)
 	else:
 		_fail("creatures", line)
@@ -4579,17 +4622,21 @@ static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
 
 # --- M11c ---------------------------------------------------------------------------------------------------------------
 
-## M11c: what a client draws from the wire is the host's picture to the pixel. The creatures: one of every kind, walking and standing,
+## M11c: what a client draws from the wire is the host's picture to the pixel. The creatures: one of every kind, walking, fleeing and standing,
 ## hurt, flashing, poisoned, stunned, slowed, refused, a corpse, one a snare holds with its rope and one a snare could take with its glow,
 ## drawn by a CombatView from the host's herd, then by another from a NetCombat mirror fed the encoded batch and sampled at that tick. The
 ## rare zone: from a surface snapshot decoded (RareZoneView on the data that came). The collection panel: on a copy fed the message.
+## M11 creature art review: the host's creatures take their clock from the herd (Creatures.spawn), which stands at the batch's tick like a
+## session host's (its herd counts host ticks); the tick is one where the walk frame, the flee frame and the ring's blink all differ from a
+## creature clock of 0, so a creature that kept its own clock (ticks since it came) would show here.
 func _check_wild_net() -> void:
 	world.lighting.set_evening(false)
 	var data: WorldData = world.data
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
 	var bg: Image = await _capture()
-	var tick: int = 7777
+	var tick: int = 7792
 	var herd: Creatures = Creatures.mirror(data)
+	herd.clock = tick
 	var arena: Arena = Arena.mirror(data)
 	arena.herd = herd
 	var keys: Array = Config.CREATURES.keys()
@@ -4598,7 +4645,6 @@ func _check_wild_net() -> void:
 		var kind: StringName = keys[i % keys.size()]
 		var c: CreatureSim = herd.spawn(kind, Vector2(origin + Vector2i(60 + 62 * (i % 6), 100 + 90 * (i / 6))))
 		c.facing = [RigData.Dir.SOUTH, RigData.Dir.EAST, RigData.Dir.NORTH, RigData.Dir.WEST][i % 4]
-		c.clock = tick
 		c.walking = i % 3 == 1
 		match i:
 			1:
@@ -4625,6 +4671,8 @@ func _check_wild_net() -> void:
 				c.hold_ticks = 9
 				c.held_from = Combat.body_point(holder)
 				c.held_by = 1
+			10:
+				c.state = CreatureSim.State.FLEE  # M11 creature art: its walk steps at the flee frame time
 	var states: Array[NetProtocol.CreatureState] = []
 	for c2: CreatureSim in herd.list:
 		states.append(NetProtocol.creature_of(c2, 0 if c2.held_by != 0 else NetProtocol.NO_SLOT))
@@ -4783,10 +4831,11 @@ func _check_rare_zone() -> void:
 		_fail("rare_zone", line)
 
 
-## M11b: the pixels of a creature's body (`kind` facing east) with feet at screen point `feet`.
+## M11b: the pixels of a creature's body (`kind` standing, facing east) with feet at screen point `feet` (M11 creature art: its rotations
+## sheet's east cell, cut here, the cell's bottom middle on the feet).
 static func _body_pixels(want: Dictionary[Vector2i, Color], kind: StringName, feet: Vector2i) -> void:
-	var img: Image = CreatureView.image(kind, 1, 0)
-	_image_pixels(want, img, feet + Vector2i(-(img.get_width() / 2), -img.get_height()))
+	var s: Vector2i = M11_CELLS[kind]
+	_image_pixels(want, _m11_cell(kind, 1, -1), feet + Vector2i(-(s.x / 2), -s.y))
 
 
 ## M11b: the HP bar over a creature of `kind` at `hp` of `full`, with feet at `feet`, its notch at column 4 when `notch`.
@@ -4840,10 +4889,10 @@ func _check_capture_marks() -> void:
 	c.held_from = c.pos + Vector2(-30, -6)
 	v.show_sim(c)
 	var with_rope: Dictionary[Vector2i, Color] = {}
-	for p2: Vector2i in CreatureView.rope_pixels(Vector2i(-30, -6)):
-		with_rope[at + p2] = Color8(0xdc, 0xc4, 0x9a)
 	for p3: Vector2i in CreatureView.glow_pixels(c.kind, 0):
 		with_rope[at + p3] = gold
+	for p2: Vector2i in CreatureView.rope_pixels(Vector2i(-30, -6)):
+		with_rope[at + p2] = Color8(0xdc, 0xc4, 0x9a)  # the rope over the ring (M11 creature art: the fox's new legs leave (-4, -4) open)
 	_body_pixels(with_rope, c.kind, at)
 	var got_rope: Image = await _capture()
 	var rope_wrong: int = _count_wrong(got_rope, with_rope)
@@ -4852,10 +4901,10 @@ func _check_capture_marks() -> void:
 	var dusk: Image = await _capture()
 	world.lighting.set_evening(false)
 	var marks: Dictionary[Vector2i, Color] = {}
-	for p4: Vector2i in CreatureView.rope_pixels(Vector2i(-30, -6)):
-		marks[at + p4] = Color8(0xdc, 0xc4, 0x9a)
 	for p5: Vector2i in CreatureView.glow_pixels(c.kind, 0):
 		marks[at + p5] = gold
+	for p4: Vector2i in CreatureView.rope_pixels(Vector2i(-30, -6)):
+		marks[at + p4] = Color8(0xdc, 0xc4, 0x9a)
 	var cover: Dictionary[Vector2i, Color] = {}
 	_body_pixels(cover, c.kind, at)
 	for s: Vector2i in cover:
@@ -4916,7 +4965,7 @@ func _check_collection_panel() -> void:
 	var gold: Color = Color8(0xf4, 0xc9, 0x5d)
 	var faith: Color = Color8(0x9c, 0x6a, 0x1f)
 	var shade: Color = Color8(0x3f, 0x37, 0x30)
-	var p: Rect2i = Rect2i(480 - 134 - 4, 4, 134, 107)  # top right; 4 + 4 x 30 + 3 x 2 + 4 across; 4 + 14 + 2 x 30 + 2 + 3 + 20 + 4 down
+	var p: Rect2i = Rect2i(480 - 174 - 4, 4, 174, 127)  # top right; 4 + 4 x 40 + 3 x 2 + 4 across; 4 + 14 + 2 x 40 + 2 + 3 + 20 + 4 down (M11 creature art: cells 40)
 	var place_ok: bool = CollectionPanel.panel_rect_for(Config.VIEW_SIZE) == p
 	var want: Dictionary[Vector2i, Color] = {}
 	_frame_pixels(want, p, dark)
@@ -4931,15 +4980,19 @@ func _check_collection_panel() -> void:
 		want[Vector2i(ux, p.position.y + 15)] = faith
 	# The cells: [picture, registered, unit colour].
 	var copper: Color = Color8(0xc0, 0x6a, 0x2e)
+	var east: Dictionary[StringName, Image] = {}
+	for kind: StringName in M11_CELLS:
+		var cut: Image = _m11_cell(kind, 1, -1)  # M11 creature art: the east standing cell, cropped to what is drawn
+		east[kind] = cut.get_region(cut.get_used_rect())
 	var pictures: Array[Array] = [
-		[CreatureView.image(&"hare", 1, 0), true, copper], [CreatureView.image(&"deer", 1, 0), true, copper],
-		[CreatureView.image(&"lamp_fox", 1, 0), true, copper], [CreatureView.image(&"silver_stag", 1, 0), false, copper],
-		[CreatureView.image(&"ash_owl", 1, 0), false, copper],
+		[east[&"hare"], true, copper], [east[&"deer"], true, copper],
+		[east[&"lamp_fox"], true, copper], [east[&"silver_stag"], false, copper],
+		[east[&"ash_owl"], false, copper],
 		[LightGen.to_rgba8(ItemIcons.texture_for(&"hide_fine").get_image()), true, ivory],
 		[ItemIcons.image_from_map(&"rare_essence"), false, ivory], [ItemIcons.image_from_map(&"tally"), false, gold],
 	]
 	for i: int in pictures.size():
-		var r: Rect2i = Rect2i(p.position + Vector2i(4 + (i % 4) * 32, 4 + 14 + (i / 4) * 32), Vector2i(30, 30))
+		var r: Rect2i = Rect2i(p.position + Vector2i(4 + (i % 4) * 42, 4 + 14 + (i / 4) * 42), Vector2i(40, 40))
 		var img: Image = pictures[i][0]
 		var done: bool = pictures[i][1]
 		var unit: Color = pictures[i][2]
@@ -4948,7 +5001,7 @@ func _check_collection_panel() -> void:
 				for x: int in range(r.position.x, r.end.x):
 					want[Vector2i(x, y)] = dark
 		_frame_pixels(want, r, faith if done else dark)
-		var pic_at: Vector2i = r.position + (Vector2i(30, 30) - img.get_size()) / 2
+		var pic_at: Vector2i = r.position + (Vector2i(40, 40) - img.get_size()) / 2
 		for y2: int in img.get_height():
 			for x2: int in img.get_width():
 				var px: Color = img.get_pixel(x2, y2)
@@ -4962,7 +5015,7 @@ func _check_collection_panel() -> void:
 		if i == 7:
 			# The kills: ten pips in two rows of five, the first three lit.
 			for k: int in 10:
-				var pip: Vector2i = Vector2i(r.position.x + (30 - 18) / 2 + (k % 5) * 4, r.end.y - 3 - 6 + (k / 5) * 4)
+				var pip: Vector2i = Vector2i(r.position.x + (40 - 18) / 2 + (k % 5) * 4, r.end.y - 3 - 6 + (k / 5) * 4)
 				for py: int in 2:
 					for pxx: int in 2:
 						want[pip + Vector2i(pxx, py)] = gold if k < 3 else Hud.FRAME
@@ -4972,7 +5025,7 @@ func _check_collection_panel() -> void:
 	var maps: Array[StringName] = [&"benefit_class", &"benefit_all", &"benefit_world"]
 	var veiled: Dictionary[Vector2i, Color] = {}
 	for j: int in 3:
-		var b: Rect2i = Rect2i(p.position.x + 4 + j * 42, p.end.y - 4 - 20, 40, 20)
+		var b: Rect2i = Rect2i(p.position.x + 4 + j * 56, p.end.y - 4 - 20, 54, 20)  # (166 - 2 x 2) / 3 wide
 		_frame_pixels(want, b, gold if lit[j] else dark)
 		if lit[j]:
 			_image_pixels(want, ItemIcons.image_from_map(maps[j]), b.position + Vector2i(2, 2))
@@ -4997,12 +5050,12 @@ func _check_collection_panel() -> void:
 		_save(full, "collection_panel_full.png")
 	var want2: Dictionary[Vector2i, Color] = {}
 	for j2: int in 3:
-		var b2: Rect2i = Rect2i(p.position.x + 4 + j2 * 42, p.end.y - 4 - 20, 40, 20)
+		var b2: Rect2i = Rect2i(p.position.x + 4 + j2 * 56, p.end.y - 4 - 20, 54, 20)
 		_frame_pixels(want2, b2, gold)
 		_image_pixels(want2, ItemIcons.image_from_map(maps[j2]), b2.position + Vector2i(2, 2))
 	for k2: int in 10:
-		var last: Rect2i = Rect2i(p.position + Vector2i(4 + 3 * 32, 4 + 14 + 32), Vector2i(30, 30))
-		var pip2: Vector2i = Vector2i(last.position.x + 6 + (k2 % 5) * 4, last.end.y - 3 - 6 + (k2 / 5) * 4)
+		var last: Rect2i = Rect2i(p.position + Vector2i(4 + 3 * 42, 4 + 14 + 42), Vector2i(40, 40))
+		var pip2: Vector2i = Vector2i(last.position.x + 11 + (k2 % 5) * 4, last.end.y - 3 - 6 + (k2 / 5) * 4)
 		want2[pip2] = gold
 	var full_wrong: int = _count_wrong(full, want2)
 	root.remove_child(hud)

@@ -222,7 +222,8 @@ func _check_basic_attacks() -> void:
 		a3.step([r] as Array[Player])
 	check(c3.hp < c3.hp_max(), "the creature in front took the arrow")
 	check_eq(h3.hp, Config.HERETIC_HP, "the heretic behind it did not")
-	# And the arrow goes through empty space beside a small hare: a box of its size, not a person's.
+	# The box is the hare's size, not a person's: since the M11 creature art it is 20 px tall, so a level shot (drawn 14 px up) hits it;
+	# the box ends at its top.
 	var d4: WorldData = open_world()
 	var a4: Arena = arena_for(d4)
 	var s: Player = player(d4, "archer", Vector2(200, 200))
@@ -230,7 +231,7 @@ func _check_basic_attacks() -> void:
 	a4.player_attack(s, &"bow", Combat.aim_code(Vector2.RIGHT), [s] as Array[Player])
 	for t: int in 40:
 		a4.step([s] as Array[Player])
-	check_eq(c4.hp, c4.hp_max(), "a level shot flies over a hare's head (drawn 14 px up, the hare is 12 tall)")
+	check(c4.hp < c4.hp_max(), "a level shot (drawn 14 px up) hits the hare (20 tall)")
 	var feet: Vector2 = c4.pos
 	check(Creatures.shot_hits(feet + Vector2(0.0, Config.SHOT_DRAW_LIFT_PX - c4.num_f("hit_height_px")), c4), "the top of its box")
 	check(not Creatures.shot_hits(feet + Vector2(0.0, Config.SHOT_DRAW_LIFT_PX - c4.num_f("hit_height_px") - 1.0), c4), "a px above it")
@@ -304,7 +305,8 @@ func _check_skills() -> void:
 		["archer", Skills.Slot.IDENTITY, Skills.PIERCING_ARROW, &"", Vector2(60, 0), Skills.num_i(Skills.PIERCING_ARROW, "damage")],
 		["miner", Skills.Slot.IDENTITY, Skills.GROUND_SLAM, &"", Vector2(24, 0), Skills.num_i(Skills.GROUND_SLAM, "damage")],
 		["paladin", Skills.Slot.WEAPON, Skills.CRUSHING_BLOW, &"sword", Vector2(18, 0), Skills.num_i(Skills.CRUSHING_BLOW, "damage")],
-		["archer", Skills.Slot.WEAPON, Skills.FAN_SHOT, &"bow", Vector2(60, 0), Skills.num_i(Skills.FAN_SHOT, "damage")],
+		# A deer 60 px away is inside all three arrows of the fan since its box is its picture's size (34 px tall, M11 creature art).
+		["archer", Skills.Slot.WEAPON, Skills.FAN_SHOT, &"bow", Vector2(60, 0), Skills.num_i(Skills.FAN_SHOT, "damage") * Skills.num_i(Skills.FAN_SHOT, "arrows")],
 		["cleric", Skills.Slot.WEAPON, Skills.HOLY_BURST, &"holy_light", Vector2(60, 0), Skills.num_i(Skills.HOLY_BURST, "damage")],
 		["miner", Skills.Slot.WEAPON, Skills.HEAVY_STRIKE, &"pickaxe", Vector2(18, 0), Skills.num_i(Skills.HEAVY_STRIKE, "damage")],
 		["herbalist", Skills.Slot.WEAPON, Skills.SWEEP, &"sickle", Vector2(18, 0), Skills.num_i(Skills.SWEEP, "damage")],
