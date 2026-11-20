@@ -1000,6 +1000,17 @@ func _share_progress(w: GameWorld) -> void:
 	w.data.progress = world.data.progress
 
 
+## M12b: the surface's arena sees the world change now (Arena.sync_world: the altar's tier went up), not at its next step, so the log can
+## say how many heretics the wider light reached (they walk out of it, Arena._walk_out_of_light). Returns that many.
+func _sync_surface_arena() -> int:
+	if not arenas.has(Config.MAP_SURFACE):
+		return 0
+	var a: Arena = arenas[Config.MAP_SURFACE]
+	var before: int = a.stat("lit_out")
+	a.sync_world()
+	return a.stat("lit_out") - before
+
+
 ## The world's progress (the surface's WorldData.progress), or null.
 func world_progress() -> WorldProgress:
 	return world.data.progress if world != null and world.data != null else null
@@ -1864,8 +1875,9 @@ func craft_row(i: int) -> void:
 	var o: Crafting.Outcome = Crafting.craft(r, player.class_id(), player.inventory, world_progress())
 	if o.ok() and r.is_upgrade():
 		world.altar_tier_changed()  # M12a: the world's altar went up a tier
-		print("EVENSONG_ALTAR tier=%d radius_tiles=%d (recipe=%s)" % [WorldProgress.tier_of(world.data),
-			Config.ALTAR_TIER_RADIUS_TILES[WorldProgress.tier_of(world.data)], r.id])
+		var lit_out: int = _sync_surface_arena()  # M12b: the heretics the wider light reached walk out of it
+		print("EVENSONG_ALTAR tier=%d radius_tiles=%d heretics_lit=%d (recipe=%s)" % [WorldProgress.tier_of(world.data),
+			Config.ALTAR_TIER_RADIUS_TILES[WorldProgress.tier_of(world.data)], lit_out, r.id])
 	elif o.ok():
 		print("EVENSONG_CRAFT made recipe=%s item=%s count=%d grade=%s" % [r.id, o.item, o.count, ItemDB.GRADE_NAMES[o.grade]])
 	else:
@@ -2932,6 +2944,7 @@ func _apply_test_options(options: CliOptions) -> void:
 	if options.test_altar_tier >= 0 and world_progress() != null:
 		world_progress().altar_tier = options.test_altar_tier  # M12a: the light and the picture follow
 		world.altar_tier_changed()
+		_sync_surface_arena()  # M12b
 	put_test_boss(options)  # M12a
 	if not options.test_fields.is_empty():
 		apply_test_fields(options.test_fields)  # M5a

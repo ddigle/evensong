@@ -62,6 +62,9 @@ var _withers: Dictionary[int, bool] = {}
 var _withers_altar: Rect2i = Rect2i()
 var _withers_corruption: int = 0
 var _withers_valid: bool = false
+## M12b: and the world's altar tier (WorldProgress: its light's radius). M12a kept the causes over a raise, so a crop the wider light now
+## reached stayed withered (tests/test_altar_upgrade.gd).
+var _withers_tier: int = 0
 ## M5-fix: the plots' tile indices in row order, sorted again only after a plot came or went.
 var _keys: Array[int] = []
 var _keys_dirty: bool = true
@@ -117,10 +120,12 @@ func step() -> Array[EditLog.WorldEdit]:
 	if plots.is_empty():
 		return out
 	var corruption: int = hash(data.layers[WorldData.Layer.CORRUPTION])
-	if not _withers_valid or data.altar_rect != _withers_altar or corruption != _withers_corruption:
+	var tier: int = WorldProgress.tier_of(data)
+	if not _withers_valid or data.altar_rect != _withers_altar or corruption != _withers_corruption or tier != _withers_tier:
 		_withers.clear()
 		_withers_altar = data.altar_rect
 		_withers_corruption = corruption
+		_withers_tier = tier
 		_withers_valid = true
 	var zone: SafeZone = SafeZone.for_world(data)
 	if _keys_dirty:

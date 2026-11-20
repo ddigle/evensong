@@ -1374,6 +1374,11 @@ const ALTAR_UPGRADE: StringName = &"altar_upgrade"
 const ALTAR_UPGRADE_RECIPES: Array = [["relic", ALTAR_UPGRADE, 1, [[BOSS_RELIC, 1]]]]
 const ALTAR_TIER_MAX: int = 1
 const ALTAR_TIER_RADIUS_TILES: PackedInt32Array = [SAFE_RADIUS_TILES, 9]
+## PROVISIONAL M12b (not in the docs; ○ game-concept §9.3 the light grows with the tier, and a heretic never stands in the light, M4a): when the
+## altar goes up a tier, a heretic standing where the wider light now reaches forgets its target and walks straight out of it (away from
+## the altar's middle, never nearer it) and makes its home where it got out - the creatures' M11a rule (Creatures._walk_clear) for a
+## heretic (Arena._walk_out_of_light). false: it stays where it stands (M12a: it could not move, every step being into the light).
+const HERETIC_WALKS_OUT_OF_RAISED_LIGHT: bool = true
 ## PROVISIONAL (○ brief §5.7 R49 "이단 쪽 불의 색 = 악마 주황"; where the fire sits, its light and its size are not in the docs): the standing
 ## heretic shrine burns with the demon-orange flames (FixtureView: the large flame on its two front corners, the small one on its top
 ## skull, where the 04-env candidates sheet put them) and an orange point light (light only: never safety); a broken shrine's fire is out.

@@ -29,6 +29,13 @@ extends SceneTree
 ##            dark; the standing shrine's demon-orange flames glow in the dark (their glow pixels unshaded). Then the surface altar at tier 1:
 ##            candA's lit picture on its shifted place (evening off, pixel for pixel) and, with the evening on, a ground pixel 8 tiles out
 ##            lit at tier 1 and not at tier 0.
+##   m12b     (M12b) the altar at tier 1 around its middle (480x270): every screen pixel lit (evening on / off ratio) exactly where the
+##            9-tile ground light's texel is (the M1 ground rule at tier 1: none outside 144 px), candA's 97 flame pixels in their art colours
+##            with the evening on and off; candA's nine prayer lamps during a prayer (lit, not yet, soot, ember, out, guttering: the boxes
+##            of the covered ones = candA's unlit picture but for the drawn marks, the flames unshaded at evening, nothing else changed, its
+##            own picture after); the dark dungeon's standing shrine: its three flame rects show the demon palette and no candle gold, the
+##            wall torches' flames on the same screen candle gold and no demon colour; a breaking pillar's dust ring (its dots every 2 px on
+##            the fall circle and the ring closing in, unshaded, the pillar and the boss hidden) in the dust colour on the dark floor.
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -316,6 +323,8 @@ func _run() -> void:
 			await _check_wild_net()  # M11c
 		if _want("boss"):
 			await _check_boss()  # M12a
+		if _want("m12b"):
+			await _check_m12b()  # M12b
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -556,6 +565,263 @@ func _check_boss() -> void:
 		_fail("boss", line)
 		_save(dark, "boss_dark_got.png")
 		_save(fire, "boss_fire_got.png")
+
+
+## M12b: the altar at tier 1, its lamps in a prayer, the shrine's fire against the torches', a pillar's dust ring (see the header).
+func _check_m12b() -> void:
+	var lines: PackedStringArray = []
+	var bad_parts: int = 0
+	world.data.progress = WorldProgress.new()
+	world.data.progress.raise_altar()
+	world.altar_tier_changed()
+	var z1: SafeZone = world.safe_zone
+	var origin: Vector2i = _look_at(Vector2i(z1.center))
+	world.lighting.set_evening(true)
+	var eve: Image = await _capture()
+	world.lighting.set_evening(false)
+	var day: Image = await _capture()
+	var band: int = Config.SAFE_EDGE_BAND_PX
+	var flame_px: Dictionary[Vector2i, bool] = {}
+	var mask: Image = Altar.tier_flame_image(1)
+	var art: Vector2i = world.altar.art_origin()
+	for y: int in mask.get_height():
+		for x: int in mask.get_width():
+			if mask.get_pixel(x, y).a8 > 0:
+				flame_px[art + Vector2i(x, y) - origin] = true
+	var mismatches: int = 0
+	var checked: int = 0
+	var lit_outside: int = 0
+	var ring_lit: int = 0
+	for sy: int in Config.VIEW_SIZE.y:
+		for sx: int in Config.VIEW_SIZE.x:
+			var s: Vector2i = Vector2i(sx, sy)
+			if flame_px.has(s):
+				continue
+			var b: Color = day.get_pixel(sx, sy)
+			if _brightness(b) < MIN_BRIGHTNESS:
+				continue
+			var lit: bool = _brightness(eve.get_pixel(sx, sy)) / _brightness(b) > LIT_RATIO
+			var px: Vector2i = origin + s
+			checked += 1
+			var c: Vector2 = Vector2(px) + Vector2(0.5, 0.5)
+			if lit and not z1.is_in_safe_zone(c):
+				lit_outside += 1
+			if lit and c.distance_to(z1.center) > Config.safe_radius_px_at(0) + 1.0:
+				ring_lit += 1
+			if lit != (LightGen.light_at(z1, LightGen.Edge.DITHER, band, px) > 0.5):
+				mismatches += 1
+	var lit_art: Image = LightGen.to_rgba8(Altar.LIT_UP1.get_image())
+	var flame_wrong: int = 0
+	for s2: Vector2i in flame_px:
+		var ap: Vector2i = s2 + origin - art
+		for img: Image in [eve, day]:
+			if img.get_pixelv(s2).to_rgba32() != lit_art.get_pixelv(ap).to_rgba32():
+				flame_wrong += 1
+	var ground_ok: bool = mismatches == 0 and lit_outside == 0 and ring_lit > 1000 and checked > 100000 and flame_wrong == 0 \
+		and flame_px.size() == 97
+	lines.append("ground checked=%d mismatches=%d lit_outside=%d lit_beyond_7_tiles=%d flames=%d flames_wrong=%d" % [checked, mismatches,
+		lit_outside, ring_lit, flame_px.size(), flame_wrong])
+	if not ground_ok:
+		bad_parts += 1
+		_save(eve, "m12b_ground_evening.png")
+		_save(day, "m12b_ground_day.png")
+	# candA's lamps in a prayer (the M10a lamp check at tier 1).
+	var altar: Altar = world.altar
+	var bg: Image = day
+	var lit_look: int = Altar.Look.LIT
+	var looks: PackedInt32Array = PackedInt32Array([lit_look, Altar.Look.UNLIT, Altar.Look.SOOT, lit_look, Altar.Look.EMBER,
+		lit_look, Altar.Look.GUTTER, Altar.Look.UNLIT, lit_look])
+	altar.show_lamps(looks)
+	var got: Image = await _capture()
+	world.lighting.set_evening(true)
+	var eve2: Image = await _capture()
+	world.lighting.set_evening(false)
+	altar.show_lamps(PackedInt32Array())
+	var after: Image = await _capture()
+	var unlit: Image = LightGen.to_rgba8(Altar.UNLIT_UP1.get_image())
+	var want: Dictionary[Vector2i, Color] = {}
+	var keep: Dictionary[Vector2i, Color] = {}
+	var a0: Vector2i = art - origin
+	for i: int in looks.size():
+		var f: Vector2i = Altar.lamp_flame(i, 1)
+		var box: Rect2i = Altar.lamp_box(i, 1)
+		if looks[i] != lit_look:
+			for y2: int in range(box.position.y, box.end.y):
+				for x2: int in range(box.position.x, box.end.x):
+					want[a0 + Vector2i(x2, y2)] = unlit.get_pixel(x2, y2)
+		else:
+			for y3: int in Altar.FLAME_SIZE.y:
+				for x3: int in Altar.FLAME_SIZE.x:
+					var q: Vector2i = f + Vector2i(x3, y3)
+					if mask.get_pixelv(q).a8 > 0:
+						keep[a0 + q] = lit_art.get_pixelv(q)
+		if looks[i] == Altar.Look.EMBER:
+			for q2: Vector2i in Altar.EMBER_PIXELS:
+				want[a0 + f + q2] = Altar.EMBER
+				keep[a0 + f + q2] = Altar.EMBER
+	# The covered lamps' boxes are candA's unlit picture except the drawn marks (the soot, the ember, the guttering flame: M10a's
+	# placeholders, checked at tier 0 by prayer_lamps): those pixels are left out here.
+	var marks: Dictionary[Vector2i, bool] = {}
+	for i3: int in looks.size():
+		var f3: Vector2i = Altar.lamp_flame(i3, 1)
+		if looks[i3] == Altar.Look.SOOT or looks[i3] == Altar.Look.GUTTER:
+			for my: int in Altar.FLAME_SIZE.y:
+				for mx: int in Altar.FLAME_SIZE.x:
+					marks[a0 + f3 + Vector2i(mx, my)] = true
+	var lamp_bad: int = 0
+	for p: Vector2i in want:
+		if keep.has(p) or marks.has(p):
+			continue
+		if got.get_pixelv(p).to_rgba32() != want[p].to_rgba32():
+			lamp_bad += 1
+	var others: int = 0
+	var boxes: Array[Rect2i] = []
+	for i2: int in looks.size():
+		boxes.append(Rect2i(a0 + Altar.lamp_box(i2, 1).position, Altar.lamp_box(i2, 1).size))
+	for y4: int in got.get_height():
+		for x4: int in got.get_width():
+			var p4: Vector2i = Vector2i(x4, y4)
+			if got.get_pixelv(p4).to_rgba32() == bg.get_pixelv(p4).to_rgba32():
+				continue
+			var in_box: bool = false
+			for bx: Rect2i in boxes:
+				in_box = in_box or bx.has_point(p4)
+			if not in_box:
+				others += 1
+	var keep_bad: int = _count_wrong(eve2, keep)
+	var back: int = count_diff(after, bg)
+	var lamps_ok: bool = lamp_bad == 0 and others == 0 and keep_bad == 0 and back == 0 and want.size() > 100 and keep.size() >= 4 * 9
+	lines.append("lamps covered_px=%d wrong=%d other_changed=%d unshaded=%d evening_wrong=%d own_picture_after=%d" % [want.size(), lamp_bad,
+		others, keep.size(), keep_bad, back])
+	if not lamps_ok:
+		bad_parts += 1
+		_save(got, "m12b_lamps_got.png")
+		_save(eve2, "m12b_lamps_eve.png")
+	world.data.progress = null
+	world.altar_tier_changed()
+	# The shrine's fire in the dark against the wall torches' flames.
+	var dun: GameWorld = _dungeon_world()
+	dun.visible = true
+	world.visible = false
+	dun.entities.visible = true
+	dun.lighting.set_evening(true)
+	var shrine: Rect2i = DungeonGen.shrine_rect(dun.data)
+	dun.camera.make_current()
+	dun.camera.position = Vector2(FixtureView.foot_of(shrine)).round() + Vector2(0, -24)
+	dun.camera.reset_smoothing()
+	var sorigin: Vector2i = Vector2i(dun.camera.position) - Config.VIEW_SIZE / 2
+	var fire: Image = await _capture()
+	var demon: Dictionary[int, bool] = {}
+	var gold: Dictionary[int, bool] = {}
+	for tex: Texture2D in [FixtureView.HERETIC_FLAME_LARGE, FixtureView.HERETIC_FLAME_SMALL]:
+		var im: Image = LightGen.to_rgba8(tex.get_image())
+		for y5: int in im.get_height():
+			for x5: int in im.get_width():
+				if im.get_pixel(x5, y5).a8 > 0:
+					demon[im.get_pixel(x5, y5).to_rgba32()] = true
+	for tex2: Texture2D in [FixtureView.FLAME, FixtureView.SMALL_FLAME]:
+		var im2: Image = LightGen.to_rgba8(tex2.get_image())
+		for y6: int in im2.get_height():
+			for x6: int in im2.get_width():
+				if im2.get_pixel(x6, y6).a8 > 0:
+					gold[im2.get_pixel(x6, y6).to_rgba32()] = true
+	var shrine_demon: int = 0
+	var shrine_gold: int = 0
+	var sart: Vector2i = FixtureView.shrine_origin(shrine) - sorigin
+	for spec: Array in FixtureView.SHRINE_FLAMES:
+		var large: bool = spec[0]
+		var at: Vector2i = spec[1]
+		var tex3: Texture2D = FixtureView.HERETIC_FLAME_LARGE if large else FixtureView.HERETIC_FLAME_SMALL
+		var r: Rect2i = Rect2i(sart + at, Vector2i(tex3.get_width() / FixtureView.FLAME_FRAMES, tex3.get_height()))
+		for y7: int in range(r.position.y, r.end.y):
+			for x7: int in range(r.position.x, r.end.x):
+				var cc: int = fire.get_pixel(x7, y7).to_rgba32()
+				if demon.has(cc):
+					shrine_demon += 1
+				if gold.has(cc):
+					shrine_gold += 1
+	var torch_gold: int = 0
+	var torch_demon: int = 0
+	var torches: int = 0
+	var view_rect: Rect2i = Rect2i(Vector2i.ZERO, Config.VIEW_SIZE)
+	for n: Node in dun.fixtures.nodes.values():
+		if not is_instance_valid(n):
+			continue
+		for ch: Node in n.get_children():
+			var sp: Sprite2D = ch as Sprite2D
+			if sp == null or sp.texture != FixtureView.FLAME:
+				continue
+			var lr: Rect2 = sp.get_rect()
+			var tr: Rect2i = Rect2i(Vector2i((sp.global_position + lr.position).round()) - sorigin, Vector2i(lr.size))
+			if not view_rect.encloses(tr):
+				continue
+			torches += 1
+			for y8: int in range(tr.position.y, tr.end.y):
+				for x8: int in range(tr.position.x, tr.end.x):
+					var c8: int = fire.get_pixel(x8, y8).to_rgba32()
+					if gold.has(c8):
+						torch_gold += 1
+					if demon.has(c8):
+						torch_demon += 1
+	var fire_ok: bool = shrine_demon > 20 and shrine_gold == 0 and torches >= 1 and torch_gold > 5 and torch_demon == 0
+	lines.append("fire shrine_demon_px=%d shrine_gold_px=%d torches=%d torch_gold_px=%d torch_demon_px=%d" % [shrine_demon, shrine_gold,
+		torches, torch_gold, torch_demon])
+	if not fire_ok:
+		bad_parts += 1
+		_save(fire, "m12b_fire_got.png")
+	# A breaking pillar's dust ring on the dark floor (the pillar and the boss hidden).
+	var a: Arena = Arena.new()
+	a.setup(dun.data, Config.DEFAULT_SEED)
+	a.spawning = false
+	a.boss = BossFight.new()
+	a.boss.setup(a, Config.DEFAULT_SEED)
+	var fview: BossFightView = BossFightView.new()
+	dun.add_child(fview)
+	fview.setup(a.boss, dun.entities)
+	var pil: BossFight.Pillar = a.boss.pillars[0]
+	var tele: int = roundi(Config.BOSS_PILLARS["telegraph_ticks"])
+	pil.hits = BossFight.Pillar.hits_per_state() * 3
+	pil.falling = tele / 2
+	fview.sync()
+	fview.boss.visible = false
+	fview.above.visible = false
+	for pn: Node2D in fview.pillar_nodes:
+		pn.visible = false
+	dun.camera.position = pil.centre().round()
+	dun.camera.reset_smoothing()
+	var porigin: Vector2i = Vector2i(dun.camera.position) - Config.VIEW_SIZE / 2
+	var dust: Image = await _capture()
+	var rr: float = Config.BOSS_PILLARS["fall_radius_px"]
+	var dots: Dictionary[Vector2i, bool] = {}
+	var nd: int = maxi(ceili(TAU * rr / BossFightView.DUST_RING_STEP_PX), 6)
+	for k: int in nd:
+		dots[Vector2i((pil.centre() + Vector2.from_angle(TAU * k / nd) * rr).floor()) - porigin] = true
+	var inner: float = rr * float(pil.falling) / float(tele)
+	var ni: int = maxi(ceili(TAU * inner / BossFightView.DOT_PX), 6)
+	for k2: int in ni:
+		dots[Vector2i((pil.centre() + Vector2.from_angle(TAU * k2 / ni) * inner).floor()) - porigin] = true
+	var dust_ok_px: int = 0
+	for dp: Vector2i in dots:
+		if dust.get_pixelv(dp).to_rgba32() == BossFightView.DUST.to_rgba32():
+			dust_ok_px += 1
+	var floor_dark: float = INF
+	for off: Vector2i in [Vector2i(0, -24), Vector2i(-24, 0), Vector2i(20, 4)]:
+		floor_dark = minf(floor_dark, _brightness(dust.get_pixelv(Vector2i(pil.centre().floor()) - porigin + off)))
+	var is_dark: bool = floor_dark < _brightness(BossFightView.DUST) * 0.5
+	var dust_ok: bool = dust_ok_px == dots.size() and dots.size() > 100 and is_dark
+	lines.append("dust ring_dots=%d in_dust_colour=%d floor_dark=%s" % [dots.size(), dust_ok_px, is_dark])
+	if not dust_ok or save_all:
+		if not dust_ok:
+			bad_parts += 1
+		_save(dust, "m12b_dust_got.png")
+	fview.clear()
+	dun.queue_free()
+	world.visible = true
+	world.camera.make_current()
+	if bad_parts == 0:
+		print("EVENSONG_RENDER m12b ok %s" % " | ".join(lines))
+	else:
+		_fail("m12b", " | ".join(lines))
 
 
 ## M12a: sets boss `b` to show animation `a` at frame `f`.

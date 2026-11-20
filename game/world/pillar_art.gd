@@ -16,10 +16,12 @@ const CENTRE_X: int = 16
 const CRACK: Color = Color8(0x1a, 0x17, 0x14)
 const LEDGE: Color = Color8(0xb6, 0xaa, 0x9d)
 const BREAK_FACE: Color = Color8(0x6b, 0x5e, 0x4f)
-## IMPL: crack paths (picture px, joined 4-way), state 1 and the more of state 2.
+## IMPL: crack paths (picture px, joined 4-way), state 1 and the more of state 2. M12b: state 1's third crack (the lower shaft), so the first
+## state reads at 1x beside an intact pillar (M12a's two thin cracks were hard to tell from the stone's own joints).
 const CRACKS_1: Array[Array] = [
 	[Vector2i(18, 15), Vector2i(17, 19), Vector2i(19, 23), Vector2i(17, 28), Vector2i(18, 33)],
 	[Vector2i(13, 6), Vector2i(15, 9), Vector2i(14, 12)],
+	[Vector2i(14, 37), Vector2i(12, 41), Vector2i(14, 45), Vector2i(13, 48)],
 ]
 const CRACKS_2: Array[Array] = [
 	[Vector2i(12, 20), Vector2i(14, 25), Vector2i(13, 31), Vector2i(15, 37), Vector2i(13, 43), Vector2i(15, 48)],

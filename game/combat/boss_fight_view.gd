@@ -24,6 +24,8 @@ const TAIL: Array[Color] = [SCARLET, BLOOD, CLOTTED]
 ## breaking pillar's circle (px) and where they fall (offsets from its middle, fixed); the rubble round a broken pillar ([offset from the
 ## tile's bottom middle, size, colour index: 0 light stone, 1 stone, 2 dark]); the pillar's refused mark's height over its feet.
 const DOT_PX: float = 4.0
+## M12b (IMPL): the dots of a breaking pillar's fall ring, one per this many px.
+const DUST_RING_STEP_PX: float = 2.0
 const PEBBLE_HEIGHT_PX: float = 44.0
 const PEBBLES: Array[Vector2i] = [Vector2i(-14, -6), Vector2i(9, -12), Vector2i(-4, 10), Vector2i(17, 4), Vector2i(-19, 8), Vector2i(2, -20),
 	Vector2i(12, 15), Vector2i(-10, -16)]
@@ -143,9 +145,11 @@ func _draw_ground() -> void:
 		elif p.falling >= 0:
 			var c: Vector2 = p.centre()
 			var r: float = Config.BOSS_PILLARS["fall_radius_px"]
-			_ring(ground, c, r, DUST, DOT_PX)
+			# M12b: the fall circle's ring twice as dense and the ring closing in pale dust too (M12a's grey dots every 4 px read weaker
+			# than the orange telegraphs, and this one hurts friends as well)
+			_ring(ground, c, r, DUST, DUST_RING_STEP_PX)
 			var left: float = float(p.falling) / maxf(Config.BOSS_PILLARS["telegraph_ticks"], 1.0)
-			_ring(ground, c, r * left, DUST_DARK, DOT_PX)
+			_ring(ground, c, r * left, DUST, DOT_PX)
 	for d: BossFight.Debris in fight.debris:
 		var grow: float = d.radius * (0.6 + 0.6 * float(d.age) / BossFight.DEBRIS_SHOW_TICKS)
 		_ring(ground, d.pos, grow, DUST if d.age % 4 < 2 else DUST_DARK, DOT_PX * 0.75)

@@ -334,6 +334,8 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 ## worked out again from the data (the dungeon's spawn tiles do not depend on either). Called first thing every step()
 ## (cheap when nothing changed: the altar rect and a count of the corruption layer) and by whoever applied such edits.
 ## Heretics keep their homes; none can be inside a new light (AltarMove.place_refusal). Returns whether it changed.
+## M12b: a raise of the altar's tier is the one way a light can come to lie on a heretic: those it reached walk out of it (lit_out,
+## Config.HERETIC_WALKS_OUT_OF_RAISED_LIGHT).
 ## M7-fix: building does not come in here. The spawn tiles are worked out on the map's own terrain (terrain_blocked: what
 ## players build or place is left out) and spawn_ok() checks the live world when a heretic is put down, so a wall, a door
 ## or a station never switches a map's spawning off (M7b walked the dungeon from its arrival through closed doors: a door
@@ -347,10 +349,17 @@ func sync_world() -> bool:
 		return false
 	_synced_altar = data.altar_rect
 	_synced_corruption = corrupted
+	var raised: bool = tier > _synced_tier
 	_synced_tier = tier  # M12a: the altar went up a tier: a wider light, fewer spawn tiles
 	safe = SafeZone.for_world(data)
 	if map_id == Config.MAP_SURFACE:
 		spawn_cells = surface_spawn_cells(data, safe)
+	if raised and Config.HERETIC_WALKS_OUT_OF_RAISED_LIGHT and not Config.HERETIC_ENTERS_LIGHT:
+		# M12b: the wider light may reach heretics where they stand (no rule kept them that far out): they walk out of it.
+		for h: HereticSim in heretics:
+			if h.alive() and not Combat.box_outside_light(data, safe, h.pos):
+				h.lit_out = true
+				count("lit_out")
 	count("world_synced")
 	return true
 
@@ -630,6 +639,9 @@ func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
 	if h.cooldown > 0:
 		h.cooldown -= 1
 	h.walking = false
+	if h.lit_out:
+		_walk_out_of_light(h)  # M12b: the altar's wider light reached it
+		return
 	if h.state == HereticSim.State.RETURN:
 		_go_home(h)
 		return
@@ -859,6 +871,53 @@ func _go_home(h: HereticSim) -> void:
 		h.home = h.pos
 		_set_state(h, HereticSim.State.IDLE)
 		h.walking = false
+
+
+## M12b (PROVISIONAL "M12b 넓어진 빛 안의 이단", Config.HERETIC_WALKS_OUT_OF_RAISED_LIGHT, the creatures' M11a rule for a heretic): the
+## altar went up a tier and its wider light
+## reached heretic `h` where it stood (sync_world set lit_out). It forgets its target, its watch and its threat and walks straight away from
+## the altar's centre (8 ways at its speed, walking's collision; a step may still be in the light while it is no nearer the centre: cut to
+## one axis, or the two ways beside a straight one, when the straight one is blocked). Once its box is outside the light that spot is its
+## home and it idles; stuck Config.HERETIC_HOME_STUCK_TICKS (walled in) it gives up there (it attacks nobody in the light anyway).
+func _walk_out_of_light(h: HereticSim) -> void:
+	h.has_target = false
+	h.target_id = 0
+	h.watch_ticks = 0
+	_forget_threat(h)
+	if h.state != HereticSim.State.RETURN:
+		_set_state(h, HereticSim.State.RETURN)
+	if Combat.box_outside_light(data, safe, h.pos) or h.stuck >= Config.HERETIC_HOME_STUCK_TICKS:
+		h.lit_out = false
+		h.home = h.pos
+		_set_state(h, HereticSim.State.IDLE)
+		count("walked_out" if Combat.box_outside_light(data, safe, h.pos) else "lit_stuck")
+		return
+	var out: Vector2 = h.pos - safe.center
+	var dz: float = Config.HERETIC_AXIS_DEAD_ZONE_PX
+	var dir: Vector2i = Vector2i(0 if absf(out.x) < dz else (1 if out.x > 0.0 else -1), 0 if absf(out.y) < dz else (1 if out.y > 0.0 else -1))
+	if dir == Vector2i.ZERO:
+		dir = Vector2i(0, 1)
+	var tries: Array[Vector2i] = [dir]
+	if dir.x != 0 and dir.y != 0:
+		tries.append(Vector2i(dir.x, 0))
+		tries.append(Vector2i(0, dir.y))
+	elif dir.x != 0:
+		tries.append(Vector2i(dir.x, 1))
+		tries.append(Vector2i(dir.x, -1))
+	else:
+		tries.append(Vector2i(1, dir.y))
+		tries.append(Vector2i(-1, dir.y))
+	var from_centre: float = h.pos.distance_to(safe.center)
+	for t: Vector2i in tries:
+		var next: Vector2 = Movement.step(data, h.pos, t, Config.NET_TICK, heretic_speed(h))
+		if next == h.pos or next.distance_to(safe.center) < from_centre:
+			continue
+		h.pos = next
+		h.walking = true
+		h.facing = Movement.facing_for(t, h.facing)
+		h.stuck = 0
+		return
+	h.stuck += 1
 
 
 ## Damage on heretic `h`: staggered (an attack it started goes on unless
