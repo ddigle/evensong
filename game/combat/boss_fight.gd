@@ -169,8 +169,12 @@ var pending_edits: Array[EditLog.WorldEdit] = []
 ## The relics given at the kill: per player node instance id, into the inventory and onto the ground.
 var relics_given: Dictionary[int, int] = {}
 var relics_dropped: Dictionary[int, int] = {}
-## The players of the map at the last step (a blow that wakes it counts them).
+## The players of the map at the last step (offline and tests: a blow that wakes or kills it between two steps counts them, _players_here).
 var _players: Array[Player] = []
+## M12c-fix (review): who is on its map right now, in the map's fixed order (a session host: SessionHost.players_on for the dungeon). A blow
+## from a member's frame lands before this tick's step, after a member may have left (its Player freed) or taken the stairs either way since
+## the last step: the wake's player count and the kill's relics read this, never the last step's list (_players_here). Unset: _players.
+var players_now: Callable = Callable()
 ## Test hooks (--test-boss-hp, --test-boss-attack; tests): its HP when it wakes (0 = its max) and the only attack it uses (NONE = drawn).
 var test_hp: int = 0
 var test_attack: int = BossSim.Attack.NONE
@@ -187,6 +191,7 @@ func setup(p_arena: Arena, world_seed: int) -> void:
 
 ## For a given room (tests put one on a bare map).
 func setup_with(p_arena: Arena, p_room: BossRoom.Layout, world_seed: int) -> void:
+	_unblock_all()  # M12c-fix (review): a fight set up again frees its old pillars' tiles first (they were cleared before this ran)
 	_arena = weakref(p_arena)
 	data = p_arena.data
 	data.boss_fight = self  # M12c: the dungeon's snapshot carries its site
@@ -199,7 +204,6 @@ func setup_with(p_arena: Arena, p_room: BossRoom.Layout, world_seed: int) -> voi
 	circles.clear()
 	debris.clear()
 	pillars.clear()
-	_unblock_all()
 	sim = null
 	if not room.has_room():
 		return
@@ -218,6 +222,7 @@ func setup_with(p_arena: Arena, p_room: BossRoom.Layout, world_seed: int) -> voi
 		sim.hp = 0
 		for p: Pillar in pillars:
 			p.fallen = true
+			p.hits = Pillar.hits_per_state() * 3  # M12c-fix (review): rubble as after a live kill (the wire's broken count; hits 0 decoded as bad)
 	_block_standing()
 
 
@@ -695,9 +700,15 @@ func _new_id() -> int:
 
 # --- targets, threat --------------------------------------------------------------------------------------------------
 
-## A player it may go after: up, within Config.BOSS sight_px, outside the altar's light (the dungeon has none: the M4 rule as written).
+## A player it may go after (its target, the burn's circles): up, within Config.BOSS sight_px, in its room or else seen (Combat.line_clear
+## from its body point to the player's: a wall or a standing pillar between hides a player outside the room; inside the room nothing hides,
+## not even a pillar, so the fight never loses a player behind one), outside the altar's light (the dungeon has none: the M4 rule as written).
+## M12c-fix (review): the sight rule; before it a player behind the room's wall within sight_px got burning circles.
 func can_target(p: Player) -> bool:
 	if sim == null or not p.vitals.alive() or p.sim_position.distance_to(sim.pos) > BossSim.num("sight_px"):
+		return false
+	var seen: bool = room.holds(p.sim_position) or Combat.line_clear(data, Combat.body_point(sim.pos), Combat.body_point(p.sim_position))
+	if not seen and not Config.BOSS_SEES_THROUGH_WALLS:
 		return false
 	return Config.HERETIC_ENTERS_LIGHT or not Combat.in_safe_light(data, arena().safe, p.sim_position)
 
@@ -779,7 +790,7 @@ func hit(amount: int, by: int = 0) -> int:
 	if sim == null or not sim.open_to_hits() or amount <= 0:
 		return 0
 	if sim.state == BossSim.State.SLEEP:
-		wake(_players)
+		wake(_players_here())
 	var dealt: int = amount
 	if sim.exposed():
 		dealt = ceili(amount * BossSim.num("exposed_damage_pct") / 100.0)
@@ -870,7 +881,7 @@ func poison(damage: int, ticks: int, by: int) -> bool:
 	if sim == null or not sim.open_to_hits() or damage <= 0 or ticks <= 0:
 		return false
 	if sim.state == BossSim.State.SLEEP:
-		wake(_players)
+		wake(_players_here())
 	if sim.poison_ticks > 0:
 		sim.poison_damage = maxi(sim.poison_damage, damage)
 		sim.poison_ticks = maxi(sim.poison_ticks, ticks)
@@ -926,6 +937,14 @@ func _die(by: int) -> void:
 	b.poison_ticks = 0
 	b.taunt_ticks = 0
 	_quiet()
+	var calmed: int = 0
+	if Config.BOSS_ADDS_LEAVE_AT_DEATH:  # M12c-fix (review): the arena goes quiet: the heretics it called still up leave with it
+		var up: Array[int] = []
+		for h: HereticSim in arena().heretics:
+			if b.adds.has(h.id) and h.alive():
+				up.append(h.id)
+		calmed = arena().remove_heretics(up)
+		count("adds_left", calmed)
 	for i: int in pillars.size():
 		var p: Pillar = pillars[i]
 		if p.falling >= 0:
@@ -937,13 +956,33 @@ func _die(by: int) -> void:
 	var progress: WorldProgress = WorldProgress.of(data)
 	if progress != null:
 		progress.defeat_boss()
-	note("killed by=%s players=%d" % [Creatures.class_of(by) if by != 0 else "?", _players.size()])
-	_give_relics(_players)
+	var here: Array[Player] = _players_here()  # M12c-fix: the map's players at the kill, not the last step's (a leaver is freed)
+	note("killed by=%s players=%d adds_left=%d" % [Creatures.class_of(by) if by != 0 else "?", here.size(), calmed])
+	_give_relics(here)
+
+
+## M12c-fix (review): the players on its map at this moment (players_now when set, else the last step's), only live ones on this map: a
+## member freed when it left, or one whose Player is on another map's data now, is skipped.
+func _players_here() -> Array[Player]:
+	var from: Array[Player] = []
+	if players_now.is_valid():
+		from = players_now.call()
+	else:
+		from = _players
+	var out: Array[Player] = []
+	for v: Variant in from:
+		if not is_instance_valid(v) or not (v is Player):
+			continue
+		var p: Player = v
+		if p.data == data:
+			out.append(p)
+	return out
 
 
 ## ○ gameplay-design §5 "보스 드롭은 인원수만큼 분배": Config.BOSS_RELICS_PER_PLAYER relics to every player on the map at the kill, straight into
-## the inventory; what does not fit lies on that player's feet tile as one drop (the ground-item path: a drop edit), none when the map
-## holds Config.MAX_DROPS.
+## the inventory; what does not fit lies on that player's feet tile as one drop (the ground-item path: a drop edit). M12c-fix (review): when
+## the map already holds Config.MAX_DROPS (the snapshot's cap: never more), the oldest drop that is no relic goes (a drop-remove edit first,
+## PROVISIONAL Config.RELIC_DISPLACES_DROP) so the relic still lies down: the boss never comes back, so a lost relic could never be had again.
 func _give_relics(players: Array[Player]) -> void:
 	for p: Player in players:
 		var want: int = Config.BOSS_RELICS_PER_PLAYER
@@ -951,7 +990,13 @@ func _give_relics(players: Array[Player]) -> void:
 		var pid: int = p.get_instance_id()
 		relics_given[pid] = want - left
 		relics_dropped[pid] = 0
-		if left > 0 and data.drops.size() + pending_edits.size() < Config.MAX_DROPS:
+		if left > 0 and _drops_after_pending() >= Config.MAX_DROPS and Config.RELIC_DISPLACES_DROP:
+			var gone: int = _oldest_plain_drop()
+			if gone >= 0:
+				pending_edits.append(EditLog.WorldEdit.drop_remove(gone))
+				count("drops_displaced")
+				note("relic displaced drop=%d (the map holds %d)" % [gone, Config.MAX_DROPS])
+		if left > 0 and _drops_after_pending() < Config.MAX_DROPS:
 			var tile: Vector2i = Aim.feet_cell(p.sim_position)
 			var centre: Vector2i = tile * Config.TILE + Vector2i(Config.TILE / 2, Config.TILE / 2)
 			pending_edits.append(EditLog.WorldEdit.drop_put(WorldData.Drop.new(data.new_drop_id(),
@@ -960,6 +1005,32 @@ func _give_relics(players: Array[Player]) -> void:
 		count("relics", want - left)
 		count("relics_dropped", relics_dropped[pid])
 		note("relic who=%s given=%d dropped=%d" % [p.class_id(), want - left, relics_dropped[pid]])
+
+
+## M12c-fix: the map's drops once the waiting edits are applied (puts add one, removes take one).
+func _drops_after_pending() -> int:
+	var n: int = data.drops.size()
+	for e: EditLog.WorldEdit in pending_edits:
+		if e.kind == EditLog.Kind.DROP_PUT:
+			n += 1
+		elif e.kind == EditLog.Kind.DROP_REMOVE:
+			n -= 1
+	return n
+
+
+## M12c-fix: the id of the oldest drop on the map (the least id) that is no relic and no waiting edit removes yet; -1 = none.
+func _oldest_plain_drop() -> int:
+	var taken: Dictionary[int, bool] = {}
+	for e: EditLog.WorldEdit in pending_edits:
+		if e.kind == EditLog.Kind.DROP_REMOVE:
+			taken[e.drop_id] = true
+	var best: int = -1
+	for id: int in data.drops:
+		if taken.has(id) or data.drops[id].item == Config.BOSS_RELIC:
+			continue
+		if best < 0 or id < best:
+			best = id
+	return best
 
 
 ## The fire in the air and on the ground is gone (death, a reset, the map emptied).
@@ -1225,12 +1296,16 @@ func blow(i: int, by: int, miner: bool) -> bool:
 	return true
 
 
-## The blows of a melee arc (`p` swinging `item` or a skill: `skill`): on the boss and on the pillars it reaches.
+## The blows of a melee arc (`p` swinging `item` or a skill: `skill`): on the boss and on the pillars it reaches. M12c-fix (review): a blow
+## that is no miner's and landed on the boss leaves the pillars it also reached alone (no refused mark each swing beside a pillar: it was
+## aimed at the boss); one that missed the boss still shows the mark (miner only).
 func melee(p: Player, dir: Vector2, reach: float, arc_deg: float, amount: int, pick_blow: bool) -> int:
 	var landed: int = 0
 	if in_arc(p.sim_position, dir, reach, arc_deg):
 		hit(amount, p.get_instance_id())
 		landed += 1
+	if landed > 0 and not pick_blow:
+		return landed
 	for i: int in pillars_in_arc(p.sim_position, dir, reach, arc_deg):
 		blow(i, p.get_instance_id(), pick_blow)
 	return landed

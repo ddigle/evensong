@@ -56,6 +56,7 @@ func setup(p_fight: BossFight, p_entities: Node2D) -> void:
 	BossView.warm()  # the sheets now, not on the boss's first attack (README "M12a 보스 그림")
 	for k: int in 4:
 		PillarArt.texture(k)
+		PillarArt.glint_texture(k)
 	ground = Node2D.new()
 	ground.name = &"BossGround"
 	ground.material = FixtureView.unshaded_material()
@@ -88,6 +89,12 @@ func setup(p_fight: BossFight, p_entities: Node2D) -> void:
 		s.light_mask = Config.LIGHT_LAYER_WORLD
 		s.position = Vector2(PillarArt.origin(p.tile)) - n.position
 		n.add_child(s)
+		var g: Sprite2D = Sprite2D.new()  # M12c-fix: the crack glints, unshaded (PillarArt.GLINT_ALPHA), so its state reads in the dark
+		g.name = &"Glints"
+		g.centered = false
+		g.material = FixtureView.unshaded_material()
+		g.position = s.position
+		n.add_child(g)
 		var m: EffectMarks = EffectMarks.new()
 		m.name = &"Marks"
 		m.position = Vector2(0, PILLAR_MARK_Y)
@@ -124,6 +131,7 @@ func sync() -> void:
 		if looks[i] != look:
 			looks[i] = look
 			s.texture = PillarArt.texture(look)
+			(n.get_node(^"Glints") as Sprite2D).texture = PillarArt.glint_texture(look) if look > 0 else null
 		s.modulate = Player.HIT_FLASH if p.flash_ticks > 0 else Color.WHITE
 		var m: EffectMarks = n.get_node(^"Marks") as EffectMarks
 		var kinds: Array[int] = []

@@ -9,7 +9,9 @@ extends "res://tests/base_test.gd"
 ## a tick early) and its circle (the boss and players just inside and just outside it, a dashing and a downed player, a sleeping boss, a
 ## boss walking home), its stun over the immunity and the exposure (its own damage never raised by an exposure), a reset restoring every
 ## pillar, the kill leaving them as they are, and no tile edit (the dungeon's golden hash and its layers byte for byte after a whole
-## pillar fight on the generated dungeon).
+## pillar fight on the generated dungeon). M12c-fix (review): the spacing cut on the small fallback rooms (seeds 240, 259: 2 pillars before),
+## the crack glints (unshaded, so the states tell apart in the dark: none intact, more each state, only the cracks' ledges and the break
+## face), nothing placed, dropped or built on a standing pillar's tile (and all three once it lies as rubble).
 
 const TICK: float = 1.0 / 60.0
 const ROOM: Rect2i = Rect2i(8, 6, 26, 20)
@@ -31,6 +33,8 @@ func run() -> Array[String]:
 	_check_reset_restores()
 	_check_kill_keeps()
 	_check_no_tile_edits()
+	_check_glints()  # M12c-fix
+	_check_nothing_on_a_pillar()  # M12c-fix
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -130,10 +134,16 @@ static func break_pillar(f: BossFight, i: int, by: Player) -> void:
 
 # --- the spots -----------------------------------------------------------------------------------------------------------
 
+## M12c-fix (review's probe over seeds 61..260): the two seeds whose small fallback rooms (12x6, 10x6) had only 2 pillars.
+const SMALL_ROOM_SEEDS: Array[int] = [240, 259]
+
 func _check_spots() -> void:
 	var gap_kept: int = 0
 	var counts: Dictionary[int, int] = {}
-	for s: int in range(31, 61):
+	var seeds: Array[int] = []
+	seeds.assign(range(31, 61))
+	seeds.append_array(SMALL_ROOM_SEEDS)  # M12c-fix (review): the fallback rooms that got 2 before the spacing cut
+	for s: int in seeds:
 		var built: Array = DungeonGen.build(s)
 		var data: WorldData = built[0]
 		var r: BossRoom.Layout = BossRoom.for_seed(s)
@@ -159,7 +169,8 @@ func _check_spots() -> void:
 		else:
 			# A pillar beside a doorway only when the full door gap leaves fewer than min_count (BossRoom.pick_pillars cuts it then).
 			var full: Array[Vector2i] = BossRoom._pick(data, r, s, roundi(Config.BOSS_PILLARS["count"]),
-				roundi(Config.BOSS_PILLARS["door_gap_tiles"]), roundi(Config.BOSS_PILLARS["home_gap_tiles"]))
+				roundi(Config.BOSS_PILLARS["door_gap_tiles"]), roundi(Config.BOSS_PILLARS["home_gap_tiles"]),
+				roundi(Config.BOSS_PILLARS["spacing_tiles"]))
 			check(full.size() < roundi(Config.BOSS_PILLARS["min_count"]), "seed %d: beside a doorway only because the full gap fits %d" % [s,
 				full.size()])
 		# The pillars standing: the doorways and the home free, every floor tile reached from the doorways, a free tile beside each.
@@ -194,8 +205,17 @@ func _check_spots() -> void:
 				if reach.has(p3 + st2):
 					beside += 1
 			check_eq(beside, 4, "seed %d: free on all four sides of %s" % [s, p3])
-	note("pillar spots on seeds 31..60: counts %s, the door gap %d kept on %d of 30 seeds" % [counts,
-		roundi(Config.BOSS_PILLARS["door_gap_tiles"]), gap_kept])
+	note("pillar spots on seeds 31..60 and %s: counts %s, the door gap %d kept on %d of %d seeds" % [str(SMALL_ROOM_SEEDS), counts,
+		roundi(Config.BOSS_PILLARS["door_gap_tiles"]), gap_kept, seeds.size()])
+	# M12c-fix: on those two the spacing was cut (a free tile between two pillars, never adjacent), the others kept the full spacing.
+	for s2: int in SMALL_ROOM_SEEDS:
+		var r2: BossRoom.Layout = BossRoom.for_seed(s2)
+		var least: int = 99
+		for i: int in r2.pillars.size():
+			for j: int in range(i + 1, r2.pillars.size()):
+				least = mini(least, BossRoom.cheb(r2.pillars[i], r2.pillars[j]))
+		check(r2.fallback and least >= BossRoom.MIN_SPACING_TILES, "seed %d: a fallback room (%s), pillars %d apart at least" % [s2,
+			r2.room, least])
 	# The default seed's (the README's, the smoke's): a regression would move them.
 	var r1: BossRoom.Layout = BossRoom.for_seed(Config.DEFAULT_SEED)
 	check_eq(str(r1.pillars), "[(49, 39), (56, 35), (56, 40), (48, 35)]", "seed 1's four pillars")
@@ -591,3 +611,67 @@ func _check_no_tile_edits() -> void:
 	check(same, "every layer byte for byte as generated")
 	check_eq(m.inventory.count_of(Config.BOSS_RELIC), 1, "the relic in the inventory (no drop on the map)")
 	check(dungeon.drops.is_empty(), "no drop")
+
+
+# --- M12c-fix: the glints, nothing on a pillar ---------------------------------------------------------------------------------
+
+func _check_glints() -> void:
+	var counts: Array[int] = []
+	for look: int in 4:
+		var g: Image = PillarArt.glint_image(look)
+		var pic: Image = PillarArt.image(look)
+		var whole: Image = PillarArt.image(0)
+		var n: int = 0
+		var wrong: int = 0
+		for y: int in g.get_height():
+			for x: int in g.get_width():
+				var c: Color = g.get_pixel(x, y)
+				if c.a8 == 0:
+					continue
+				n += 1
+				var under: Color = pic.get_pixel(x, y)
+				var own: bool = under.to_rgba32() == PillarArt.LEDGE.to_rgba32() or under.to_rgba32() == PillarArt.BREAK_FACE.to_rgba32()
+				var same_rgb: bool = c.r8 == under.r8 and c.g8 == under.g8 and c.b8 == under.b8
+				if not own or under == whole.get_pixel(x, y) or absf(c.a - PillarArt.GLINT_ALPHA) > 0.01 or not same_rgb:
+					wrong += 1
+		check_eq(wrong, 0, "glints: state %d's are its cracks' ledges and break face only, in their colour at %.2f" % [look,
+			PillarArt.GLINT_ALPHA])
+		counts.append(n)
+	check(counts[0] == 0 and counts[1] > 0 and counts[2] > counts[1] and counts[3] > 0,
+		"glints: none intact, more each crack state, the stub's break face (%s)" % str(counts))
+	note("pillar glints per state (px): %s" % str(counts))
+	# The view draws them unshaded over the picture.
+	var d: WorldData = open_dungeon()
+	var a: Arena = fight_on(d, test_room([SPOT]))
+	var root: Node2D = Node2D.new()
+	var ents: Node2D = Node2D.new()
+	root.add_child(ents)
+	_nodes.append(root)
+	var view: BossFightView = BossFightView.new()
+	_nodes.append(view)
+	view.setup(a.boss, ents)
+	var glints: Sprite2D = view.pillar_nodes[0].get_node(^"Glints") as Sprite2D
+	check(glints != null and glints.material == FixtureView.unshaded_material() and glints.texture == null, "glints: intact, none drawn")
+	a.boss.set_pillar_hits(0, BossFight.Pillar.hits_per_state())
+	view.sync()
+	check(glints.texture == PillarArt.glint_texture(1), "glints: cracked, its glints unshaded over the picture")
+	view.clear()
+
+
+func _check_nothing_on_a_pillar() -> void:
+	var d: WorldData = open_dungeon()
+	var a: Arena = fight_on(d, test_room([SPOT]))
+	var p: Player = player(d, "miner", Arena.spawn_feet(SPOT + Vector2i(0, 1)))
+	p.inventory.add(&"torch", 2)
+	p.inventory.add(Building.STONE_WALL, 1)
+	p.inventory.add(&"stone_a", 20)
+	check(d.blockers.has(SPOT), "nothing on it: the pillar stands")
+	var torch: WorldItems.Outcome = WorldItems.place(d, p.sim_position, p.inventory, slot_of(p.inventory, &"torch"), SPOT)
+	check_eq(torch.why, WorldItems.WHY_NOT_OPEN, "nothing on it: no torch on a standing pillar")
+	var drop: WorldItems.Outcome = WorldItems.drop(d, p.sim_position, p.inventory, slot_of(p.inventory, &"stone_a"), 1, SPOT)
+	check_eq(drop.why, WorldItems.WHY_BLOCKED, "nothing on it: no drop on it")
+	check_eq(Building.refusal(d, p.sim_position, Building.STONE_WALL, SPOT, 99), WorldItems.WHY_NOT_OPEN, "nothing on it: no wall built on it")
+	break_pillar(a.boss, 0, p)
+	run_world(a, [] as Array[Player], roundi(Config.BOSS_PILLARS["telegraph_ticks"]) + 1)
+	check(a.boss.pillars[0].fallen and not d.blockers.has(SPOT), "nothing on it: now rubble, walkable")
+	check(WorldItems.place(d, p.sim_position, p.inventory, slot_of(p.inventory, &"torch"), SPOT).ok(), "nothing on it: the rubble takes a torch")

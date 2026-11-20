@@ -19,7 +19,9 @@ extends Node2D
 ## M12a (● brief §5.7 R49: the altar's upgrade tier 1 looks like candA): at the world's altar tier 1 (WorldProgress, set_tier) the picture is
 ## 04-env altar_up1_candA_v02 (56x64: altar_v04's body unchanged at (4, 12) on a plinth, four gold corner candlesticks, an ivory cloth with a
 ## gold band; its _unlit, _litbase and _emissive companions copied with it) used exactly like altar_v04: the lit picture on the world light,
-## the flames = what differs from its unlit picture and is bright, drawn again unshaded (the 9 lamps' 81 px and the 4 candles' 28 px). Its
+## the flames = what differs from its unlit picture and is bright, drawn again unshaded (the 9 lamps' 81 px and the candles' flames: every
+## pixel on a lamp's box or a candle, tests/test_altar_tier.gd). The _litbase and _emissive companions are kept but not read (altar_v04's
+## _litbase is not even copied: both tiers follow the one lit/unlit rule; README known issues "M12 candA 빛 마스크"). Its
 ## top-left goes TIER_ART's shift from altar_v04's (the art notes' "(-4, -7)": the body lands where altar_v04's stood) and the 9 prayer
 ## lamps (Config.PRAYER_LAMP_FLAMES, altar_v04's spots) are TIER_ART's lamp shift further into the picture: (4, 7), on the candA lamps
 ## (tests/test_altar_tier.gd checks every lamp's 9 flame px there).

@@ -187,9 +187,12 @@ func _session_altar() -> void:
 	_check_agreement("altar", host, [c1, c2, c3], 4)
 	var lines: PackedStringArray = _log_lines(host)
 	check(_line_with(lines, "host place slot=0 map=0 item=relic_bench").length() > 0, "altar: the host placed the relic bench")
+	# M12c-fix (review): c1 and c2 start together, so either may join first: c1's slot is the one its own result names (1 or 2).
+	var s1: int = roundi(_num(c1.result, "slot"))
+	check(s1 == 1 or s1 == 2, "altar: c1's slot from its result (%d)" % s1)
 	var raised: String = _line_with(lines, "host altar tier=1 radius_tiles=9 radius_px=144")
-	check(raised.contains(" slot=1 recipe=altar_upgrade"), "altar: c1's CRAFT raised the tier on the host (%s)" % raised)
-	check(_line_with(lines, "host craft slot=1 map=0 recipe=altar_upgrade").length() > 0, "altar: logged as a craft")
+	check(raised.contains(" slot=%d recipe=altar_upgrade" % s1), "altar: c1's CRAFT raised the tier on the host (%s)" % raised)
+	check(_line_with(lines, "host craft slot=%d map=0 recipe=altar_upgrade" % s1).length() > 0, "altar: logged as a craft")
 	var hb: Dictionary = host.result.get("boss", {})
 	for inst: Instance in [host, c1, c2, c3]:
 		var b: Dictionary = inst.result.get("boss", {})
@@ -205,7 +208,11 @@ func _session_altar() -> void:
 	var c3b: Dictionary = c3.result.get("boss", {})
 	check_eq(_num(c3b, "tier_changes"), 0.0, "altar/c3: its welcome already had it")
 	var players: Array = host.result.get("players", [])
+	var c1_seen: int = 0
 	for p: Dictionary in players:
-		if roundi(_num(p, "slot")) == 1:
+		if roundi(_num(p, "slot")) == s1:
+			c1_seen += 1
+			check_eq(str(p.get("class", "")), "paladin", "altar: slot %d is c1's paladin" % s1)
 			check(not str(p.get("inventory", "")).contains("boss_relic"), "altar: c1's relic spent (%s)" % p.get("inventory"))
+	check_eq(c1_seen, 1, "altar: c1 in the host's players")
 	note("altar: the host's spawn tiles after the upgrade %s; %s" % [hb.get("spawn_tiles"), raised])

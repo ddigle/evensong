@@ -35,7 +35,14 @@ const CHIPS: Array[Array] = [[Vector2i(10, 24), Vector2i(2, 3)], [Vector2i(21, 3
 const STUB_TOP: PackedInt32Array = [52, 52, 51, 50, 46, 43, 41, 44, 42, 40, 43, 45, 42, 41, 44, 47, 43, 44, 48, 50, 51]
 const STUB_FIRST_X: int = 6
 
+## M12c-fix (review: in the dark dungeon the cracked and badly cracked pictures were near-black at 1x away from a torch or the boss's staff,
+## so the states could not be told apart): the GLINTS, drawn again unshaded over the picture (combat/boss_fight_view.gd) at GLINT_ALPHA:
+## the lit ledge pixels each crack added (state 1 its three, state 2 its six) and the stub's fresh break face. Intact: none. In the light they
+## sit on their own lit colour (a step paler at most); in the dark they are the pale lines that tell the states apart. IMPL alpha.
+const GLINT_ALPHA: float = 0.55
+
 static var _textures: Dictionary[int, ImageTexture] = {}
+static var _glints: Dictionary[int, ImageTexture] = {}
 
 
 ## The picture of state `look` (0..3).
@@ -44,6 +51,32 @@ static func texture(look: int) -> ImageTexture:
 	if not _textures.has(k):
 		_textures[k] = ImageTexture.create_from_image(image(k))
 	return _textures[k]
+
+
+## M12c-fix: the glints of state `look` (0..3) as a texture (the picture's size; transparent but the glints).
+static func glint_texture(look: int) -> ImageTexture:
+	var k: int = clampi(look, 0, 3)
+	if not _glints.has(k):
+		_glints[k] = ImageTexture.create_from_image(glint_image(k))
+	return _glints[k]
+
+
+## M12c-fix: the pixels of state `look`'s picture that are a crack's ledge or the break face and differ from the intact picture, at
+## GLINT_ALPHA (their own colour); the rest transparent.
+static func glint_image(look: int) -> Image:
+	var img: Image = image(look)
+	var whole: Image = image(0)
+	var out: Image = Image.create(img.get_width(), img.get_height(), false, Image.FORMAT_RGBA8)
+	if look <= 0:
+		return out
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			var c: Color = img.get_pixel(x, y)
+			if c.a8 == 0 or c == whole.get_pixel(x, y):
+				continue
+			if c.to_rgba32() == LEDGE.to_rgba32() or c.to_rgba32() == BREAK_FACE.to_rgba32():
+				out.set_pixel(x, y, Color(c.r, c.g, c.b, GLINT_ALPHA))
+	return out
 
 
 static func image(look: int) -> Image:

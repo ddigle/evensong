@@ -1811,6 +1811,8 @@ static func boss_of(f: BossFight, tick: int) -> BossState:
 	o.attack = b.attack if b.state == BossSim.State.ATTACK else BossSim.Attack.NONE
 	o.phase = b.phase
 	o.since = (tick - b.state_ticks) & 0xFFFF if boss_timed(b.state, b.state_ticks) else 0
+	if o.since == 0 and b.state == BossSim.State.DEAD and boss_timed(b.state, b.state_ticks):
+		o.since = 0xFFFF  # M12c-fix (review): 0 reads "lying already"; a death on a tick that is a multiple of 65536 goes one tick earlier
 	o.hp = b.hp
 	o.hp_max = b.hp_max
 	o.flash = b.flash_ticks if b.alive() else 0

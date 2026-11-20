@@ -109,6 +109,8 @@ var bodies: int = 0
 var hp_seen: Array[int] = []
 var states_seen: Dictionary[String, bool] = {}
 var attack_ticks: Dictionary[String, Array] = {}
+## IMPL (M12c-fix, review): the attack start ticks kept per kind (the newest; the list grew without end in a long fight).
+const ATTACK_TICKS_KEPT: int = 256
 var bolts_seen: int = 0
 var bolt_stops: Dictionary[String, int] = {}
 var circles_seen: int = 0
@@ -196,6 +198,8 @@ func on_event(e: NetProtocol.ShotEvent) -> void:
 				attacks.pop_front()
 			var name: String = BossSim.ATTACK_NAMES[e.sub]
 			var ticks: Array = attack_ticks.get(name, [])
+			if ticks.size() >= ATTACK_TICKS_KEPT:
+				ticks.pop_front()  # M12c-fix (review): stats only, a long fight keeps the newest
 			ticks.append(e.tick)
 			attack_ticks[name] = ticks
 		NetProtocol.ShotEvent.Kind.BOSS_STOP:

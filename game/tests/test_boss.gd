@@ -6,7 +6,8 @@ extends "res://tests/base_test.gd"
 ## archer's collection benefit, the exposure), threat and the taunt, stun and slow shortened with the immunity, phase 2's two heretics once,
 ## the reset (no one in its room, dragged too far: HP, adds, pillars), death, the flag, the relics (1, 2, 4 players, a full inventory) and
 ## the pillars (the miner's alone, the refused mark, the debris on the boss and the players, the rubble, restored on a reset, broken for
-## good after the kill), the boss beaten without a miner.
+## good after the kill), the boss beaten without a miner. M12c-fix (review): sight (walls hide a player outside its room), the reset's stun
+## immunity, the adds at its death, the relics at a leave or a map change, at the drops' cap, no refused mark beside it, a dead site.
 
 const TICK: float = 1.0 / 60.0
 const WEAPONS: Dictionary[String, StringName] = {"paladin": &"sword", "miner": &"pickaxe", "herbalist": &"sickle", "archer": &"bow",
@@ -35,6 +36,7 @@ func run() -> Array[String]:
 	_check_death()
 	_check_pillars()
 	_check_without_miner()
+	_check_review()  # M12c-fix
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -963,3 +965,206 @@ func _check_without_miner() -> void:
 	var r: Crafting.Recipe = Crafting.recipe(Config.ALTAR_UPGRADE)
 	check(r != null and r.classes.is_empty(), "the altar upgrade is anyone's")
 	check(d.progress.boss_defeated, "the flag")
+
+
+# --- M12c-fix: the review's findings ---------------------------------------------------------------------------------------------
+
+## M12c-fix (review): who it sees (a wall hides a player outside its room, nothing hides one inside, not a pillar; sight_px; the taunt needs
+## a clear line), a reset clears its stun immunity, its adds leave at its death, the relics go to the players on its map at the kill (one
+## freed or gone to another map since the last step gets none and nothing errs, one who came is counted: players_now), a relic takes the
+## oldest drop's place at the map's cap, a non-miner's blow that hit the boss puts no refused mark on the pillar beside it, a dead boss's
+## site and pillar events decode.
+func _check_review() -> void:
+	_check_sight()
+	_check_reset_immunity()
+	_check_adds_at_death()
+	_check_relics_live()
+	_check_relic_at_cap()
+	_check_refused_beside_boss()
+	_check_dead_site()
+
+
+## Walls along the test room's south side (rows 26 and 27, a tile past each end).
+static func wall_south(d: WorldData) -> void:
+	for x: int in range(ROOM.position.x - 1, ROOM.end.x + 1):
+		for y: int in [ROOM.end.y, ROOM.end.y + 1]:
+			d.set_value(WorldData.Layer.WALL, Vector2i(x, y), Walls.pack(Walls.KIND_ROCK, 0))
+
+
+func _check_sight() -> void:
+	var d: WorldData = open_dungeon()
+	wall_south(d)
+	var pillar: Vector2i = Vector2i(21, 20)
+	var a: Arena = fight_on(d, test_room([pillar]))
+	var f: BossFight = a.boss
+	var hidden: Player = player(d, "cleric", Arena.spawn_feet(Vector2i(21, 29)))
+	var inside: Player = player(d, "paladin", Arena.spawn_feet(Vector2i(21, 23)))
+	var both: Array[Player] = [inside, hidden]
+	f.wake(both)
+	check(not f.room.holds(hidden.sim_position) and hidden.sim_position.distance_to(f.sim.pos) < BossSim.num("sight_px"),
+		"sight: the one south of the wall is outside its room, within sight_px")
+	check(not Combat.line_clear(d, Combat.body_point(f.sim.pos), Combat.body_point(hidden.sim_position)), "sight: a wall between")
+	check(not f.can_target(hidden), "sight: a wall hides a player outside its room")
+	check(not Combat.line_clear(d, Combat.body_point(f.sim.pos), Combat.body_point(inside.sim_position)), "sight: the pillar between")
+	check(f.can_target(inside), "sight: inside its room nothing hides (not the pillar)")
+	var burn: Array[Player] = f.burn_targets(both)
+	check(burn.size() == 1 and burn[0] == inside, "sight: the burn's circles go under the one it sees only")
+	check_eq(f.taunt(hidden, 400.0, 60), 0, "sight: a taunt through the wall does not take")
+	# Only the hidden one on the map: no target, no circle under him, his HP whole (the review's probe: 6 circles, 0 HP in 600 ticks).
+	var d2: WorldData = open_dungeon()
+	wall_south(d2)
+	var a2: Arena = fight_on(d2, test_room())
+	var alone: Player = player(d2, "cleric", Arena.spawn_feet(Vector2i(21, 29)))
+	var one: Array[Player] = [alone]
+	a2.boss.wake(one)
+	a2.boss.test_attack = BossSim.Attack.BURN
+	var circles: int = 0
+	for t: int in 400:
+		run_world(a2, one, 1)
+		circles += a2.boss.circles.size()
+	check(a2.boss.sim.target_id == 0 and circles == 0 and alone.vitals.hp == Config.PLAYER_HP_MAX,
+		"sight: behind the wall he is no target, no circle, full HP (target %d, circles %d, hp %d)" % [a2.boss.sim.target_id, circles,
+		alone.vitals.hp])
+	# Outside the room with a clear line: seen; beyond sight_px: not.
+	var d3: WorldData = open_dungeon()
+	var a3: Arena = fight_on(d3, test_room())
+	var seen: Player = player(d3, "archer", Arena.spawn_feet(Vector2i(21, 29)))
+	var far: Player = player(d3, "archer", a3.boss.sim.home + Vector2(BossSim.num("sight_px") + 8.0, 0.0))
+	a3.boss.wake([seen, far] as Array[Player])
+	check(a3.boss.can_target(seen), "sight: outside its room with nothing between: seen")
+	check(Combat.line_clear(d3, Combat.body_point(a3.boss.sim.pos), Combat.body_point(far.sim_position)) and not a3.boss.can_target(far),
+		"sight: beyond sight_px with nothing between: not a target")
+	check_eq(a3.boss.taunt(seen, 400.0, 60), 1, "sight: a taunt with a clear line takes")
+
+
+func _check_reset_immunity() -> void:
+	var d: WorldData = open_dungeon()
+	var a: Arena = fight_on(d, test_room())
+	var p: Player = player(d, "paladin", near_home(a, Vector2(0, 20)))
+	var party: Array[Player] = [p]
+	a.boss.wake(party)
+	check(a.boss.stun(60) and not a.boss.stun(60), "reset: a stun, then immune")
+	a.boss.reset("test")
+	check_eq(a.boss.sim.stun_immune, 0, "reset: the immunity cleared")
+	a.boss.wake(party)
+	check(a.boss.stun(60), "reset: the next fight's first stun takes at once")
+
+
+func _check_adds_at_death() -> void:
+	var d: WorldData = open_dungeon()
+	d.progress = WorldProgress.new()
+	var a: Arena = fight_on(d, test_room())
+	var p: Player = player(d, "paladin", near_home(a, Vector2(0, 20)))
+	var party: Array[Player] = [p]
+	wake_frozen(a, party)
+	a.boss.hit(a.boss.sim.hp_max / 2 + 1, p.get_instance_id())
+	check_eq(a.alive_heretics(), roundi(Config.BOSS["phase2_adds"]), "adds: phase 2 called them")
+	a.boss.hit(a.boss.sim.hp, p.get_instance_id())
+	check(not a.boss.sim.alive(), "adds: it died")
+	check_eq(a.alive_heretics(), 0 if Config.BOSS_ADDS_LEAVE_AT_DEATH else roundi(Config.BOSS["phase2_adds"]),
+		"adds: the arena goes quiet (Config.BOSS_ADDS_LEAVE_AT_DEATH)")
+	check_eq(a.boss.stat("adds_left"), roundi(Config.BOSS["phase2_adds"]) if Config.BOSS_ADDS_LEAVE_AT_DEATH else 0, "adds: counted")
+
+
+func _check_relics_live() -> void:
+	var d: WorldData = open_dungeon()
+	d.progress = WorldProgress.new()
+	var a: Arena = fight_on(d, test_room())
+	var leaver: Player = player(d, "miner", near_home(a, Vector2(-20, 20)))
+	var gone: Player = player(d, "archer", near_home(a, Vector2(0, 30)))
+	var stayer: Player = player(d, "paladin", near_home(a, Vector2(20, 20)))
+	var three: Array[Player] = [leaver, gone, stayer]
+	run_world(a, three, 1)
+	check(a.boss.sim.awake() and a.boss.sim.woke_with == 3, "relics: awake for three")
+	a.boss.frozen = true
+	_nodes.erase(leaver)
+	leaver.free()  # a session member who left: NetMember.remove_player frees the Player at once (before the next tick's frames)
+	var up: WorldData = open_dungeon()
+	up.map_id = Config.MAP_SURFACE
+	gone.set_world(up, Vector2(40.0, 40.0))  # one who took the stairs since the last step: on the other map's data now
+	a.boss.hit(a.boss.sim.hp, stayer.get_instance_id())  # the killing blow lands from a member's frame, before the arena's step
+	check(not a.boss.sim.alive(), "relics: killed")
+	check_eq(stayer.inventory.count_of(Config.BOSS_RELIC), 1, "relics: the one still on the map has his (the freed one skipped)")
+	check_eq(gone.inventory.count_of(Config.BOSS_RELIC), 0, "relics: the one gone up since the last step has none")
+	check_eq(a.boss.stat("relics"), 1, "relics: one given")
+	# players_now (the session host's members on the map now): one who came down since the last step is counted, at the wake too.
+	var d2: WorldData = open_dungeon()
+	d2.progress = WorldProgress.new()
+	var a2: Arena = fight_on(d2, test_room())
+	var first: Player = player(d2, "paladin", near_home(a2, Vector2(0, 20)))
+	var came: Player = player(d2, "cleric", near_home(a2, Vector2(0, 40)))
+	var now: Array[Player] = [first, came]
+	a2.boss.players_now = func() -> Array[Player]: return now
+	a2.boss.hit(10, first.get_instance_id())
+	check_eq(a2.boss.sim.woke_with, 2, "relics: a blow that wakes it counts the players on its map now")
+	a2.boss.frozen = true
+	a2.boss.hit(a2.boss.sim.hp, first.get_instance_id())
+	check(first.inventory.count_of(Config.BOSS_RELIC) == 1 and came.inventory.count_of(Config.BOSS_RELIC) == 1,
+		"relics: both on its map at the kill")
+
+
+func _check_relic_at_cap() -> void:
+	var d: WorldData = open_dungeon()
+	d.progress = WorldProgress.new()
+	var a: Arena = fight_on(d, test_room())
+	var full: Player = player(d, "paladin", near_home(a, Vector2(0, 26)))
+	for s: int in full.inventory.size():
+		full.inventory.add(&"stone_a", Config.STACK_GATHERABLE)
+	var one: Array[Player] = [full]
+	run_world(a, one, 1)
+	a.boss.frozen = true
+	for i: int in Config.MAX_DROPS:
+		var c: Vector2i = Vector2i(ROOM.position.x + i % ROOM.size.x, ROOM.position.y + 1 + i / ROOM.size.x)
+		EditLog.apply_to_data(d, EditLog.WorldEdit.drop_put(WorldData.Drop.new(d.new_drop_id(), &"stone_b", 1,
+			ItemDB.normalize_grade(&"stone_b"), c * Config.TILE + Vector2i(8, 8))))
+	check_eq(d.drops.size(), Config.MAX_DROPS, "cap: the map holds its most drops")
+	var oldest: int = -1
+	for id: int in d.drops:
+		if oldest < 0 or id < oldest:
+			oldest = id
+	a.boss.hit(a.boss.sim.hp, full.get_instance_id())
+	run_world(a, one, 1)
+	check_eq(d.drops.size(), Config.MAX_DROPS, "cap: still the most")
+	check(not d.drops.has(oldest), "cap: the oldest drop made room (Config.RELIC_DISPLACES_DROP)")
+	var at: Array[WorldData.Drop] = d.drops_at(Aim.feet_cell(full.sim_position))
+	var relic: bool = false
+	for dr: WorldData.Drop in at:
+		relic = relic or dr.item == Config.BOSS_RELIC
+	check(relic, "cap: the relic lies at his feet")
+	check_eq(a.boss.stat("drops_displaced"), 1, "cap: one drop displaced")
+
+
+func _check_refused_beside_boss() -> void:
+	var d: WorldData = open_dungeon()
+	var a: Arena = fight_on(d, test_room([Vector2i(23, 16)]))
+	var f: BossFight = a.boss
+	var pal: Player = player(d, "paladin", near_home(a, Vector2(0, 18)))
+	var party: Array[Player] = [pal]
+	wake_frozen(a, party)
+	check_eq(f.melee(pal, Vector2.UP, 64.0, 360.0, 10, false), 1, "beside: the paladin's blow hit the boss")
+	check(f.pillars[0].refused_ticks == 0 and f.stat("pillar_refused") == 0, "beside: no refused mark on the pillar it also reached")
+	f.sim.pos = f.sim.home + Vector2(0.0, -160.0)
+	check_eq(f.melee(pal, Vector2.UP, 64.0, 360.0, 10, false), 0, "beside: away from the boss")
+	check(f.pillars[0].refused_ticks > 0 and f.stat("pillar_refused") == 1, "beside: a blow at the pillar alone shows the mark")
+	var m: Player = player(d, "miner", near_home(a, Vector2(0, 18)))
+	f.sim.pos = f.sim.home
+	var hits: int = f.stat("pillar_hits")
+	check_eq(f.melee(m, Vector2.UP, 64.0, 360.0, 10, true), 1, "beside: the miner's pick hit the boss")
+	check_eq(f.stat("pillar_hits"), hits + 1, "beside: and the pillar in the same swing")
+
+
+func _check_dead_site() -> void:
+	var d: WorldData = open_dungeon()
+	d.progress = WorldProgress.new()
+	d.progress.defeat_boss()
+	var a: Arena = fight_on(d, test_room([Vector2i(14, 12), Vector2i(28, 20)]))
+	check(not a.boss.sim.alive(), "dead site: lying there (the flag)")
+	var end: Array[int] = [0]
+	var bytes: PackedByteArray = WorldSnapshot.site_bytes(a.boss.site())
+	var got: BossFight.Site = WorldSnapshot.read_site(bytes, 1, d.size, end)
+	if check(got != null, "dead site: its site decodes (the rubble at the broken count)"):
+		for i: int in got.pillars.size():
+			check(got.fallen[i] and got.hits[i] == BossFight.Pillar.hits_per_state() * 3, "dead site: pillar %d rubble" % i)
+	var ev: NetProtocol.ShotEvents = NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_DUNGEON,
+		[a.boss.pillar_event(0)] as Array[NetProtocol.ShotEvent]))
+	check(ev.ok and ev.events.size() == 1, "dead site: its pillar event decodes")

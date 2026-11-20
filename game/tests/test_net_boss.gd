@@ -13,6 +13,10 @@ extends "res://tests/test_net_combat.gd"
 ##     each player on the dungeon, the flag on every machine; a client's altar upgrade: candA, 9 tiles of light and the host's spawn tiles on every
 ##     machine; late joiners mid-fight (the attack, the bolts, the circles, a falling pillar), after the kill and after the upgrade; traffic
 ##     during a fight; a version 13 hello is refused
+##   - M12c-fix (review): the relics at the kill go to the members on the dungeon at that moment: a member who left in the poll right before a
+##     client's killing frame (its Player freed, the host on the surface) is skipped and every one still there gets its relic and its inventory;
+##     members who took the stairs either way since the last step count where they are; a death on a tick that is a multiple of 65536 still
+##     sends its start (not "lying already")
 
 const MINER: String = "miner"
 const PALADIN: String = "paladin"
@@ -43,6 +47,9 @@ func run() -> Array[String]:
 	await _check_boss_late_join()
 	await _check_boss_traffic()
 	await _check_v13_refused()
+	_check_relics_at_a_leave()  # M12c-fix
+	_check_relics_at_travel()  # M12c-fix
+	_check_death_since()  # M12c-fix
 	return failures
 
 
@@ -1001,3 +1008,116 @@ func _check_v13_refused() -> void:
 		check(msgs.size() == 1 and str(msgs[0][1]) == "refused" and why == "version" and member_of_peer(r, peer) == null,
 			"a version %d hello: refused (%s), no member" % [v, why])
 	_free_rig(r)
+
+
+# --- M12c-fix: the relics at a leave or a map change in the kill's tick ---------------------------------------------------------------
+
+## The member's relics (slot order): [slot, map, count].
+static func relics_by_slot(r: Rig) -> Array:
+	var out: Array = []
+	for slot: int in r.s.slots():
+		out.append([slot, r.s.members[slot].map_id, r.s.members[slot].player.inventory.count_of(Config.BOSS_RELIC)])
+	return out
+
+
+## Whether `pl`'s action lands on the next frame it runs.
+static func impact_next(pl: Player) -> bool:
+	return pl.action_anim >= 0 and pl.action_tick + 1 == Player.impact_tick_of(pl.action_item, pl.action_anim)
+
+
+## The review's probe P1b: the host (a cleric) on the surface; an archer (slot 1) and a paladin (slot 2) in the room. The archer leaves in the
+## poll right before the tick the paladin's swing lands (SessionHost.tick runs the members' frames before the arenas' step, and the leaver's
+## Player was freed in on_peer_disconnected): the paladin still gets its relic, on the host and in its own inventory.
+func _check_relics_at_a_leave() -> void:
+	var r: Rig = _rig(CLERIC)
+	var f: BossFight = r.host.boss_fight()
+	f.frozen = true
+	var arch: Client = _join(r, 101, ARCHER)
+	var pal: Client = _join(r, 102, PALADIN)
+	_down(r, arch, room_feet(f, Vector2i(-2, 1)))
+	_down(r, pal, room_feet(f, Vector2i(2, 1)))
+	_tick(r, 3)
+	var pm: NetMember = hm(r, pal)
+	pm.player.teleport(f.sim.pos + Vector2(-16, 0))
+	_tick(r, 3)
+	check(f.sim.awake(), "leave: awake")
+	f.sim.hp = 1
+	pal.action = swing_at(f.aim_point())
+	var t: int = 0
+	while t < 60 and not impact_next(pm.player):
+		_tick(r)
+		t += 1
+	check(f.sim.alive() and impact_next(pm.player), "leave: one tick before the paladin's blow (%d ticks)" % t)
+	arch.ticking = false
+	r.host.on_peer_disconnected(arch.peer)
+	_tick(r, 1)
+	pal.action = null
+	_tick(r, 8)
+	check(not f.sim.alive() and r.host.world_progress().boss_defeated, "leave: the paladin's frame killed it, the flag set")
+	var rel: Array = relics_by_slot(r)
+	var wrong: int = 0
+	for row: Array in rel:
+		var on_dungeon: bool = row[1] == Config.MAP_DUNGEON
+		var n: int = row[2]
+		if n != (1 if on_dungeon else 0):
+			wrong += 1
+	check_eq(wrong, 0, "leave: one relic for every member still on the dungeon, none on the surface (%s)" % str(rel))
+	check_eq(f.stat("relics"), 1, "leave: one relic given (the leaver skipped)")
+	check_eq(pal.s.local.player.inventory.count_of(Config.BOSS_RELIC), 1, "leave: the paladin's own inventory has it")
+	check_eq(host_lines(r, "relic slot=").size(), 1, "leave: one relic line")
+	_free_rig(r)
+
+
+## The review's probe P2: between the last step and the host's killing blow, the archer (slot 1) goes up the stairs and a cleric (slot 3) comes
+## down: the relics follow who is on the dungeon at the kill.
+func _check_relics_at_travel() -> void:
+	var r: Rig = _boss_rig(PALADIN)
+	var f: BossFight = r.host.boss_fight()
+	f.frozen = true
+	var arch: Client = _join(r, 101, ARCHER)
+	var miner: Client = _join(r, 102, MINER)
+	var cleric: Client = _join(r, 103, CLERIC)
+	_down(r, arch, room_feet(f, Vector2i(-2, 1)))
+	_down(r, miner, room_feet(f, Vector2i(2, 1)))
+	r.s.local.player.teleport(room_feet(f, Vector2i(0, 2)))
+	_tick(r, 3)
+	check(f.sim.awake(), "travel: awake")
+	f.sim.hp = 5
+	r.host.move_to_map(hm(r, arch), Config.MAP_SURFACE)
+	r.host.move_to_map(hm(r, cleric), Config.MAP_DUNGEON)
+	f.hit(50, r.s.local.player.get_instance_id())
+	_tick(r, 8)
+	var rel: Array = relics_by_slot(r)
+	var wrong: int = 0
+	for row: Array in rel:
+		var on_dungeon: bool = row[1] == Config.MAP_DUNGEON
+		var n: int = row[2]
+		if n != (1 if on_dungeon else 0):
+			wrong += 1
+	check_eq(wrong, 0, "travel: the relics follow who was on the dungeon at the kill (%s)" % str(rel))
+	check(host_lines(r, "boss killed by=paladin players=3").size() == 1, "travel: the kill counted the three on the dungeon then")
+	check_eq(cleric.s.local.player.inventory.count_of(Config.BOSS_RELIC), 1, "travel: the cleric who came down has it in its inventory")
+	check_eq(arch.s.local.player.inventory.count_of(Config.BOSS_RELIC), 0, "travel: the archer who went up has none")
+	_free_rig(r)
+
+
+## The boss block's start tick is 0 when untimed: a death on a tick that is a multiple of 65536 is sent one tick earlier, never as 0.
+func _check_death_since() -> void:
+	var d: WorldData = WorldData.new(Vector2i(48, 36))
+	d.map_id = Config.MAP_DUNGEON
+	var a: Arena = Arena.new()
+	a.setup(d, 1)
+	a.spawning = false
+	var room: BossRoom.Layout = BossRoom.Layout.new()
+	room.room = Rect2i(8, 6, 26, 20)
+	room.walk = BossRoom.walk_of(room.room)
+	room.home_tile = room.walk.position + room.walk.size / 2
+	a.boss = BossFight.new()
+	a.boss.setup_with(a, room, 1)
+	a.boss.sim.state = BossSim.State.DEAD
+	a.boss.sim.hp = 0
+	a.boss.sim.state_ticks = 4
+	var o: NetProtocol.BossState = NetProtocol.boss_of(a.boss, 65536 + 4)
+	check(o != null and o.since == 0xFFFF, "since: a death that started on tick 65536 goes as 65535, not 0 (%d)" % (o.since if o != null else -1))
+	var o2: NetProtocol.BossState = NetProtocol.boss_of(a.boss, 70000)
+	check(o2 != null and o2.since == (70000 - 4) & 0xFFFF, "since: any other start as it is")

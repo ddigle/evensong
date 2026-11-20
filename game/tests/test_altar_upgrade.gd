@@ -22,6 +22,9 @@ func run() -> Array[String]:
 	await _check_bench_main()
 	_check_edges_and_fields()
 	_check_heretics()
+	_check_move_reach()  # M12c-fix
+	_check_no_miner_reach()  # M12c-fix
+	await _check_no_miner_main()  # M12c-fix
 	_check_light_texels()
 	_check_creatures()
 	_check_merchant_and_prayer()
@@ -63,6 +66,176 @@ static func east(d: WorldData, k: int) -> Vector2i:
 
 static func tile_middle(c: Vector2i) -> Vector2:
 	return (Vector2(c) + Vector2(0.5, 0.5)) * Config.TILE
+
+
+# --- M12c-fix: a party with no miner reaches the relic bench --------------------------------------------------------------------------
+
+## What class `class_id` can come by alone: logs (anyone fells a tree with the hand-made axe), the rock and the ores its own pick breaks
+## (Mining.hardness_cap: the stones lying on the surface are the mined rock's item too), with `shop` the merchant's offers, then the output of
+## every recipe whose inputs it has (a class's own recipe only for that class; repairs and the altar upgrade aside).
+static func reach_alone(class_id: String, shop: bool) -> Dictionary[StringName, bool]:
+	var have: Dictionary[StringName, bool] = {&"log": true}
+	var cap: int = Mining.hardness_cap(class_id)
+	if Config.HARDNESS_ROCK <= cap:
+		have[Config.MINED_ROCK_ITEM] = true
+	if Config.HARDNESS_COPPER <= cap:
+		have[&"ore_copper"] = true
+	if Config.HARDNESS_IRON <= cap:
+		have[&"ore_iron"] = true
+	if shop:
+		for o: Shop.Offer in Shop.offers():
+			have[o.item] = true
+	var grew: bool = true
+	while grew:
+		grew = false
+		for r: Crafting.Recipe in Crafting.recipes():
+			if r.is_repair() or r.is_upgrade() or have.has(r.output):
+				continue
+			if not r.classes.is_empty() and not r.classes.has(class_id):
+				continue
+			var ok: bool = true
+			for ing: Crafting.Ingredient in r.inputs:
+				var any: bool = false
+				for id: StringName in ing.items():
+					any = any or have.has(id)
+				ok = ok and any
+			if ok:
+				have[r.output] = true
+				grew = true
+	return have
+
+
+## M12c-fix (review: a party with no miner beat the boss and could never raise the altar: the relic bench needs an iron ingot, the anvil iron
+## ore, and only the miner's pick breaks iron; ● game-concept §9.3 R49 "진행이 막힌다", ● gameplay-design §3.0 R11 "어떤 클래스가 비어도 진행은 되지만"):
+## every class but the miner, alone, reaches the anvil and the relic bench, and only through the merchant's iron ore (README "M12 철광석").
+func _check_no_miner_reach() -> void:
+	for class_id: String in Config.CLASSES:
+		if Mining.is_miner(class_id):
+			check(reach_alone(class_id, false).has(&"relic_bench"), "no miner: the miner reaches the relic bench with his own pick")
+			continue
+		check(Mining.hardness_cap(class_id) < Config.HARDNESS_IRON, "no miner: a %s's pick breaks no iron" % class_id)
+		var alone: Dictionary[StringName, bool] = reach_alone(class_id, true)
+		check(alone.has(&"anvil") and alone.has(&"relic_bench"), "no miner: a %s alone reaches the anvil and the relic bench" % class_id)
+		check(not reach_alone(class_id, false).has(&"relic_bench"), "no miner: a %s does not without the merchant's iron ore" % class_id)
+
+
+## M12c-fix: the same through main.tscn on the fresh world: a paladin (no iron, no station given; logs, stones and copper ore are anyone's)
+## buys the iron ore at the merchant, crafts the workbench by hand, puts it down, makes planks and the anvil, puts it down, smelts, makes the
+## relic bench, puts it down, and with the boss's relic raises the altar there.
+func _check_no_miner_main() -> void:
+	var main: Main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Main
+	add_node(main)
+	await await_frames(2)
+	main.arenas[Config.MAP_SURFACE].spawning = false
+	main.spawn("paladin")
+	var p: Player = main.player
+	p.local_input = false
+	check_eq(p.inventory.count_of(&"ore_iron") + p.inventory.count_of(&"ingot_iron"), 0, "no miner/main: no iron to start with")
+	p.inventory.add(&"log", 7)
+	p.inventory.add(&"stone_a", 10)
+	p.inventory.add(&"ore_copper", 2)
+	p.inventory.add(ItemDB.MONEY, 40)
+	var iron: int = -1
+	for i: int in Shop.offers().size():
+		if Shop.offers()[i].item == &"ore_iron":
+			iron = i
+	if not check(iron >= 0 and main.shop_on, "no miner/main: the merchant sells iron ore"):
+		return
+	main.open_shop(Merchant.tile_of(main.world.data))
+	check(main.shop_open(), "no miner/main: his shop open")
+	for k: int in Shop.offers()[iron].cap:
+		main.shop_buy(iron)
+	main.close_shop()
+	check_eq(p.inventory.count_of(&"ore_iron"), Shop.offers()[iron].cap, "no miner/main: bought his iron ore (%d)" % Shop.offers()[iron].cap)
+	check_eq(Shop.money_in(p.inventory), 40 - Shop.offers()[iron].cap * Shop.offers()[iron].price, "no miner/main: paid for it")
+	main.toggle_hand()
+	if not check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.HAND, "no miner/main: the hand panel"):
+		return
+	main.craft_row(_ids(main.hud.crafting.recipes).find(&"workbench"))
+	main.close_crafting()
+	_place_main(main, p, &"workbench", Vector2i(60, 51))
+	main.toggle_tab()
+	if not check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.WORKBENCH, "no miner/main: at the workbench"):
+		return
+	for k2: int in 3:
+		main.craft_row(_ids(main.hud.crafting.recipes).find(&"planks"))
+	main.craft_row(_ids(main.hud.crafting.recipes).find(&"anvil"))
+	main.close_crafting()
+	check_eq(p.inventory.count_of(&"anvil"), 1, "no miner/main: the anvil from the bought ore")
+	_place_main(main, p, &"anvil", Vector2i(63, 51))
+	main.toggle_tab()
+	if not check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.ANVIL, "no miner/main: at the anvil"):
+		return
+	main.craft_row(_ids(main.hud.crafting.recipes).find(&"ingot_iron"))
+	for k3: int in 2:
+		main.craft_row(_ids(main.hud.crafting.recipes).find(&"ingot_copper"))
+	main.craft_row(_ids(main.hud.crafting.recipes).find(&"relic_bench"))
+	main.close_crafting()
+	check_eq(p.inventory.count_of(&"relic_bench"), 1, "no miner/main: the relic bench")
+	_place_main(main, p, &"relic_bench", Vector2i(66, 51))
+	check_eq(main.world.data.footprints(WorldData.PLACEABLE_RELIC).size(), 1, "no miner/main: the relic bench down")
+	p.inventory.add(Config.BOSS_RELIC, 1)  # the boss's drop (its kill without a miner: tests/test_boss.gd)
+	main.toggle_tab()
+	if not check(main.crafting_open() and main.hud.crafting.station.kind == Crafting.RELIC, "no miner/main: at the relic bench"):
+		return
+	main.craft_row(_ids(main.hud.crafting.recipes).find(Config.ALTAR_UPGRADE))
+	main.close_crafting()
+	check_eq(main.world_progress().altar_tier, 1, "no miner/main: the altar raised with no miner")
+	check_eq(p.inventory.count_of(Config.BOSS_RELIC), 0, "no miner/main: the relic spent")
+
+
+static func _ids(list: Array[Crafting.Recipe]) -> Array[StringName]:
+	var out: Array[StringName] = []
+	for r: Crafting.Recipe in list:
+		out.append(r.id)
+	return out
+
+
+## Selects `id` in the hotbar, stands the player on the tile south of `target` and clicks on `target` (tests/test_workbench.gd's way).
+func _place_main(main: Main, p: Player, id: StringName, target: Vector2i) -> void:
+	for i: int in p.inventory.hotbar_size:
+		if p.inventory.stack_at(i) != null and p.inventory.stack_at(i).id == id:
+			p.inventory.select(i)
+	p.teleport(Arena.spawn_feet(target + Vector2i(0, 1)))
+	p.begin_tick()
+	p.tick_controls(Vector2i.ZERO, Vector2(target * Config.TILE) + Vector2(8, 8), true, true, true, TICK)
+	main.step_combat(TICK)
+
+
+# --- M12c-fix: putting the altar down at tier 1 -----------------------------------------------------------------------------------
+
+## M12c-fix (review: the tier-aware light checks of AltarMove went untested): an altar put down at tier 1 is refused by a heretic and by
+## ash that its 9-tile light reaches (the ash with Config.ASH_CLEARANCE_TILES more) and the 7-tile one does not; at tier 0 neither refuses.
+func _check_move_reach() -> void:
+	var d: WorldData = surface()
+	var rect: Rect2i = d.altar_rect
+	var ring: Vector2 = _ring_spot(d)
+	var heretics: Array[Vector2] = [ring]
+	check(not AltarMove._lights_a_heretic(d, rect, heretics), "move: at tier 0 the altar here lights no heretic 8 tiles off")
+	# Ash: none within the tier-1 reach but one tile between the two reaches.
+	var centre: Vector2 = AltarMove.centre_px(rect)
+	var reach0: float = Config.safe_radius_px_at(0) + Config.ASH_CLEARANCE_TILES * Config.TILE
+	var reach1: float = Config.safe_radius_px_at(1) + Config.ASH_CLEARANCE_TILES * Config.TILE
+	var ash: Vector2i = Walls.NO_CELL
+	var c0: Vector2i = Aim.cell_of(centre)
+	var span: int = ceili(reach1 / Config.TILE) + 1
+	for y: int in range(c0.y - span, c0.y + span + 1):
+		for x: int in range(c0.x - span, c0.x + span + 1):
+			var c: Vector2i = Vector2i(x, y)
+			if not d.in_bounds(c):
+				continue
+			var dist: float = ((Vector2(c) + Vector2(0.5, 0.5)) * Config.TILE).distance_to(centre)
+			if dist <= reach1:
+				d.set_value(WorldData.Layer.CORRUPTION, c, 0)
+				if ash == Walls.NO_CELL and dist > reach0 + 2.0:
+					ash = c
+	if not check(ash != Walls.NO_CELL, "move: a tile between the two reaches"):
+		return
+	d.set_value(WorldData.Layer.CORRUPTION, ash, 1)
+	check_eq(AltarMove.light_corruption_refusal(d, rect), "", "move: at tier 0 the ash %s is beyond the light's reach" % ash)
+	d.progress.raise_altar()
+	check(AltarMove._lights_a_heretic(d, rect, heretics), "move: at tier 1 it lights the heretic 8 tiles off (the 9-tile light)")
+	check_eq(AltarMove.light_corruption_refusal(d, rect), AltarMove.WHY_LIGHT_CORRUPTED, "move: and the ash is within its reach")
 
 
 # --- the recipe ------------------------------------------------------------------------------------------------------------------

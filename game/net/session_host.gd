@@ -2984,6 +2984,7 @@ func _setup_progress() -> void:
 func _setup_boss(a: Arena, w: GameWorld) -> void:
 	a.boss = BossFight.new()
 	a.boss.setup(a, w.data.world_seed)
+	a.boss.players_now = players_on.bind(w.data.map_id)  # M12c-fix: the members on its map at a blow (a leaver's Player is freed at once)
 	a.boss.test_hp = s.options.test_boss_hp
 	a.boss.test_attack = maxi(BossSim.ATTACK_NAMES.find(s.options.test_boss_attack), BossSim.Attack.NONE)
 	for i: int in s.options.test_pillar_hits:

@@ -339,8 +339,8 @@ static func drop(data: WorldData, feet: Vector2, inv: Inventory, slot: int, coun
 	if not in_reach(feet, c):
 		return Outcome.refused(WHY_REACH)
 	if data.get_value(WorldData.Layer.PLACEABLE, c) != WorldData.PLACEABLE_NONE or Walls.blocks(data, c) \
-			or Walls.is_wall(data, c) or Walls.is_face(data, c):
-		return Outcome.refused(WHY_BLOCKED)  # M7b: nor an open door or its doorway
+			or Walls.is_wall(data, c) or Walls.is_face(data, c) or data.blockers.has(c):
+		return Outcome.refused(WHY_BLOCKED)  # M7b: nor an open door or its doorway; M12c-fix: nor a standing pillar (WorldData.blockers)
 	if data.drops.size() >= Config.MAX_DROPS:
 		return Outcome.refused(WHY_TOO_MANY)
 	if stack.worn():
@@ -487,7 +487,8 @@ static func place(data: WorldData, feet: Vector2, inv: Inventory, slot: int, c: 
 			if Walls.blocks(data, t) or Walls.is_wall(data, t) or Walls.is_face(data, t) \
 					or data.get_value(WorldData.Layer.PLACEABLE, t) != WorldData.PLACEABLE_NONE \
 					or data.get_value(WorldData.Layer.VEGETATION, t) != 0 \
-					or (rect.size != Vector2i.ONE and not data.drops_at(t).is_empty()):
+					or (rect.size != Vector2i.ONE and not data.drops_at(t).is_empty()) \
+					or data.blockers.has(t):  # M12c-fix (review): nor on a standing pillar's tile
 				return Outcome.refused(WHY_NOT_OPEN)
 	if WorldData.placeable_blocks(value):
 		var px: Rect2 = Rect2(Vector2(rect.position * Config.TILE), Vector2(rect.size * Config.TILE))

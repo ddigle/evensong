@@ -9,13 +9,14 @@ extends "res://tests/base_test.gd"
 ## money from several stacks, the slot the price frees), every sell path (one, a whole stack, a partial stack, not bought, worn
 ## and broken gear, a full purse), and money as an item (the death bag takes half of every money stack, the chest, a drop, the
 ## inventory's wire). M11b: the new recipes, an input of several items counting as its cheapest one, the snare and the rare armour neither sold
-## nor bought, the rare material bought.
+## nor bought, the rare material bought. M12c-fix (review): iron ore sold too (a small stock: the anvil's 2 and the relic bench's 1, so a party
+## with no miner reaches the relic bench; README "M12 철광석"), and money alone now smelts both ores.
 
 ## Written out here on purpose: the ● R11 대체 수단 column's entries whose item exists in the slice, in the panel's order
 ## (potions: 약초사 "상점 포션", 성직자 "상점 치유 포션"; 팔라딘 "상점의 성수"; 기술자 "기본 키트 (횃불 …)"; 광부 "상점의 저급 광석";
-## 룬마스터 "상점 1티어 장비").
+## 룬마스터 "상점 1티어 장비"). M11a: 아처 "상점의 일반 가죽·고기". M12c-fix: 광부 "상점의 저급 광석 소량" for iron too, at the end.
 const SOLD: Array[StringName] = [&"potion_healing", &"potion_buff", &"holy_water", &"torch", &"ore_copper", &"sword_t1",
-	&"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1", &"hide_worn", &"meat"]
+	&"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1", &"hide_worn", &"meat", &"ore_iron"]
 const GEAR: Array[StringName] = [&"sword_t1", &"bow_t1", &"holy_light_t1", &"pickaxe_t1", &"sickle_t1", &"armor_t1"]
 ## M11b: repairs beyond the gear he sells.
 const RARE_REPAIRS: int = 1
@@ -104,7 +105,16 @@ func _check_tables() -> void:
 	check(holy.price >= 2 * dearest_other, "holy water (%d) clearly the dearest consumable (next %d)" % [holy.price, dearest_other])
 	check(holy.cap < smallest_other, "holy water's stock (%d) the smallest (소량)" % holy.cap)
 	check(Shop.offer_of(&"ore_copper").cap <= 5, "copper ore: a small stock (소량)")
-	check(Shop.price_of(&"ore_copper") > 0 and Shop.price_of(&"ore_iron") < 0, "the lower ore only (copper), never iron")
+	# M12c-fix: iron ore, a small stock that is exactly what the chain to the relic bench needs (the anvil's ore, the bench's ingot: 1 : 1).
+	var iron_need: int = 0
+	for rid: StringName in [&"anvil", &"relic_bench"]:
+		for ing0: Crafting.Ingredient in Crafting.recipe(rid).inputs:
+			if ing0.item == &"ore_iron" or ing0.item == &"ingot_iron":
+				iron_need += ing0.count
+	check(Shop.price_of(&"ore_iron") > 0 and Shop.offer_of(&"ore_iron").cap == iron_need,
+		"iron ore: a small stock, the anvil's and the relic bench's %d (소량)" % iron_need)
+	check(index_of(&"ore_iron") == all.size() - 1, "iron ore at the end (the older offers keep their index)")
+	check(Shop.price_of(&"ingot_iron") < 0 and Shop.price_of(&"ingot_copper") < 0, "ore only, no ingot")
 	# The gear costs more than its materials: at what the materials fetch, and at the shop's prices for what the shop sells.
 	for g: StringName in GEAR:
 		var r: Crafting.Recipe = Crafting.recipe(g)
@@ -117,6 +127,8 @@ func _check_tables() -> void:
 			var p: int = Shop.price_of(ing.item)
 			if ing.item == &"ingot_copper":
 				p = Shop.price_of(&"ore_copper")  # smelted 1 : 1 from the shop's ore
+			elif ing.item == &"ingot_iron":
+				p = Shop.price_of(&"ore_iron")  # M12c-fix: so is iron
 			via_shop += ing.count * (p if p > 0 else Shop.pays_for(ing.item))
 		check(Shop.price_of(g) > fetch and Shop.price_of(g) > via_shop,
 			"%s: %d above its materials (%d fetched, %d through the shop)" % [g, Shop.price_of(g), fetch, via_shop])
@@ -183,7 +195,10 @@ func _check_no_profit() -> void:
 		check(float(Shop.pays_for(item)) < cost[item], "%s: costs %.2f with money alone, fetches %d" % [item, cost[item],
 			Shop.pays_for(item)])
 	check(cost.has(&"ingot_copper") and cost[&"ingot_copper"] == float(Shop.price_of(&"ore_copper")),
-		"the one chain money alone can craft: the shop's copper ore smelted (%s)" % str(cost.keys()))
+		"money alone smelts the shop's copper ore (%s)" % str(cost.keys()))
+	check(cost.has(&"ingot_iron") and cost[&"ingot_iron"] == float(Shop.price_of(&"ore_iron")),
+		"and (M12c-fix) its iron ore")
+	check_eq(cost.size(), Shop.offers().size() + 2, "the two ingots are all money alone can craft (no wood: no station, no gear)")
 	# M11b: what the collection's recipes need cannot be had with money: the rare armour never (its material comes from a capture), the snare
 	# never either (the merchant sells a worn hide but no wood).
 	check(not cost.has(&"armor_rare"), "the rare armour is out of money's reach")

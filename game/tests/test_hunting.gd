@@ -693,7 +693,7 @@ func _check_meat() -> void:
 # --- the shop ---------------------------------------------------------------------------------------------------
 
 func _check_shop() -> void:
-	check_eq(Shop.offers().size(), 13, "the two offers: 13")
+	check_eq(Shop.offers().size(), 14, "the two offers: 13 (M12c-fix: + iron ore at the end, 14)")
 	check_eq(Shop.offer_at(11).item, &"hide_worn", "the shop's 일반 가죽 (● R11) at the end")
 	check_eq(Shop.offer_at(12).item, &"meat", "and the meat")
 	check_eq(Shop.offer_of(&"hide_fine"), null, "● the whole hide is not for sale: the archer's alone")

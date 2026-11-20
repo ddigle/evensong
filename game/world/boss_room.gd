@@ -12,7 +12,9 @@ extends RefCounted
 ## with no room but those two has no boss room (has_room() false: no fight).
 ## The home: the middle tile of the walkable rows (the face row is the north wall's, not floor).
 ## The pillars: Config.BOSS_PILLARS "count" one-tile spots (see the Config comment for every gap); fewer than "min_count" fit, the door
-## gap and then the home gap are cut by one and it tries again.
+## gap and then the home gap are cut by one and it tries again; M12c-fix (review): still fewer, the spacing between pillars is cut by one
+## (never below 2: a free tile between any two) and it tries again (only the small fallback rooms get there: a room with 3 or 4 before keeps
+## them exactly).
 
 ## A room's walkable part (the rows under its north wall's face row), in tiles.
 static func walk_of(room: Rect2i) -> Rect2i:
@@ -143,23 +145,29 @@ static func pick_pillars(data: WorldData, room: Layout, world_seed: int) -> Arra
 	var least: int = int(Config.BOSS_PILLARS["min_count"])
 	var door_gap: int = int(Config.BOSS_PILLARS["door_gap_tiles"])
 	var home_gap: int = int(Config.BOSS_PILLARS["home_gap_tiles"])
+	var spacing: int = int(Config.BOSS_PILLARS["spacing_tiles"])
 	var picked: Array[Vector2i] = []
 	while true:
-		picked = _pick(data, room, world_seed, want, door_gap, home_gap)
+		picked = _pick(data, room, world_seed, want, door_gap, home_gap, spacing)
 		if picked.size() >= least:
 			break
 		if door_gap > 1:
 			door_gap -= 1
 		elif home_gap > 2:
 			home_gap -= 1
+		elif spacing > MIN_SPACING_TILES:
+			spacing -= 1  # M12c-fix: the small fallback rooms (seed 240: 12x6, 259: 10x6) got 2
 		else:
 			break
 	return picked
 
 
-static func _pick(data: WorldData, room: Layout, world_seed: int, want: int, door_gap: int, home_gap: int) -> Array[Vector2i]:
+## M12c-fix (IMPL): the least spacing pick_pillars cuts to (Chebyshev tiles: a free tile between two pillars).
+const MIN_SPACING_TILES: int = 2
+
+
+static func _pick(data: WorldData, room: Layout, world_seed: int, want: int, door_gap: int, home_gap: int, spacing: int) -> Array[Vector2i]:
 	var margin: int = int(Config.BOSS_PILLARS["margin_tiles"])
-	var spacing: int = int(Config.BOSS_PILLARS["spacing_tiles"])
 	var f: Rect2i = room.walk
 	var allowed: Array[Vector2i] = []
 	for y: int in range(f.position.y + margin, f.end.y - margin):

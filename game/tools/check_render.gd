@@ -35,7 +35,9 @@ extends SceneTree
 ##            of the covered ones = candA's unlit picture but for the drawn marks, the flames unshaded at evening, nothing else changed, its
 ##            own picture after); the dark dungeon's standing shrine: its three flame rects show the demon palette and no candle gold, the
 ##            wall torches' flames on the same screen candle gold and no demon colour; a breaking pillar's dust ring (its dots every 2 px on
-##            the fall circle and the ring closing in, unshaded, the pillar and the boss hidden) in the dust colour on the dark floor.
+##            the fall circle and the ring closing in, unshaded, the pillar and the boss hidden) in the dust colour on the dark floor;
+##            M12c-fix: a cracked and a badly cracked pillar in the dark with their glints shown and hidden: the glints change only their
+##            own pixels, each brighter, more pixels the second state.
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -816,6 +818,48 @@ func _check_m12b() -> void:
 		if not dust_ok:
 			bad_parts += 1
 		_save(dust, "m12b_dust_got.png")
+	# M12c-fix (review: in the dark the cracked and badly cracked pillars read alike at 1x): the same pillar cracked, then badly cracked,
+	# its glints shown and then hidden: what they change is only their own pixels (PillarArt.glint_image), brighter, more the second state.
+	pil.falling = -1
+	fview.ground.visible = false
+	fview.pillar_nodes[0].visible = true
+	var glint_px: Array[int] = []
+	var glint_off: int = 0
+	var glint_darker: int = 0
+	for look: int in [1, 2]:
+		pil.hits = BossFight.Pillar.hits_per_state() * look
+		fview.sync()
+		var gnode: Sprite2D = fview.pillar_nodes[0].get_node(^"Glints") as Sprite2D
+		gnode.visible = true
+		var with_g: Image = await _capture()
+		gnode.visible = false
+		var without_g: Image = await _capture()
+		var gimg: Image = PillarArt.glint_image(look)
+		var at: Vector2i = PillarArt.origin(pil.tile) - porigin
+		var n: int = 0
+		for y: int in with_g.get_height():
+			for x: int in with_g.get_width():
+				var c1: Color = with_g.get_pixel(x, y)
+				var c0: Color = without_g.get_pixel(x, y)
+				if c1.to_rgba32() == c0.to_rgba32():
+					continue
+				var gp: Vector2i = Vector2i(x, y) - at
+				var on_glint: bool = gp.x >= 0 and gp.y >= 0 and gp.x < gimg.get_width() and gp.y < gimg.get_height() \
+					and gimg.get_pixelv(gp).a8 > 0
+				if not on_glint:
+					glint_off += 1
+				elif _brightness(c1) <= _brightness(c0):
+					glint_darker += 1
+				else:
+					n += 1
+		glint_px.append(n)
+		gnode.visible = true
+		if save_all:
+			_save(with_g, "m12b_glints_%d_got.png" % look)
+	var glints_ok: bool = glint_off == 0 and glint_darker == 0 and glint_px[0] > 0 and glint_px[1] > glint_px[0]
+	lines.append("glints cracked=%d badly=%d off_glint=%d darker=%d" % [glint_px[0], glint_px[1], glint_off, glint_darker])
+	if not glints_ok:
+		bad_parts += 1
 	fview.clear()
 	dun.queue_free()
 	world.visible = true
@@ -4143,7 +4187,7 @@ func _check_shop_panel() -> void:
 	var view: Vector2i = Config.VIEW_SIZE
 	var grid_left: int = (view.x - (8 * 18 + 7 * 2)) / 2
 	var top_inv_row: int = view.y - 4 - 18 - 4 - 18 - 20
-	var h: int = 3 + 18 + 4 * 18 + 3 * 2 + 3  # M11a: 13 offers, a fourth row
+	var h: int = 3 + 18 + 4 * 18 + 3 * 2 + 3  # M11a: 13 offers, a fourth row (M12c-fix: 14, still four rows)
 	var p: Rect2i = Rect2i(grid_left - 3, top_inv_row - 6 - h, 8 * 18 + 7 * 2 + 6, h)
 	var place_ok: bool = hud.shop.panel_rect() == p
 	var want: Dictionary[Vector2i, Color] = {}
@@ -4235,7 +4279,7 @@ func _check_shop_panel() -> void:
 	hud.free()
 	var line: String = "place=%s pixels=%d mismatches=%d entries=%d veil_darker=%d/%d sold_out_darker=%d/%d refusal_pixels=%d refusal_mismatches=%d" % [
 		str(place_ok), want.size(), bad, offers.size(), veil_darker, veil_px, holy_darker, holy_px, want2.size(), bad2]
-	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 13 and veil_darker == veil_px and veil_px > 30 \
+	if place_ok and bad == 0 and want.size() > 2000 and offers.size() == 14 and veil_darker == veil_px and veil_px > 30 \
 			and holy_darker == holy_px and holy_px > 15 and bad2 == 0:
 		print("EVENSONG_RENDER shop_panel ok %s" % line)
 	else:
