@@ -76,6 +76,8 @@ var refusals: Array[Kill] = []
 ## Counters for logs and tests.
 var stats: Dictionary[String, int] = {}
 var _synced_altar: Rect2i = Rect2i()
+## M12a: the altar tier the light rule was last worked out for.
+var _synced_tier: int = 0
 
 
 ## For the surface `p_data` (another map has no creatures: M11a's rule, the herd stays empty). `world_seed` makes it repeatable; with
@@ -84,6 +86,7 @@ func setup(p_data: WorldData, world_seed: int, p_spawning: bool = true) -> void:
 	data = p_data
 	safe = SafeZone.for_world(data)
 	_synced_altar = data.altar_rect
+	_synced_tier = WorldProgress.tier_of(data)
 	rng.seed = hash([world_seed, Config.CREATURE_SALT])
 	spawning = p_spawning and data.map_id == Config.MAP_SURFACE
 	list.clear()
@@ -148,8 +151,9 @@ func alive_count(kind: StringName = &"") -> int:
 ## applies them).
 func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	clock += 1
-	if data.altar_rect != _synced_altar:
+	if data.altar_rect != _synced_altar or WorldProgress.tier_of(data) != _synced_tier:
 		_synced_altar = data.altar_rect
+		_synced_tier = WorldProgress.tier_of(data)  # M12a: the altar went up a tier: a wider light
 		safe = SafeZone.for_world(data)  # the altar was picked up or put down: another light
 	for c: CreatureSim in list:
 		_step_one(c, players)
@@ -431,7 +435,7 @@ func spawn_ok(feet: Vector2, players: Array[Player], in_zone: bool = false) -> b
 	if not can_walk(feet) or near_corruption(cell):
 		return false
 	if data.altar_rect.has_area():
-		var clear: float = Config.safe_radius_px() + Config.CREATURE_SPAWN_LIGHT_CLEARANCE_TILES * Config.TILE
+		var clear: float = WorldProgress.radius_px(data) + Config.CREATURE_SPAWN_LIGHT_CLEARANCE_TILES * Config.TILE  # M12a: the tier's
 		if feet.distance_to(data.altar_center_px()) < clear:
 			return false
 	for p: Player in players:

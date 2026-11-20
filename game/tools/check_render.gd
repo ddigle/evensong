@@ -21,6 +21,14 @@ extends SceneTree
 ##            without them plus each one's art (world picture / icon) on its tile, pixel for pixel.
 ##   wild_net (M11c) a host's creatures, the rare zone and the collection panel drawn by a client from the wire: the host's picture to the
 ##            pixel (a batch, a snapshot, a collection message).
+##   boss     (M12a) evening off on the quiet spot: the heretic leader's code-drawn view (BossView: its shadow, staff, flame and light
+##            hidden) for every frame of its five animations in four directions equals the background plus its derived sheet cell on the
+##            feet (west mirrored), pixel for pixel; the four pillar pictures on their tiles (PillarArt) pixel for pixel; the HUD's boss bar
+##            (frame, fill, the mitre, the phase pips) on its exact pixels. Then in the dark dungeon (darkness on): the cleave's wedge, a
+##            burning circle and a fire bolt (BossFightView) keep their own colours where they are drawn (unshaded) while the floor stays
+##            dark; the standing shrine's demon-orange flames glow in the dark (their glow pixels unshaded). Then the surface altar at tier 1:
+##            candA's lit picture on its shifted place (evening off, pixel for pixel) and, with the evening on, a ground pixel 8 tiles out
+##            lit at tier 1 and not at tier 0.
 ##   ysort    overlapping characters and a character behind / in front of the altar: the one with
 ##            the lower feet (and the altar by its footprint bottom) is drawn on top. Two more walk
 ##            into the altar's west and east faces (Movement, side clearance) and stand behind it:
@@ -306,9 +314,272 @@ func _run() -> void:
 			await _check_collection_panel()
 		if _want("wild_net"):
 			await _check_wild_net()  # M11c
+		if _want("boss"):
+			await _check_boss()  # M12a
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
+
+
+## Pastes `img` (RGBA8) with its top-left at `at` (opaque pixels only) into `dst`.
+static func paste_at(dst: Image, img: Image, at: Vector2i) -> void:
+	for y: int in img.get_height():
+		for x: int in img.get_width():
+			var c: Color = img.get_pixel(x, y)
+			var p: Vector2i = at + Vector2i(x, y)
+			if c.a8 == 0 or p.x < 0 or p.y < 0 or p.x >= dst.get_width() or p.y >= dst.get_height():
+				continue
+			dst.set_pixelv(p, c)
+
+
+## M12a: the boss fight's pictures (see the header).
+func _check_boss() -> void:
+	world.lighting.set_evening(false)
+	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	var bg: Image = await _capture()
+	var views: Array[BossView] = []
+	var feet_list: Array[Vector2i] = []
+	var sims: Array[BossSim] = []
+	for dir: int in 4:
+		for col: int in 7:
+			var b: BossSim = BossSim.new()
+			b.facing = dir
+			var feet: Vector2i = Vector2i(34 + col * 66, 56 + dir * 66)
+			b.pos = Vector2(origin + feet)
+			var v: BossView = BossView.new()
+			world.entities.add_child(v)
+			v.shadow.visible = false
+			v.staff.visible = false
+			v.flame.visible = false
+			v.flame_glow.visible = false
+			v.marks.visible = false
+			views.append(v)
+			sims.append(b)
+			feet_list.append(feet)
+	var total: int = 0
+	var screens: int = 0
+	for a: int in HereticSim.ANIM_NAMES.size():
+		var expected: Image = bg.duplicate() as Image
+		for i: int in views.size():
+			var b2: BossSim = sims[i]
+			_pose_boss(b2, a, (i % 7) % HereticSim.FRAME_COUNTS[a])
+			views[i].show_sim(b2)
+			views[i].staff.visible = false
+			views[i].flame.visible = false
+			views[i].flame_glow.visible = false
+			views[i].light.enabled = false
+			var tex: Image = BossView.sheet(a).get_image()
+			tex.convert(Image.FORMAT_RGBA8)
+			var cellimg: Image = tex.get_region(BossView.frame_rect(a, RigData.sheet_row(b2.facing), views[i].frame))
+			var off: Vector2i = BossView.cell_offset(a) * BossView.SCALE
+			if RigData.is_mirrored(b2.facing):
+				cellimg.flip_x()
+				paste_at(expected, cellimg, feet_list[i] + Vector2i(-off.x - cellimg.get_width(), off.y))
+			else:
+				paste_at(expected, cellimg, feet_list[i] + off)
+		var got: Image = await _capture()
+		var n: int = count_diff(got, expected)
+		total += n
+		screens += 1
+		if n > 0 or save_all:
+			_save(got, "boss_%s_got.png" % HereticSim.ANIM_NAMES[a])
+			_save(expected, "boss_%s_expected.png" % HereticSim.ANIM_NAMES[a])
+	for v2: BossView in views:
+		world.entities.remove_child(v2)
+		v2.free()
+	# The pillars' four pictures on their tiles.
+	var pillar_expected: Image = bg.duplicate() as Image
+	var pnodes: Array[Node2D] = []
+	for k: int in 4:
+		var tile: Vector2i = Vector2i(origin.x / Config.TILE + 3 + 4 * k, origin.y / Config.TILE + 9)
+		var n2: Node2D = Node2D.new()
+		n2.position = Vector2(tile.x * Config.TILE + Config.TILE / 2, (tile.y + 1) * Config.TILE)
+		var s: Sprite2D = Sprite2D.new()
+		s.centered = false
+		s.texture = PillarArt.texture(k)
+		s.position = Vector2(PillarArt.origin(tile)) - n2.position
+		s.light_mask = Config.LIGHT_LAYER_WORLD
+		n2.add_child(s)
+		world.entities.add_child(n2)
+		pnodes.append(n2)
+		paste_at(pillar_expected, PillarArt.image(k), PillarArt.origin(tile) - origin)
+	var pillar_got: Image = await _capture()
+	var pillar_bad: int = count_diff(pillar_got, pillar_expected)
+	if pillar_bad > 0 or save_all:
+		_save(pillar_got, "boss_pillars_got.png")
+		_save(pillar_expected, "boss_pillars_expected.png")
+	for n3: Node2D in pnodes:
+		world.entities.remove_child(n3)
+		n3.free()
+	# The HUD's boss bar: 60% in phase 2, exposed.
+	var hud: Hud = Hud.new()
+	root.add_child(hud)
+	hud.show_boss(0.6, 2, true)
+	hud.canvas.queue_redraw()
+	var bar_got: Image = await _capture()
+	var want: Dictionary[Vector2i, Color] = {}
+	var at: Vector2i = Hud.boss_bar_at(Config.VIEW_SIZE)
+	var fill: int = Hud.boss_fill(0.6)
+	for y: int in range(at.y - 1, at.y + Hud.BOSS_BAR.y + 1):
+		for x: int in range(at.x - 1, at.x + Hud.BOSS_BAR.x + 1):
+			var inside: bool = Rect2i(at, Hud.BOSS_BAR).has_point(Vector2i(x, y))
+			want[Vector2i(x, y)] = Hud.BOSS_EXPOSED if not inside else (Hud.BOSS_FILL if x < at.x + fill else Hud.BOSS_LOST)
+	for i2: int in Hud.BOSS_PHASES:
+		var pip: Vector2i = at + Vector2i(Hud.BOSS_BAR.x + 4 + i2 * (Hud.BOSS_PIP.x + 2), 0)
+		for y2: int in Hud.BOSS_PIP.y:
+			for x2: int in Hud.BOSS_PIP.x:
+				want[pip + Vector2i(x2, y2)] = Hud.BOSS_PIP_ON if i2 < 2 else Hud.BOSS_PIP_OFF
+	var first: String = BossView.MITRE_MAP[0]
+	var mitre_at: Vector2i = at + Vector2i(-first.length() - 4, Hud.BOSS_BAR.y / 2 - BossView.MITRE_MAP.size() / 2 - 1)
+	for y3: int in BossView.MITRE_MAP.size():
+		var row: String = BossView.MITRE_MAP[y3]
+		for x3: int in row.length():
+			if BossView.MITRE_COLOURS.has(row[x3]):
+				want[mitre_at + Vector2i(x3, y3)] = BossView.MITRE_COLOURS[row[x3]]
+	var bar_bad: int = _count_wrong(bar_got, want)
+	if bar_bad > 0 or save_all:
+		_save(bar_got, "boss_bar_got.png")
+	root.remove_child(hud)
+	hud.free()
+	# The dark dungeon: the telegraphs and a bolt keep their colours; the shrine's fire glows.
+	var dun: GameWorld = _dungeon_world()
+	dun.visible = true
+	world.visible = false
+	dun.entities.visible = true
+	dun.lighting.set_evening(true)
+	var a3: Arena = Arena.new()
+	a3.setup(dun.data, Config.DEFAULT_SEED)
+	a3.spawning = false
+	a3.boss = BossFight.new()
+	a3.boss.setup(a3, Config.DEFAULT_SEED)
+	var fview: BossFightView = BossFightView.new()
+	dun.add_child(fview)
+	fview.setup(a3.boss, dun.entities)
+	var f: BossFight = a3.boss
+	f.wake([] as Array[Player])
+	f.frozen = true
+	f.sim.state = BossSim.State.ATTACK
+	f.sim.attack = BossSim.Attack.CLEAVE
+	f.sim.attack_dir = Vector2.DOWN
+	f.sim.state_ticks = 20
+	var circle: BossFight.Circle = BossFight.Circle.new()
+	circle.pos = f.sim.pos + Vector2(-40, 30)
+	circle.radius = BossSim.attack_num(BossSim.Attack.BURN, "radius_px")
+	circle.telegraph = 60
+	circle.age = 30
+	f.circles.append(circle)
+	var bolt: BossFight.Bolt = BossFight.Bolt.new()
+	bolt.pos = f.sim.pos + Vector2(48, 6)
+	bolt.dir = Vector2.RIGHT
+	f.bolts.append(bolt)
+	fview.sync()
+	fview.boss.light.enabled = false  # the floor near the circle stays dark: only the telegraphs' own colours show there
+	dun.camera.make_current()
+	dun.camera.position = f.sim.pos.round()
+	dun.camera.reset_smoothing()
+	var dorigin: Vector2i = Vector2i(f.sim.pos.round()) - Config.VIEW_SIZE / 2
+	var dark: Image = await _capture()
+	var tele_px: int = 0
+	var tele_bad: int = 0
+	var wedge_end: Vector2 = f.sim.pos + Vector2.DOWN * BossSim.attack_num(BossSim.Attack.CLEAVE, "reach_px")
+	var ring_dot: Vector2 = circle.pos + Vector2.RIGHT * circle.radius
+	var bolt_px: Vector2 = (bolt.pos + Vector2(0, -Config.SHOT_DRAW_LIFT_PX)).round()
+	for spot: Array in [[wedge_end, BossFightView.ORANGE], [ring_dot, BossFightView.ORANGE], [bolt_px, BossFightView.ORANGE]]:
+		var wp: Vector2 = spot[0]
+		var want_c: Color = spot[1]
+		var sp: Vector2i = Vector2i(wp.floor()) - dorigin
+		tele_px += 1
+		if dark.get_pixelv(sp).to_rgba32() != want_c.to_rgba32():
+			tele_bad += 1
+	var floor_min: float = INF
+	for off: Vector2i in [Vector2i(0, -6), Vector2i(-6, 0), Vector2i(6, -4), Vector2i(-4, 6)]:
+		floor_min = minf(floor_min, _brightness(dark.get_pixelv(Vector2i(circle.pos.floor()) - dorigin + off)))
+	var floor_dark: bool = floor_min < _brightness(BossFightView.ORANGE) * 0.5
+	var shrine: Rect2i = DungeonGen.shrine_rect(dun.data)
+	dun.camera.position = Vector2(FixtureView.foot_of(shrine)).round()
+	dun.camera.reset_smoothing()
+	var sorigin: Vector2i = Vector2i(dun.camera.position) - Config.VIEW_SIZE / 2
+	var fire: Image = await _capture()
+	var glow: Image = FixtureView.heretic_glow_texture(true).get_image()
+	glow.convert(Image.FORMAT_RGBA8)
+	var glow_seen: int = 0
+	var art: Vector2i = FixtureView.shrine_origin(shrine) - sorigin
+	var fw: int = glow.get_width() / FixtureView.FLAME_FRAMES
+	for k2: int in FixtureView.FLAME_LOOP:
+		var seen_k: int = 0
+		for y4: int in glow.get_height():
+			for x4: int in fw:
+				var gc: Color = glow.get_pixel(k2 * fw + x4, y4)
+				if gc.a8 == 0:
+					continue
+				if fire.get_pixelv(art + Vector2i(3, 22) + Vector2i(x4, y4)).to_rgba32() == gc.to_rgba32():
+					seen_k += 1
+		glow_seen = maxi(glow_seen, seen_k)
+	fview.clear()
+	dun.queue_free()
+	world.visible = true
+	world.camera.make_current()
+	# The surface altar at tier 1.
+	world.lighting.set_evening(false)
+	world.data.progress = WorldProgress.new()
+	var centre: Vector2i = Vector2i(world.data.altar_center_px().round())
+	var aorigin: Vector2i = _look_at(centre)
+	var probe: Vector2i = centre + Vector2i(8 * Config.TILE, 0) - aorigin
+	world.lighting.set_evening(true)
+	var eve0: Image = await _capture()
+	world.data.progress.raise_altar()
+	world.altar_tier_changed()
+	var eve1: Image = await _capture()
+	world.lighting.set_evening(false)
+	var bg2: Image = await _capture()
+	var lit1: bool = _brightness(eve1.get_pixelv(probe)) > _brightness(eve0.get_pixelv(probe)) * 1.3
+	var up: Image = LightGen.to_rgba8(Altar.LIT_UP1.get_image())
+	var altar_bad: int = 0
+	var shown: Vector2i = world.altar.art_origin() - aorigin
+	for y5: int in up.get_height():
+		for x5: int in up.get_width():
+			var c5: Color = up.get_pixel(x5, y5)
+			if c5.a8 == 255 and bg2.get_pixelv(shown + Vector2i(x5, y5)).to_rgba32() != c5.to_rgba32():
+				altar_bad += 1
+	if altar_bad > 0 or save_all:
+		_save(bg2, "boss_altar_tier1_got.png")
+	world.data.progress.altar_tier = 0
+	world.altar_tier_changed()
+	world.data.progress = null
+	world.altar_tier_changed()
+	var line: String = ("boss_screens=%d boss_mismatches=%d pillar_mismatches=%d bar_pixels=%d bar_mismatches=%d telegraph_px=%d " \
+		+ "telegraph_wrong=%d floor_dark=%s shrine_glow_px=%d altar_tier1_wrong=%d tier1_lit_8_tiles=%s") % [screens, total, pillar_bad,
+		want.size(), bar_bad, tele_px, tele_bad, floor_dark, glow_seen, altar_bad, lit1]
+	if total == 0 and pillar_bad == 0 and bar_bad == 0 and tele_bad == 0 and floor_dark and glow_seen > 10 and altar_bad == 0 and lit1:
+		print("EVENSONG_RENDER boss ok %s" % line)
+	else:
+		_fail("boss", line)
+		_save(dark, "boss_dark_got.png")
+		_save(fire, "boss_fire_got.png")
+
+
+## M12a: sets boss `b` to show animation `a` at frame `f`.
+static func _pose_boss(b: BossSim, a: int, f: int) -> void:
+	b.hp = 100
+	b.hp_max = 100
+	b.flash_ticks = 0
+	b.stun_ticks = 0
+	b.walking = a == HereticSim.Anim.WALK
+	b.clock = f * (HereticSim.WALK_FRAME_TICKS if a == HereticSim.Anim.WALK else HereticSim.IDLE_FRAME_TICKS)
+	b.state_ticks = 0
+	b.state = BossSim.State.CHASE
+	match a:
+		HereticSim.Anim.ATTACK:
+			b.state = BossSim.State.ATTACK
+			b.attack = BossSim.Attack.CLEAVE
+			var pre: int = HereticSim.hit_frame(b.row())
+			var blow: int = BossSim.strike_tick(BossSim.Attack.CLEAVE)
+			b.state_ticks = f * Config.HERETIC_ATTACK_FRAME_TICKS if f < pre else blow + (f - pre) * Config.HERETIC_ATTACK_FRAME_TICKS
+		HereticSim.Anim.HURT:
+			b.stun_ticks = 10
+		HereticSim.Anim.DEATH:
+			b.state = BossSim.State.DEAD
+			b.state_ticks = f * Config.HERETIC_DEATH_FRAME_TICKS
 
 
 ## M9c: a host's skills drawn by a client from the wire (the shot events message's skill events, the enemy batch's marks, the

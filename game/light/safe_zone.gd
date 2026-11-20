@@ -15,11 +15,12 @@ func _init(p_center: Vector2 = Vector2.ZERO, p_radius: float = 0.0) -> void:
 	radius = p_radius
 
 
-## The zone of a world's altar (empty zone if the world has no altar).
+## The zone of a world's altar (empty zone if the world has no altar). M12a: its radius is the altar tier's (WorldProgress.radius_px:
+## Config.ALTAR_TIER_RADIUS_TILES; tier 0, and a world without progress, is Config.safe_radius_px() as before).
 static func for_world(data: WorldData) -> SafeZone:
 	if not data.altar_rect.has_area():
 		return SafeZone.new(Vector2.ZERO, 0.0)
-	return SafeZone.new(data.altar_center_px(), Config.safe_radius_px())
+	return SafeZone.new(data.altar_center_px(), WorldProgress.radius_px(data))
 
 
 ## THE rule: a world point is safe if it lies within `radius` px of the altar centre.

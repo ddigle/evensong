@@ -40,6 +40,13 @@ const PALETTE: Dictionary[String, Color] = {
 	# M11a: the meat, the healing red's ramp and a bone ivory ("s" is the §4 faith ivory).
 	"R": Color8(0x7e, 0x24, 0x1e),  # meat dark
 	"P": Color8(0xd8, 0x6a, 0x54),  # meat fat
+	# M12a: the demon row of brief §4 (● R49 heretic-side fire = demon orange, the candB flames' colours) and a dark stone grey.
+	"F": Color8(0xff, 0x7a, 0x1a),  # demon orange (the heretic flame's core)
+	"f": Color8(0xc8, 0x32, 0x1f),  # scarlet
+	"B": Color8(0x8f, 0x1a, 0x1a),  # blood
+	"D": Color8(0x5c, 0x10, 0x10),  # clotted blood
+	"t": Color8(0x4a, 0x42, 0x3a),  # dark stone (§4 base)
+	"T": Color8(0x6b, 0x5e, 0x4f),  # stone (the dungeon floor's)
 }
 
 ## Plain Arrays on purpose: in Godot 4.7.2 a const Dictionary[..., PackedStringArray] built from
@@ -304,6 +311,46 @@ const MAPS: Dictionary[StringName, Array] = {
 		"................",
 		"................",
 	],
+	# M12a: the boss's relic (Config.BOSS_RELIC, PLACEHOLDER: a dark stone reliquary bound in clotted blood with the heretic leader's
+	# demon-orange flame inside, ● brief §5.7 R49).
+	&"boss_relic": [
+		"................",
+		"......kkkk......",
+		".....kFFFFk.....",
+		"....kFggggFk....",
+		"....kkFFFFkk....",
+		"...kkkkkkkkkk...",
+		"..kTTkkkkkkTTk..",
+		"..kTkDDDDDDkTk..",
+		"..kTkDFggFDkTk..",
+		"..kTkDFggFDkTk..",
+		"..kTkDDDDDDkTk..",
+		"..kTkkkkkkkkTk..",
+		"..kTTTTTTTTTTk..",
+		"..kkkkkkkkkkkk..",
+		"................",
+		"................",
+	],
+	# M12a: the relic bench's altar upgrade row (no item: the world's altar goes up a tier, Crafting; PLACEHOLDER: the altar with its
+	# lamps and a gold arrow up).
+	&"altar_upgrade": [
+		".......gg.......",
+		"......gggg......",
+		".....gg..gg.....",
+		".......gg.......",
+		"..kkkkkkkkkkkk..",
+		"..khhhhhhhhhhk..",
+		"..khgmhgmhgmhk..",
+		"..khmmhmmhmmhk..",
+		"..khgmhgmhgmhk..",
+		"..khmmhmmhmmhk..",
+		"..kmmmmmmmmmmk..",
+		".kkkkkkkkkkkkkk.",
+		".kgssssssssssgk.",
+		".kgsssssssssskk.",
+		".kkkkkkkkkkkkkk.",
+		"................",
+	],
 	# M11b: the collection panel's picture of the kills entry (a tally on a bone tag; no item).
 	&"tally": [
 		"................",
@@ -430,6 +477,8 @@ static func texture_for(id: StringName) -> Texture2D:
 		return _cache[id]
 	var def: ItemDB.ItemDef = ItemDB.get_def(id)
 	var tex: Texture2D = null
+	if def == null and MAPS.has(id):
+		tex = ImageTexture.create_from_image(image_from_map(id))  # M12a: a code picture that is no item (the altar upgrade's row)
 	if def != null:
 		if not def.icon_code.is_empty():
 			var img: Image = image_from_map(def.icon_code)

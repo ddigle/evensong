@@ -106,6 +106,11 @@ extends RefCounted
 ##                                it is farther than that
 ##   snare:<ticks>                walk to the nearest rare creature a snare could take and click on it in reach, until none is left
 ##   collection                   K: open or close the collection panel
+## M12a (offline: the boss as Main has it, `boss_aim`, `boss_state`, set before each step; a session has no boss until M12c):
+##   aimboss                      from now on aim at the boss (the middle of its figure; none or dead: not aiming)
+##   bossfight:<ticks>[,<px>]     hold the use button aimed at the boss while it lives, at most that many ticks; with px, walk toward it
+##                                while it is farther than px (melee)
+##   waitboss:<sleep|awake|phase2|dead>[,<ticks>]   stand until the boss is in that state (default 1800 ticks)
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 ## M11b: `snare` clicks this far inside the snare's reach (measured to the figure's middle; its feet are a little farther); `huntrare`
@@ -116,7 +121,9 @@ const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall"
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
 	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt",
-	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen"]
+	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen", "aimboss", "bossfight", "waitboss"]
+## M12a: waitboss's states (BossFight's as Main names them: boss_state).
+const BOSS_STATES: PackedStringArray = ["sleep", "awake", "phase2", "dead"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
@@ -127,7 +134,7 @@ const WAITMAP_LIMIT_TICKS: int = 1800
 ## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
 const ARRIVE_PX: float = 0.6
 
-enum Aiming { NONE, OFFSET, CELL, FOE, PREY }
+enum Aiming { NONE, OFFSET, CELL, FOE, PREY, BOSS }
 
 class Command:
 	extends RefCounted
@@ -221,6 +228,9 @@ var prey: Array[Vector2] = []
 ## M11b: the live rare creatures among them, and whether a snare could take each now.
 var rare: Array[Vector2] = []
 var rare_ready: Array[bool] = []
+## M12a: the boss's aim point while it lives (null: no boss or dead) and its state (BOSS_STATES; "" = none), as Main has them.
+var boss_aim: Variant = null
+var boss_state: String = ""
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -347,6 +357,19 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimprey":
 			if args.size() != 0:
 				return "aimprey takes no arguments"
+		"aimboss":
+			if args.size() != 0:
+				return "aimboss takes no arguments"
+		"bossfight":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() > 1 and not _whole(args[1], 1)):
+				return "expected bossfight:<ticks>[,<px>]"
+			c.ticks = args[0].to_int()
+			c.offset = Vector2(args[1].to_float() if args.size() > 1 else 0.0, 0.0)
+		"waitboss":
+			if args.size() < 1 or args.size() > 2 or not BOSS_STATES.has(args[0]) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitboss:<%s>[,<ticks>]" % "|".join(BOSS_STATES)
+			c.item = StringName(args[0])
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
 		"hunt":
 			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() > 1 and not _whole(args[1], 0)) \
 					or (args.size() > 2 and not _whole(args[2], 1)):
@@ -792,6 +815,32 @@ func _advance(a: Action, feet: Vector2) -> void:
 				_aiming = Aiming.PREY
 				_next()
 				_fill_aim(a, feet)
+			"aimboss":
+				_aiming = Aiming.BOSS
+				_next()
+				_fill_aim(a, feet)
+			"bossfight":
+				if _left < 0:
+					_left = c.ticks
+				if boss_aim == null or _left <= 0:
+					_next()
+				else:
+					_left -= 1
+					var spot_b: Vector2 = boss_aim
+					a.aiming = true
+					a.mouse = spot_b
+					if c.offset.x > 0.0 and feet.distance_to(spot_b) > c.offset.x:
+						a.dir = Vector2i(_toward(spot_b.x - feet.x), _toward(spot_b.y - feet.y))
+					else:
+						a.use_held = true
+					return
+			"waitboss":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if boss_state == String(c.item) or _left <= 0:
+					_next()
+				return
 			"hunt":
 				if _left < 0:
 					_left = c.ticks
@@ -925,6 +974,13 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 			if quarry != null:
 				a.aiming = true
 				a.mouse = quarry
+		Aiming.BOSS:
+			a.aiming = boss_aim != null
+			if boss_aim != null:
+				var at: Vector2 = boss_aim
+				a.mouse = at
+			else:
+				a.mouse = feet
 		Aiming.FOE:
 			var foe: Variant = nearest_foe(feet)
 			a.aiming = foe != null

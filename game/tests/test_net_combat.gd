@@ -186,7 +186,24 @@ func run() -> Array[String]:
 	await _check_leave_mid_windup()
 	await _check_dungeon_death()
 	await _check_respawn_waits_for_stream()
+	_check_m12a_no_boss()  # M12a
 	return failures
+
+
+## M12a: a session has no boss fight until M12c (its arenas never make one: no pillar blocks, no world progress) and the host's craft
+## path refuses the altar upgrade (Crafting.craft with no progress, SessionHost), nothing spent; everything else as before.
+func _check_m12a_no_boss() -> void:
+	var r: Rig = _rig()
+	check(r.host.arenas.has(Config.MAP_DUNGEON) and r.host.arenas[Config.MAP_DUNGEON].boss == null, "M12a: a session's dungeon has no boss")
+	check(r.dungeon.data.blockers.is_empty(), "M12a: no pillar blocks in a session")
+	check(r.surface.data.progress == null and SafeZone.for_world(r.surface.data).radius == Config.safe_radius_px(),
+		"M12a: no world progress in a session: the radius as before")
+	var inv: Inventory = r.s.local.player.inventory
+	inv.add(Config.BOSS_RELIC, 1)
+	var o: Crafting.Outcome = Crafting.craft(Crafting.recipe(Config.ALTAR_UPGRADE), "paladin", inv)
+	check(not o.ok() and o.why == Crafting.WHY_NO_ALTAR and inv.count_of(Config.BOSS_RELIC) == 1,
+		"M12a: a host's altar upgrade is refused, nothing spent")
+	_free_rig(r)
 
 
 # --- the rig ---------------------------------------------------------------------------------------

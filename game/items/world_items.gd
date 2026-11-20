@@ -304,7 +304,8 @@ static func death_drop_counts(inv: Inventory, rule: int, seed_value: int) -> Dic
 	for slot: int in inv.size():
 		var stack: ItemStack = inv.stack_at(slot)
 		# M7a: armour stays too (gear, ● §2.6 "장착 장비는 유지"), like the tools and weapons
-		if stack == null or stack.def() == null or stack.def().is_tool() or stack.def().is_armor():
+		# M12a: the boss's relic stays too (○ gameplay-design §2.6 "장착·퀘스트 아이템 제외", Config.BOSS_RELIC)
+		if stack == null or stack.def() == null or stack.def().is_tool() or stack.def().is_armor() or stack.def().is_relic():
 			continue
 		if rule == Config.DEATH_DROP_HALF:
 			out[slot] = (stack.count + 1) / 2

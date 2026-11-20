@@ -16,9 +16,25 @@ extends Node2D
 ## ember in its bowl, a failed one flickers out (Config.PRAYER_FLICKER_*: a low guttering flame on and off) and then shows a soot
 ## mark. Both pictures are the 04-env art already here: no new art file. The ember, the guttering flame and the soot are
 ## PLACEHOLDER pixels (IMPL).
+## M12a (● brief §5.7 R49: the altar's upgrade tier 1 looks like candA): at the world's altar tier 1 (WorldProgress, set_tier) the picture is
+## 04-env altar_up1_candA_v02 (56x64: altar_v04's body unchanged at (4, 12) on a plinth, four gold corner candlesticks, an ivory cloth with a
+## gold band; its _unlit, _litbase and _emissive companions copied with it) used exactly like altar_v04: the lit picture on the world light,
+## the flames = what differs from its unlit picture and is bright, drawn again unshaded (the 9 lamps' 81 px and the 4 candles' 28 px). Its
+## top-left goes TIER_ART's shift from altar_v04's (the art notes' "(-4, -7)": the body lands where altar_v04's stood) and the 9 prayer
+## lamps (Config.PRAYER_LAMP_FLAMES, altar_v04's spots) are TIER_ART's lamp shift further into the picture: (4, 7), on the candA lamps
+## (tests/test_altar_tier.gd checks every lamp's 9 flame px there).
 
 const LIT: Texture2D = preload("res://art/env/altar_v04.png")
 const UNLIT: Texture2D = preload("res://art/env/altar_v04_unlit.png")
+## M12a: the tier-1 pictures (04-env candA v02, ● R49).
+const LIT_UP1: Texture2D = preload("res://art/env/altar_up1_candA_v02.png")
+const UNLIT_UP1: Texture2D = preload("res://art/env/altar_up1_candA_v02_unlit.png")
+## M12a (IMPL, the art notes' numbers): per altar tier [lit, unlit, the picture's top-left from altar_v04's, the prayer lamps' shift in the
+## picture from Config.PRAYER_LAMP_FLAMES].
+const TIER_ART: Array[Array] = [
+	[LIT, UNLIT, Vector2i(0, 0), Vector2i(0, 0)],
+	[LIT_UP1, UNLIT_UP1, Vector2i(-4, -7), Vector2i(4, 7)],
+]
 
 ## M10a: how a lamp looks (lamp_look): lit (its flame), unlit (not answered yet, or a flicker's off beat), the ember of the lamp
 ## being answered, out (soot), a failed one's guttering flame (a flicker's on beat).
@@ -40,6 +56,8 @@ const FLAME_SIZE: Vector2i = Vector2i(2, 5)
 static var _flame_image: Image
 static var _flame_texture: ImageTexture
 static var _unshaded: CanvasItemMaterial
+## M12a: the flame masks of the other tiers (by tier).
+static var _tier_flames: Dictionary[int, ImageTexture] = {}
 
 var footprint_px: Rect2i
 var sprite: Sprite2D
@@ -48,6 +66,8 @@ var flames: Sprite2D
 var lamp_cover: Node2D
 var lamp_flames: Node2D
 var looks: PackedInt32Array = PackedInt32Array()
+## M12a: the tier its picture shows (set_tier).
+var tier: int = 0
 
 
 func _init() -> void:
@@ -79,12 +99,64 @@ func _init() -> void:
 func setup(footprint_cells: Rect2i) -> void:
 	footprint_px = Rect2i(footprint_cells.position * Config.TILE, footprint_cells.size * Config.TILE)
 	position = Vector2(footprint_px.position.x + footprint_px.size.x / 2.0, footprint_px.end.y)
-	sprite.position = Vector2(footprint_px.position) - position
+	sprite.position = Vector2(footprint_px.position + tier_shift(tier)) - position
 
 
-## Top-left of the art in world pixels.
+## M12a: shows altar tier `t`'s picture (TIER_ART; beyond the last, the last).
+func set_tier(t: int) -> void:
+	tier = clampi(t, 0, TIER_ART.size() - 1)
+	var row: Array = TIER_ART[tier]
+	var lit: Texture2D = row[0]
+	sprite.texture = lit
+	flames.texture = tier_flame_texture(tier)
+	if footprint_px.has_area():
+		sprite.position = Vector2(footprint_px.position + tier_shift(tier)) - position
+	lamp_cover.queue_redraw()
+	lamp_flames.queue_redraw()
+
+
+## M12a: the picture's top-left from altar_v04's at tier `t`.
+static func tier_shift(t: int) -> Vector2i:
+	var row: Array = TIER_ART[clampi(t, 0, TIER_ART.size() - 1)]
+	var v: Vector2i = row[2]
+	return v
+
+
+## M12a: the prayer lamps' shift in tier `t`'s picture.
+static func lamp_shift(t: int) -> Vector2i:
+	var row: Array = TIER_ART[clampi(t, 0, TIER_ART.size() - 1)]
+	var v: Vector2i = row[3]
+	return v
+
+
+## M12a: tier `t`'s unlit picture.
+static func tier_unlit(t: int) -> Texture2D:
+	var row: Array = TIER_ART[clampi(t, 0, TIER_ART.size() - 1)]
+	var tex: Texture2D = row[1]
+	return tex
+
+
+## M12a: tier `t`'s flame mask (tier 0: flame_image(), as before).
+static func tier_flame_image(t: int) -> Image:
+	if t <= 0:
+		return flame_image()
+	var row: Array = TIER_ART[clampi(t, 0, TIER_ART.size() - 1)]
+	var lit: Texture2D = row[0]
+	var unlit: Texture2D = row[1]
+	return LightGen.emissive_mask(lit.get_image(), unlit.get_image(), Config.FLAME_MIN_LUMA)
+
+
+static func tier_flame_texture(t: int) -> ImageTexture:
+	if t <= 0:
+		return flame_texture()
+	if not _tier_flames.has(t):
+		_tier_flames[t] = ImageTexture.create_from_image(tier_flame_image(t))
+	return _tier_flames[t]
+
+
+## Top-left of the art in world pixels (M12a: its tier's picture, TIER_ART's shift).
 func art_origin() -> Vector2i:
-	return footprint_px.position
+	return footprint_px.position + tier_shift(tier)
 
 
 static func flame_image() -> Image:
@@ -120,9 +192,14 @@ static func lamp_look(state: int, age: int, current: bool) -> int:
 	return Look.EMBER if current else Look.UNLIT
 
 
-## Lamp `i`'s box in the picture (Config.PRAYER_LAMP_BOX around its flame).
-static func lamp_box(i: int) -> Rect2i:
-	return Rect2i(Config.PRAYER_LAMP_FLAMES[i] + Config.PRAYER_LAMP_BOX.position, Config.PRAYER_LAMP_BOX.size)
+## Lamp `i`'s box in the picture (Config.PRAYER_LAMP_BOX around its flame). M12a: in tier `t`'s picture (its lamp shift).
+static func lamp_box(i: int, t: int = 0) -> Rect2i:
+	return Rect2i(Config.PRAYER_LAMP_FLAMES[i] + lamp_shift(t) + Config.PRAYER_LAMP_BOX.position, Config.PRAYER_LAMP_BOX.size)
+
+
+## M12a: lamp `i`'s flame spot in tier `t`'s picture.
+static func lamp_flame(i: int, t: int = 0) -> Vector2i:
+	return Config.PRAYER_LAMP_FLAMES[i] + lamp_shift(t)
 
 
 ## Shows the lamps as `p_looks` (Look per lamp, in Config.PRAYER_LAMP_FLAMES order); empty = the altar's own picture again.
@@ -138,17 +215,17 @@ func show_lamps(p_looks: PackedInt32Array) -> void:
 func _draw_cover() -> void:
 	for i: int in mini(looks.size(), Config.PRAYER_LAMP_FLAMES.size()):
 		if looks[i] != Look.LIT:
-			var b: Rect2 = Rect2(lamp_box(i))
-			lamp_cover.draw_texture_rect_region(UNLIT, b, b)
+			var b: Rect2 = Rect2(lamp_box(i, tier))
+			lamp_cover.draw_texture_rect_region(tier_unlit(tier), b, b)
 
 
 func _draw_flames() -> void:
 	for i: int in mini(looks.size(), Config.PRAYER_LAMP_FLAMES.size()):
-		var f: Vector2i = Config.PRAYER_LAMP_FLAMES[i]
+		var f: Vector2i = lamp_flame(i, tier)
 		match looks[i]:
 			Look.LIT:
 				var r: Rect2 = Rect2(Vector2(f), Vector2(FLAME_SIZE))
-				lamp_flames.draw_texture_rect_region(flame_texture(), r, r)
+				lamp_flames.draw_texture_rect_region(tier_flame_texture(tier), r, r)
 			Look.EMBER:
 				for q: Vector2i in EMBER_PIXELS:
 					lamp_flames.draw_rect(Rect2(Vector2(f + q), Vector2.ONE), EMBER)

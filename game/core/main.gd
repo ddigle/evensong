@@ -140,6 +140,14 @@ extends Node2D
 ## the snare (a click: Player.capture_on, Capture.refusal; the throw's start holds the creature, its impact frame takes it, capture_impact), the
 ## collection panel (K, toggle_collection: the player stands, a prayer refuses it, nothing pauses), the merchant's restock read through the
 ## world benefit (step_shop). step_creatures tells the collection what the players' inventories have seen and logs what it registered.
+## M12a (offline first; a session's dungeon has no boss and its crafting refuses the altar upgrade until M12c): the world's progress
+## (items/world_progress.gd: WorldData.progress, one object on both maps' data like the collection, ensure_combat) and the dungeon's boss
+## fight (combat/boss_fight.gd: the dungeon arena's `boss`, made in ensure_combat; its relics come back as the arena's edits, its events
+## print as EVENSONG_BOSS lines). The HUD's boss bar shows while the local player stands in its room and it is awake (_show_boss_bar).
+## The relic bench's altar upgrade (Crafting, craft_row with the world's progress) raises the world's altar tier: the surface world rebuilds
+## its light and its altar's picture (GameWorld.altar_tier_changed), the rules that read the safe zone follow it. --test-boss,
+## --test-boss-hp, --test-boss-attack, --test-pillar-hits and --test-altar-tier set scenes up (screenshots, tests); the bot's aimboss,
+## bossfight and waitboss read the boss through _bot_tick.
 
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
@@ -374,6 +382,7 @@ func _physics_process(delta: float) -> void:
 	_show_build_ghost()  # M7b
 	_show_merchant()  # M8a (M8: and which way he looks)
 	ally_mark.show_for(_aim_ring_target(), player.skill_aim_refused)  # M9a (M9 review: dim when refused)
+	_show_boss_bar()  # M12a
 
 
 func _bot_tick(delta: float) -> void:
@@ -391,6 +400,11 @@ func _bot_tick(delta: float) -> void:
 				if c.rare():
 					bot.rare.append(Creatures.aim_point(c))
 					bot.rare_ready.append(c.can_be_taken())
+		var f: BossFight = arenas[current_map].boss  # M12a: aimboss, bossfight, waitboss
+		bot.boss_state = boss_state_of(f)
+		bot.boss_aim = null
+		if f != null and f.sim != null and f.sim.alive():
+			bot.boss_aim = f.aim_point()
 	bot.life = player.vitals.life
 	bot.downed.clear()
 	for p: Player in players_on(current_map):
@@ -834,10 +848,17 @@ func ensure_combat(id: int) -> bool:
 		v.get_parent().remove_child(v)
 		v.free()
 	_share_collection(w)  # M11b
+	_share_progress(w)  # M12a
 	var a: Arena = Arena.new()
 	a.setup(w.data, CliOptions.current().world_seed)
 	a.spawning = not CliOptions.current().test_no_spawns
 	a.threat_on = true  # M9a: offline (a session's host arenas stay off until M9c)
+	if id == Config.MAP_DUNGEON:
+		a.boss = BossFight.new()  # M12a: offline (a session's arenas have none until M12c)
+		a.boss.setup(a, w.data.world_seed)  # the dungeon's own seed (a client playing on alone has the host's)
+		a.boss.test_hp = CliOptions.current().test_boss_hp
+		a.boss.test_attack = maxi(BossSim.ATTACK_NAMES.find(CliOptions.current().test_boss_attack), BossSim.Attack.NONE)
+		print("EVENSONG_BOSS room %s" % a.boss.describe())
 	if id == Config.MAP_SURFACE:
 		a.herd = Creatures.new()  # M11a: offline (M11c: a session's is the host's, SessionHost._setup_combat)
 		a.herd.setup(w.data, CliOptions.current().world_seed, not CliOptions.current().test_no_creatures)
@@ -897,6 +918,7 @@ func step_combat(delta: float) -> void:
 	for e: EditLog.WorldEdit in arenas[current_map].step(players):
 		w.apply_edit(e)
 		_log_edit(e)
+	_log_boss(arenas[current_map])  # M12a
 	if arenas[current_map].stat("splashes") > splashed and not arenas[current_map].splashes.is_empty():
 		var s: Arena.Splash = arenas[current_map].splashes.back()
 		print("EVENSONG_POTION splash item=%s at=%d,%d players=%d heretics=%d" % [s.item, roundi(s.pos.x), roundi(s.pos.y),
@@ -908,6 +930,7 @@ func step_combat(delta: float) -> void:
 	for id: int in arenas:
 		if id != current_map and arenas[id].occupied:
 			arenas[id].idle_tick()
+			_log_boss(arenas[id])  # M12a: an awake fight left behind resets
 			var raw: Variant = combat_views.get(id, null)
 			if raw != null and is_instance_valid(raw):
 				var v: CombatView = raw
@@ -918,7 +941,7 @@ func _attack(p: Player, item: StringName) -> void:
 	if not ensure_combat(current_map):
 		return
 	var a: Arena = arenas[current_map]
-	var before: int = a.stat("heretic_hits") + a.stat("shrine_hits") + a.stat("creature_hits")
+	var before: int = a.stat("heretic_hits") + a.stat("shrine_hits") + a.stat("creature_hits") + _boss_hits(a)
 	# M7a: the stack that plays it (its tier-1 damage while not broken), then its use wear (M7c: the host's rule too).
 	var stack: ItemStack = Gear.playing_stack(p.inventory, p.action_slot, item)
 	var damage: int = Gear.attack_damage(stack, Combat.attack_for(item).damage) if p.gear_on else -1
@@ -931,7 +954,8 @@ func _attack(p: Player, item: StringName) -> void:
 	for e: EditLog.WorldEdit in edits:
 		current_world().apply_edit(e)
 		_log_edit(e)
-	var after: int = a.stat("heretic_hits") + a.stat("shrine_hits") + a.stat("creature_hits")
+	_log_boss(a)  # M12a
+	var after: int = a.stat("heretic_hits") + a.stat("shrine_hits") + a.stat("creature_hits") + _boss_hits(a)
 	if after > before:
 		print("EVENSONG_COMBAT hit item=%s class=%s hits=%d shrine_hp=%d" % [item, p.class_id(), after - before, a.shrine_hp])
 
@@ -963,6 +987,109 @@ func step_creatures() -> void:
 ## The world's collection (the surface's WorldData.collection; M11c: a session's: the host's, or a client's copy of it), or null.
 func world_collection() -> Collection:
 	return world.data.collection if world != null and world.data != null else null
+
+
+# --- M12a: the boss and the world's progress (offline; a session's arenas have no boss until M12c) ----------------------------------
+
+## World `w` shares the one progress (made on the surface's data the first time: one per world, like the collection).
+func _share_progress(w: GameWorld) -> void:
+	if world == null or world.data == null:
+		return
+	if world.data.progress == null:
+		world.data.progress = WorldProgress.new()
+	w.data.progress = world.data.progress
+
+
+## The world's progress (the surface's WorldData.progress), or null.
+func world_progress() -> WorldProgress:
+	return world.data.progress if world != null and world.data != null else null
+
+
+## The dungeon's boss fight (null: none, or no combat yet).
+func boss_fight() -> BossFight:
+	if not arenas.has(Config.MAP_DUNGEON):
+		return null
+	return arenas[Config.MAP_DUNGEON].boss
+
+
+## M12a: the blows on arena `a`'s boss and its pillars so far (the combat log's hit count).
+static func _boss_hits(a: Arena) -> int:
+	return a.boss.stat("boss_hits") + a.boss.stat("pillar_hits") if a.boss != null else 0
+
+
+## Prints arena `a`'s boss events (EVENSONG_BOSS).
+func _log_boss(a: Arena) -> void:
+	if a == null or a.boss == null:
+		return
+	for e: String in a.boss.take_events():
+		print("EVENSONG_BOSS %s" % e)
+
+
+## M12a: the boss's state as the bot reads it (NetBot.BOSS_STATES; "" = none).
+static func boss_state_of(f: BossFight) -> String:
+	if f == null or f.sim == null:
+		return ""
+	if not f.sim.alive():
+		return "dead"
+	if f.sim.state == BossSim.State.SLEEP:
+		return "sleep"
+	return "phase2" if f.sim.phase >= 2 else "awake"
+
+
+## M12a: the HUD's boss bar: while the local player is on the dungeon map standing in the boss's room and it is awake (its HP ratio, its
+## phase, whether it is exposed), else none.
+func _show_boss_bar() -> void:
+	var f: BossFight = boss_fight()
+	if f == null or f.sim == null or current_map != Config.MAP_DUNGEON or player == null or not f.sim.awake() \
+			or not f.room.holds(player.sim_position):
+		hud.show_boss(-1.0, 0, false)
+		return
+	hud.show_boss(float(f.sim.hp) / maxi(f.sim.hp_max, 1), f.sim.phase, f.sim.exposed())
+
+
+## M12a: --test-boss: the local player in the dungeon next to the boss's room (outside its first doorway) or on the room's tile `at` from
+## the boss's home; --test-pillar-hits.
+func put_test_boss(options: CliOptions) -> void:
+	if not options.test_boss and options.test_pillar_hits.is_empty():
+		return
+	var f: BossFight = boss_fight()
+	if f == null or f.sim == null:
+		print("EVENSONG_BOSS test: no boss room")
+		return
+	for i: int in options.test_pillar_hits:
+		f.set_pillar_hits(i, options.test_pillar_hits[i])
+	if not options.test_boss:
+		return
+	if current_map != Config.MAP_DUNGEON:
+		travel(Config.MAP_DUNGEON)
+	var tile: Vector2i = f.room.home_tile
+	if options.test_boss_at != null:
+		var off: Vector2i = options.test_boss_at
+		tile = f.room.home_tile + off
+	elif not f.room.doors.is_empty():
+		tile = outside_door(f.room, worlds[Config.MAP_DUNGEON].data)
+	player.teleport(Arena.spawn_feet(tile))
+	camera.follow()
+	var dungeon: GameWorld = worlds[Config.MAP_DUNGEON]
+	for i: int in allies.size():
+		var a: Player = allies[i]  # --test-ally: the allies come along, at their offsets from the local player (screenshots)
+		if not is_instance_valid(a):
+			continue
+		if a.get_parent() != dungeon.entities:
+			a.get_parent().remove_child(a)
+			dungeon.entities.add_child(a)
+		a.set_world(dungeon.data, player.sim_position + Vector2(ALLY_OFFSETS[i % ALLY_OFFSETS.size()]))
+	print("EVENSONG_BOSS test at=%d,%d" % [tile.x, tile.y])
+
+
+## M12a: the walkable tile just outside the boss room's first doorway (the room's door tile's open neighbour out of the room).
+static func outside_door(room: BossRoom.Layout, d: WorldData) -> Vector2i:
+	for door: Vector2i in room.doors:
+		for step: Vector2i in DungeonGen.STEPS:
+			var n: Vector2i = door + step
+			if not room.walk.has_point(n) and d.in_bounds(n) and Movement.can_stand(d, Arena.spawn_feet(n)):
+				return n
+	return room.home_tile
 
 
 ## World `w` shares the one collection (made on the surface's data the first time: one per world).
@@ -1683,6 +1810,9 @@ func toggle_hand() -> void:
 func open_crafting(at: Crafting.StationAt) -> void:
 	if _praying_refuses("crafting"):
 		return  # M10a
+	hud.crafting.progress = null  # M12a: the altar upgrade's row needs the world's progress (offline; a host's: M12c)
+	if not _in_session():
+		hud.crafting.progress = world_progress()
 	hud.crafting.open_for(at, player.inventory, player.class_id())
 	if not hud.crafting.craft_requested.is_connected(craft_row):
 		hud.crafting.craft_requested.connect(craft_row)
@@ -1731,8 +1861,12 @@ func craft_row(i: int) -> void:
 		net.queue_op(craft_request(Crafting.index_of(r.id)))
 		print("EVENSONG_CRAFT request recipe=%s" % r.id)
 		return
-	var o: Crafting.Outcome = Crafting.craft(r, player.class_id(), player.inventory)
-	if o.ok():
+	var o: Crafting.Outcome = Crafting.craft(r, player.class_id(), player.inventory, world_progress())
+	if o.ok() and r.is_upgrade():
+		world.altar_tier_changed()  # M12a: the world's altar went up a tier
+		print("EVENSONG_ALTAR tier=%d radius_tiles=%d (recipe=%s)" % [WorldProgress.tier_of(world.data),
+			Config.ALTAR_TIER_RADIUS_TILES[WorldProgress.tier_of(world.data)], r.id])
+	elif o.ok():
 		print("EVENSONG_CRAFT made recipe=%s item=%s count=%d grade=%s" % [r.id, o.item, o.count, ItemDB.GRADE_NAMES[o.grade]])
 	else:
 		print("EVENSONG_CRAFT refused recipe=%s: %s" % [r.id, o.why])
@@ -2522,6 +2656,7 @@ func _show_altar_ghost(p: Player) -> void:
 		_altar_ghost_key = key
 		bodies.append_array(wild)
 		_altar_ghost_ok = AltarMove.place_refusal(w.data, rect, bodies, heretics).is_empty()
+	ghost.radius = WorldProgress.radius_px(w.data)  # M12a: the light the tier gives
 	ghost.show_at(rect, _altar_ghost_ok)
 
 
@@ -2794,6 +2929,10 @@ func _apply_test_options(options: CliOptions) -> void:
 		put_test_near_creature(near_kind, near_pct)  # M11b
 	if options.test_collection >= 0:
 		put_test_collection(options.test_collection, options.test_collection_kills)  # M11b
+	if options.test_altar_tier >= 0 and world_progress() != null:
+		world_progress().altar_tier = options.test_altar_tier  # M12a: the light and the picture follow
+		world.altar_tier_changed()
+	put_test_boss(options)  # M12a
 	if not options.test_fields.is_empty():
 		apply_test_fields(options.test_fields)  # M5a
 	put_test_build(current_world(), options.test_build)  # M7b: pieces put down without the rules (screenshots, tests)

@@ -1282,6 +1282,108 @@ const COLLECTION_RECIPES: Array = [
 const ARMOR_DEFENCE: Dictionary[StringName, int] = {&"armor_t1": ARMOR_T1_DEFENCE, &"armor_rare": 6}
 const GEAR_REPAIR_RARE: Dictionary[StringName, StringName] = {&"armor_rare": &"hide_fine"}
 
+# --- PROVISIONAL, M12a (the boss: the heretic leader, its arena, the cracked pillars, its relic, the altar's tier 1; offline first) ---
+# Offline first (M12a, like M5a-M11a): a session's arenas never make the boss fight and a session's crafting refuses the altar upgrade (no
+# world progress there yet) until M12c. README "임시값" M12a. ● decided and followed as written: one boss, the heretic leader (이단의 지도자),
+# in the first dungeon (game-concept §6, §11, §12); the miner's terrain element is a cracked support pillar the miner breaks and whose
+# debris then falls, four picture states (§12 R49, brief §5.7 R49); breaking it is the miner's alone (gameplay-design §3.0 R11 miner row,
+# class-only column "보스전 지형 상호작용") and the boss stays beatable without one (§3.0: progress never blocked, the ceiling lower); the
+# only thing the altar's next tier needs is the boss drop (game-concept §9.3 R49, gameplay-design §4 R49): no collection entry, no
+# world benefit, no other resource, no class; the upgraded altar looks like candA (brief §5.7 R49); heretic-side fire is demon orange
+# (candB, brief §5.7 R49), the faith-side flames stay candle gold. Every number, name and rule below is ○ or not in the docs.
+
+## PROVISIONAL (not in the docs; the task's "the room farthest by walking path from the stairs that is big enough, never the shrine's"): the
+## boss's room in the first dungeon is the generated room (DungeonGen.build of the world seed: the rooms as generated, before anyone
+## mined) whose centre tile is farthest from the arrival tile by walking steps (Arena.arrival_distances), among the rooms at least this
+## big (tiles, the north wall's face row counted, as DungeonGen.Layout.rooms), never the shrine's room or the arrival room. When no room is
+## that big, the biggest other room (its walkable area; ties: the farther). No tile edit: the generated worlds' golden hashes stay.
+const BOSS_ARENA_MIN_SIZE: Vector2i = Vector2i(9, 7)
+## PROVISIONAL (not in the docs; ○ game-concept §6 "이단의 지도자"): the boss's numbers. hp_base at one player, hp_per_player_pct more per
+## other player on the dungeon map when it wakes (n capped at players_cap: x (1 + pct/100 (n - 1))); its walk (speed px/s, Movement.step
+## like a heretic, no pathfinding); sight_px: how far it picks a target (the M9 threat table, else the nearest; walls do not hide anyone in
+## its own room); reset_ticks: with no living player in its room that long it walks home and resets (full HP, its adds removed, the
+## pillars restored); leash_px: dragged farther than that from home it does the same at once; home_stuck_ticks: walking home and stuck
+## that long, it is put home. hit_radius_px / hit_height_px: the box a shot hits and melee_bonus_px: the extra melee reach (its body is
+## bigger than a heretic's: README "M11a hit-box rule", the code-drawn view's figure). stun_pct: a stun on it lasts that percent (at least
+## 1 tick) and is followed by stun_immune_ticks in which no stun takes (so the paladin cannot lock it; the debris's stun ignores both);
+## slow_pct: a slow's strength and time are that percent. recover_ticks: after an attack before the next one (phase 2: x
+## phase2_cadence_pct). Phase 2 at phase2_hp_pct of its HP: the cadence and phase2_bolts in a volley, and phase2_adds ordinary heretics
+## called once per fight (a reset removes them and re-arms the call). exposed_ticks / exposed_damage_pct: after the debris hit it takes
+## that percent of every hit. debris_damage_pct of its max HP and debris_stun_ticks from a pillar's debris.
+const BOSS: Dictionary[String, float] = {
+	"hp_base": 1200.0, "hp_per_player_pct": 60.0, "players_cap": 9.0,
+	"speed": 38.0, "sight_px": 256.0, "reset_ticks": 480.0, "leash_px": 320.0, "home_stuck_ticks": 120.0,
+	"hit_radius_px": 10.0, "hit_height_px": 40.0, "melee_bonus_px": 4.0,
+	"stun_pct": 40.0, "stun_immune_ticks": 240.0, "slow_pct": 50.0,
+	"recover_ticks": 60.0, "phase2_hp_pct": 50.0, "phase2_cadence_pct": 65.0, "phase2_bolts": 5.0, "phase2_adds": 2.0,
+	"exposed_ticks": 300.0, "exposed_damage_pct": 150.0, "debris_damage_pct": 12.0, "debris_stun_ticks": 180.0,
+}
+## PROVISIONAL (not in the docs): the slam's push does not move the boss (false); true = it is pushed like a heretic.
+const BOSS_PUSHABLE: bool = false
+## PROVISIONAL (not in the docs; the task's three attacks, every one with a readable telegraph of at least 0.5 s like the heretics'): per
+## attack: telegraph (ticks from its start to the hit: the boss stands and the picture shows it), after (ticks it stands once it hit), the
+## numbers of its hit, and how often it is picked (weight_near when the target is within the cleave's trigger_px, weight_far otherwise,
+## drawn from the boss's own random stream). cleave: every player up in arc_deg around the aim within reach_px (feet to feet, no wall
+## between) takes damage. volley: bolts (phase 2: BOSS phase2_bolts) spread_deg apart fanned at its target, each flying speed px/s up to
+## range_px from its body point; one hits the first player up whose drawn box it is inside (a dashing one it passes) and stops at what
+## stops a shot. burn: a circle of radius_px under up to `circles` players (the highest threat first, else the nearest) that erupts
+## after the telegraph: every player up whose feet are inside takes damage; it shows burning show_ticks after. The boss stands cast_ticks
+## of the burn's telegraph, then walks on while the circles wait.
+const BOSS_ATTACKS: Dictionary[StringName, Dictionary] = {
+	&"cleave": {"telegraph": 36, "after": 18, "reach_px": 36.0, "arc_deg": 150.0, "damage": 22, "trigger_px": 34.0,
+		"weight_near": 3, "weight_far": 0},
+	&"volley": {"telegraph": 42, "after": 12, "bolts": 3, "spread_deg": 16.0, "speed": 110.0, "range_px": 224.0, "damage": 14,
+		"weight_near": 1, "weight_far": 2},
+	&"burn": {"telegraph": 60, "after": 0, "cast_ticks": 24, "circles": 3, "radius_px": 18.0, "damage": 18, "show_ticks": 24,
+		"weight_near": 1, "weight_far": 2},
+}
+## PROVISIONAL (● game-concept §12 R49 the cracked support pillar the miner breaks, its debris then falls, four picture states; "잔해가 하는
+## 일과 숫자는 정하지 않았다"): count pillars (at least min_count when the room allows) inside the boss's room, each one tile, at least
+## margin_tiles from the room's walkable edge (a free ring round it), home_gap_tiles from the boss's home tile, door_gap_tiles from any
+## doorway tile and spacing_tiles from each other (Chebyshev; when fewer than min_count fit, the door gap and then the home gap are cut by
+## one); the first drawn from the boss's random stream, the rest farthest from those picked and the home. hits_per_state miner blows
+## per state (intact -> cracked -> badly cracked -> broken); a blow is one landed hit of the miner's pickaxe (basic or tier-1) or of a
+## miner's damaging skill reaching it. Broken: telegraph_ticks of dust and pebbles over the fall circle (fall_radius_px around the
+## pillar's middle), then the debris falls: the boss under it (feet inside) takes BOSS debris_damage_pct of its max HP, debris_stun_ticks
+## (its stun immunity ignored) and is exposed; every player up under it takes player_damage (a stagger: Player.take_hit; a dash avoids
+## it) - a team call. The rubble stays (PILLAR_RUBBLE_BLOCKS).
+const BOSS_PILLARS: Dictionary[String, float] = {
+	"count": 4.0, "min_count": 3.0, "margin_tiles": 1.0, "home_gap_tiles": 3.0, "door_gap_tiles": 2.0, "spacing_tiles": 3.0,
+	"hits_per_state": 3.0, "telegraph_ticks": 48.0, "fall_radius_px": 32.0, "player_damage": 20.0,
+}
+## PROVISIONAL (not in the docs): a broken pillar's rubble blocks nothing (false).
+const PILLAR_RUBBLE_BLOCKS: bool = false
+## PROVISIONAL (● R49 the altar's next tier needs the boss drop; ○ gameplay-design §5 "보스 드롭은 인원수만큼 분배"; the item, its name and
+## number are not in the docs): the boss's relic (BOSS_RELIC_NAME a placeholder name), one per player on the dungeon map at the kill
+## (BOSS_RELICS_PER_PLAYER) straight into each inventory (what does not fit lies at that player's feet as a drop); the merchant neither
+## sells nor buys it (not in SHOP_SELLS / SHOP_BUYS); it stays in the inventory on death (○ gameplay-design §2.6 "장착·퀘스트 아이템 제외":
+## WorldItems.death_drop_counts leaves ItemDB.Kind.RELIC); the chest takes it like any item. STACK_RELIC: its stack.
+const BOSS_RELIC: StringName = &"boss_relic"
+const BOSS_RELIC_NAME: String = "이단 지도자의 성유물"
+const BOSS_RELICS_PER_PLAYER: int = 1
+const STACK_RELIC: int = 9
+## PROVISIONAL (not in the docs; the slice has one dungeon and one boss): the boss does not come back once killed (false).
+const BOSS_RESPAWNS: bool = false
+## PROVISIONAL (● R49 the boss drop alone raises the altar; ○ game-concept §9.3 "안전 반경 … 티어가 오르면 넓어진다"; the radius and the
+## recipe are not in the docs): the altar upgrade is a relic bench recipe (the M6 / M7 crafting frame, unlocked by the first relic held:
+## Config.RECIPES_UNLOCK_ON_FIRST_GET) taking exactly one relic and nothing else; it raises the world's altar tier by one (WorldProgress,
+## not an item) up to ALTAR_TIER_MAX (the slice's: at the maximum it is refused and nothing is spent). ALTAR_TIER_RADIUS_TILES: the safe
+## radius = the light's by tier (tier 0 is SAFE_RADIUS_TILES, as before). No recipe, region or collection zone opens at tier 1 (no next
+## tier exists in the slice). Appended after every other recipe (a CRAFT index keeps its meaning).
+const ALTAR_UPGRADE: StringName = &"altar_upgrade"
+const ALTAR_UPGRADE_RECIPES: Array = [["relic", ALTAR_UPGRADE, 1, [[BOSS_RELIC, 1]]]]
+const ALTAR_TIER_MAX: int = 1
+const ALTAR_TIER_RADIUS_TILES: PackedInt32Array = [SAFE_RADIUS_TILES, 9]
+## PROVISIONAL (○ brief §5.7 R49 "이단 쪽 불의 색 = 악마 주황"; where the fire sits, its light and its size are not in the docs): the standing
+## heretic shrine burns with the demon-orange flames (FixtureView: the large flame on its two front corners, the small one on its top
+## skull, where the 04-env candidates sheet put them) and an orange point light (light only: never safety); a broken shrine's fire is out.
+## The boss's fire is the same colours (its brazier flame, its bolts and burning ground).
+const HERETIC_FIRE_LIGHT_COLOR: Color = Color(1.0, 0.48, 0.10)
+const HERETIC_FIRE_LIGHT_RADIUS_PX: int = 72
+const HERETIC_FIRE_LIGHT_ENERGY: float = 0.9
+const BOSS_FIRE_LIGHT_RADIUS_PX: int = 64
+const BOSS_FIRE_LIGHT_ENERGY: float = 0.8
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -1539,7 +1641,21 @@ const CREATURE_REFUSED_SHOW_TICKS: int = 30
 const CAPTURE_HOLD_SLACK_TICKS: int = 2
 const RARE_ZONE_MARKERS: int = 16
 const CAPTURE_TEST_NEAR_PX: float = 28.0
+## IMPL (M12a): mixed into the boss fight's own random stream (with the world seed and the dungeon's map id), so heretic spawns, prayer
+## directions, creature spawns and every older stream stay byte-identical (tests/test_boss_keeps.gd).
+const BOSS_SALT: int = 0xB05512
+## IMPL (M12a): a boss within this of its home is home (walking home), and a fire bolt's step (px, like Config.SHOT_STEP_PX).
+const BOSS_HOME_ARRIVE_PX: float = 1.5
+## IMPL (M12a): the boss's death frames play at the heretic's frame time and it lies on (no corpse time: it never leaves).
+const BOSS_FLASH_TICKS: int = HIT_FLASH_TICKS
+## IMPL (M12a): how far round a pillar's tile its refused mark and crack picture are drawn (the shown pillar is 32 x 64, PillarArt).
+const PILLAR_REFUSED_SHOW_TICKS: int = CREATURE_REFUSED_SHOW_TICKS
 
 
 static func safe_radius_px() -> float:
 	return float(SAFE_RADIUS_TILES * TILE)
+
+
+## M12a: the safe radius (= the altar light's) at altar tier `tier` (Config.ALTAR_TIER_RADIUS_TILES; tier 0 = safe_radius_px()).
+static func safe_radius_px_at(tier: int) -> float:
+	return float(ALTAR_TIER_RADIUS_TILES[clampi(tier, 0, ALTAR_TIER_RADIUS_TILES.size() - 1)] * TILE)

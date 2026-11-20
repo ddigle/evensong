@@ -111,6 +111,14 @@ var collection: Collection = null
 ## site). No tile changes, and generated data has none yet (the herd comes later), so the generated worlds hash as before. M11c: the surface's
 ## snapshot and content hash cover it: a client never places it itself.
 var rare_zone: RareZone = null
+## M12a: the world's progress (items/world_progress.gd: the altar's tier, the boss defeated): one per world, the same object on the surface's
+## and the dungeon's data like the collection (offline Main puts it there; null on a generated map and in a session until M12c). Not in the
+## content hash or a snapshot in M12a. SafeZone.for_world reads the tier's radius from it.
+var progress: WorldProgress = null
+## M12a: tiles blocked by objects that are not tiles (the boss room's standing pillars, combat/boss_fight.gd): Movement.is_blocked (walking,
+## dashing, heretics and the boss) and Combat.blocks_line (shots, sight) see them like a station's footprint. Not in a layer, the content
+## hash or a snapshot (the fight derives them from the world seed); empty on every map without a boss fight (every session in M12a).
+var blockers: Dictionary[Vector2i, bool] = {}
 
 
 ## M7a: one storage chest's slots (Config.CHEST_SLOTS; null = empty). Stacks keep their durability.

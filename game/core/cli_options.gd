@@ -100,6 +100,14 @@ extends RefCounted
 ##   --test-near-creature=<kind>:<pct>   one creature of that kind out of breath Config.CAPTURE_TEST_NEAR_PX east of the local player, at
 ##                                pct percent of its HP (a snare's reach)
 ##   --test-collection=<n>[,<kills>]     the first n entries of Config.COLLECTION_ENTRIES registered, that many kills counted
+## M12a (offline; screenshots and tests):
+##   --test-boss[=<dx>,<dy>]      start in the dungeon at the boss's room: on the tile just outside its first doorway (next to the arena,
+##                                nothing wakes), or with dx,dy on the room's tile that far from the boss's home (inside: it wakes);
+##                                --test-ally allies come along at their offsets
+##   --test-boss-hp=<1..99999>    the boss's HP when it wakes (its max HP stays the players' scaling)
+##   --test-boss-attack=<cleave|volley|burn>   the boss uses only that attack (the telegraphs one at a time)
+##   --test-pillar-hits=<i>:<hits>[,...]   pillar i (1 = the first) starts with that many miner hits (its crack state)
+##   --test-altar-tier=<0..Config.ALTAR_TIER_MAX>   the world's altar starts at that tier (its light, its picture)
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -187,6 +195,14 @@ var test_at_zone: Variant = null
 var test_near_creature: Array = []
 var test_collection: int = -1
 var test_collection_kills: int = 0
+## M12a: --test-boss (false: off; test_boss_at: null = outside the first doorway, else the offset from the home tile), --test-boss-hp
+## (0 = off), --test-boss-attack ("" = off), --test-pillar-hits (pillar index from 0 -> hits), --test-altar-tier (-1 = off).
+var test_boss: bool = false
+var test_boss_at: Variant = null
+var test_boss_hp: int = 0
+var test_boss_attack: String = ""
+var test_pillar_hits: Dictionary[int, int] = {}
+var test_altar_tier: int = -1
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -403,6 +419,37 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.test_no_spawns = true
 			"test-no-creatures":
 				o.test_no_creatures = true
+			"test-boss":
+				o.test_boss = true  # M12a
+				if not value.is_empty():
+					var boss_xy: PackedStringArray = value.split(",")
+					if boss_xy.size() != 2 or not boss_xy[0].is_valid_int() or not boss_xy[1].is_valid_int():
+						o.errors.append("%s: expected --test-boss[=<dx>,<dy>]" % raw)
+					else:
+						o.test_boss_at = Vector2i(boss_xy[0].to_int(), boss_xy[1].to_int())
+			"test-boss-hp":
+				if not value.is_valid_int() or value.to_int() < 1 or value.to_int() > 99999:
+					o.errors.append("%s: expected --test-boss-hp=<1..99999>" % raw)
+				else:
+					o.test_boss_hp = value.to_int()
+			"test-boss-attack":
+				if not ["cleave", "volley", "burn"].has(value):
+					o.errors.append("%s: expected --test-boss-attack=<cleave|volley|burn>" % raw)
+				else:
+					o.test_boss_attack = value
+			"test-pillar-hits":
+				for part: String in value.split(",", false):
+					var kv: PackedStringArray = part.split(":")
+					if kv.size() != 2 or not kv[0].is_valid_int() or not kv[1].is_valid_int() or kv[0].to_int() < 1 \
+							or kv[0].to_int() > roundi(Config.BOSS_PILLARS["count"]) or kv[1].to_int() < 0 or kv[1].to_int() > 99:
+						o.errors.append("%s: expected --test-pillar-hits=<1..%d>:<0..99>[,...]" % [raw, roundi(Config.BOSS_PILLARS["count"])])
+						break
+					o.test_pillar_hits[kv[0].to_int() - 1] = kv[1].to_int()
+			"test-altar-tier":
+				if not value.is_valid_int() or value.to_int() < 0 or value.to_int() > Config.ALTAR_TIER_MAX:
+					o.errors.append("%s: expected --test-altar-tier=<0..%d>" % [raw, Config.ALTAR_TIER_MAX])
+				else:
+					o.test_altar_tier = value.to_int()
 			"test-creature":
 				o.test_creatures = _parse_creatures(value, raw, o.errors)
 			"test-at-zone":

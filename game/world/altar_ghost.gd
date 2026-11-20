@@ -13,6 +13,8 @@ const DOT_STEP: int = 6
 
 var rect: Rect2i = Rect2i()
 var allowed: bool = false
+## M12a: the light's radius the dots show (the world's altar tier, WorldProgress.radius_px; Main sets it).
+var radius: float = Config.safe_radius_px()
 
 
 func _init() -> void:
@@ -39,7 +41,7 @@ func _draw() -> void:
 	var c: Color = GOLD if allowed else RED
 	for p: Vector2i in outline_pixels(rect):
 		draw_rect(Rect2(Vector2(p), Vector2.ONE), c)
-	for p2: Vector2i in light_dots(rect):
+	for p2: Vector2i in light_dots(rect, radius):
 		draw_rect(Rect2(Vector2(p2), Vector2.ONE), c)
 
 
@@ -59,10 +61,10 @@ static func outline_pixels(r: Rect2i) -> Array[Vector2i]:
 
 ## The light edge's dots (world pixels): every DOT_STEP degrees on the safe radius around the footprint's centre, the
 ## pixel whose centre is nearest inside the radius.
-static func light_dots(r: Rect2i) -> Array[Vector2i]:
+static func light_dots(r: Rect2i, zone_radius: float = Config.safe_radius_px()) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	var c: Vector2 = AltarMove.centre_px(r)
-	var radius: float = Config.safe_radius_px() - 1.0
+	var radius: float = zone_radius - 1.0
 	for deg: int in range(0, 360, DOT_STEP):
 		var a: float = deg_to_rad(float(deg))
 		var p: Vector2i = Vector2i((c + Vector2(cos(a), sin(a)) * radius).floor())

@@ -34,6 +34,9 @@ extends CanvasLayer
 ## prayer's lamps show and the local player is at the altar (Main: show_prayer_lamps): participants south of the altar cover its
 ## bottom lamp row, so everyone there reads the lamps here too.
 ## M11b: the collection panel (`collection`, ui/collection_panel.gd) that Main opens with K.
+## M12a (PLACEHOLDER drawn in code, no text): the boss's HP bar at the top centre while Main shows it (show_boss: the local player in the
+## boss's room, the boss awake): the leader's mitre (BossView.MITRE_MAP) at its left, a scarlet fill over clotted blood, one pip per phase
+## at its right (the phases reached lit demon orange), its frame ember while the boss is exposed (a pillar's debris).
 
 signal armor_clicked
 
@@ -121,6 +124,16 @@ const LAMP_EMBER_MAP: PackedStringArray = [".....", ".....", ".....", "..C..", "
 const LAMP_GUTTER_MAP: PackedStringArray = [".....", ".....", "..u..", ".uCu.", ".ooo."]
 const LAMP_SOOT_MAP: PackedStringArray = ["...m.", "..m..", "...m.", ".....", ".ooo."]
 ## 3x5 digits, rows top to bottom, "1" = lit. Plain Arrays (see items/item_icons.gd MAPS).
+## M12a (IMPL layout, brief §4 demon row): the boss bar.
+const BOSS_BAR: Vector2i = Vector2i(150, 4)
+const BOSS_BAR_TOP: int = 7
+const BOSS_FILL: Color = Color8(0xc8, 0x32, 0x1f)
+const BOSS_LOST: Color = Color8(0x2a, 0x08, 0x08)
+const BOSS_PIP_ON: Color = Color8(0xff, 0x7a, 0x1a)
+const BOSS_PIP_OFF: Color = Color8(0x5c, 0x10, 0x10)
+const BOSS_EXPOSED: Color = Color8(0xdf, 0x90, 0x3f)
+const BOSS_PIP: Vector2i = Vector2i(4, 4)
+const BOSS_PHASES: int = 2
 const DIGITS: Array[Array] = [
 	["111", "101", "101", "101", "111"], ["010", "110", "010", "010", "111"], ["111", "001", "111", "100", "111"],
 	["111", "001", "011", "001", "111"], ["101", "101", "111", "001", "001"], ["111", "100", "111", "001", "111"],
@@ -150,6 +163,10 @@ var prayer_left: int = 0
 var prayer_sent: int = -1
 ## M10-fix: the nine lamps as the altar shows them (Altar.Look each; empty = no grid).
 var prayer_lamps: PackedInt32Array = PackedInt32Array()
+## M12a: the boss bar (show_boss): its HP ratio (< 0 = not shown), phase and exposed.
+var boss_ratio: float = -1.0
+var boss_phase: int = 0
+var boss_exposed: bool = false
 var _shown: String = ""
 
 
@@ -205,7 +222,7 @@ func bind_player(p: Player) -> void:
 
 
 func _process(_delta: float) -> void:
-	var key: String = vitals_key() + "|" + skills_key() + "|" + prayer_key()
+	var key: String = vitals_key() + "|" + skills_key() + "|" + prayer_key() + "|" + boss_key()
 	if key != _shown:
 		_shown = key
 		canvas.queue_redraw()
@@ -217,6 +234,54 @@ func prayer_key() -> String:
 		return ""
 	return "%d/%d/%d/%d/%s" % [zeal_fill(player.skills.zeal_ticks), prayer_dir, prompt_fill(prayer_left), prayer_sent,
 		str(prayer_lamps)]
+
+
+## M12a: what the boss bar shows (redrawn when it changes).
+func boss_key() -> String:
+	return "%d/%d/%s" % [boss_fill(boss_ratio), boss_phase, boss_exposed]
+
+
+## M12a: the boss bar (Main, every tick offline): `ratio` of its HP (< 0 = hide it), its phase and whether it is exposed.
+func show_boss(ratio: float, phase: int, exposed: bool) -> void:
+	boss_ratio = ratio
+	boss_phase = phase
+	boss_exposed = exposed
+
+
+## M12a: the boss bar's filled width (px) for HP ratio `ratio` (at least 1 px while it lives; -1 = hidden).
+static func boss_fill(ratio: float) -> int:
+	if ratio < 0.0:
+		return -1
+	return clampi(ceili(ratio * BOSS_BAR.x), 1 if ratio > 0.0 else 0, BOSS_BAR.x)
+
+
+## M12a: the boss bar's top-left in a view of `view` px.
+static func boss_bar_at(view: Vector2i) -> Vector2i:
+	return Vector2i((view.x - BOSS_BAR.x) / 2, BOSS_BAR_TOP)
+
+
+func _draw_boss_bar() -> void:
+	var w: int = boss_fill(boss_ratio)
+	if w < 0:
+		return
+	var at: Vector2i = boss_bar_at(view_size())
+	canvas.draw_rect(Rect2(Vector2(at - Vector2i.ONE), Vector2(BOSS_BAR + Vector2i(2, 2))), BOSS_EXPOSED if boss_exposed else FRAME_DARK)
+	canvas.draw_rect(Rect2(Vector2(at), Vector2(BOSS_BAR)), BOSS_LOST)
+	if w > 0:
+		canvas.draw_rect(Rect2(Vector2(at), Vector2(w, BOSS_BAR.y)), BOSS_FILL)
+	var first: String = BossView.MITRE_MAP[0]
+	var mitre_w: int = first.length()
+	var mitre_at: Vector2i = at + Vector2i(-mitre_w - 4, BOSS_BAR.y / 2 - BossView.MITRE_MAP.size() / 2 - 1)
+	for y: int in BossView.MITRE_MAP.size():
+		var row: String = BossView.MITRE_MAP[y]
+		for x: int in row.length():
+			var ch: String = row[x]
+			if BossView.MITRE_COLOURS.has(ch):
+				canvas.draw_rect(Rect2(Vector2(mitre_at + Vector2i(x, y)), Vector2.ONE), BossView.MITRE_COLOURS[ch])
+	for i: int in BOSS_PHASES:
+		var pip: Vector2i = at + Vector2i(BOSS_BAR.x + 4 + i * (BOSS_PIP.x + 2), 0)
+		canvas.draw_rect(Rect2(Vector2(pip - Vector2i.ONE), Vector2(BOSS_PIP + Vector2i(2, 2))), FRAME_DARK)
+		canvas.draw_rect(Rect2(Vector2(pip), Vector2(BOSS_PIP)), BOSS_PIP_ON if i < boss_phase else BOSS_PIP_OFF)
 
 
 ## M10a: the local player's turn prompt (Main, every tick): direction `dir` (Prayer.Dir, -1 = none), `left` ticks of the window.
@@ -417,6 +482,7 @@ func _draw_hud() -> void:
 	_draw_skill_row()  # M9a
 	_draw_prayer_prompt()  # M10a
 	_draw_prayer_lamps()  # M10-fix
+	_draw_boss_bar()  # M12a
 	if inventory == null:
 		return
 	var view: Vector2i = view_size()

@@ -39,8 +39,11 @@ static func move_bounds(data: WorldData) -> Rect2:
 ## Blocked for walking: a placeable that blocks (the altar footprint in M1; M3a: the dungeon entrance,
 ## the exit stairs and the shrine, not a torch, WorldData.placeable_blocks) and a wall or the face
 ## tile below it (M3a, world/walls.gd: collision = what is drawn).
+## M12a: and a tile WorldData.blockers holds (the boss room's standing pillars).
 static func is_blocked(data: WorldData, cell: Vector2i) -> bool:
 	if WorldData.placeable_blocks(data.get_value(WorldData.Layer.PLACEABLE, cell)):
+		return true
+	if not data.blockers.is_empty() and data.blockers.has(cell):
 		return true
 	return Walls.blocks(data, cell)
 

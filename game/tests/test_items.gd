@@ -72,6 +72,8 @@ const M11_FOOD: Array[StringName] = [&"meat"]
 ## drawn in code. Written out here.
 const M11B: Dictionary[StringName, Array] = {&"snare": [ItemDB.Kind.CONSUMABLE, 20], &"rare_essence": [ItemDB.Kind.MATERIAL, 99],
 	&"armor_rare": [ItemDB.Kind.ARMOR, 1]}
+## M12a: the boss's relic (its own kind, a code icon), appended at the table's end.
+const M12_RELIC: Array[StringName] = [Config.BOSS_RELIC]
 
 
 func run() -> Array[String]:
@@ -94,18 +96,20 @@ func _check_table() -> void:
 	var m7b: int = M7B_TOOLS.size() + M7B_PIECES.size()
 	var m8: int = M8_MONEY.size()
 	var m11: int = M11_HIDES.size() + M11_FOOD.size() + M11B.size()
+	var m12: int = M12_RELIC.size()
 	check_eq(ids.size(), TOOLS.size() + M4_TOOLS.size() + ART.size() + PLACEABLES.size() + POTIONS.size() + SEEDS.size()
-		+ CONSUMABLES.size() + m7 + m7b + m8 + m11,
-		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b) + money (M8a) + 3 (M11a) + 3 (M11b)")
-	var before_m7: int = ids.size() - m7 - m7b - m8 - m11
+		+ CONSUMABLES.size() + m7 + m7b + m8 + m11 + m12,
+		"item count = 6 tools (M4a: + holy_light) + 3 materials (M3a: 2 ores) + 15 gatherables + 1 placeable (M3a: the torch; M6a: + the alchemy table) + 3 potions (M6a) + 3 seeds (M5a) + holy water (M5b) + 14 (M7a) + 5 (M7b) + money (M8a) + 3 (M11a) + 3 (M11b) + the relic (M12a)")
+	var before_m7: int = ids.size() - m7 - m7b - m8 - m11 - m12
 	check_eq(ItemDB.index_of(&"armor_t1"), 47, "M7b: the M7a items keep their wire indices")
 	check_eq(ItemDB.ids().slice(48, 53), [&"axe", &"stone_wall", &"door", &"stone_floor", &"lantern"] as Array[StringName],
 		"M7b: the axe and the build pieces appended at the end")
 	check_eq(ItemDB.ids().slice(53, 54), M8_MONEY, "M8a: money appended after them (every earlier wire index unchanged)")
 	check_eq(ItemDB.ids().slice(54, 57), [&"hide_fine", &"hide_worn", &"meat"] as Array[StringName],
 		"M11a: the hides and the meat appended after it (every earlier wire index unchanged)")
-	check_eq(ItemDB.ids().slice(57), [&"snare", &"rare_essence", &"armor_rare"] as Array[StringName],
+	check_eq(ItemDB.ids().slice(57, 60), [&"snare", &"rare_essence", &"armor_rare"] as Array[StringName],
 		"M11b: the snare, the material and the armour appended after them (every earlier wire index unchanged)")
+	check_eq(ItemDB.ids().slice(60), M12_RELIC, "M12a: the relic appended after them (every earlier wire index unchanged)")
 	check_eq(ItemDB.ids().slice(before_m7 - 4, before_m7 - 1), [&"seed_healing", &"seed_buff", &"seed_poison"] as Array[StringName],
 		"M5a: the seeds appended at the end (the wire's item indices of the others unchanged)")
 	check_eq(ItemDB.ids().slice(before_m7 - 1, before_m7), [&"holy_water"] as Array[StringName], "M5b: holy water appended after them")
@@ -163,6 +167,14 @@ func _check_table() -> void:
 			check_eq(def.icon_path, ItemDB.ART_DIR + M11_HIDES[id], "M11a: %s icon file" % id)
 			check(not def.graded and def.action == -1, "M11a: %s has no grade and no action" % id)
 			check_eq(def.stack_max, Config.STACK_MATERIAL, "M11a: %s stack size" % id)
+			continue
+		if M12_RELIC.has(id):
+			check_eq(def.kind, ItemDB.Kind.RELIC, "M12a: %s is a relic" % id)
+			check(def.is_relic() and not def.is_tool() and def.action == -1 and def.place == WorldData.PLACEABLE_NONE,
+				"M12a: %s is neither used nor placed" % id)
+			check_eq(def.stack_max, Config.STACK_RELIC, "M12a: %s stack size" % id)
+			check(not def.graded and def.durability == 0, "M12a: %s no grade, no durability" % id)
+			check_eq(String(def.icon_code), String(id), "M12a: %s icon drawn in code" % id)
 			continue
 		if M11B.has(id):
 			check_eq(def.kind, M11B[id][0], "M11b: %s kind" % id)

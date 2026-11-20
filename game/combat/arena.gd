@@ -58,6 +58,13 @@ extends RefCounted
 ## M11b: ● "희귀 생물 포획·사냥은 아처만": a blow on a rare creature by anyone but the archer does nothing (creature_open, every path; it stops a shot
 ## like any body), its refused mark shows. The archer's arrows take the collection's class benefit (Collection.arrow_damage, after the
 ## tier-1 rule, before the zeal).
+##
+## M12a (offline: Main.ensure_combat gives the dungeon's arena a BossFight; a session's arenas have none until M12c): `boss` = the heretic
+## leader's fight (combat/boss_fight.gd), stepped right after the heretics. Every path that hits a heretic hits the boss too (the swing's
+## arc with its bigger body, a shot inside its box, the slam, the weapon skills with their stun and slow, the holy burst, the strikes, a
+## thrown poison; the taunt and heal threat; zeal, tier-1 damage and the archer's benefit are in the damage passed), and a swing, a skill
+## or a shot that meets one of its cracked pillars is a blow on it (the miner's) or refused (anyone else's). Its relics' drops come back
+## with the step's (or the swing's) edits. The map emptying resets an awake fight (BossFight.on_emptied).
 
 ## A shot in flight (an arrow or a holy-light bolt).
 class Shot:
@@ -266,6 +273,8 @@ var _shrine_data: WorldData = null
 ## (sync_world).
 var _synced_altar: Rect2i = Rect2i()
 var _synced_corruption: int = 0
+## M12a: the altar tier they were last worked out for (WorldProgress).
+var _synced_tier: int = 0
 ## M9a: threat on (the offline game's arenas; off: the M4 nearest rule, a session's host until M9c), and the skills' bursts
 ## being shown.
 var threat_on: bool = false
@@ -278,6 +287,8 @@ var slots: Dictionary[int, int] = {}
 ## M11a: the surface's creatures (null: none on this map, or none yet in a session).
 var herd: Creatures = null
 var _no_creatures: Array[CreatureSim] = []
+## M12a: the boss fight on this map (null: none; offline the first dungeon's).
+var boss: BossFight = null
 
 
 ## M4b: a client's arena for drawing (CombatView): the map's data and the shrine, never stepped; the
@@ -315,6 +326,7 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	spawn_cells = surface_spawn_cells(data, safe) if map_id == Config.MAP_SURFACE else dungeon_spawn_cells(data)
 	_synced_altar = data.altar_rect
 	_synced_corruption = Purify.corrupted_count(data)
+	_synced_tier = WorldProgress.tier_of(data)
 
 
 ## M5b: the world the arena reads changed where it caches: the altar moved (picked up: no light; put down: a new light)
@@ -330,10 +342,12 @@ func sync_world() -> bool:
 	if data == null:
 		return false
 	var corrupted: int = Purify.corrupted_count(data)
-	if data.altar_rect == _synced_altar and corrupted == _synced_corruption:
+	var tier: int = WorldProgress.tier_of(data)
+	if data.altar_rect == _synced_altar and corrupted == _synced_corruption and tier == _synced_tier:
 		return false
 	_synced_altar = data.altar_rect
 	_synced_corruption = corrupted
+	_synced_tier = tier  # M12a: the altar went up a tier: a wider light, fewer spawn tiles
 	safe = SafeZone.for_world(data)
 	if map_id == Config.MAP_SURFACE:
 		spawn_cells = surface_spawn_cells(data, safe)
@@ -404,6 +418,8 @@ func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	_revive(players)
 	for h: HereticSim in heretics:
 		_step_heretic(h, players)
+	if boss != null:
+		edits.append_array(boss.step(players))  # M12a: after the heretics, on its own stream
 	for s: Shot in shots:
 		edits.append_array(_step_shot(s, players))
 	var flying: Array[Shot] = []
@@ -488,6 +504,8 @@ func on_emptied() -> void:
 	spawn_timer = 0
 	attacks_started = 0
 	shrine_flash = 0
+	if boss != null:
+		boss.on_emptied()  # M12a: an awake fight resets (nobody is left in its room)
 	count("emptied")
 
 
@@ -543,6 +561,22 @@ func spawn_heretic(feet: Vector2) -> HereticSim:
 	heretics.append(h)
 	count("spawned")
 	return h
+
+
+## M12a: the heretics with ids `ids` leave the arena (the boss's adds at its reset), alive or lying dead. Returns how many went.
+func remove_heretics(ids: Array[int]) -> int:
+	if ids.is_empty():
+		return 0
+	var staying: Array[HereticSim] = []
+	var gone: int = 0
+	for h: HereticSim in heretics:
+		if ids.has(h.id):
+			gone += 1
+		else:
+			staying.append(h)
+	heretics = staying
+	count("removed", gone)
+	return gone
 
 
 func _step_heretic(h: HereticSim, players: Array[Player]) -> void:
@@ -749,6 +783,8 @@ func heal_threat(healer_id: int, healed: Player, amount: int, players: Array[Pla
 				add_threat(h, healer_id, add)
 				n += 1
 				break
+	if boss != null and boss.heal_threat(healer_id, healed, add, players):
+		n += 1  # M12a: the boss engaged with someone near the healed ally
 	count("heal_threat", n)
 	return n
 
@@ -1064,6 +1100,9 @@ func _splash(f: Flask, at: Vector2, players: Array[Player]) -> void:
 					and herd.poison(c, Prayer.zeal_hit(Potions.poison_damage(f.grade), f.zeal_pct), Potions.poison_ticks(f.grade),
 						f.owner_id):
 				count("splash_creatures")
+		if boss != null and boss.sim != null and boss.sim.open_to_hits() and in_splash(at, boss.sim.pos) \
+				and boss.poison(Prayer.zeal_hit(Potions.poison_damage(f.grade), f.zeal_pct), Potions.poison_ticks(f.grade), f.owner_id):
+			count("splash_boss")  # M12a
 	if effect != Potions.Effect.POISON or Config.FRIENDLY_FIRE:
 		for p: Player in players:
 			if not in_splash(at, p.sim_position):
@@ -1176,6 +1215,9 @@ func player_attack(p: Player, item: StringName, aim: int, players: Array[Player]
 		for c: CreatureSim in hunted():  # M11a
 			if c.alive() and Combat.melee_hits(data, p.sim_position, dir, c.pos, a.reach, a.arc_deg):
 				hit_creature(c, dmg, p.get_instance_id())
+		if boss != null:
+			boss.melee(p, dir, a.reach, a.arc_deg, dmg, BossFight.miner_blow(p, item))  # M12a: the boss, the pillars (the miner's pick)
+			edits.append_array(boss.take_edits())
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
 				if o != p and Combat.melee_hits(data, p.sim_position, dir, o.sim_position, a.reach, a.arc_deg):
@@ -1257,6 +1299,8 @@ func taunt(p: Player, radius: float, ticks: int) -> int:
 		if threat_on:
 			h.threat[pid] = h.top_threat() + Config.TAUNT_THREAT_MARGIN
 		n += 1
+	if boss != null:
+		n += boss.taunt(p, radius, ticks)  # M12a: the boss too (the taunt works on it at full length)
 	add_burst(BurstKind.TAUNT, p.sim_position, radius, pid, pid)
 	count("taunts")
 	count("taunted", n)
@@ -1289,6 +1333,14 @@ func slam(p: Player, radius: float, damage: int, push: float) -> int:
 		n += 1
 		if c.alive() and push > 0.0:
 			herd.push(c, to.normalized() if to.length_squared() > 0.0001 else Vector2(PlayerSim.facing_vector(p.facing)), push)
+	if boss != null:
+		if boss.in_circle(p.sim_position, radius):
+			boss.hit(damage, p.get_instance_id())  # M12a: no push (Config.BOSS_PUSHABLE off)
+			n += 1
+			if Config.BOSS_PUSHABLE and boss.sim.alive():
+				boss.sim.pos += (boss.sim.pos - p.sim_position).normalized() * push
+		for i: int in boss.pillars_in_circle(p.sim_position, radius):
+			boss.blow(i, p.get_instance_id(), BossFight.miner_blow(p, &""))
 	add_burst(BurstKind.SLAM, p.sim_position, radius, 0, p.get_instance_id())
 	count("slams")
 	count("slam_hits", n)
@@ -1413,6 +1465,12 @@ func melee_skill(p: Player, aim: int, damage: int, reach: float, arc_deg: float,
 		n += 1
 		herd.stun(c, stun)
 		herd.slow(c, slow_pct, slow_ticks)
+	if boss != null:
+		if boss.melee(p, dir, reach, arc_deg, damage, BossFight.miner_blow(p, &"")) > 0:
+			n += 1  # M12a: its stun and slow shortened (BossFight.stun, slow)
+			boss.stun(stun)
+			boss.slow(slow_pct, slow_ticks)
+		edits.append_array(boss.take_edits())
 	var rect: Rect2i = shrine_rect()
 	if rect.has_area() and Combat.melee_hits_rect(data, p.sim_position, dir, rect, reach, arc_deg):
 		edits.append_array(damage_shrine(damage))
@@ -1457,6 +1515,9 @@ func area_hit(p: Player, at: Vector2, radius: float, damage: int, kind: int) -> 
 		if creature_in_circle(at, radius, c) and creature_open(c, p.get_instance_id()):
 			hit_creature(c, damage, p.get_instance_id())
 			n += 1
+	if boss != null and boss.in_circle(at, radius):
+		boss.hit(damage, p.get_instance_id())  # M12a
+		n += 1
 	add_burst(kind, at, radius, 0, p.get_instance_id())
 	count("area_hits", n)
 	return n
@@ -1512,6 +1573,14 @@ func _land_strike(s: Strike) -> void:
 			hit_creature(c, s.damage, s.owner_id)
 			s.hits += 1
 			herd.stun(c, s.stun_ticks)
+	if boss != null:
+		if boss.in_circle(s.pos, s.radius):
+			boss.hit(s.damage, s.owner_id)  # M12a: and the rocks' stun, shortened
+			s.hits += 1
+			boss.stun(s.stun_ticks)
+		if s.kind == StrikeKind.ROCKS:
+			for i: int in boss.pillars_in_circle(s.pos, s.radius):
+				boss.blow(i, s.owner_id, BossFight.miner_blow(Creatures._player_of(s.owner_id), &""))
 	add_burst(BurstKind.RAIN if s.kind == StrikeKind.ARROWS else BurstKind.ROCKS, s.pos, s.radius, 0, s.owner_id)
 	count("strikes_landed")
 	count("strike_hits", s.hits)
@@ -1723,9 +1792,13 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if c != Aim.cell_of(from):
 			cells = Combat.cells_on_line(from, s.pos)
 		var why: String = ""
+		var pillar: int = -1
 		for cc: Vector2i in cells:
 			if rect.has_area() and rect.has_point(cc):
 				why = "shrine"
+			elif boss != null and boss.pillar_at(cc) >= 0:
+				why = "pillar"  # M12a: a shot is never the miner's blow: the refused mark
+				pillar = boss.pillar_at(cc)
 			elif Combat.blocks_line(data, cc):
 				why = "wall"
 			if not why.is_empty():
@@ -1735,6 +1808,10 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if why == "shrine":
 			edits.append_array(damage_shrine(s.damage))
 			_stop(s, "shrine")
+			return edits
+		if why == "pillar":
+			boss.blow(pillar, s.owner_id, false)
+			_stop(s, "pillar")
 			return edits
 		if why == "wall":
 			_stop(s, "wall")
@@ -1751,6 +1828,10 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 					s.pierced[-pc.id] = true
 					hit_creature(pc, s.damage, s.owner_id)
 					count("pierce_hits")
+			if boss != null and not s.pierced.has(BossFight.PIERCE_KEY) and boss.shot_hits(s.pos):
+				s.pierced[BossFight.PIERCE_KEY] = true  # M12a: the boss too, once
+				boss.hit(s.damage, s.owner_id)
+				count("pierce_hits")
 			continue
 		var h: HereticSim = heretic_at(s.pos)
 		if h != null:
@@ -1761,6 +1842,10 @@ func _step_shot(s: Shot, players: Array[Player]) -> Array[EditLog.WorldEdit]:
 		if cr != null:
 			hit_creature(cr, s.damage, s.owner_id)
 			_stop(s, "creature")
+			return edits
+		if boss != null and boss.shot_hits(s.pos):
+			boss.hit(s.damage, s.owner_id)  # M12a
+			_stop(s, "boss")
 			return edits
 		if Config.FRIENDLY_FIRE:
 			for o: Player in players:
@@ -1810,7 +1895,7 @@ func fighting() -> bool:
 	for h: HereticSim in heretics:
 		if h.state != HereticSim.State.IDLE or h.walking:
 			return true
-	return false
+	return boss != null and boss.fighting()
 
 
 # --- the shrine ----------------------------------------------------------------------------------

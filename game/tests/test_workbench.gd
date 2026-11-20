@@ -92,7 +92,8 @@ static func inv_for(r: Crafting.Recipe, times: int = 1) -> Inventory:
 func _check_recipes() -> void:
 	var chain: Array[Crafting.Recipe] = []
 	for r: Crafting.Recipe in Crafting.recipes():
-		if r.station != Crafting.ALCHEMY and not r.is_repair() and not _is_m7b(r) and not _is_m11b(r):  # M7b's rows: test_building.gd
+		# M7b's rows: test_building.gd. M12a: the altar upgrade (no item out): test_altar_tier.gd.
+		if r.station != Crafting.ALCHEMY and not r.is_repair() and not _is_m7b(r) and not _is_m11b(r) and not r.is_upgrade():
 			chain.append(r)
 	check_eq(chain.size(), WANT.size(), "M7a: %d chain recipes" % WANT.size())
 	for r: Crafting.Recipe in chain:
@@ -181,8 +182,8 @@ static func _is_m7b(r: Crafting.Recipe) -> bool:
 ## input short of any one = missing inputs, nothing changes; a full inventory whose inputs free no slot = no room.
 func _check_atomic() -> void:
 	for r: Crafting.Recipe in Crafting.recipes():
-		if r.station == Crafting.ALCHEMY or r.is_repair():
-			continue
+		if r.station == Crafting.ALCHEMY or r.is_repair() or r.is_upgrade():
+			continue  # M12a: the altar upgrade's all-or-nothing (no item out, the world's progress) is test_altar_tier.gd's
 		var inv: Inventory = inv_for(r)
 		inv.add(&"mushroom_a", 3)  # something the recipe does not touch
 		var o: Crafting.Outcome = Crafting.craft(r, crafter(r, "miner"), inv)

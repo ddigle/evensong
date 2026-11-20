@@ -97,6 +97,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_hunt(r)  # M11a
 	_check_net_wild(r)  # M11c
 	_check_collection(r)  # M11b
+	_check_boss(r)  # M12a
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -905,6 +906,68 @@ static func _check_collection(r: Report) -> void:
 	archer.free()
 	r.fields.append("rare_zone=%s rare=%d capture=%d/%d collection=%d/%d" % [data.rare_zone.describe(), rare, snares, material,
 		data.collection.count(), Collection.total()])
+
+
+## M12a: the seed-1 boss room (not the shrine's or the arrival room, its pillars blocking with no tile edit: the dungeon still hashes golden),
+## the art it brings (candA 56x64 with 109 flame px, the heretic flames' strips), the relic item and its icon, a cleave's telegraph (no
+## damage a tick before, its damage on the tick), a kill's relic (one player: one), and the altar upgrade raising the light to tier 1's
+## radius. Output `boss=<room x>,<y>/<w>x<h>/<pillars> cleave=<ticks>/<damage> relic=<n> tier1=<radius px>`.
+static func _check_boss(r: Report) -> void:
+	var built: Array = DungeonGen.build(Config.DEFAULT_SEED)
+	var dungeon: WorldData = built[0]
+	var gen: DungeonGen.Layout = built[1]
+	var room: BossRoom.Layout = BossRoom.for_seed(Config.DEFAULT_SEED)
+	if not r.expect(room.has_room(), "M12a: a boss room on seed 1"):
+		return
+	r.expect(room.room_index != gen.shrine_room and room.room_index != gen.arrival_room, "M12a: not the shrine's or the arrival room")
+	r.expect(room.pillars.size() >= 3 and room.pillars.size() <= 4, "M12a: 3 or 4 pillars")
+	dungeon.progress = WorldProgress.new()
+	var a: Arena = Arena.new()
+	a.setup(dungeon, Config.DEFAULT_SEED)
+	a.spawning = false
+	a.threat_on = true
+	a.boss = BossFight.new()
+	a.boss.setup(a, Config.DEFAULT_SEED)
+	r.expect_eq(dungeon.content_hash(), DungeonGen.GOLDEN_HASH, "M12a: the dungeon hashes golden with the fight on it")
+	r.expect(Movement.is_blocked(dungeon, room.pillars[0]), "M12a: a pillar blocks")
+	r.expect_eq(Altar.LIT_UP1.get_size(), Vector2(56, 64), "M12a: candA 56x64")
+	# Measured with the game's own rule (LightGen.emissive_mask, Config.FLAME_MIN_LUMA): the 9 lamps' 81 px and 16 of the candles'.
+	r.expect_eq(LightGen.count_opaque(Altar.tier_flame_image(1)), 97, "M12a: candA's 9 lamps and 4 candles")
+	r.expect_eq(FixtureView.HERETIC_FLAME_LARGE.get_size(), Vector2(40, 13), "M12a: the large heretic flame strip")
+	r.expect_eq(FixtureView.HERETIC_FLAME_SMALL.get_size(), Vector2(25, 8), "M12a: the small heretic flame strip")
+	r.expect_eq(PillarArt.PICTURE.get_size(), Vector2(32, 64), "M12a: the pillar picture")
+	var icon: Texture2D = ItemIcons.texture_for(Config.BOSS_RELIC)
+	r.expect(icon != null and icon.get_width() == 16, "M12a: the relic's icon")
+	var p: Player = Player.new()
+	p.setup(dungeon, "paladin", a.boss.sim.home + Vector2(0, 20))
+	var players: Array[Player] = [p]
+	a.step(players)
+	r.expect(a.boss.sim.awake(), "M12a: a player in its room wakes it")
+	a.boss.begin_attack(BossSim.Attack.CLEAVE, p, players)
+	var tele: int = BossSim.strike_tick(BossSim.Attack.CLEAVE)
+	for t: int in tele - 1:
+		p.begin_tick()
+		p.step_frame(NetProtocol.InputFrame.new(), Config.NET_TICK)
+		a.step(players)
+	r.expect_eq(p.vitals.hp, Config.PLAYER_HP_MAX, "M12a: no damage before the telegraph ends")
+	p.begin_tick()
+	p.step_frame(NetProtocol.InputFrame.new(), Config.NET_TICK)
+	a.step(players)
+	var cleave: int = Config.PLAYER_HP_MAX - p.vitals.hp
+	r.expect_eq(cleave, BossSim.attack_int(BossSim.Attack.CLEAVE, "damage"), "M12a: the cleave on its tick")
+	a.boss.frozen = true
+	a.boss.hit(a.boss.sim.hp_max, p.get_instance_id())
+	var relics: int = p.inventory.count_of(Config.BOSS_RELIC)
+	r.expect(not a.boss.sim.alive() and dungeon.progress.boss_defeated and relics == 1, "M12a: killed, the flag, one relic")
+	var surface: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
+	surface.progress = dungeon.progress
+	var o: Crafting.Outcome = Crafting.craft(Crafting.recipe(Config.ALTAR_UPGRADE), "paladin", p.inventory, surface.progress)
+	r.expect(o.ok() and p.inventory.count_of(Config.BOSS_RELIC) == 0, "M12a: the upgrade takes the relic")
+	var radius: float = SafeZone.for_world(surface).radius
+	r.expect_eq(radius, float(Config.ALTAR_TIER_RADIUS_TILES[1] * Config.TILE), "M12a: tier 1's light")
+	p.free()
+	r.fields.append("boss=%d,%d/%dx%d/%d cleave=%d/%d relic=%d tier1=%d" % [room.room.position.x, room.room.position.y, room.room.size.x,
+		room.room.size.y, room.pillars.size(), tele, cleave, relics, roundi(radius)])
 
 
 static func _check_light(r: Report) -> void:
