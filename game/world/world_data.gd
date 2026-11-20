@@ -114,11 +114,30 @@ var rare_zone: RareZone = null
 ## M12a: the world's progress (items/world_progress.gd: the altar's tier, the boss defeated): one per world, the same object on the surface's
 ## and the dungeon's data like the collection (offline Main puts it there; null on a generated map and in a session until M12c). Not in the
 ## content hash or a snapshot in M12a. SafeZone.for_world reads the tier's radius from it.
+## M12c: a session host puts it on every map's data (SessionHost._setup_progress), a client keeps one copy for the session
+## (SessionClient._keep_progress); every snapshot carries it (net/world_snapshot.gd) and the surface's content hash covers the tier once it is
+## above 0 (PROGRESS_HASH_TAG: a world at tier 0, a generated one too, hashes as before).
 var progress: WorldProgress = null
 ## M12a: tiles blocked by objects that are not tiles (the boss room's standing pillars, combat/boss_fight.gd): Movement.is_blocked (walking,
 ## dashing, heretics and the boss) and Combat.blocks_line (shots, sight) see them like a station's footprint. Not in a layer, the content
 ## hash or a snapshot (the fight derives them from the world seed); empty on every map without a boss fight (every session in M12a).
+## M12c: a client's mirror fight (BossFight.mirror) sets them from the host's pillar states, so its prediction walks round them too.
 var blockers: Dictionary[Vector2i, bool] = {}
+## M12c: the boss fight on this map (combat/boss_fight.gd sets itself here: the host's, offline Main's, a client's mirror; null on a map
+## without one). The dungeon's snapshot carries its site (the room, the home, the pillars and their states: BossFight.site), never the
+## content hash (the generated dungeon's golden hash stays with the fight on it, M12a). Held weakly (the fight holds this data: its arena
+## owns it).
+var boss_fight: BossFight:
+	get:
+		if _boss_fight == null:
+			return null
+		var f: BossFight = _boss_fight.get_ref()
+		return f
+	set(value):
+		_boss_fight = weakref(value) if value != null else null
+var _boss_fight: WeakRef = null
+## M12c: the boss site a snapshot brought (BossFight.Site, decoded: a client builds its mirror fight from it, NetCombat.reset); null otherwise.
+var boss_site: BossFight.Site = null
 
 
 ## M7a: one storage chest's slots (Config.CHEST_SLOTS; null = empty). Stacks keep their durability.
@@ -383,13 +402,18 @@ func content_hash() -> String:
 		ctx.update(PackedInt64Array([ZONE_HASH_TAG, rare_zone.center.x, rare_zone.center.y, rare_zone.radius]).to_byte_array())
 	if collection != null and map_id == Config.MAP_SURFACE:
 		ctx.update(PackedInt64Array([COLLECTION_HASH_TAG, collection.bits(), collection.kills]).to_byte_array())
+	if progress != null and progress.altar_tier > 0 and map_id == Config.MAP_SURFACE:
+		# M12c: the altar's tier, after a tag of its own, only once it went up (the surface's: its light; a world at tier 0 hashes as before).
+		ctx.update(PackedInt64Array([PROGRESS_HASH_TAG, progress.altar_tier]).to_byte_array())
 	return ctx.finish().hex_encode()
 
 
 ## M8b: the shop stock's tag in content_hash (no layer index: the layers are 0..LAYER_COUNT - 1). M11c: the rare zone's, the collection's.
+## M12c: the altar tier's.
 const SHOP_HASH_TAG: int = 100
 const ZONE_HASH_TAG: int = 101
 const COLLECTION_HASH_TAG: int = 102
+const PROGRESS_HASH_TAG: int = 103
 
 
 # --- storage chests (M7a) ----------------------------------------------------------------------

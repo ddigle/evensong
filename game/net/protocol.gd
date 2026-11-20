@@ -175,6 +175,28 @@ extends RefCounted
 ##               Config.NET_CREATURE_VIEW_PX of that client's player; one missing from a batch is gone (or out of its view).
 ## Collection    host -> every client (M11c, reliable): u16 the entries registered (bit i = Config.COLLECTION_ENTRIES row i), u32 kills
 ##               (COLLECTION_SIZE: 6 B), absolute, on every change and right after a welcome or a map entry.
+##               M12c (v14): the world message: the collection's 6 B + u8 the altar's tier (0..Config.ALTAR_TIER_MAX) + u8 the boss
+##               defeated (0 / 1): WORLD_SIZE 8 B, absolute, sent when either changed (the same RPC, `_rpc_tally`).
+## Enemy batch, M12c (v14): on the map with the boss's room (Config.MAP_DUNGEON) while the boss is not at rest (awake, or its death frames
+##               playing) a boss block follows the heretics (BOSS_SIZE 17 B; its size tells; a batch without one says it rests: asleep at
+##               home, or lying dead, as the last block or the snapshot's progress said, so a heretic fight beside a resting boss sends v13's
+##               bytes): u8 flags (bits 0-1 facing, bit 2 walking, bits 3-5 BossSim.State, bit 6 phase 2),
+##               u8 bits 0-1 the attack under way (BossSim.Attack) + marks (bit 2 stunned, 3 slowed, 4 taunted, 5 poisoned, 6 exposed), f32 x,
+##               f32 y, u16 state start (host tick - state ticks, low 16 bits: ATTACK, and DEAD while its death frames play; 0 otherwise),
+##               u16 hp, u16 max hp, u8 hit flash ticks left. The boss changes the batch like a heretic does (sent while it changes, a
+##               keyframe after, at once when it starts an attack: Config.NET_ENEMY_SEND_ON_ATTACK); a sleeping or dead boss changes nothing.
+## Shot events, M12c (v14), the boss fight's events (the dungeon's clients; the host's BossFight writes them on its arena's events):
+##               10 = an attack starts (u32 tick it started, u8 bits 0-1 BossSim.Attack (1..3), bits 2-3 its facing, bits 4-7 a volley's
+##               bolts, f32 x, f32 y (where it stands), u16 its direction's angle, u16 a volley's middle angle (angles in 1/65536 of a turn):
+##               18 B; its telegraph and blow follow from Config.BOSS_ATTACKS), 11 = stopped early (u32 tick, u8 bit 0 the attack under way, bit
+##               1 the fire (every bolt and circle): 6 B: a stun before the blow, its return home, a reset, its death, the map emptied),
+##               12 = a fire bolt let go (u32 id, u32 tick, f32 x, f32 y (its ground point), u16 angle: 19 B; it flies Config volley speed
+##               up to its range), 13 = a bolt stopped (u32 id, u32 tick, f32 x, f32 y, u8 why (BOLT_STOPS): 18 B), 14 = a burning circle
+##               (u32 id, u32 tick of age 0, f32 x, f32 y, u8 radius px, u8 telegraph ticks: 19 B; it erupts at tick + telegraph, burns
+##               Config show_ticks), 15 = a pillar's state (u8 pillar index, u32 tick, u8 miner hits, u8 dust ticks left (255 = none: not
+##               breaking), u8 flags: bit 0 rubble, what happened at that tick: bit 1 a refused blow (the refused mark), bit 2 a landed blow
+##               (the flash), bit 3 its debris landed, bit 4 the debris hit the boss, bits 5-7 the players it hit (at most 7): 9 B).
+##               SHOT_STOPS gains "pillar" and "boss" (a shot stopped by a pillar or the boss, M12a: sent as "spent" in v13).
 
 ## 2: facing left the input frames (the host derives it); late join gets the world as a snapshot.
 ## 3 (M2b): frames carry the look and requests, states the body action and held item, inventories,
@@ -215,7 +237,12 @@ extends RefCounted
 ## on CH_CREATURE and `_rpc_wild_keyframe`), the collection message (new RPC `_rpc_tally`), the shot stop "creature", the rare zone and
 ## the collection in the world snapshot (net/world_snapshot.gd) and the surface's content hash. The new RPCs sort after `_rpc_refused`, so
 ## a version 12 peer on either side still hears `refused: version` (M10-fix, tests/test_net.gd RPC_STABLE).
-const VERSION: int = 13
+## 14 (M12c): the boss fight, the cracked pillars, the relic and the altar's tier in sessions: the boss block in the dungeon's enemy batch, the
+## boss events in the shot events message (kinds 10 to 15), the shot stops "pillar" and "boss", the world message (the collection message +
+## the altar's tier and the boss defeated: 8 B), the progress block in every snapshot and the boss site in the dungeon's
+## (net/world_snapshot.gd), the altar's tier in the surface's content hash once above 0. No new RPC and no new request (the altar upgrade is a
+## CRAFT): `_rpc_hello` and `_rpc_refused` keep their numbers, so a version 13 peer on either side hears `refused: version`.
+const VERSION: int = 14
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -316,12 +343,44 @@ const CREATURE_REFUSED: int = 0x80
 const CREATURE_MARKS: int = CREATURE_POISONED | CREATURE_STUNNED | CREATURE_SLOWED | CREATURE_REFUSED
 ## M11c: a collection message.
 const COLLECTION_SIZE: int = 6
+## M12c: the world message (the collection + the altar's tier and the boss defeated), the enemy batch's boss block, the boss events (each with
+## its kind byte), why a fire bolt stopped, the boss stop event's bits, the pillar event's flags, the most pillars a site or an event names, a
+## pillar not breaking, an angle's units (a whole turn), the boss block's phase bit and marks.
+const WORLD_SIZE: int = COLLECTION_SIZE + 2
+const BOSS_SIZE: int = 17
+const BOSS_ATTACK_SIZE: int = 18
+const BOSS_STOP_SIZE: int = 6
+const BOLT_SIZE: int = 19
+const BOLT_END_SIZE: int = 18
+const CIRCLE_SIZE: int = 19
+const PILLAR_SIZE: int = 9
+const BOLT_STOPS: PackedStringArray = ["wall", "player", "spent"]
+const BOSS_STOP_ATTACK: int = 0x01
+const BOSS_STOP_FIRE: int = 0x02
+const PILLAR_FALLEN: int = 0x01
+const PILLAR_REFUSED: int = 0x02
+const PILLAR_HIT: int = 0x04
+const PILLAR_LANDED: int = 0x08
+const PILLAR_BOSS: int = 0x10
+const PILLAR_PLAYERS_SHIFT: int = 5
+const PILLAR_PLAYERS_MAX: int = 7
+const PILLARS_MAX: int = 8
+const PILLAR_NOT_FALLING: int = 255
+const ANGLE_UNITS: float = 65536.0
+const BOSS_FLAG_PHASE2: int = 0x40
+const BOSS_MARK_STUNNED: int = 0x04
+const BOSS_MARK_SLOWED: int = 0x08
+const BOSS_MARK_TAUNTED: int = 0x10
+const BOSS_MARK_POISONED: int = 0x20
+const BOSS_MARK_EXPOSED: int = 0x40
+const BOSS_MARKS: int = BOSS_MARK_STUNNED | BOSS_MARK_SLOWED | BOSS_MARK_TAUNTED | BOSS_MARK_POISONED | BOSS_MARK_EXPOSED
 ## IMPL (named in M6-fix): a thrown event whose landing point is farther than Config.THROW_RANGE_PX + this (px) from
 ## where it left the hand is refused (the host clamps it to the range; the slack takes float rounding).
 const FLASK_RANGE_SLACK_PX: float = 1.0
 const SHOT_EVENTS_MAX: int = 255
 ## Why a shot stopped (Arena.Shot.stopped_by), by wire index. M11c: "creature".
-const SHOT_STOPS: PackedStringArray = ["spent", "wall", "heretic", "shrine", "player", "creature"]
+## M12c: "pillar" (a cracked pillar in the way: the refused mark) and "boss" (it hit the boss).
+const SHOT_STOPS: PackedStringArray = ["spent", "wall", "heretic", "shrine", "player", "creature", "pillar", "boss"]
 ## M6b: why a thrown potion broke (Arena.Flask.stopped_by), by wire index.
 const FLASK_STOPS: PackedStringArray = ["landed", "wall"]
 const HELLO_SIZE: int = 3
@@ -631,13 +690,60 @@ class EnemyBatch:
 	var map: int = Config.MAP_SURFACE
 	var shrine_hp: int = 0
 	var enemies: Array[EnemyState] = []
+	## M12c: the boss block (null: the batch has none).
+	var boss: BossState = null
+
+
+## M12c: the boss as the host sends it (BossSim's drawn part; NetProtocol.boss_of).
+class BossState:
+	extends RefCounted
+	var pos: Vector2 = Vector2.ZERO
+	var facing: int = RigData.Dir.SOUTH
+	var walking: bool = false
+	var state: int = BossSim.State.SLEEP
+	var attack: int = BossSim.Attack.NONE
+	var phase: int = 1
+	## Host tick the state started (low 16 bits; 0 for the untimed ones, NetProtocol.boss_timed).
+	var since: int = 0
+	var hp: int = 1
+	var hp_max: int = 1
+	var flash: int = 0
+	var stunned: bool = false
+	var slowed: bool = false
+	var taunted: bool = false
+	var poisoned: bool = false
+	var exposed: bool = false
+
+	func marks() -> int:
+		return (NetProtocol.BOSS_MARK_STUNNED if stunned else 0) | (NetProtocol.BOSS_MARK_SLOWED if slowed else 0) \
+			| (NetProtocol.BOSS_MARK_TAUNTED if taunted else 0) | (NetProtocol.BOSS_MARK_POISONED if poisoned else 0) \
+			| (NetProtocol.BOSS_MARK_EXPOSED if exposed else 0)
+
+	func same_as(o: BossState) -> bool:
+		return o != null and pos == o.pos and facing == o.facing and walking == o.walking and state == o.state and attack == o.attack \
+			and phase == o.phase and since == o.since and hp == o.hp and hp_max == o.hp_max and flash == o.flash and marks() == o.marks()
+
+	func describe() -> String:
+		return "%s%s hp=%d/%d phase=%d at %.1f,%.1f" % [BossSim.STATE_NAMES[state], "/" + BossSim.ATTACK_NAMES[attack] if attack != 0 else "",
+			hp, hp_max, phase, pos.x, pos.y]
+
+
+## M12c: the world message (the collection and the world's progress, absolute).
+class WorldState:
+	extends RefCounted
+	var ok: bool = false
+	var bits: int = 0
+	var kills: int = 0
+	var tier: int = 0
+	var defeated: bool = false
 
 
 ## M4b: a shot let go (SPAWN) or stopped (END). M6b: a potion thrown (THROW) or broken (SPLASH). M9c: the skills' events (a skill's
 ## shot, a burst, a strike, a zone and its early end, a ward; see the file comment).
 class ShotEvent:
 	extends RefCounted
-	enum Kind { SPAWN, END, THROW, SPLASH, SKILL_SHOT, BURST, STRIKE, ZONE, ZONE_END, WARD }
+	enum Kind { SPAWN, END, THROW, SPLASH, SKILL_SHOT, BURST, STRIKE, ZONE, ZONE_END, WARD, BOSS_ATTACK, BOSS_STOP, BOLT, BOLT_END, CIRCLE,
+		PILLAR }
 	var kind: int = Kind.SPAWN
 	var id: int = 0
 	## SPAWN: the weapon item, the shooter's slot (255 = none), the aim code. THROW / SPLASH: the potion item;
@@ -661,12 +767,25 @@ class ShotEvent:
 	var ticks: int = 0
 	var slots: int = 0
 	var pct: int = 0
+	## M12c (the boss events): BOSS_ATTACK: `sub` the attack, `face` its facing, `pos` where it stands, `angle` its direction, `base` a
+	## volley's middle angle, `count` its bolts; BOSS_STOP: `flags` (BOSS_STOP_*); BOLT: `angle`; BOLT_END: `why` (BOLT_STOPS); CIRCLE:
+	## `radius`, `ticks` its telegraph; PILLAR: `id` the pillar's index, `hits`, `falling` (dust ticks left, -1 = none), `flags` (PILLAR_*).
+	## The angles are the wire's (NetProtocol.wire_angle) once decoded.
+	var face: int = 0
+	var angle: float = 0.0
+	var base: float = 0.0
+	var count: int = 0
+	var hits: int = 0
+	var falling: int = -1
+	var flags: int = 0
 
 	func same_as(o: ShotEvent) -> bool:
 		return o != null and kind == o.kind and id == o.id and item == o.item and owner == o.owner and aim == o.aim \
 			and tick == o.tick and pos == o.pos and why == o.why and target == o.target and sub == o.sub \
 			and follow == o.follow and radius == o.radius and arc_deg == o.arc_deg and ticks == o.ticks and slots == o.slots \
-			and pct == o.pct
+			and pct == o.pct and face == o.face and NetProtocol.angle_code(angle) == NetProtocol.angle_code(o.angle) \
+			and NetProtocol.angle_code(base) == NetProtocol.angle_code(o.base) and count == o.count and hits == o.hits \
+			and falling == o.falling and flags == o.flags
 
 
 class ShotEvents:
@@ -1592,10 +1711,11 @@ static func enemy_of(h: HereticSim, tick: int) -> EnemyState:
 	return e
 
 
-static func encode_enemies(tick: int, map: int, shrine_hp: int, enemies: Array[EnemyState]) -> PackedByteArray:
+## M12c: `boss` (null = none) goes after the heretics (the boss block).
+static func encode_enemies(tick: int, map: int, shrine_hp: int, enemies: Array[EnemyState], boss: BossState = null) -> PackedByteArray:
 	var n: int = mini(enemies.size(), ENEMY_BATCH_MAX)
 	var out: PackedByteArray = PackedByteArray()
-	out.resize(ENEMY_HEADER + ENEMY_SIZE * n)
+	out.resize(ENEMY_HEADER + ENEMY_SIZE * n + (BOSS_SIZE if boss != null else 0))
 	out.encode_u32(0, tick)
 	out.encode_u8(4, map)
 	out.encode_u16(5, clampi(shrine_hp, 0, 65535))
@@ -1611,16 +1731,20 @@ static func encode_enemies(tick: int, map: int, shrine_hp: int, enemies: Array[E
 		out.encode_u8(at + 15, clampi(e.hp, 0, 255))
 		out.encode_u8(at + 16, clampi(e.flash, 0, 255))
 		out.encode_u8(at + 17, e.marks())  # M9c
+	if boss != null:
+		_put_boss(out, ENEMY_HEADER + ENEMY_SIZE * n, boss)  # M12c
 	return out
 
 
-## The batch, or ok = false (size, map, count, a state or field out of range, a NaN, ids twice).
+## The batch, or ok = false (size, map, count, a state or field out of range, a NaN, ids twice; M12c: a boss block off the boss's map or
+## out of range).
 static func decode_enemies(bytes: PackedByteArray) -> EnemyBatch:
 	var b: EnemyBatch = EnemyBatch.new()
 	if bytes.size() < ENEMY_HEADER:
 		return b
 	var count: int = bytes.decode_u8(7)
-	if count > ENEMY_BATCH_MAX or bytes.size() != ENEMY_HEADER + ENEMY_SIZE * count:
+	var heretics_end: int = ENEMY_HEADER + ENEMY_SIZE * count
+	if count > ENEMY_BATCH_MAX or (bytes.size() != heretics_end and bytes.size() != heretics_end + BOSS_SIZE):
 		return b
 	b.tick = bytes.decode_u32(0)
 	b.map = bytes.decode_u8(4)
@@ -1652,8 +1776,109 @@ static func decode_enemies(bytes: PackedByteArray) -> EnemyBatch:
 			return b
 		ids[e.id] = true
 		b.enemies.append(e)
+	if bytes.size() == heretics_end + BOSS_SIZE:
+		# M12c: the boss block, only on the boss's map.
+		b.boss = _get_boss(bytes, heretics_end)
+		if b.boss == null or b.map != Config.MAP_DUNGEON:
+			b.boss = null
+			return b
 	b.ok = true
 	return b
+
+
+# --- the boss (M12c) ------------------------------------------------------------------------------------------------
+
+## Whether boss state `state` sends when it started: an attack, and its death while its frames play (`state_ticks` since then).
+static func boss_timed(state: int, state_ticks: int) -> bool:
+	return state == BossSim.State.ATTACK or (state == BossSim.State.DEAD and state_ticks < boss_death_ticks())
+
+
+## Ticks the boss's death frames take (a dead boss sent later is drawn lying: its state start 0).
+static func boss_death_ticks() -> int:
+	return HereticSim.FRAME_COUNTS[HereticSim.Anim.DEATH] * Config.HERETIC_DEATH_FRAME_TICKS
+
+
+## The boss of fight `f` as the host sends it at host tick `tick` (null: no boss, or it rests: asleep, or dead with its death frames played).
+static func boss_of(f: BossFight, tick: int) -> BossState:
+	if f == null or f.sim == null or boss_at_rest(f.sim):
+		return null
+	var b: BossSim = f.sim
+	var o: BossState = BossState.new()
+	o.pos = b.pos
+	o.facing = b.facing
+	o.walking = b.walking
+	o.state = b.state
+	o.attack = b.attack if b.state == BossSim.State.ATTACK else BossSim.Attack.NONE
+	o.phase = b.phase
+	o.since = (tick - b.state_ticks) & 0xFFFF if boss_timed(b.state, b.state_ticks) else 0
+	o.hp = b.hp
+	o.hp_max = b.hp_max
+	o.flash = b.flash_ticks if b.alive() else 0
+	o.stunned = b.stunned()
+	o.slowed = b.slowed()
+	o.taunted = b.taunted()
+	o.poisoned = b.poisoned()
+	o.exposed = b.exposed()
+	return o
+
+
+## Whether boss `b` rests (no block in its map's batches): asleep, or dead with its death frames played.
+static func boss_at_rest(b: BossSim) -> bool:
+	return b.state == BossSim.State.SLEEP or (b.state == BossSim.State.DEAD and b.state_ticks >= boss_death_ticks())
+
+
+static func _put_boss(out: PackedByteArray, at: int, o: BossState) -> void:
+	out.encode_u8(at, (o.facing & 3) | (4 if o.walking else 0) | ((o.state & 7) << 3) | (BOSS_FLAG_PHASE2 if o.phase >= 2 else 0))
+	out.encode_u8(at + 1, (o.attack & 3) | (o.marks() & BOSS_MARKS))
+	out.encode_float(at + 2, o.pos.x)
+	out.encode_float(at + 6, o.pos.y)
+	out.encode_u16(at + 10, o.since & 0xFFFF)
+	out.encode_u16(at + 12, clampi(o.hp, 0, 65535))
+	out.encode_u16(at + 14, clampi(o.hp_max, 0, 65535))
+	out.encode_u8(at + 16, clampi(o.flash, 0, 255))
+
+
+## The boss block at `at`, or null (a reserved bit, a state or attack out of range, an attack outside ATTACK, HP above its max or above the
+## most it wakes with (BossSim.hp_for at Config.BOSS players_cap), a living boss at 0 HP, a dead one with HP, marks, a flash or a walk, a
+## start for an untimed state, a flash past Config.BOSS_FLASH_TICKS, a NaN).
+static func _get_boss(bytes: PackedByteArray, at: int) -> BossState:
+	var flags: int = bytes.decode_u8(at)
+	var info: int = bytes.decode_u8(at + 1)
+	var o: BossState = BossState.new()
+	o.facing = flags & 3
+	o.walking = (flags & 4) != 0
+	o.state = (flags >> 3) & 7
+	o.phase = 2 if (flags & BOSS_FLAG_PHASE2) != 0 else 1
+	o.attack = info & 3
+	o.stunned = (info & BOSS_MARK_STUNNED) != 0
+	o.slowed = (info & BOSS_MARK_SLOWED) != 0
+	o.taunted = (info & BOSS_MARK_TAUNTED) != 0
+	o.poisoned = (info & BOSS_MARK_POISONED) != 0
+	o.exposed = (info & BOSS_MARK_EXPOSED) != 0
+	o.pos = Vector2(bytes.decode_float(at + 2), bytes.decode_float(at + 6))
+	o.since = bytes.decode_u16(at + 10)
+	o.hp = bytes.decode_u16(at + 12)
+	o.hp_max = bytes.decode_u16(at + 14)
+	o.flash = bytes.decode_u8(at + 16)
+	var dead: bool = o.state == BossSim.State.DEAD
+	if (flags & 0x80) != 0 or (info & 0x80) != 0 or o.state >= BossSim.STATE_NAMES.size() \
+			or (o.attack != BossSim.Attack.NONE) != (o.state == BossSim.State.ATTACK) or o.hp_max < 1 \
+			or o.hp_max > BossSim.hp_for(BossSim.num_i("players_cap")) or o.hp > o.hp_max or (o.hp == 0) != dead \
+			or (dead and (o.marks() != 0 or o.flash != 0 or o.walking)) or o.flash > Config.BOSS_FLASH_TICKS \
+			or (o.since != 0 and o.state != BossSim.State.ATTACK and not dead) or not (is_finite(o.pos.x) and is_finite(o.pos.y)):
+		return null
+	return o
+
+
+## M12c: an angle (radians) as the wire's u16 (1/65536 of a turn).
+static func angle_code(angle: float) -> int:
+	return posmod(roundi(angle / TAU * ANGLE_UNITS), roundi(ANGLE_UNITS))
+
+
+## M12c: the angle (radians, -PI..PI) of wire code `code`.
+static func wire_angle(code: int) -> float:
+	var a: float = float(code) / ANGLE_UNITS * TAU
+	return a - TAU if a > PI else a
 
 
 static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
@@ -1742,6 +1967,8 @@ static func encode_shots(map: int, events: Array[ShotEvent]) -> PackedByteArray:
 			out.encode_u32(at + 3, e.tick)
 			out.encode_u16(at + 7, clampi(e.ticks, 0, 65535))
 			out.encode_u8(at + 9, clampi(e.pct, 0, 255))
+		elif e.kind >= ShotEvent.Kind.BOSS_ATTACK and e.kind <= ShotEvent.Kind.PILLAR:
+			_put_boss_event(out, e)  # M12c
 		else:
 			out.resize(at + SHOT_END_SIZE)
 			out.encode_u8(at, ShotEvent.Kind.END)
@@ -1890,11 +2117,131 @@ static func decode_shots(bytes: PackedByteArray) -> ShotEvents:
 					or e.pct <= 0 or e.pct > 100:
 				return s
 			at += WARD_SIZE
+		elif e.kind >= ShotEvent.Kind.BOSS_ATTACK and e.kind <= ShotEvent.Kind.PILLAR:
+			var size: int = boss_event_size(e.kind)
+			if at + size > bytes.size() or not _get_boss_event(bytes, at, e):
+				return s
+			at += size  # M12c
 		else:
 			return s
 		s.events.append(e)
 	s.ok = at == bytes.size()
 	return s
+
+
+## M12c: the bytes of a boss event of kind `kind` (its kind byte included).
+static func boss_event_size(kind: int) -> int:
+	match kind:
+		ShotEvent.Kind.BOSS_ATTACK:
+			return BOSS_ATTACK_SIZE
+		ShotEvent.Kind.BOSS_STOP:
+			return BOSS_STOP_SIZE
+		ShotEvent.Kind.BOLT:
+			return BOLT_SIZE
+		ShotEvent.Kind.BOLT_END:
+			return BOLT_END_SIZE
+		ShotEvent.Kind.CIRCLE:
+			return CIRCLE_SIZE
+		ShotEvent.Kind.PILLAR:
+			return PILLAR_SIZE
+	return 0
+
+
+static func _put_boss_event(out: PackedByteArray, e: ShotEvent) -> void:
+	var at: int = out.size()
+	out.resize(at + boss_event_size(e.kind))
+	out.encode_u8(at, e.kind)
+	match e.kind:
+		ShotEvent.Kind.BOSS_ATTACK:
+			out.encode_u32(at + 1, e.tick)
+			out.encode_u8(at + 5, (e.sub & 3) | ((e.face & 3) << 2) | (clampi(e.count, 0, 15) << 4))
+			out.encode_float(at + 6, e.pos.x)
+			out.encode_float(at + 10, e.pos.y)
+			out.encode_u16(at + 14, angle_code(e.angle))
+			out.encode_u16(at + 16, angle_code(e.base))
+		ShotEvent.Kind.BOSS_STOP:
+			out.encode_u32(at + 1, e.tick)
+			out.encode_u8(at + 5, e.flags & (BOSS_STOP_ATTACK | BOSS_STOP_FIRE))
+		ShotEvent.Kind.BOLT:
+			out.encode_u32(at + 1, e.id)
+			out.encode_u32(at + 5, e.tick)
+			out.encode_float(at + 9, e.pos.x)
+			out.encode_float(at + 13, e.pos.y)
+			out.encode_u16(at + 17, angle_code(e.angle))
+		ShotEvent.Kind.BOLT_END:
+			out.encode_u32(at + 1, e.id)
+			out.encode_u32(at + 5, e.tick)
+			out.encode_float(at + 9, e.pos.x)
+			out.encode_float(at + 13, e.pos.y)
+			out.encode_u8(at + 17, clampi(e.why, 0, 255))
+		ShotEvent.Kind.CIRCLE:
+			out.encode_u32(at + 1, e.id)
+			out.encode_u32(at + 5, e.tick)
+			out.encode_float(at + 9, e.pos.x)
+			out.encode_float(at + 13, e.pos.y)
+			out.encode_u8(at + 17, clampi(roundi(e.radius), 0, 255))
+			out.encode_u8(at + 18, clampi(e.ticks, 0, 255))
+		ShotEvent.Kind.PILLAR:
+			out.encode_u8(at + 1, clampi(e.id, 0, 255))
+			out.encode_u32(at + 2, e.tick)
+			out.encode_u8(at + 6, clampi(e.hits, 0, 255))
+			out.encode_u8(at + 7, PILLAR_NOT_FALLING if e.falling < 0 else clampi(e.falling, 0, 254))
+			out.encode_u8(at + 8, e.flags & 0xFF)
+
+
+## M12c: the boss event at `at` into `e` (its kind set): false when it is out of range (an attack 0 or a volley without bolts or another
+## attack with some, a stop naming nothing, a bolt's why, a circle of radius or telegraph 0, a pillar past PILLARS_MAX, hits past the broken
+## state's, dust past the telegraph, rubble that is not broken, players hit without a landing, a NaN).
+static func _get_boss_event(bytes: PackedByteArray, at: int, e: ShotEvent) -> bool:
+	match e.kind:
+		ShotEvent.Kind.BOSS_ATTACK:
+			e.tick = bytes.decode_u32(at + 1)
+			var bits: int = bytes.decode_u8(at + 5)
+			e.sub = bits & 3
+			e.face = (bits >> 2) & 3
+			e.count = bits >> 4
+			e.pos = Vector2(bytes.decode_float(at + 6), bytes.decode_float(at + 10))
+			e.angle = wire_angle(bytes.decode_u16(at + 14))
+			e.base = wire_angle(bytes.decode_u16(at + 16))
+			return e.sub != BossSim.Attack.NONE and (e.count > 0) == (e.sub == BossSim.Attack.VOLLEY) \
+				and is_finite(e.pos.x) and is_finite(e.pos.y)
+		ShotEvent.Kind.BOSS_STOP:
+			e.tick = bytes.decode_u32(at + 1)
+			e.flags = bytes.decode_u8(at + 5)
+			return e.flags != 0 and (e.flags & ~(BOSS_STOP_ATTACK | BOSS_STOP_FIRE)) == 0
+		ShotEvent.Kind.BOLT:
+			e.id = bytes.decode_u32(at + 1)
+			e.tick = bytes.decode_u32(at + 5)
+			e.pos = Vector2(bytes.decode_float(at + 9), bytes.decode_float(at + 13))
+			e.angle = wire_angle(bytes.decode_u16(at + 17))
+			return is_finite(e.pos.x) and is_finite(e.pos.y)
+		ShotEvent.Kind.BOLT_END:
+			e.id = bytes.decode_u32(at + 1)
+			e.tick = bytes.decode_u32(at + 5)
+			e.pos = Vector2(bytes.decode_float(at + 9), bytes.decode_float(at + 13))
+			e.why = bytes.decode_u8(at + 17)
+			return e.why < BOLT_STOPS.size() and is_finite(e.pos.x) and is_finite(e.pos.y)
+		ShotEvent.Kind.CIRCLE:
+			e.id = bytes.decode_u32(at + 1)
+			e.tick = bytes.decode_u32(at + 5)
+			e.pos = Vector2(bytes.decode_float(at + 9), bytes.decode_float(at + 13))
+			e.radius = bytes.decode_u8(at + 17)
+			e.ticks = bytes.decode_u8(at + 18)
+			return e.radius > 0.0 and e.ticks > 0 and is_finite(e.pos.x) and is_finite(e.pos.y)
+		ShotEvent.Kind.PILLAR:
+			e.id = bytes.decode_u8(at + 1)
+			e.tick = bytes.decode_u32(at + 2)
+			e.hits = bytes.decode_u8(at + 6)
+			var dust: int = bytes.decode_u8(at + 7)
+			e.falling = -1 if dust == PILLAR_NOT_FALLING else dust
+			e.flags = bytes.decode_u8(at + 8)
+			var broken: int = BossFight.Pillar.hits_per_state() * 3
+			var fallen: bool = (e.flags & PILLAR_FALLEN) != 0
+			return e.id < PILLARS_MAX and e.hits <= broken and e.falling <= roundi(Config.BOSS_PILLARS["telegraph_ticks"]) \
+				and (not fallen or (e.hits == broken and e.falling < 0)) and (e.falling < 0 or e.hits == broken) \
+				and ((e.flags & PILLAR_LANDED) != 0 or (e.flags & (PILLAR_BOSS | (PILLAR_PLAYERS_MAX << PILLAR_PLAYERS_SHIFT))) == 0) \
+				and ((e.flags & PILLAR_LANDED) == 0 or fallen)
+	return false
 
 
 ## M9c: a slot byte naming a player (below Config.MAX_PLAYERS) or nobody (NO_SLOT).
@@ -2190,6 +2537,32 @@ static func decode_collection(bytes: PackedByteArray) -> CollectionState:
 	c.kills = bytes.decode_u32(2)
 	c.ok = c.bits < (1 << Collection.total())
 	return c
+
+
+## M12c: the world message: collection `col` (null = none: nothing registered) and progress `progress` (null = tier 0, nothing defeated).
+static func encode_world(col: Collection, progress: WorldProgress) -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(WORLD_SIZE)
+	out.encode_u16(0, col.bits() if col != null else 0)
+	out.encode_u32(2, col.kills if col != null else 0)
+	out.encode_u8(COLLECTION_SIZE, progress.altar_tier if progress != null else 0)
+	out.encode_u8(COLLECTION_SIZE + 1, 1 if progress != null and progress.boss_defeated else 0)
+	return out
+
+
+## M12c: the world message, or ok = false (its size, an entry the table does not have, a tier past Config.ALTAR_TIER_MAX, a flag past 1).
+static func decode_world(bytes: PackedByteArray) -> WorldState:
+	var w: WorldState = WorldState.new()
+	if bytes.size() != WORLD_SIZE:
+		return w
+	var c: CollectionState = decode_collection(bytes.slice(0, COLLECTION_SIZE))
+	w.bits = c.bits
+	w.kills = c.kills
+	w.tier = bytes.decode_u8(COLLECTION_SIZE)
+	var flag: int = bytes.decode_u8(COLLECTION_SIZE + 1)
+	w.defeated = flag == 1
+	w.ok = c.ok and w.tier <= Config.ALTAR_TIER_MAX and flag <= 1
+	return w
 
 
 ## M6b: the potion at item index `index` (&"" when it is no potion).

@@ -328,11 +328,15 @@ func _check_collection_codec() -> void:
 	check(copy.benefit(&"class") == false, "and its benefit with it")
 
 
+## M12c: the bytes after the collection's block in a snapshot of a world without progress and boss site (a 0 each).
+const M12C_TAIL: int = 2
+
+
 func _check_snapshot() -> void:
 	var data: WorldData = SurfaceGen.generate(Config.DEFAULT_SEED)
 	check_eq(data.content_hash(), SurfaceGen.GOLDEN_HASH, "a generated world has no zone and no collection: its golden hash")
 	var bare: PackedByteArray = WorldSnapshot.raw_bytes(data)
-	check(bare[bare.size() - 1] == 0 and bare[bare.size() - 2] == 0, "no zone, no collection: a 0 each")
+	check(bare[bare.size() - 1 - M12C_TAIL] == 0 and bare[bare.size() - 2 - M12C_TAIL] == 0, "no zone, no collection: a 0 each")
 	var d2: WorldData = WorldSnapshot.decode_raw(bare)
 	check(d2 != null and d2.rare_zone == null and d2.collection == null, "and none on the other side")
 	# With both.
@@ -361,7 +365,7 @@ func _check_snapshot() -> void:
 	var p: WorldSnapshot.Packed = WorldSnapshot.encode(data)
 	check(WorldSnapshot.unpack(p.bytes, p.raw_size) != null, "packed and unpacked")
 	# Every way it can be wrong.
-	var col_at: int = raw.size() - 1 - WorldSnapshot.COLLECTION_BYTES
+	var col_at: int = raw.size() - 1 - WorldSnapshot.COLLECTION_BYTES - M12C_TAIL
 	var zone_at: int = col_at - WorldSnapshot.ZONE_BYTES - 1
 	check_eq(raw[zone_at], 1, "the zone's flag")
 	check_eq(raw[col_at], 1, "the collection's flag")
@@ -399,12 +403,14 @@ func _check_snapshot() -> void:
 	cave.collection = data.collection
 	check_eq(cave.content_hash(), cave_hash, "the dungeon's hash does not move with the world's collection")
 	var cave_raw: PackedByteArray = WorldSnapshot.raw_bytes(cave)
-	check(cave_raw[cave_raw.size() - 1] == 0 and cave_raw[cave_raw.size() - 2] == 0, "the dungeon's snapshot has neither")
-	var forged: PackedByteArray = cave_raw.slice(0, cave_raw.size() - 1)
+	check(cave_raw[cave_raw.size() - 1 - M12C_TAIL] == 0 and cave_raw[cave_raw.size() - 2 - M12C_TAIL] == 0, "the dungeon's snapshot has neither")
+	var tail: PackedByteArray = cave_raw.slice(cave_raw.size() - M12C_TAIL)
+	var forged: PackedByteArray = cave_raw.slice(0, cave_raw.size() - 1 - M12C_TAIL)
 	forged.append(1)
 	forged.append_array(NetProtocol.encode_collection(data.collection))
+	forged.append_array(tail)
 	check(WorldSnapshot.decode_raw(forged) == null, "a dungeon snapshot with a collection is refused")
-	forged = cave_raw.slice(0, cave_raw.size() - 2)
+	forged = cave_raw.slice(0, cave_raw.size() - 2 - M12C_TAIL)
 	var inside: PackedByteArray = PackedByteArray()
 	inside.resize(1 + WorldSnapshot.ZONE_BYTES)
 	inside.encode_u8(0, 1)
@@ -413,6 +419,7 @@ func _check_snapshot() -> void:
 	inside.encode_u8(5, 5)
 	forged.append_array(inside)
 	forged.append(0)
+	forged.append_array(tail)
 	check(WorldSnapshot.decode_raw(forged) == null, "a dungeon snapshot with a rare zone is refused")
 
 

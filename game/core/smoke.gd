@@ -98,6 +98,7 @@ static func run(tree: SceneTree) -> Report:
 	_check_net_wild(r)  # M11c
 	_check_collection(r)  # M11b
 	_check_boss(r)  # M12a
+	_check_net_boss(r)  # M12c
 	_check_light(r)
 	_check_net(r)
 	r.fields.insert(0, "exported=%s" % str(OS.has_feature("template")))
@@ -1561,6 +1562,95 @@ static func _check_net_wild(r: Report) -> void:
 		and got.collection.describe() == data.collection.describe(), "the zone and the collection come with the surface's snapshot")
 	r.fields.append("wild_wire=%dB/%dB/%dB/%dB zone_snapshot=%dB" % [NetProtocol.OP_SIZES[NetProtocol.Op.CAPTURE] + 2, NetProtocol.CREATURE_SIZE,
 		batch.size(), NetProtocol.COLLECTION_SIZE, raw.size() - bare])
+
+
+## M12c: wire v14 on a host-side fight (an arena with its events on): the seed-1 dungeon's snapshot brings the boss site to a client's NetCombat,
+## which draws the host's fight from its batch and events: a cleave's telegraph at its age, a pillar broken by the miner (its dust, its debris on
+## the boss: 12% of its max HP, its rubble), the kill (dead, one relic for the one player) and the world message's tier after the altar upgrade.
+## Field `boss_wire=<the boss block>B/<an attack event>B/<a bolt>B/<a circle>B/<a pillar event>B/<the world message>B site=<the site in the
+## snapshot>B boss_net=<hp drawn>/<hp host>/<pillar looks drawn>:<host> relic=<n> tier=<n>`.
+static func _check_net_boss(r: Report) -> void:
+	var dungeon: WorldData = DungeonGen.generate(Config.DEFAULT_SEED)
+	dungeon.progress = WorldProgress.new()
+	var a: Arena = Arena.new()
+	a.setup(dungeon, Config.DEFAULT_SEED)
+	a.logging = true
+	a.boss = BossFight.new()
+	a.boss.setup(a, Config.DEFAULT_SEED)
+	var bare: int = WorldSnapshot.raw_bytes(DungeonGen.generate(Config.DEFAULT_SEED)).size()
+	var got: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(dungeon))
+	r.expect(got != null and got.boss_site != null and got.content_hash() == DungeonGen.GOLDEN_HASH, "M12c: the dungeon's snapshot brings the boss site (golden hash)")
+	if got == null or got.boss_site == null:
+		return
+	var site: int = WorldSnapshot.raw_bytes(dungeon).size() - bare
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_DUNGEON, got)
+	r.expect(nc.boss != null and nc.arena.boss != null and got.blockers.size() == dungeon.blockers.size(), "M12c: a client's mirror fight, its pillars blocking")
+	var f: BossFight = a.boss
+	var p: Player = Player.new()
+	p.setup(dungeon, "miner", f.sim.home + Vector2(0, 24))
+	p.inventory.add(Mining.PICKAXE, 1)
+	var players: Array[Player] = [p]
+	var t: int = 100
+	t = _boss_steps(a, nc, players, t, 1)
+	f.begin_attack(BossSim.Attack.CLEAVE, p, players)
+	_boss_feed(a, nc, t)
+	t = _boss_steps(a, nc, players, t, 10)
+	nc.sample(float(t), SessionClient.interp_delay_ticks())
+	var drawn: BossSim = nc.arena.boss.sim
+	r.expect(drawn.state == BossSim.State.ATTACK and drawn.attack == BossSim.Attack.CLEAVE and drawn.state_ticks == f.sim.state_ticks,
+		"M12c: the client draws the cleave's telegraph at the host's age (%d)" % f.sim.state_ticks)
+	f.frozen = true
+	t = _boss_steps(a, nc, players, t, 60)
+	f.set_pillar_hits(0, BossFight.Pillar.hits_per_state() * 3 - 1)
+	f.sim.pos = f.pillars[0].centre() + Vector2(8, 4)
+	f.blow(0, p.get_instance_id(), true)
+	_boss_feed(a, nc, t)
+	var hp0: int = f.sim.hp
+	t = _boss_steps(a, nc, players, t, roundi(Config.BOSS_PILLARS["telegraph_ticks"]) + 2)
+	nc.sample(float(t), SessionClient.interp_delay_ticks())
+	r.expect(f.pillars[0].fallen and hp0 - f.sim.hp == maxi(ceili(f.sim.hp_max * Config.BOSS["debris_damage_pct"] / 100.0), 1)
+		and nc.boss.debris_on_boss == 1 and nc.boss.last.hp == f.sim.hp and nc.boss.looks() == SessionHost._looks(f)
+		and not got.blockers.has(f.pillars[0].tile), "M12c: the miner's pillar falls on the boss on both sides (12%, rubble walkable)")
+	f.hit(f.sim.hp, p.get_instance_id())
+	t = _boss_steps(a, nc, players, t, 12)
+	nc.sample(float(t), SessionClient.interp_delay_ticks())
+	var relics: int = p.inventory.count_of(Config.BOSS_RELIC)
+	r.expect(not f.sim.alive() and nc.arena.boss.sim.state == BossSim.State.DEAD and relics == 1 and dungeon.progress.boss_defeated,
+		"M12c: killed: drawn dead, one relic, the flag")
+	var progress: WorldProgress = WorldProgress.new()
+	var o: Crafting.Outcome = Crafting.craft(Crafting.recipe(Config.ALTAR_UPGRADE), "miner", p.inventory, progress)
+	var world: NetProtocol.WorldState = NetProtocol.decode_world(NetProtocol.encode_world(null, progress))
+	r.expect(o.ok() and world.ok and world.tier == 1, "M12c: the upgrade's tier in the world message")
+	var sizes: PackedInt32Array = []
+	for kind: int in [NetProtocol.ShotEvent.Kind.BOSS_ATTACK, NetProtocol.ShotEvent.Kind.BOLT, NetProtocol.ShotEvent.Kind.CIRCLE,
+			NetProtocol.ShotEvent.Kind.PILLAR]:
+		sizes.append(NetProtocol.boss_event_size(kind))
+	r.fields.append("boss_wire=%dB/%dB/%dB/%dB/%dB/%dB site=%dB boss_net=%d/%d/%s:%s relics=%d tier=%d" % [NetProtocol.BOSS_SIZE, sizes[0], sizes[1],
+		sizes[2], sizes[3], NetProtocol.WORLD_SIZE, site, nc.boss.last.hp if nc.boss.last != null else -1, f.sim.hp, nc.boss.looks(),
+		SessionHost._looks(f), relics, world.tier])
+	p.free()
+
+
+## M12c: arena `a`'s batch with its boss block and its events since the last call at host tick `tick`, into client combat `nc`.
+static func _boss_feed(a: Arena, nc: NetCombat, tick: int) -> void:
+	var batch: PackedByteArray = NetProtocol.encode_enemies(tick, Config.MAP_DUNGEON, a.shrine_hp_now(), a.enemy_states(tick),
+		NetProtocol.boss_of(a.boss, tick))
+	nc.on_batch(NetProtocol.decode_enemies(batch), batch, false)
+	if not a.shot_events.is_empty():
+		nc.on_shots(NetProtocol.decode_shots(NetProtocol.encode_shots(Config.MAP_DUNGEON, a.shot_events)))
+		a.shot_events.clear()
+
+
+## M12c: `n` host ticks of arena `a` from `tick` (its events and batch fed to `nc` each one). Returns the tick after them.
+static func _boss_steps(a: Arena, nc: NetCombat, players: Array[Player], tick: int, n: int) -> int:
+	var t: int = tick
+	for i: int in n:
+		t += 1
+		a.now = t
+		a.step(players)
+		_boss_feed(a, nc, t)
+	return t
 
 
 ## M10b: prayer `pr`'s events since the last call as the host's wire events (its players' slots `slots`) into `out`; cleared.

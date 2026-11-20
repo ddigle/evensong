@@ -325,6 +325,8 @@ func _run() -> void:
 			await _check_boss()  # M12a
 		if _want("m12b"):
 			await _check_m12b()  # M12b
+		if _want("boss_net"):
+			await _check_boss_net()  # M12c
 	print("EVENSONG_RENDER done %s failed_parts=%d window=%dx%d" % ["ok" if failed == 0 else "FAIL", failed,
 		root.size.x, root.size.y])
 	quit(0 if failed == 0 else 1)
@@ -5155,6 +5157,191 @@ static func _same_count(a: Image, b: Image, top: Vector2i, size: int) -> int:
 			if a.get_pixelv(top + Vector2i(x, y)) == b.get_pixelv(top + Vector2i(x, y)):
 				n += 1
 	return n
+
+
+# --- M12c ---------------------------------------------------------------------------------------------------------------
+
+## The pixels inside `rect` (screen px) that differ between `a` and `b`.
+static func _diff_in(a: Image, b: Image, rect: Rect2i) -> int:
+	var n: int = 0
+	var r: Rect2i = rect.intersection(Rect2i(Vector2i.ZERO, Vector2i(a.get_width(), a.get_height())))
+	for y: int in range(r.position.y, r.end.y):
+		for x: int in range(r.position.x, r.end.x):
+			if a.get_pixel(x, y) != b.get_pixel(x, y):
+				n += 1
+	return n
+
+
+## M12c: what a client draws of the boss fight from the wire is the host's picture to the pixel, in the dark dungeon: a host fight on the seed-1
+## dungeon with the boss mid-volley (its bolts in the air), burning circles waiting, one pillar cracked, one badly cracked, one breaking (its
+## dust) and one rubble, the boss exposed, taunted and slowed, drawn by a BossFightView on the host's dungeon; then the client's dungeon from
+## the host's map snapshot, its NetCombat fed the batch with the boss block and the fight's late-join events (BossFight.snapshot_events) and
+## sampled at that tick, drawn by its own BossFightView. The staff's flame and light follow the clock, not the wire: both hidden. Then the
+## shrine's demon-orange fire on the client's dungeon (the snapshot's standing shrine) and a client's surface at tier 1 from the host's
+## snapshot: candA's pixels and the 9-tile light as the host draws them.
+func _check_boss_net() -> void:
+	world.visible = false
+	var host_w: GameWorld = _dungeon_world()
+	var client_w: GameWorld = _dungeon_world(false)
+	host_w.data.progress = WorldProgress.new()
+	var a: Arena = Arena.new()
+	a.setup(host_w.data, Config.DEFAULT_SEED)
+	a.spawning = false
+	a.logging = true
+	a.boss = BossFight.new()
+	a.boss.setup(a, Config.DEFAULT_SEED)
+	var f: BossFight = a.boss
+	var p: Player = Player.new()
+	p.setup(host_w.data, "paladin", f.sim.home + Vector2(-24, 28))
+	var players: Array[Player] = [p]
+	var tick: int = 4000
+	a.now = tick
+	a.step(players)
+	f.set_pillar_hits(0, BossFight.Pillar.hits_per_state())
+	f.set_pillar_hits(1, BossFight.Pillar.hits_per_state() * 2 + 1)
+	f.set_pillar_hits(2, BossFight.Pillar.hits_per_state() * 3 - 1)
+	f.set_pillar_hits(3, BossFight.Pillar.hits_per_state() * 3)
+	f.begin_attack(BossSim.Attack.BURN, p, players)
+	for i: int in BossSim.attack_length(BossSim.Attack.BURN) + 1:
+		tick += 1
+		a.now = tick
+		a.step(players)
+	f.begin_attack(BossSim.Attack.VOLLEY, p, players)
+	for i2: int in BossSim.strike_tick(BossSim.Attack.VOLLEY) + 9:
+		tick += 1
+		a.now = tick
+		a.step(players)
+		if i2 == BossSim.strike_tick(BossSim.Attack.VOLLEY) - 10:
+			f.blow(2, p.get_instance_id(), true)  # its dust comes down while the bolts fly
+	f.sim.exposed_ticks = 50
+	f.sim.taunt_by = p.get_instance_id()
+	f.sim.taunt_ticks = 50
+	f.sim.slow_pct = 20
+	f.sim.slow_ticks = 50
+	f.sim.flash_ticks = 0
+	var ready: bool = not f.bolts.is_empty() and not f.circles.is_empty() and f.pillars[2].falling > 0 and f.sim.state == BossSim.State.ATTACK
+	host_w.visible = true
+	host_w.entities.visible = true
+	host_w.lighting.set_evening(true)
+	var hview: BossFightView = BossFightView.new()
+	host_w.add_child(hview)
+	hview.setup(f, host_w.entities)
+	_quiet_staff(hview)
+	host_w.camera.make_current()
+	host_w.camera.position = Vector2(f.room.floor_px().get_center().round())
+	host_w.camera.reset_smoothing()
+	var origin: Vector2i = Vector2i(host_w.camera.position) - Config.VIEW_SIZE / 2
+	var host_img: Image = await _capture()
+	var room: Rect2i = Rect2i(Vector2i(f.room.floor_px().position) - origin, Vector2i(f.room.floor_px().size))
+	# The client: its dungeon from the host's map snapshot, the batch and the fight's events off the wire.
+	_load_snapshot(host_w, client_w)
+	var nc: NetCombat = NetCombat.new()
+	nc.reset(Config.MAP_DUNGEON, client_w.data)
+	var batch: PackedByteArray = NetProtocol.encode_enemies(tick, Config.MAP_DUNGEON, a.shrine_hp_now(), a.enemy_states(tick),
+		NetProtocol.boss_of(f, tick))
+	var b: NetProtocol.EnemyBatch = NetProtocol.decode_enemies(batch)
+	nc.on_batch(b, batch, true)
+	var events: PackedByteArray = NetProtocol.encode_shots(Config.MAP_DUNGEON, f.snapshot_events())
+	nc.on_shots(NetProtocol.decode_shots(events))
+	nc.sample(float(tick), 0.0)
+	hview.clear()
+	host_w.remove_child(hview)
+	hview.free()
+	host_w.visible = false
+	client_w.visible = true
+	client_w.entities.visible = true
+	client_w.lighting.set_evening(true)
+	var cview: BossFightView = BossFightView.new()
+	client_w.add_child(cview)
+	cview.setup(nc.arena.boss, client_w.entities)
+	_quiet_staff(cview)
+	client_w.camera.make_current()
+	client_w.camera.position = Vector2(origin + Config.VIEW_SIZE / 2)
+	client_w.camera.reset_smoothing()
+	var client_img: Image = await _capture()
+	var fight_bad: int = _diff_in(client_img, host_img, room)
+	var fight_drawn: int = 0
+	if fight_bad > 0 or save_all:
+		_save(host_img, "boss_net_host.png")
+		_save(client_img, "boss_net_client.png")
+	# The shrine's fire on the client's dungeon (the snapshot's standing shrine): its glow at its corner.
+	var shrine: Rect2i = DungeonGen.shrine_rect(client_w.data)
+	client_w.camera.position = Vector2(FixtureView.foot_of(shrine)).round()
+	client_w.camera.reset_smoothing()
+	var sorigin: Vector2i = Vector2i(client_w.camera.position) - Config.VIEW_SIZE / 2
+	var fire: Image = await _capture()
+	var glow: Image = FixtureView.heretic_glow_texture(true).get_image()
+	glow.convert(Image.FORMAT_RGBA8)
+	var fw: int = glow.get_width() / FixtureView.FLAME_FRAMES
+	var art: Vector2i = FixtureView.shrine_origin(shrine) - sorigin
+	var glow_seen: int = 0
+	for k: int in FixtureView.FLAME_LOOP:
+		var seen_k: int = 0
+		for y: int in glow.get_height():
+			for x: int in fw:
+				var gc: Color = glow.get_pixel(k * fw + x, y)
+				if gc.a8 != 0 and fire.get_pixelv(art + Vector2i(3, 22) + Vector2i(x, y)).to_rgba32() == gc.to_rgba32():
+					seen_k += 1
+		glow_seen = maxi(glow_seen, seen_k)
+	fight_drawn = _diff_in(client_img, await _blank_of(client_w, origin), room)
+	cview.clear()
+	client_w.queue_free()
+	host_w.queue_free()
+	p.free()
+	# A client's surface at tier 1 from the host's snapshot: candA and the light, the host's to the pixel.
+	world.visible = true
+	world.camera.make_current()
+	world.data.progress = WorldProgress.new()
+	world.data.progress.raise_altar()
+	world.altar_tier_changed()
+	var centre: Vector2i = Vector2i(world.data.altar_center_px().round())
+	_look_at(centre)
+	world.lighting.set_evening(true)
+	var surf_host: Image = await _capture()
+	var came: WorldData = WorldSnapshot.decode_raw(WorldSnapshot.raw_bytes(world.data))
+	var keep: WorldData = world.data
+	var altar_bad: int = -1
+	var light_w: int = 0
+	if came != null:
+		world.load_data(came)
+		light_w = world.lighting.altar_light.actor_light.texture.get_width()
+		var surf_client: Image = await _capture()
+		altar_bad = count_diff(surf_client, surf_host)
+		if altar_bad > 0 or save_all:
+			_save(surf_host, "boss_net_altar_host.png")
+			_save(surf_client, "boss_net_altar_client.png")
+		world.load_data(keep)
+	world.data.progress.altar_tier = 0
+	world.altar_tier_changed()
+	world.lighting.set_evening(false)
+	var line: String = "fight_mismatches=%d drawn=%d batch=%dB events=%dB bolts=%d circles=%d looks=%s glow=%d altar_mismatches=%d light=%d tier=%d" % [
+		fight_bad, fight_drawn, batch.size(), events.size(), f.bolts.size(), f.circles.size(), SessionHost._looks(f), glow_seen, altar_bad,
+		light_w, came.progress.altar_tier if came != null else -1]
+	if ready and b.ok and fight_bad == 0 and fight_drawn > 300 and glow_seen > 20 and altar_bad == 0 and light_w == 290:
+		print("EVENSONG_RENDER boss_net ok %s" % line)
+	else:
+		_fail("boss_net", "%s ready=%s" % [line, ready])
+
+
+## The boss's staff flame, its glow and its light follow the clock (BossView.FLAME_FRAME_MS), not the wire: hidden for a pixel comparison.
+func _quiet_staff(v: BossFightView) -> void:
+	v.boss.flame.visible = false
+	v.boss.flame_glow.visible = false
+	v.boss.light.enabled = false
+
+
+## World `w` without the fight's drawing (the room as it is), looked at from `origin`.
+func _blank_of(w: GameWorld, origin: Vector2i) -> Image:
+	var views: Array[BossFightView] = []
+	for child: Node in w.get_children():
+		var v: BossFightView = child as BossFightView
+		if v != null:
+			views.append(v)
+	for v2: BossFightView in views:
+		v2.clear()
+	w.camera.position = Vector2(origin + Config.VIEW_SIZE / 2)
+	w.camera.reset_smoothing()
+	return await _capture()
 
 
 # --- M11c ---------------------------------------------------------------------------------------------------------------

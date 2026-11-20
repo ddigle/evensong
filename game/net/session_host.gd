@@ -159,6 +159,21 @@ extends RefCounted
 ## reliable keyframe (_send_creatures, one StateBroadcast per member: a herd wandering elsewhere sends nothing), and a keyframe on
 ## arriving on the surface (send_combat_snapshot); the collection, absolute, to every client on any change (_send_collection) and right
 ## after a welcome or a map entry (send_collection_snapshot).
+##
+## M12c (the boss, the cracked pillars, the relic and the altar's tier: M12a / M12b offline first, here the host decides): the world's one
+## WorldProgress is on every map's data (_setup_progress: the altar's tier, the boss defeated; --test-altar-tier) and the dungeon's arena owns
+## the boss fight (combat/boss_fight.gd, _setup_combat: its room and pillars from the world seed, --test-boss-hp / --test-boss-attack /
+## --test-pillar-hits), stepped with the arena, so every attack path and skill of every member reaches the boss and the pillars on the host's
+## state and clock (a non-miner's blow on a pillar is refused there: the refused mark goes to every client). Its body rides in the dungeon's
+## enemy batch (the boss block: _send_enemies, NetProtocol.boss_of), what clients draw goes out as the arena's shot events (an attack's start
+## with its telegraph, a stop, a bolt let go and stopped, a burning circle, a pillar's state after a blow, a refusal, its dust, its debris,
+## its restoring), a member arriving on the dungeon gets the fight as it is (send_combat_snapshot: the boss in the keyframe, the attack under
+## way, the bolts, circles and pillars as events) and the dungeon's snapshot carries the boss site. The kill gives every member on the dungeon
+## its relics (BossFight._give_relics into the host's inventories: _step_boss sends them; one that does not fit lies down as a drop edit) and
+## sets the world's flag. The altar upgrade is the relic bench's CRAFT (_craft with the world's progress: the bench in reach, the relic held,
+## the tier below the slice's maximum, all or nothing); its success redraws the host's light and altar and syncs the surface's arena
+## (_altar_raised). The tier and the flag go to every client in the world message (_send_world, with the collection) when they change and
+## after a welcome or a map entry; the surface's snapshot carries them too.
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -277,6 +292,11 @@ var captures: int = 0
 var capture_refusals: Dictionary[String, int] = {}
 var collection_msgs_sent: int = 0
 var _collection_sent: int = -1
+## M12c: the progress revision last sent in the world message, the boss kills whose relics went out, upgrades done, boss log lines.
+var _progress_sent: int = -1
+var _boss_kills_seen: int = 0
+var upgrades: int = 0
+var boss_lines: int = 0
 
 
 func _init(p_session: NetSession) -> void:
@@ -690,8 +710,9 @@ func _attack(m: NetMember, item: StringName) -> void:
 	for e: EditLog.WorldEdit in edits:
 		apply_world_edit(e, m.map_id)
 		_changed = true
-	if not edits.is_empty():
-		s.log_event("shrine_broken", "slot=%d map=%d at=%d,%d" % [m.slot, m.map_id, edits[0].cell.x, edits[0].cell.y])
+	var shrine: Array[EditLog.WorldEdit] = _cell_edits(edits)  # M12c: a kill's relic drop is no shrine
+	if not shrine.is_empty():
+		s.log_event("shrine_broken", "slot=%d map=%d at=%d,%d" % [m.slot, m.map_id, shrine[0].cell.x, shrine[0].cell.y])
 
 
 ## M4b: member `m` died (down time over, or it gave up): part of its materials and consumables fall in a
@@ -1008,7 +1029,8 @@ func _craft(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	if at == null:
 		_refuse_op(m, frame, Crafting.WHY_NO_STATION)
 		return
-	var o: Crafting.Outcome = Crafting.craft(r, m.class_id, p.inventory)
+	# M12c: the world's progress (the altar upgrade raises its tier: the relic held, below the slice's maximum, all or nothing).
+	var o: Crafting.Outcome = Crafting.craft(r, m.class_id, p.inventory, world_progress())
 	if not o.ok():
 		_refuse_op(m, frame, o.why)
 		return
@@ -1017,6 +1039,8 @@ func _craft(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	_changed = true
 	s.log_event("craft", "slot=%d map=%d recipe=%s item=%s count=%d grade=%s station=%d,%d" % [m.slot, m.map_id, r.id,
 		o.item, o.count, ItemDB.GRADE_NAMES[o.grade], at.rect.position.x, at.rect.position.y])
+	if r.is_upgrade():
+		_altar_raised(m, r)
 
 
 ## Select, then pick up, drop, give: rate, then the rules (items/world_items.gd).
@@ -1277,6 +1301,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 		if m.respawn_pending and not streams.has(m.peer_id):
 			_respawn(m)
 	_step_arenas()
+	_step_boss()  # M12c: the fight's log lines, a kill's relics (in this tick's frames or the step) to their owners
 	_step_creatures()  # M11c: after the combat (its kills' drops lie down this tick), like offline Main
 	_check_carriers()  # M5c: a carrier who went down this tick sets the altar down
 	_step_prayer()  # M10b: after the combat and the carriers (a hit this tick is the prayer's), like offline Main
@@ -1323,7 +1348,7 @@ func tick(action: NetBot.Action, now: int) -> void:
 	_send_creatures(batch_tick)  # M11c
 	_send_shot_events()
 	_send_prayer()  # M10b
-	_send_collection()  # M11c
+	_send_world()  # M11c: the collection; M12c: and the world's progress
 	_send_inventories()
 	if batch_tick:
 		_send_skills()  # M9c
@@ -1485,6 +1510,7 @@ func _on_member_revived(m: NetMember) -> void:
 ## holds the herd (natural creatures unless --test-no-creatures), which places the rare zone.
 func _setup_combat() -> void:
 	_setup_collection()
+	_setup_progress()  # M12c: before the arenas (their light reads the tier, the fight the flag)
 	for map: int in s.worlds:
 		var w: GameWorld = s.worlds[map]
 		if w == null or w.data == null:
@@ -1494,6 +1520,8 @@ func _setup_combat() -> void:
 		a.logging = true
 		a.threat_on = true  # M9c: threat in sessions (M9a's offline rule)
 		a.spawning = not s.options.test_no_spawns
+		if map == Config.MAP_DUNGEON:
+			_setup_boss(a, w)  # M12c: before its view (CombatView draws the fight it finds)
 		if map == Config.MAP_SURFACE:
 			a.herd = Creatures.new()
 			a.herd.setup(w.data, w.data.world_seed, not s.options.test_no_creatures)
@@ -1552,8 +1580,9 @@ func _step_arenas() -> void:
 			for e: EditLog.WorldEdit in edits:
 				apply_world_edit(e, map)
 				_changed = true
-			if not edits.is_empty():
-				s.log_event("shrine_broken", "map=%d at=%d,%d (a shot)" % [map, edits[0].cell.x, edits[0].cell.y])
+			var shrine: Array[EditLog.WorldEdit] = _cell_edits(edits)  # M12c: the boss's relic drops are no shrine
+			if not shrine.is_empty():
+				s.log_event("shrine_broken", "map=%d at=%d,%d (a shot)" % [map, shrine[0].cell.x, shrine[0].cell.y])
 			for sp: Arena.Splash in a.splashes:
 				if sp.age == 0:  # M6b: broke this tick
 					_changed = true
@@ -1602,12 +1631,12 @@ func _flush_hits(map: int) -> void:
 func _send_enemies(batch_tick: bool) -> void:
 	for map: int in arenas:
 		var a: Arena = arenas[map]
-		var urgent: bool = Config.NET_ENEMY_SEND_ON_ATTACK and a.attacks_started > 0
+		var urgent: bool = Config.NET_ENEMY_SEND_ON_ATTACK and (a.attacks_started > 0 or _boss_attacked(a))
 		if not batch_tick and not urgent:
 			continue
 		var bc: StateBroadcast = enemy_casts[map]
 		bc.note_activity(s.tick)
-		var payload: PackedByteArray = NetProtocol.encode_enemies(s.tick, map, a.shrine_hp_now(), a.enemy_states(s.tick))
+		var payload: PackedByteArray = enemy_payload(map)
 		match bc.decide_encoded(s.tick, payload):
 			StateBroadcast.Send.BATCH:
 				if urgent and not batch_tick:
@@ -1627,7 +1656,7 @@ func send_combat_snapshot(peer: int, map: int) -> void:
 	var a: Arena = arenas.get(map, null)
 	if a == null:
 		return
-	s.send_enemy_keyframe(peer, NetProtocol.encode_enemies(s.tick, map, a.shrine_hp_now(), a.enemy_states(s.tick)))
+	s.send_enemy_keyframe(peer, enemy_payload(map))
 	enemy_keyframes_sent += 1
 	if map == Config.MAP_SURFACE:
 		_creature_snapshot(peer)  # M11c
@@ -1645,6 +1674,8 @@ func send_combat_snapshot(peer: int, map: int) -> void:
 	# taunts, stuns and slows are marks in the keyframe above).
 	flying.append_array(a.skill_snapshot_events())
 	flying.append_array(a.ward_events(players_on(map), s.tick))
+	if a.boss != null:
+		flying.append_array(a.boss.snapshot_events())  # M12c: the attack under way, the fire, every pillar
 	if not flying.is_empty():
 		s.send_shots(peer, NetProtocol.encode_shots(map, flying))
 		shot_messages_sent += 1
@@ -1680,6 +1711,8 @@ func combat_quiet() -> bool:
 		var a: Arena = arenas[map]
 		if enemy_casts[map].dirty or not a.shots.is_empty() or not a.flasks.is_empty() or not a.splashes.is_empty():
 			return false
+		if a.boss != null and (not a.boss.bolts.is_empty() or not a.boss.circles.is_empty() or a.boss.falling_any()):
+			return false  # M12c
 	return true
 
 
@@ -1690,8 +1723,19 @@ func combat_hash(map: int) -> String:
 		return ""
 	var ctx: HashingContext = HashingContext.new()
 	ctx.start(HashingContext.HASH_MD5)
-	ctx.update(NetProtocol.encode_enemies(s.tick, map, a.shrine_hp_now(), a.enemy_states(s.tick)).slice(4))
+	ctx.update(enemy_payload(map).slice(4))
 	return ctx.finish().hex_encode()
+
+
+## Map `map`'s enemy batch now (M12c: with its boss block on the boss's map).
+func enemy_payload(map: int) -> PackedByteArray:
+	var a: Arena = arenas[map]
+	return NetProtocol.encode_enemies(s.tick, map, a.shrine_hp_now(), a.enemy_states(s.tick), NetProtocol.boss_of(a.boss, s.tick))
+
+
+## M12c: arena `a`'s boss started an attack this tick (its batch goes at once, like a heretic's: Config.NET_ENEMY_SEND_ON_ATTACK).
+static func _boss_attacked(a: Arena) -> bool:
+	return a.boss != null and a.boss.sim != null and a.boss.sim.state == BossSim.State.ATTACK and a.boss.sim.state_ticks == 0
 
 
 ## The live heretics on the local player's map (the host's bot aims at them).
@@ -1711,7 +1755,8 @@ func combat_result() -> Dictionary:
 		var a: Arena = arenas[map]
 		maps[str(map)] = {"hash": combat_hash(map), "heretics": a.heretics.size(), "alive": a.alive_heretics(),
 			"shrine_hp": a.shrine_hp_now(), "stats": a.stats, "shots": a.shots.size(),
-			"enemy_batches": enemy_casts[map].batches, "enemy_keyframes": enemy_casts[map].keyframes}
+			"enemy_batches": enemy_casts[map].batches, "enemy_keyframes": enemy_casts[map].keyframes,
+			"boss": a.boss.stats if a.boss != null else {}}
 	return {"maps": maps, "deaths": deaths, "enemy_batches_sent": enemy_batches_sent,
 		"enemy_keyframes_sent": enemy_keyframes_sent, "enemy_urgent_sends": enemy_urgent_sends,
 		"shot_messages_sent": shot_messages_sent}
@@ -2884,25 +2929,189 @@ func _creature_snapshot(peer: int) -> void:
 	creature_bytes_sent += payload.size()
 
 
-## The collection to every client when it changed (absolute; a client on any map, since its panel shows it there too).
-func _send_collection() -> void:
+## The collection to every client when it changed (absolute; a client on any map, since its panel shows it there too). M12c: the world
+## message: with the world's progress (the altar's tier, the boss defeated), sent when either changed.
+func _send_world() -> void:
 	var col: Collection = collection()
-	if col == null or col.revision == _collection_sent:
+	var progress: WorldProgress = world_progress()
+	var col_rev: int = col.revision if col != null else -1
+	var progress_rev: int = progress.revision if progress != null else -1
+	if col_rev == _collection_sent and progress_rev == _progress_sent:
 		return
-	_collection_sent = col.revision
-	var payload: PackedByteArray = NetProtocol.encode_collection(col)
+	_collection_sent = col_rev
+	_progress_sent = progress_rev
+	var payload: PackedByteArray = NetProtocol.encode_world(col, progress)
 	for peer: int in remote_peers():
 		s.send_tally(peer, payload)
 		collection_msgs_sent += 1
 
 
-## A member who just arrived (welcome, map entry): the collection as it is now, after the snapshot that may be older.
+## A member who just arrived (welcome, map entry): the collection as it is now, after the snapshot that may be older. M12c: and the world's
+## progress (the world message).
 func send_collection_snapshot(peer: int) -> void:
-	var col: Collection = collection()
-	if col == null:
+	if collection() == null and world_progress() == null:
 		return
-	s.send_tally(peer, NetProtocol.encode_collection(col))
+	s.send_tally(peer, NetProtocol.encode_world(collection(), world_progress()))
 	collection_msgs_sent += 1
+
+
+# --- the boss, its pillars, the relic, the altar's tier (M12c) ------------------------------------------------------------------
+
+## The world's progress (the surface's WorldData.progress; null before _setup_progress).
+func world_progress() -> WorldProgress:
+	return s.world.data.progress if s.world != null and s.world.data != null else null
+
+
+## One WorldProgress for the world, on every map's data (offline Main._share_progress's rule); --test-altar-tier on it (the host's light and
+## altar follow). A world that came with one keeps it.
+func _setup_progress() -> void:
+	if s.world == null or s.world.data == null:
+		return
+	if s.world.data.progress == null:
+		s.world.data.progress = WorldProgress.new()
+	var progress: WorldProgress = s.world.data.progress
+	if s.options.test_altar_tier >= 0:
+		progress.altar_tier = clampi(s.options.test_altar_tier, 0, Config.ALTAR_TIER_MAX)
+	for map: int in s.worlds:
+		var w: GameWorld = s.worlds[map]
+		if w != null and w.data != null:
+			w.data.progress = progress
+	if progress.altar_tier > 0:
+		s.world.altar_tier_changed()
+
+
+## The dungeon arena `a`'s boss fight (its room from the world seed, like offline Main.ensure_combat) and the test flags offline Main reads.
+func _setup_boss(a: Arena, w: GameWorld) -> void:
+	a.boss = BossFight.new()
+	a.boss.setup(a, w.data.world_seed)
+	a.boss.test_hp = s.options.test_boss_hp
+	a.boss.test_attack = maxi(BossSim.ATTACK_NAMES.find(s.options.test_boss_attack), BossSim.Attack.NONE)
+	for i: int in s.options.test_pillar_hits:
+		a.boss.set_pillar_hits(i, s.options.test_pillar_hits[i])
+	a.shot_events.clear()  # nobody is on the map yet: the pillars' states go with the snapshot
+	s.log_event("boss", "room %s" % a.boss.describe())
+
+
+## The dungeon's boss fight (null: none).
+func boss_fight() -> BossFight:
+	var a: Arena = arenas.get(Config.MAP_DUNGEON, null)
+	return a.boss if a != null else null
+
+
+## After this tick's frames and arenas: every boss's log lines; a kill's relics (BossFight._give_relics put them into the host's
+## inventories): their owners get their inventories.
+func _step_boss() -> void:
+	for map: int in arenas:
+		var f: BossFight = arenas[map].boss
+		if f == null:
+			continue
+		for line: String in f.take_events():
+			boss_lines += 1
+			s.log_event("boss", "%s tick=%d" % [line, s.tick])
+		var killed: int = f.stat("killed")
+		if killed <= _boss_kills_seen:
+			continue
+		_boss_kills_seen = killed
+		for slot: int in s.slots():
+			var m: NetMember = s.members[slot]
+			var pid: int = m.player.get_instance_id()
+			if not f.relics_given.has(pid):
+				continue
+			m.inventory_dirty = true
+			m.count_combat("relics")
+			s.log_event("relic", "slot=%d class=%s given=%d dropped=%d held=%d" % [m.slot, m.class_id, f.relics_given[pid],
+				f.relics_dropped.get(pid, 0), m.player.inventory.count_of(Config.BOSS_RELIC)])
+
+
+## The altar went up a tier (member `m`'s upgrade, recipe `r`): the host's light and altar picture (GameWorld.altar_tier_changed), the
+## surface's arena at once (Arena.sync_world: its light rule and spawn tiles; the heretics the wider light reached walk out, M12b). The
+## world message tells the clients (_send_world).
+func _altar_raised(m: NetMember, r: Crafting.Recipe) -> void:
+	upgrades += 1
+	s.world.altar_tier_changed()
+	var lit: int = 0
+	var spawn_tiles: int = -1
+	var sa: Arena = arenas.get(Config.MAP_SURFACE, null)
+	if sa != null:
+		var before: int = sa.stat("lit_out")
+		sa.sync_world()
+		lit = sa.stat("lit_out") - before
+		spawn_tiles = sa.spawn_cells.size()
+	var tier: int = WorldProgress.tier_of(s.world.data)
+	s.log_event("altar", "tier=%d radius_tiles=%d radius_px=%d heretics_lit=%d spawn_tiles=%d slot=%d recipe=%s" % [tier,
+		Config.ALTAR_TIER_RADIUS_TILES[tier], roundi(WorldProgress.radius_px(s.world.data)), lit, spawn_tiles, m.slot, r.id])
+
+
+## M12c results: the world's progress, the boss as the host has it, its stats and the upgrades.
+func boss_result() -> Dictionary:
+	var progress: WorldProgress = world_progress()
+	var f: BossFight = boss_fight()
+	var out: Dictionary = {"progress": progress.describe() if progress != null else "none", "upgrades": upgrades,
+		"radius_px": roundi(WorldProgress.radius_px(s.world.data)), "light_px": _light_width(), "lines": boss_lines,
+		"altar_picture": altar_picture(s.world_of(Config.MAP_SURFACE)), "ring_lit": ring_lit(s.world_of(Config.MAP_SURFACE))}
+	if f != null and f.sim != null:
+		out["boss"] = f.sim.describe()
+		out["state"] = BossSim.STATE_NAMES[f.sim.state]
+		out["hp"] = f.sim.hp
+		out["hp_max"] = f.sim.hp_max
+		out["looks"] = _looks(f)
+		out["stats"] = f.stats
+		out["site"] = f.site().describe()
+	var sa: Arena = arenas.get(Config.MAP_SURFACE, null)
+	out["spawn_tiles"] = sa.spawn_cells.size() if sa != null else -1
+	return out
+
+
+## M12c: the picture world `w`'s altar shows ("candA" at tier 1, "v04" at tier 0, "none" without one).
+static func altar_picture(w: GameWorld) -> String:
+	if w == null or w.altar == null or not is_instance_valid(w.altar) or w.altar.sprite == null:
+		return "none"
+	if w.altar.sprite.texture == Altar.LIT_UP1:
+		return "candA"
+	return "v04" if w.altar.sprite.texture == Altar.LIT else "other"
+
+
+## M12c: whether world `w`'s light rule takes the tile 8 tiles east of its altar's middle (the ring tier 1 adds: the fields' and the
+## spawns' rule, Farming.in_light / the safe zone).
+static func ring_lit(w: GameWorld) -> bool:
+	if w == null or w.data == null or not w.data.altar_rect.has_area():
+		return false
+	return Farming.in_light(w.data, Aim.feet_cell(w.data.altar_center_px()) + Vector2i(8, 0))
+
+
+## The pillars' picture states of fight `f` ("0123").
+static func _looks(f: BossFight) -> String:
+	var out: String = ""
+	for p: BossFight.Pillar in f.pillars:
+		out += str(p.look())
+	return out
+
+
+## The surface altar light's texture width (texels: the light's radius drawn on this machine).
+func _light_width() -> int:
+	var w: GameWorld = s.world_of(Config.MAP_SURFACE)
+	if w == null or w.lighting == null or w.lighting.altar_light == null or w.lighting.altar_light.actor_light == null \
+			or w.lighting.altar_light.actor_light.texture == null:
+		return 0
+	return w.lighting.altar_light.actor_light.texture.get_width()
+
+
+## The first slot of `inv` holding `id` (-1 = none; tests).
+static func slot_with(inv: Inventory, id: StringName) -> int:
+	for i: int in inv.size():
+		var st: ItemStack = inv.stack_at(i)
+		if st != null and st.id == id:
+			return i
+	return -1
+
+
+## The cell edits among `edits` (a shrine breaking; a relic's drop is a drop edit).
+static func _cell_edits(edits: Array[EditLog.WorldEdit]) -> Array[EditLog.WorldEdit]:
+	var out: Array[EditLog.WorldEdit] = []
+	for e: EditLog.WorldEdit in edits:
+		if e.kind == EditLog.Kind.CELL:
+			out.append(e)
+	return out
 
 
 # --- the group prayer and meditation (M10b) -------------------------------------------------------------------------------

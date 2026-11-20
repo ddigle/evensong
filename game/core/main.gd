@@ -366,6 +366,7 @@ func _physics_process(delta: float) -> void:
 		ally_mark.show_for(_aim_ring_target(), player.skill_aim_refused)  # M9c: as this machine sees the players
 		_track_f_tap()  # M10a. M10b: a tap at the altar is a PRAY request (the host decides)
 		_show_prayer()  # M10b: the host's prayer (a client: its mirror)
+		_show_boss_bar()  # M12c: the host's fight (a client: its mirror)
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -1016,8 +1017,10 @@ func world_progress() -> WorldProgress:
 	return world.data.progress if world != null and world.data != null else null
 
 
-## The dungeon's boss fight (null: none, or no combat yet).
+## The dungeon's boss fight (null: none, or no combat yet). M12c: in a session the host's (a client: its mirror, while it is on the dungeon).
 func boss_fight() -> BossFight:
+	if _in_session():
+		return net.bots.boss_here() if current_map == Config.MAP_DUNGEON else null
 	if not arenas.has(Config.MAP_DUNGEON):
 		return null
 	return arenas[Config.MAP_DUNGEON].boss
@@ -1821,9 +1824,8 @@ func toggle_hand() -> void:
 func open_crafting(at: Crafting.StationAt) -> void:
 	if _praying_refuses("crafting"):
 		return  # M10a
-	hud.crafting.progress = null  # M12a: the altar upgrade's row needs the world's progress (offline; a host's: M12c)
-	if not _in_session():
-		hud.crafting.progress = world_progress()
+	# M12a: the altar upgrade's row needs the world's progress (M12c: a session's too: the host's, a client's copy of it; the host decides).
+	hud.crafting.progress = world_progress()
 	hud.crafting.open_for(at, player.inventory, player.class_id())
 	if not hud.crafting.craft_requested.is_connected(craft_row):
 		hud.crafting.craft_requested.connect(craft_row)

@@ -56,6 +56,7 @@ func local_action() -> NetBot.Action:
 		bot.others = others_here()  # M7c: waitat
 		_prayer_for_bot(p)  # M10b: answer, waitturn, waitprayer
 		_creatures_for_bot()  # M11c: aimprey, hunt, waitprey, huntrare, snare
+		_boss_for_bot()  # M12c: aimboss, bossfight, waitboss
 		a = bot.step(feet)
 		if a.f_tap:
 			s.bot_tap.emit()  # M10b: `pray` = F pressed and let go (Main: its pick up, then the prayer's tap: PRAY)
@@ -134,6 +135,23 @@ func _creatures_for_bot() -> void:
 			if c.rare():
 				bot.rare.append(Creatures.aim_point(c))
 				bot.rare_ready.append(c.can_be_taken())
+
+
+## M12c: the boss on the local player's map as this machine has it (the host: its fight; a client: its mirror, as drawn here), for the bot.
+func _boss_for_bot() -> void:
+	var f: BossFight = boss_here()
+	bot.boss_state = Main.boss_state_of(f)
+	bot.boss_aim = f.aim_point() if f != null and f.sim != null and f.sim.alive() else null
+
+
+## M12c: the boss fight of the local player's map as this machine has it (null: none there).
+func boss_here() -> BossFight:
+	if s.host != null:
+		var a: Arena = s.host.arenas.get(s.local_map(), null)
+		return a.boss if a != null else null
+	if s.client != null and s.client.combat != null and s.client.combat.arena != null and s.client.combat.map == s.local_map():
+		return s.client.combat.arena.boss
+	return null
 
 
 ## M11c: the live creatures' feet on the local player's map as this machine has them (Main's build ghost).

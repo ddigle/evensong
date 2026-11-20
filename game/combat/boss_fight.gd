@@ -18,6 +18,40 @@ extends RefCounted
 ## EffectMarks.Kind.REFUSED) and does nothing. Config.BOSS_PILLARS "hits_per_state" hits a state; the third state change breaks it: dust
 ## over its fall circle for the telegraph, then the debris lands (Config "M12a" BOSS_PILLARS, BOSS debris_*). Without a miner the boss is
 ## still beaten by fighting (lower ceiling, no block).
+##
+## M12c (sessions): the host's dungeon arena owns one too (SessionHost._setup_combat) and with the arena's `logging` on every change a client
+## draws goes out as a wire event on the arena's shot events (NetProtocol.ShotEvent kinds BOSS_ATTACK .. PILLAR: an attack's start with its
+## telegraph's numbers, an attack or the fire stopped early, a bolt let go and stopped, a burning circle, a pillar's state after a blow, a
+## refusal, its breaking, its debris landing, its restoring); its body goes in the map's enemy batch (NetProtocol.boss_of). The dungeon's
+## snapshot carries its site (site_bytes: the room, the home, the pillars and their hits). A client draws a mirror (BossFight.mirror: never
+## stepped; net/net_boss.gd fills it from those messages) through the same views.
+
+## M12c: the boss site a dungeon snapshot carries (net/world_snapshot.gd): the room (its rect as DungeonGen made it, the face row
+## included), the boss's home tile, the pillars' tiles in order and each one's hits and whether it lies as rubble.
+class Site:
+	extends RefCounted
+	var room: Rect2i = Rect2i()
+	var home: Vector2i = Vector2i.ZERO
+	var pillars: Array[Vector2i] = []
+	var hits: PackedInt32Array = PackedInt32Array()
+	var fallen: Array[bool] = []
+
+	## The room as a layout (its walkable rows, home and pillars; no doorways: a client never picks pillars).
+	func layout() -> BossRoom.Layout:
+		var out: BossRoom.Layout = BossRoom.Layout.new()
+		out.room = room
+		out.walk = BossRoom.walk_of(room)
+		out.home_tile = home
+		out.pillars = pillars.duplicate()
+		return out
+
+	func describe() -> String:
+		var parts: PackedStringArray = []
+		for i: int in pillars.size():
+			parts.append("%d,%d:%d%s" % [pillars[i].x, pillars[i].y, hits[i], "R" if fallen[i] else ""])
+		return "room=%d,%d %dx%d home=%d,%d pillars=%s" % [room.position.x, room.position.y, room.size.x, room.size.y, home.x, home.y,
+			" ".join(parts)]
+
 
 ## One cracked support pillar on its tile.
 class Pillar:
@@ -71,6 +105,10 @@ class Bolt:
 	var stopped_by: String = ""
 	## Players it passed while they dodged (node instance ids: a dash through it).
 	var dodged: Dictionary[int, bool] = {}
+	## M12c: the tick it was let go, where from and its direction's angle (a late client gets it as a let-go event).
+	var born: int = 0
+	var origin: Vector2 = Vector2.ZERO
+	var angle: float = 0.0
 
 
 ## A circle of the burning ground: it waits `telegraph` ticks (the warning), erupts, then burns `show` ticks (display only).
@@ -86,6 +124,8 @@ class Circle:
 	var erupted: bool = false
 	## Players it hurt when it erupted.
 	var hits: int = 0
+	## M12c: the tick it was put down (age 0).
+	var born: int = 0
 
 	func left() -> int:
 		return maxi(telegraph - age, 0)
@@ -136,6 +176,8 @@ var test_hp: int = 0
 var test_attack: int = BossSim.Attack.NONE
 ## Test hook (tests that only count blows): awake, it neither walks, picks a target nor attacks (its timers, hits and effects run on).
 var frozen: bool = false
+## M12c: the arena tick its last step ran on (a pillar breaking before this tick's step lands a tick sooner: pillar_event's dust count).
+var _step_tick: int = -1
 
 
 ## For the dungeon of world seed `world_seed` on `p_arena` (its data): the room from the seed (BossRoom.for_seed).
@@ -147,6 +189,7 @@ func setup(p_arena: Arena, world_seed: int) -> void:
 func setup_with(p_arena: Arena, p_room: BossRoom.Layout, world_seed: int) -> void:
 	_arena = weakref(p_arena)
 	data = p_arena.data
+	data.boss_fight = self  # M12c: the dungeon's snapshot carries its site
 	room = p_room
 	rng.seed = hash([world_seed, Config.MAP_DUNGEON, Config.BOSS_SALT])
 	stats.clear()
@@ -178,6 +221,59 @@ func setup_with(p_arena: Arena, p_room: BossRoom.Layout, world_seed: int) -> voi
 	_block_standing()
 
 
+## M12c: a client's mirror of the host's fight on `p_arena` (Arena.mirror) from a snapshot's `site`: the room, the boss asleep at home (dead and
+## lying there when `defeated`), the pillars with their hits and rubble, blocking where they stand (this client's prediction walks round
+## them like the host's players). Never stepped: net/net_boss.gd sets what the views draw from the host's messages.
+static func mirror(p_arena: Arena, site: Site, defeated: bool) -> BossFight:
+	var f: BossFight = BossFight.new()
+	f._arena = weakref(p_arena)
+	f.data = p_arena.data
+	f.data.boss_fight = f
+	f.room = site.layout()
+	for i: int in site.pillars.size():
+		var p: Pillar = Pillar.new()
+		p.tile = site.pillars[i]
+		p.hits = site.hits[i]
+		p.fallen = site.fallen[i]
+		f.pillars.append(p)
+	f.sim = BossSim.new()
+	f.sim.home = f.room.home_feet()
+	f.sim.pos = f.sim.home
+	f.sim.hp_max = BossSim.hp_for(1)
+	f.sim.hp = f.sim.hp_max
+	if defeated:
+		f.sim.state = BossSim.State.DEAD
+		f.sim.state_ticks = BossSim.num_i("reset_ticks")
+		f.sim.hp = 0
+	f._block_standing()
+	return f
+
+
+## M12c: this fight's site as its map's snapshot carries it (Site; the hits cut to the broken state's).
+func site() -> Site:
+	var out: Site = Site.new()
+	if room == null or not room.has_room():
+		return out
+	out.room = room.room
+	out.home = room.home_tile
+	for p: Pillar in pillars:
+		out.pillars.append(p.tile)
+		out.hits.append(mini(p.hits, Pillar.hits_per_state() * 3))
+		out.fallen.append(p.fallen)
+	return out
+
+
+## M12c: pillar `i` as the host says it is (a client's mirror: its hits, its dust ticks left (-1 = none), rubble); blocks where it stands.
+func set_pillar_state(i: int, hits: int, falling: int, fallen: bool) -> void:
+	if i < 0 or i >= pillars.size():
+		return
+	var p: Pillar = pillars[i]
+	p.hits = hits
+	p.falling = falling
+	p.fallen = fallen
+	_block_standing()
+
+
 ## The arena that owns it.
 func arena() -> Arena:
 	if _arena == null:
@@ -198,6 +294,98 @@ func count(key: String, n: int = 1) -> void:
 
 func note(text: String) -> void:
 	events.append(text)
+
+
+## M12c: an event a client draws goes out with the arena's shot events (a session host's arena: `logging` on; offline and a mirror: none).
+func _wire(e: NetProtocol.ShotEvent) -> void:
+	var a: Arena = arena()
+	if a != null and a.logging:
+		a.shot_events.append(e)
+
+
+func _now() -> int:
+	var a: Arena = arena()
+	return a.now if a != null else 0
+
+
+## M12c: the attack under way as its start event (a late client's too: its start tick is now less the ticks it ran).
+func attack_event() -> NetProtocol.ShotEvent:
+	var b: BossSim = sim
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.BOSS_ATTACK
+	e.tick = _now() - b.state_ticks
+	e.sub = b.attack
+	e.face = b.facing
+	e.pos = b.pos
+	e.angle = b.attack_dir.angle()
+	e.base = b.volley_base
+	e.count = b.volley_dirs.size()
+	return e
+
+
+## M12c: the attack under way (`attack`) and / or the fire in the air and on the ground (`fire`) stopped this tick.
+func _stop_event(attack: bool, fire: bool) -> void:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.BOSS_STOP
+	e.tick = _now()
+	e.flags = (NetProtocol.BOSS_STOP_ATTACK if attack else 0) | (NetProtocol.BOSS_STOP_FIRE if fire else 0)
+	if e.flags != 0:
+		_wire(e)
+
+
+## M12c: bolt `bolt`'s let-go event (with its own tick and origin: a late client flies it from there).
+static func bolt_event(bolt: Bolt) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.BOLT
+	e.id = bolt.id
+	e.tick = bolt.born
+	e.pos = bolt.origin
+	e.angle = bolt.angle
+	return e
+
+
+## M12c: circle `c`'s event (its tick of age 0).
+static func circle_event(c: Circle) -> NetProtocol.ShotEvent:
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.CIRCLE
+	e.id = c.id
+	e.tick = c.born
+	e.pos = c.pos
+	e.radius = c.radius
+	e.ticks = c.telegraph
+	return e
+
+
+## M12c: pillar `i`'s state now, with what happened to it this tick (`flags`: NetProtocol.PILLAR_* beyond the rubble bit).
+func pillar_event(i: int, flags: int = 0) -> NetProtocol.ShotEvent:
+	var p: Pillar = pillars[i]
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()
+	e.kind = NetProtocol.ShotEvent.Kind.PILLAR
+	e.id = i
+	e.tick = _now()
+	e.hits = mini(p.hits, Pillar.hits_per_state() * 3)
+	# The dust's ticks left counted from this tick's end: a pillar broken before this tick's step loses one more in it.
+	e.falling = maxi(p.falling - (0 if _step_tick == _now() else 1), 0) if p.falling >= 0 else -1
+	e.flags = flags | (NetProtocol.PILLAR_FALLEN if p.fallen else 0)
+	return e
+
+
+## M12c: what a player arriving on this map needs to draw the fight as it is (a late joiner, a map entry): the attack under way, the
+## bolts in the air, the circles waiting or burning, every pillar's state.
+func snapshot_events() -> Array[NetProtocol.ShotEvent]:
+	var out: Array[NetProtocol.ShotEvent] = []
+	if sim == null:
+		return out
+	if sim.state == BossSim.State.ATTACK and sim.attack != BossSim.Attack.NONE:
+		out.append(attack_event())
+	for bolt: Bolt in bolts:
+		if not bolt.done:
+			out.append(bolt_event(bolt))
+	for c: Circle in circles:
+		out.append(circle_event(c))
+	for i: int in pillars.size():
+		out.append(pillar_event(i))
+	return out
 
 
 ## The events since the last call (cleared).
@@ -231,6 +419,7 @@ func _unblock_all() -> void:
 ## One tick after the map's heretics (`players`: the players on this map, in a fixed order). Returns world edits (the relics' drops).
 func step(players: Array[Player]) -> Array[EditLog.WorldEdit]:
 	_players = players
+	_step_tick = _now()
 	var edits: Array[EditLog.WorldEdit] = take_edits()
 	if sim == null:
 		return edits
@@ -267,6 +456,8 @@ func on_emptied() -> void:
 		return
 	if sim.awake():
 		reset("emptied")
+	elif not bolts.is_empty() or not circles.is_empty():
+		_stop_event(false, true)  # M12c
 	_quiet()
 
 
@@ -404,17 +595,17 @@ func begin_attack(a: int, t: Player, players: Array[Player]) -> void:
 	b.state_ticks = 0
 	b.walking = false
 	b.volley_dirs.clear()
+	b.volley_base = 0.0
 	count("attacks")
 	count("attack_" + BossSim.ATTACK_NAMES[a])
 	if a == BossSim.Attack.VOLLEY:
 		var n: int = BossSim.num_i("phase2_bolts") if b.phase >= 2 else BossSim.attack_int(a, "bolts")
-		var spread: float = deg_to_rad(BossSim.attack_num(a, "spread_deg"))
 		var from: Vector2 = Combat.body_point(b.pos)
 		var aim: Vector2 = Combat.body_point(t.sim_position) - from
-		var base: float = aim.angle() if aim.length_squared() > 0.0001 else b.attack_dir.angle()
-		for i: int in n:
-			b.volley_dirs.append(Vector2.from_angle(base + (float(i) - (n - 1) / 2.0) * spread))
-	elif a == BossSim.Attack.BURN:
+		b.volley_base = aim.angle() if aim.length_squared() > 0.0001 else b.attack_dir.angle()
+		b.volley_dirs = BossSim.volley_dirs_for(b.volley_base, n)
+	var placed: Array[Circle] = []
+	if a == BossSim.Attack.BURN:
 		for q: Player in burn_targets(players):
 			var c: Circle = Circle.new()
 			c.id = _new_id()
@@ -423,7 +614,12 @@ func begin_attack(a: int, t: Player, players: Array[Player]) -> void:
 			c.telegraph = BossSim.attack_int(a, "telegraph")
 			c.damage = BossSim.attack_int(a, "damage")
 			c.show = BossSim.attack_int(a, "show_ticks")
+			c.born = _now()
 			circles.append(c)
+			placed.append(c)
+	_wire(attack_event())  # M12c: its telegraph's numbers, then the circles it put down
+	for c2: Circle in placed:
+		_wire(circle_event(c2))
 	note("attack %s at=%d,%d" % [BossSim.ATTACK_NAMES[a], roundi(t.sim_position.x), roundi(t.sim_position.y)])
 
 
@@ -469,8 +665,12 @@ func _strike(players: Array[Player]) -> void:
 				bolt.speed = speed
 				bolt.left = life
 				bolt.damage = BossSim.attack_int(BossSim.Attack.VOLLEY, "damage")
+				bolt.born = _now()
+				bolt.origin = bolt.pos
+				bolt.angle = dir.angle()
 				bolts.append(bolt)
 				count("bolts")
+				_wire(bolt_event(bolt))  # M12c
 
 
 ## A boss blow on player `p` (Player.take_hit: armour counts, a dash or the hit's invulnerability avoids it). Returns whether it hurt.
@@ -644,6 +844,7 @@ func _stun_for(t: int) -> void:
 	if b.state == BossSim.State.ATTACK and Config.SKILL_STUN_CANCELS_ATTACK and b.state_ticks < BossSim.strike_tick(b.attack):
 		count("attacks_stunned")
 		_end_attack()
+		_stop_event(true, false)  # M12c: its telegraph ends there
 	b.stun_ticks = maxi(b.stun_ticks, t)
 	b.stun_immune = b.stun_ticks + BossSim.num_i("stun_immune_ticks")
 	b.walking = false
@@ -715,6 +916,7 @@ func _enter_phase2() -> void:
 
 func _die(by: int) -> void:
 	var b: BossSim = sim
+	_stop_event(b.state == BossSim.State.ATTACK, not bolts.is_empty() or not circles.is_empty())  # M12c
 	b.state = BossSim.State.DEAD
 	b.state_ticks = 0
 	b.walking = false
@@ -724,10 +926,12 @@ func _die(by: int) -> void:
 	b.poison_ticks = 0
 	b.taunt_ticks = 0
 	_quiet()
-	for p: Pillar in pillars:
+	for i: int in pillars.size():
+		var p: Pillar = pillars[i]
 		if p.falling >= 0:
 			p.falling = -1
 			p.fallen = true  # the arena goes quiet: a pillar coming down lies as rubble at once, harming nobody
+			_wire(pillar_event(i))  # M12c
 	_block_standing()
 	count("killed")
 	var progress: WorldProgress = WorldProgress.of(data)
@@ -769,6 +973,7 @@ func _quiet() -> void:
 
 ## It walks home to reset (`why` for the log): no blow lands on it meanwhile.
 func _start_return(why: String) -> void:
+	_stop_event(sim.state == BossSim.State.ATTACK, not bolts.is_empty() or not circles.is_empty())  # M12c
 	sim.state = BossSim.State.RETURN
 	sim.state_ticks = 0
 	sim.attack = BossSim.Attack.NONE
@@ -804,6 +1009,7 @@ func _go_home() -> void:
 ## heretics it called gone, every pillar standing whole again.
 func reset(why: String) -> void:
 	var b: BossSim = sim
+	_stop_event(b.state == BossSim.State.ATTACK, not bolts.is_empty() or not circles.is_empty())  # M12c
 	b.pos = b.home
 	b.facing = RigData.Dir.SOUTH
 	b.state = BossSim.State.SLEEP
@@ -831,12 +1037,16 @@ func reset(why: String) -> void:
 	var gone: int = arena().remove_heretics(b.adds)
 	b.adds.clear()
 	b.adds_called = false
-	for p: Pillar in pillars:
+	for i: int in pillars.size():
+		var p: Pillar = pillars[i]
+		var was: bool = p.hits != 0 or p.falling >= 0 or p.fallen
 		p.hits = 0
 		p.falling = -1
 		p.fallen = false
 		p.broken_by = 0
 		p.refused_ticks = 0
+		if was:
+			_wire(pillar_event(i))  # M12c: standing whole again
 	_block_standing()
 	_quiet()
 	debris.clear()
@@ -918,6 +1128,13 @@ func _stop_bolt(bolt: Bolt, why: String) -> void:
 	bolt.done = true
 	bolt.stopped_by = why
 	count("bolt_" + why)
+	var e: NetProtocol.ShotEvent = NetProtocol.ShotEvent.new()  # M12c
+	e.kind = NetProtocol.ShotEvent.Kind.BOLT_END
+	e.id = bolt.id
+	e.tick = _now()
+	e.pos = bolt.pos
+	e.why = maxi(NetProtocol.BOLT_STOPS.find(why), 0)
+	_wire(e)
 
 
 func _step_circles(players: Array[Player]) -> void:
@@ -950,6 +1167,7 @@ func set_pillar_hits(i: int, hits: int) -> void:
 	p.falling = -1
 	p.fallen = p.hits >= Pillar.hits_per_state() * 3
 	_block_standing()
+	_wire(pillar_event(i))  # M12c
 
 
 ## The standing pillar on tile `cell` (its index; -1 = none).
@@ -990,6 +1208,7 @@ func blow(i: int, by: int, miner: bool) -> bool:
 		p.refused_ticks = Config.PILLAR_REFUSED_SHOW_TICKS
 		count("pillar_refused")
 		note("pillar %d refused by=%s: miner only" % [i, Creatures.class_of(by) if by != 0 else "?"])
+		_wire(pillar_event(i, NetProtocol.PILLAR_REFUSED))  # M12c: the refused mark on every machine
 		return false
 	var before: int = p.look()
 	p.hits += 1
@@ -1002,6 +1221,7 @@ func blow(i: int, by: int, miner: bool) -> bool:
 		note("pillar %d broken at=%d,%d" % [i, p.tile.x, p.tile.y])
 	elif p.look() != before:
 		note("pillar %d look=%d" % [i, p.look()])
+	_wire(pillar_event(i, NetProtocol.PILLAR_HIT))  # M12c
 	return true
 
 
@@ -1067,6 +1287,8 @@ func _land_debris(i: int, players: Array[Player]) -> void:
 			if _hurt_player(q, roundi(Config.BOSS_PILLARS["player_damage"]), "debris"):
 				d.players_hit += 1
 	note("debris pillar=%d boss=%s players=%d" % [i, d.boss_hit, d.players_hit])
+	_wire(pillar_event(i, NetProtocol.PILLAR_LANDED | (NetProtocol.PILLAR_BOSS if d.boss_hit else 0)
+		| (mini(d.players_hit, NetProtocol.PILLAR_PLAYERS_MAX) << NetProtocol.PILLAR_PLAYERS_SHIFT)))  # M12c
 
 
 func _age_debris() -> void:
@@ -1078,6 +1300,14 @@ func _age_debris() -> void:
 		if d.age < DEBRIS_SHOW_TICKS:
 			showing.append(d)
 	debris = showing
+
+
+## M12c: a pillar's dust is coming down (a session's quiet waits for it).
+func falling_any() -> bool:
+	for p: Pillar in pillars:
+		if p.falling >= 0:
+			return true
+	return false
 
 
 ## Anything fighting (traffic and logs: Arena.fighting).

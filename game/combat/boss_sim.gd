@@ -33,6 +33,8 @@ var attack: int = Attack.NONE
 var attack_dir: Vector2 = Vector2.DOWN
 var attack_at: Vector2 = Vector2.ZERO
 var volley_dirs: Array[Vector2] = []
+## M12c: the volley's middle direction (radians; its bolts fan out round it, volley_dirs_for): a client draws the same aim lines from it.
+var volley_base: float = 0.0
 ## Ticks before it may start another attack.
 var recover: int = 0
 var walking: bool = false
@@ -135,6 +137,15 @@ func top_threat() -> int:
 
 func row() -> int:
 	return RigData.sheet_row(facing)
+
+
+## A volley's `n` bolt directions fanned Config.BOSS_ATTACKS volley spread_deg apart round angle `base` (radians), first to last.
+static func volley_dirs_for(base: float, n: int) -> Array[Vector2]:
+	var spread: float = deg_to_rad(attack_num(Attack.VOLLEY, "spread_deg"))
+	var out: Array[Vector2] = []
+	for i: int in n:
+		out.append(Vector2.from_angle(base + (float(i) - (n - 1) / 2.0) * spread))
+	return out
 
 
 ## Ticks its attack `a` lasts in ATTACK (the burn's cast only: its circles wait on their own).
