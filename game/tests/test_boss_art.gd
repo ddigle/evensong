@@ -1,6 +1,6 @@
 extends "res://tests/base_test.gd"
-## M12 boss art (README "M12 보스 그림"): the heretic leader drawn from its own sheets (03-pixel PixelLab 17차 boss_leader_v02, byte copies:
-## test_actors) in place of M12a's code-drawn placeholder. Pictures only: the fight, its timing and the wire are M12's (test_boss,
+## M12 boss art (README "M12 보스 그림"): the heretic leader drawn from its own sheets (03-pixel PixelLab 17차 boss_leader_v03 = v02 with
+## the re-taken rows, byte copies: test_actors) in place of M12a's code-drawn placeholder. Pictures only: the fight, its timing and the wire are M12's (test_boss,
 ## test_boss_keeps, test_net_boss). What it checks:
 ##   sheets   the six sheets and their flame masks load with the art step's cells (body 56x48, action 64x64 with the body cell at (4, 6))
 ##            and columns (BossSim.FIRST_COLUMN + FRAME_COUNTS, the heretic's counts), rows south / east / north; every cell drawn, no
@@ -19,14 +19,29 @@ extends "res://tests/base_test.gd"
 ##            sprite, derived sheet)
 ##   box      the M11a hit-box rule on the sheets (Config.BOSS hit_height_px = the tallest picture +-2, 2r between the narrowest and
 ##            the widest standing picture + 2) and this step's choice in it: 2r within the south / north body (staff and fire cut)
-##   columns  the blow columns written here (attack 3, 3, 3; cast 4, 3, 3), so the sheet -> column mapping is pinned, not only its
+##   columns  the blow columns written here (attack 6, 3, 3; cast 4, 3, 3), so the sheet -> column mapping is pinned, not only its
 ##            constants
+##   re-takes what the v03 re-takes (17차 다시 뽑기) were made to fix, measured on the sheets: the attack south sweeps across the front
+##            (held cocked on the right, the blow's flame low in front on the fan, then swept to the left), the hurt north's frames a hit
+##            shows (0-2, the stun's 1 among them) keep the staff's shaft down to the ground, the cast east's blow holds the brazier out
+##            in front with the face showing, the death south lies with its staff fallen (no brazier held up on a standing staff)
 
 ## The body's rows for the box's width (the art step's body centring: the lowest 18 rows) and the staff's side cut away, in cell x:
 ## south the staff is left of x 16, north right of x 38 (03-pixel prompts.md 17차 "가로 맞춤": raw x 13 / 34 plus the shift 2 / 5).
 const BODY_ROWS: int = 18
 const STAFF_CUT_SOUTH: int = 15
 const STAFF_CUT_NORTH: int = 39
+## The re-takes' checks (picture measurements, README "M12 보스 그림" 다시 뽑기 (v03)): the east face's candle gold (the face the
+## re-take shows, mapped to the palette's candle gold by the art step), the hood's rows (px over the feet), the lying picture's most
+## height and its brazier's most height over the feet (v02's standing staff held it 40-42 px up), the shaft's rows (px over the feet)
+## and the sideways sweep (px from the middle line).
+const FACE_GOLD: Color = Color8(0xf4, 0xc9, 0x5d)
+const HOOD_OVER_FEET: int = 26
+const LYING_MAX_PX: int = 32
+const LYING_FIRE_MAX_PX: int = 12
+const SHAFT_ROWS_OVER_FEET: Vector2i = Vector2i(5, 15)
+const SWEEP_SIDE_PX: float = 8.0
+const SWEEP_FRONT_PX: float = 6.0
 
 var _nodes: Array[Node] = []
 ## The PNGs read apart from the imported textures (Image.load_from_file of the res:// files), per sheet.
@@ -42,6 +57,7 @@ func run() -> Array[String]:
 	_check_view()
 	_check_light()
 	_check_box_and_marks()
+	_check_retakes()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -103,11 +119,11 @@ func _check_sheets() -> void:
 		var c: Vector2i = BossView.cell(a)
 		var want: Vector2i = Vector2i(c.x * BossView.columns(a), c.y * RigData.ROWS)
 		var tex: Texture2D = BossView.SHEETS[a]
-		check_eq(tex.resource_path.get_file(), "boss_leader_v02_%s.png" % nm, "%s: its sheet file" % nm)
+		check_eq(tex.resource_path.get_file(), "boss_leader_v03_%s.png" % nm, "%s: its sheet file" % nm)
 		check_eq(Vector2i(tex.get_size()), want, "%s: %d columns of %s, three rows" % [nm, BossView.columns(a), c])
 		check_eq(Vector2i(BossView.EMISSIVE[a].get_size()), want, "%s: its mask the same size" % nm)
 		check_eq(Vector2i(_png[a].get_size()), want, "%s: the PNG file the same" % nm)
-		check_eq(BossView.EMISSIVE[a].resource_path.get_file(), "boss_leader_v02_%s_emissive.png" % nm, "%s: its mask file" % nm)
+		check_eq(BossView.EMISSIVE[a].resource_path.get_file(), "boss_leader_v03_%s_emissive.png" % nm, "%s: its mask file" % nm)
 		var img: Image = _png[a]
 		var semi: int = 0
 		for y: int in img.get_height():
@@ -150,8 +166,10 @@ func _check_sheets() -> void:
 							bad += 1
 				check_eq(bad, 0, "%s %s column %d: the walk's first frame on the feet row (%d px down)" % [BossSim.ANIM_NAMES[a2],
 					RigData.DIR_NAMES[row2], col2, lift])
-	# The blow columns: the art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것"), not the heretic's 3, 4, 5.
-	check_eq(Array(BossSim.HIT_COLUMN_ATTACK), [3, 3, 3], "the attack's blow columns (south, east, north)")
+	# The blow columns: the art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것"), not the heretic's 3, 4, 5; the v03
+	# attack south's re-chosen here (README "M12 보스 그림" 다시 뽑기 (v03): the art step's 5 would blow on the right, 7 px from the
+	# held picture).
+	check_eq(Array(BossSim.HIT_COLUMN_ATTACK), [6, 3, 3], "the attack's blow columns (south, east, north)")
 	check_eq(Array(BossSim.HIT_COLUMN_CAST), [4, 3, 3], "the cast's blow columns")
 	# Cleave and cast read apart: their held telegraph columns differ in every row (and their blows).
 	for row3: int in RigData.ROWS:
@@ -240,7 +258,7 @@ func _check_states() -> void:
 	# are written here (the art step's candidates, rows south / east / north), not read from BossSim.hit_column: a wrong sheet -> column
 	# mapping (the cast on the attack's columns, the two swapped, a row off by one) fails here and not only the constants' check above.
 	var ft: int = Config.HERETIC_ATTACK_FRAME_TICKS
-	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [3, 3, 3], BossSim.Anim.CAST: [4, 3, 3]}
+	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [6, 3, 3], BossSim.Anim.CAST: [4, 3, 3]}
 	for dir: int in 4:
 		var row: int = RigData.sheet_row(dir)
 		for atk: int in [BossSim.Attack.CLEAVE, BossSim.Attack.VOLLEY, BossSim.Attack.BURN]:
@@ -523,3 +541,93 @@ func _check_box_and_marks() -> void:
 	var bottom_row: int = EffectMarks.MARK_Y - BossView.MARKS_LIFT + EffectMarks.SIZE - 1
 	check_eq(-tallest - 1 - bottom_row, BossView.MARKS_GAP, "the marks %d rows clear of the hood's tip" % BossView.MARKS_GAP)
 	check(BossView.MARKS_GAP >= 1, "never touching it")
+
+
+# --- the re-takes (v03) -------------------------------------------------------------------------------------------------------
+
+## The flame's middle (its mask pixels' centroid, from the feet) in sheet column `col` of sheet `a`, row `row`, read from the PNG, or
+## BossView.NO_FIRE; its pixels (from the feet) are appended to `out`.
+func _flame(a: int, row: int, col: int, out: Array[Vector2i] = []) -> Vector2:
+	var c: Vector2i = BossView.cell(a)
+	var feet: Vector2i = BossView.feet_in_cell(a)
+	var sum: Vector2 = Vector2.ZERO
+	var n: int = 0
+	for y: int in c.y:
+		for x: int in c.x:
+			if _png_em[a].get_pixel(col * c.x + x, row * c.y + y).a8 >= BossView.GLOW_MIN_ALPHA:
+				sum += Vector2(x + 0.5, y + 0.5)
+				n += 1
+				out.append(Vector2i(x, y) - feet)
+	return BossView.NO_FIRE if n == 0 else sum / n - Vector2(feet)
+
+
+func _check_retakes() -> void:
+	# The attack south (v02: the staff held level to the right, a thrust): cocked on the right while the telegraph holds, the blow's
+	# flame low in front on the fan on the blow tick (the cleave's fan is in front of it), then swept to the left; its last shown
+	# column (the blow + 2: the cleave's after-pause is 18 ticks) is the ready stance again.
+	var hit: int = BossSim.hit_column(BossSim.Anim.ATTACK, 0)
+	var held_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit - 1)
+	var blow_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit)
+	var then_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit + 1)
+	note("attack south's flame from the feet: held %s, blow %s, then %s" % [held_at, blow_at, then_at])
+	check(held_at.x > SWEEP_SIDE_PX, "the attack south held cocked on the right (flame x %.1f)" % held_at.x)
+	check(absf(blow_at.x) <= SWEEP_FRONT_PX and blow_at.y >= -2.0, "its blow low in front, on the fan (flame %s)" % blow_at)
+	check(then_at.x < -SWEEP_SIDE_PX, "then swept to the left (flame x %.1f)" % then_at.x)
+	check_eq(hit + 2, BossView.columns(BossSim.Anim.ATTACK) - 1, "the cleave's last shown column: the ready stance again")
+	# The hurt north (v02: the brazier floated at the shoulder, no shaft): every frame a hit shows keeps the shaft right of the robe's
+	# edge down to the ground (a pixel in each row from SHAFT_ROWS_OVER_FEET.y to .x px over the feet).
+	var hurt: Image = _png[BossSim.Anim.HURT]
+	for f: int in 3:
+		var r: Rect2i = BossView.frame_rect(BossSim.Anim.HURT, 2, f)
+		var rows: int = 0
+		for up: int in range(SHAFT_ROWS_OVER_FEET.x, SHAFT_ROWS_OVER_FEET.y + 1):
+			var y: int = r.position.y + BossView.BODY_FEET.y - up
+			for x: int in range(r.position.x + STAFF_CUT_NORTH + 1, r.end.x):
+				if hurt.get_pixel(x, y).a8 > 0 and _png_em[BossSim.Anim.HURT].get_pixel(x, y).a8 < BossView.GLOW_MIN_ALPHA:
+					rows += 1
+					break
+		check_eq(rows, SHAFT_ROWS_OVER_FEET.y - SHAFT_ROWS_OVER_FEET.x + 1, "hurt north %d: the staff's shaft down to the ground%s" % [f,
+			" (the stun's frame)" if f == Config.SKILL_STUN_FRAME else ""])
+	# The cast east (v02: the brazier at the face): the blow holds it out in front (its flame all ahead of where the start picture's
+	# flame sits before the face) and the face shows in the held and the blow columns (its candle gold in the hood's rows; the start
+	# picture shows none).
+	var hit_e: int = BossSim.hit_column(BossSim.Anim.CAST, 1)
+	var key_px: Array[Vector2i] = []
+	_flame(BossSim.Anim.CAST, 1, 0, key_px)
+	var blow_px: Array[Vector2i] = []
+	_flame(BossSim.Anim.CAST, 1, hit_e, blow_px)
+	var key_front: int = -(1 << 20)
+	for p: Vector2i in key_px:
+		key_front = maxi(key_front, p.x)
+	var blow_back: int = 1 << 20
+	for p2: Vector2i in blow_px:
+		blow_back = mini(blow_back, p2.x)
+	check(blow_back > key_front, "the cast east's blow: its flame ahead of the face (from x %d; the start picture's flame to x %d)" % [
+		blow_back, key_front])
+	var hood_end: int = BossView.feet_in_cell(BossSim.Anim.CAST).y - HOOD_OVER_FEET + 1
+	for col: int in [0, hit_e - 1, hit_e]:
+		var gold: int = 0
+		var ox: int = col * BossView.ACTION_CELL.x
+		var oy: int = BossView.ACTION_CELL.y
+		for y2: int in range(oy, oy + hood_end):
+			for x2: int in range(ox, ox + BossView.ACTION_CELL.x):
+				if _png[BossSim.Anim.CAST].get_pixel(x2, y2) == FACE_GOLD \
+						and _png_em[BossSim.Anim.CAST].get_pixel(x2, y2).a8 < BossView.GLOW_MIN_ALPHA:
+					gold += 1
+		if col == 0:
+			check_eq(gold, 0, "the cast east's start picture: the face behind the brazier")
+		else:
+			check(gold >= 4, "the cast east's column %d: the face shows (%d px)" % [col, gold])
+	# The death south (v02: lying with the staff still upright beside it, the brazier 40 px up): the lying frames low, the brazier on
+	# the ground.
+	for f2: int in range(4, BossSim.FRAME_COUNTS[BossSim.Anim.DEATH]):
+		var rd: Rect2i = BossView.frame_rect(BossSim.Anim.DEATH, 0, f2)
+		var h: int = BossView.BODY_FEET.y - (opaque_box(_png[BossSim.Anim.DEATH], rd).position.y - rd.position.y)
+		var fire: Array[Vector2i] = []
+		_flame(BossSim.Anim.DEATH, 0, f2, fire)
+		var top: int = 0
+		for p3: Vector2i in fire:
+			top = maxi(top, -p3.y)
+		check(h <= LYING_MAX_PX, "death south %d lies low (%d px)" % [f2, h])
+		check(not fire.is_empty() and top <= LYING_FIRE_MAX_PX, "death south %d: the staff fallen, its brazier on the ground (%d px up)" % [
+			f2, top])

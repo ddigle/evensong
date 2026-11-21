@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://baomobc8c16tx"
-path="res://.godot/imported/boss_leader_v02_cast.png-20541001d7e412789435a67db3f81381.ctex"
+uid="uid://cvpicfl1nq8ob"
+path="res://.godot/imported/boss_leader_v03_walk.png-4d562c00c594dc60709439558d5c1bba.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/enemies/boss_leader_v02_cast.png"
-dest_files=["res://.godot/imported/boss_leader_v02_cast.png-20541001d7e412789435a67db3f81381.ctex"]
+source_file="res://art/enemies/boss_leader_v03_walk.png"
+dest_files=["res://.godot/imported/boss_leader_v03_walk.png-4d562c00c594dc60709439558d5c1bba.ctex"]
 
 [params]
 

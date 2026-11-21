@@ -1,7 +1,8 @@
 class_name BossView
 extends Node2D
 ## M12a: the heretic leader's picture (combat/boss_sim.gd). M12 boss art (README "M12 보스 그림"): its own sheets, 03-pixel PixelLab 17차
-## boss_leader_v02 (byte copies in art/enemies/, an adoption candidate the human has not checked yet), in place of M12a's code-drawn
+## boss_leader_v03 (byte copies in art/enemies/, an adoption candidate the human has not checked yet: v02 with the re-taken attack
+## south, cast east, hurt north and death south, README "M12 보스 그림" 다시 뽑기 (v03)), in place of M12a's code-drawn
 ## placeholder (the heretic sheets recoloured with a mitre and a second outline, a staff and a candB flame sprite drawn beside them: all
 ## gone, the sheet has its own staff and fire). Six sheets (BossSim.Anim): idle (asleep too), walk, hurt (the stun holds
 ## Config.SKILL_STUN_FRAME), death (held on its last frame), attack (the cleave) and cast (the fire volley and the burning ground), rows
@@ -21,14 +22,14 @@ extends Node2D
 
 ## The sheets (BossSim.Anim order) and their flame masks (A=255 where a pixel burns, RGB its glow strength: the 04-env candB format).
 const SHEETS: Array[Texture2D] = [
-	preload("res://art/enemies/boss_leader_v02_walk.png"), preload("res://art/enemies/boss_leader_v02_idle.png"),
-	preload("res://art/enemies/boss_leader_v02_attack.png"), preload("res://art/enemies/boss_leader_v02_hurt.png"),
-	preload("res://art/enemies/boss_leader_v02_death.png"), preload("res://art/enemies/boss_leader_v02_cast.png"),
+	preload("res://art/enemies/boss_leader_v03_walk.png"), preload("res://art/enemies/boss_leader_v03_idle.png"),
+	preload("res://art/enemies/boss_leader_v03_attack.png"), preload("res://art/enemies/boss_leader_v03_hurt.png"),
+	preload("res://art/enemies/boss_leader_v03_death.png"), preload("res://art/enemies/boss_leader_v03_cast.png"),
 ]
 const EMISSIVE: Array[Texture2D] = [
-	preload("res://art/enemies/boss_leader_v02_walk_emissive.png"), preload("res://art/enemies/boss_leader_v02_idle_emissive.png"),
-	preload("res://art/enemies/boss_leader_v02_attack_emissive.png"), preload("res://art/enemies/boss_leader_v02_hurt_emissive.png"),
-	preload("res://art/enemies/boss_leader_v02_death_emissive.png"), preload("res://art/enemies/boss_leader_v02_cast_emissive.png"),
+	preload("res://art/enemies/boss_leader_v03_walk_emissive.png"), preload("res://art/enemies/boss_leader_v03_idle_emissive.png"),
+	preload("res://art/enemies/boss_leader_v03_attack_emissive.png"), preload("res://art/enemies/boss_leader_v03_hurt_emissive.png"),
+	preload("res://art/enemies/boss_leader_v03_death_emissive.png"), preload("res://art/enemies/boss_leader_v03_cast_emissive.png"),
 ]
 ## --- the sheets' layout (IMPL "M12 보스 그림 시트": the art step's, 03-pixel prompts.md 17차 "game/에 넘길 것") ---
 ## The body cell (idle, walk, hurt, death: the feet on the bottom row y 47, the body's middle line x 27.5) and the feet point in it (the

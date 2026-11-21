@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://rca4lcmcfi7f"
-path="res://.godot/imported/boss_leader_v02_attack.png-d2ef26fea16bc4f8c45a2538b87c8d5a.ctex"
+uid="uid://wyhc0x1ss3g2"
+path="res://.godot/imported/boss_leader_v03_hurt_emissive.png-d1b0e22b1f5f8b18b22bec04bfaf28a5.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/enemies/boss_leader_v02_attack.png"
-dest_files=["res://.godot/imported/boss_leader_v02_attack.png-d2ef26fea16bc4f8c45a2538b87c8d5a.ctex"]
+source_file="res://art/enemies/boss_leader_v03_hurt_emissive.png"
+dest_files=["res://.godot/imported/boss_leader_v03_hurt_emissive.png-d1b0e22b1f5f8b18b22bec04bfaf28a5.ctex"]
 
 [params]
 

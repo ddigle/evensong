@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c1amujkwt4s8l"
-path="res://.godot/imported/boss_leader_v02_idle_emissive.png-55355ac43605964179ecdc3c1e155705.ctex"
+uid="uid://2m615hpx6ie3"
+path="res://.godot/imported/boss_leader_v03_death_emissive.png-c5f85d7083a1d28a442c2d593d3ace52.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/enemies/boss_leader_v02_idle_emissive.png"
-dest_files=["res://.godot/imported/boss_leader_v02_idle_emissive.png-55355ac43605964179ecdc3c1e155705.ctex"]
+source_file="res://art/enemies/boss_leader_v03_death_emissive.png"
+dest_files=["res://.godot/imported/boss_leader_v03_death_emissive.png-c5f85d7083a1d28a442c2d593d3ace52.ctex"]
 
 [params]
 
