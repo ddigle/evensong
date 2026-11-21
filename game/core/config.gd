@@ -1311,7 +1311,9 @@ const BOSS_ARENA_MIN_SIZE: Vector2i = Vector2i(9, 7)
 ## seen, one outside only with nothing between: BOSS_SEES_THROUGH_WALLS); reset_ticks: with no living player in its room that long it walks
 ## home and resets (full HP, its adds removed, the pillars restored); leash_px: dragged farther than that from home it does the same at
 ## once; home_stuck_ticks: walking home and stuck that long, it is put home. hit_radius_px / hit_height_px: the box a shot hits and
-## melee_bonus_px: the extra melee reach (its body is bigger than a heretic's: README "M11a hit-box rule", the code-drawn view's figure).
+## melee_bonus_px: the extra melee reach (its body is bigger than a heretic's). M12 boss art: the box refitted to the sheet by the M11a
+## hit-box rule (README "M12 보스 그림": height = its tallest picture 45 px, 2r = its south / north body 26 px; M12a: 40 and 20 for the
+## code-drawn placeholder); melee_bonus_px kept.
 ## stun_pct: a stun on it lasts that percent (at least 1 tick) and is followed by stun_immune_ticks in which no stun takes (so the paladin
 ## cannot lock it; the debris's stun ignores both); slow_pct: a slow's strength and time are that percent. recover_ticks: after an attack
 ## before the next one (phase 2: x phase2_cadence_pct). Phase 2 at phase2_hp_pct of its HP: the cadence and phase2_bolts in a volley, and
@@ -1320,7 +1322,7 @@ const BOSS_ARENA_MIN_SIZE: Vector2i = Vector2i(9, 7)
 const BOSS: Dictionary[String, float] = {
 	"hp_base": 1200.0, "hp_per_player_pct": 60.0, "players_cap": 9.0,
 	"speed": 38.0, "sight_px": 256.0, "reset_ticks": 480.0, "leash_px": 320.0, "home_stuck_ticks": 120.0,
-	"hit_radius_px": 10.0, "hit_height_px": 40.0, "melee_bonus_px": 4.0,
+	"hit_radius_px": 13.0, "hit_height_px": 45.0, "melee_bonus_px": 4.0,
 	"stun_pct": 40.0, "stun_immune_ticks": 240.0, "slow_pct": 50.0,
 	"recover_ticks": 60.0, "phase2_hp_pct": 50.0, "phase2_cadence_pct": 65.0, "phase2_bolts": 5.0, "phase2_adds": 2.0,
 	"exposed_ticks": 300.0, "exposed_damage_pct": 150.0, "debris_damage_pct": 12.0, "debris_stun_ticks": 180.0,

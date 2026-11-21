@@ -21,12 +21,15 @@ extends SceneTree
 ##            without them plus each one's art (world picture / icon) on its tile, pixel for pixel.
 ##   wild_net (M11c) a host's creatures, the rare zone and the collection panel drawn by a client from the wire: the host's picture to the
 ##            pixel (a batch, a snapshot, a collection message).
-##   boss     (M12a) evening off on the quiet spot: the heretic leader's code-drawn view (BossView: its shadow, staff, flame and light
-##            hidden) for every frame of its five animations in four directions equals the background plus its derived sheet cell on the
-##            feet (west mirrored), pixel for pixel; the four pillar pictures on their tiles (PillarArt) pixel for pixel; the HUD's boss bar
-##            (frame, fill, the mitre, the phase pips) on its exact pixels. Then in the dark dungeon (darkness on): the cleave's wedge, a
-##            burning circle and a fire bolt (BossFightView) keep their own colours where they are drawn (unshaded) while the floor stays
-##            dark; the standing shrine's demon-orange flames glow in the dark (their glow pixels unshaded). Then the surface altar at tier 1:
+##   boss     (M12a) evening off on the quiet spot: the heretic leader's view (BossView; M12 boss art: its own six sheets, the fire's
+##            glow drawn over the body, its shadow, marks and light hidden) for every frame of its six sheets (the hurt sheet's 0-2: what
+##            a hit shows) in four directions equals the background plus the cell cut from the sheet's PNG file (the cell sizes and feet
+##            written here) on the feet (west mirrored), pixel for pixel; the four pillar pictures on their tiles (PillarArt) pixel for
+##            pixel; the HUD's boss bar (frame, fill, the mitre, the phase pips) on its exact pixels. Then in the dark dungeon (darkness
+##            on): the cleave's wedge, a burning circle and a fire bolt (BossFightView) keep their own colours where they are drawn
+##            (unshaded) while the floor stays dark; the boss standing south: every glow pixel of its frame in the sheet's colour, the rest
+##            of it dark, its light brightening the floor beside its flame more than as far on the other side; the standing shrine's
+##            demon-orange flames glow in the dark (their glow pixels unshaded). Then the surface altar at tier 1:
 ##            candA's lit picture on its shifted place (evening off, pixel for pixel) and, with the evening on, a ground pixel 8 tiles out
 ##            lit at tier 1 and not at tier 0.
 ##   m12b     (M12b) the altar at tier 1 around its middle (480x270): every screen pixel lit (evening on / off ratio) exactly where the
@@ -345,7 +348,7 @@ static func paste_at(dst: Image, img: Image, at: Vector2i) -> void:
 			dst.set_pixelv(p, c)
 
 
-## M12a: the boss fight's pictures (see the header).
+## M12a: the boss fight's pictures (see the header). M12 boss art: the boss from its own sheets.
 func _check_boss() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
@@ -362,41 +365,53 @@ func _check_boss() -> void:
 			var v: BossView = BossView.new()
 			world.entities.add_child(v)
 			v.shadow.visible = false
-			v.staff.visible = false
-			v.flame.visible = false
-			v.flame_glow.visible = false
 			v.marks.visible = false
 			views.append(v)
 			sims.append(b)
 			feet_list.append(feet)
 	var total: int = 0
 	var screens: int = 0
-	for a: int in HereticSim.ANIM_NAMES.size():
-		var expected: Image = bg.duplicate() as Image
-		for i: int in views.size():
-			var b2: BossSim = sims[i]
-			_pose_boss(b2, a, (i % 7) % HereticSim.FRAME_COUNTS[a])
-			views[i].show_sim(b2)
-			views[i].staff.visible = false
-			views[i].flame.visible = false
-			views[i].flame_glow.visible = false
-			views[i].light.enabled = false
-			var tex: Image = BossView.sheet(a).get_image()
-			tex.convert(Image.FORMAT_RGBA8)
-			var cellimg: Image = tex.get_region(BossView.frame_rect(a, RigData.sheet_row(b2.facing), views[i].frame))
-			var off: Vector2i = BossView.cell_offset(a) * BossView.SCALE
-			if RigData.is_mirrored(b2.facing):
-				cellimg.flip_x()
-				paste_at(expected, cellimg, feet_list[i] + Vector2i(-off.x - cellimg.get_width(), off.y))
-			else:
-				paste_at(expected, cellimg, feet_list[i] + off)
-		var got: Image = await _capture()
-		var n: int = count_diff(got, expected)
-		total += n
-		screens += 1
-		if n > 0 or save_all:
-			_save(got, "boss_%s_got.png" % HereticSim.ANIM_NAMES[a])
-			_save(expected, "boss_%s_expected.png" % HereticSim.ANIM_NAMES[a])
+	var posed_wrong: int = 0
+	# Every frame of the six sheets in four directions (seven a row: the 8-frame sheets take a second screen), the fire's glow drawn
+	# over the body (unshaded: with the evening off, its pixels' own colours as the body's), the light off: = the background + the cell
+	# cut from the PNG file read here, its feet on the node (west the east row mirrored).
+	for a: int in BossView.SHEETS.size():
+		var png: Image = Image.load_from_file(ProjectSettings.globalize_path(BossView.SHEETS[a].resource_path))
+		png.convert(Image.FORMAT_RGBA8)
+		var cell: Vector2i = Vector2i(64, 64) if a == BossSim.Anim.ATTACK or a == BossSim.Anim.CAST else Vector2i(56, 48)
+		var feet_in: Vector2i = Vector2i(32, 54) if cell.x == 64 else Vector2i(28, 48)
+		var first: int = 1 if cell.x == 64 else 0
+		# The hurt sheet's frames a hit shows (0-2, the stun's 1 among them; 3-5 are never shown: BossSim.frame).
+		var count: int = 3 if a == BossSim.Anim.HURT else BossSim.FRAME_COUNTS[a]
+		for page: int in ceili(count / 7.0):
+			var expected: Image = bg.duplicate() as Image
+			for i: int in views.size():
+				var f: int = page * 7 + i % 7
+				views[i].visible = f < count
+				if not views[i].visible:
+					continue
+				var b2: BossSim = sims[i]
+				_pose_boss(b2, a, f)
+				views[i].show_sim(b2)
+				if views[i].anim != a or views[i].frame != f:
+					posed_wrong += 1
+				views[i].light.enabled = false
+				views[i].body.modulate = Color.WHITE  # the hurt poses' flash (test_boss_art checks it)
+				views[i].glow.modulate = Color.WHITE
+				var row: int = RigData.sheet_row(b2.facing)
+				var cellimg: Image = png.get_region(Rect2i(Vector2i((first + f) * cell.x, row * cell.y), cell))
+				if RigData.is_mirrored(b2.facing):
+					cellimg.flip_x()
+					paste_at(expected, cellimg, feet_list[i] + Vector2i(feet_in.x - cell.x, -feet_in.y))
+				else:
+					paste_at(expected, cellimg, feet_list[i] - feet_in)
+			var got: Image = await _capture()
+			var n: int = count_diff(got, expected)
+			total += n
+			screens += 1
+			if n > 0 or save_all:
+				_save(got, "boss_%s_%d_got.png" % [BossSim.ANIM_NAMES[a], page])
+				_save(expected, "boss_%s_%d_expected.png" % [BossSim.ANIM_NAMES[a], page])
 	for v2: BossView in views:
 		world.entities.remove_child(v2)
 		v2.free()
@@ -508,6 +523,56 @@ func _check_boss() -> void:
 	for off: Vector2i in [Vector2i(0, -6), Vector2i(-6, 0), Vector2i(6, -4), Vector2i(-4, 6)]:
 		floor_min = minf(floor_min, _brightness(dark.get_pixelv(Vector2i(circle.pos.floor()) - dorigin + off)))
 	var floor_dark: bool = floor_min < _brightness(BossFightView.ORANGE) * 0.5
+	# M12 boss art: the boss itself in the dark, standing south (idle frame 0): its fire's glow in the sheet's own colours (unshaded),
+	# the rest of its picture dark, and its light on the flame (the floor beside the flame lit more than as far on the other side).
+	f.circles.clear()
+	f.bolts.clear()
+	f.sim.state = BossSim.State.CHASE
+	f.sim.walking = false
+	f.sim.clock = 0
+	f.sim.flash_ticks = 0
+	f.sim.facing = RigData.Dir.SOUTH
+	fview.sync()
+	fview.boss.light.enabled = false
+	var boss_dark: Image = await _capture()
+	fview.boss.light.enabled = true
+	var boss_lit: Image = await _capture()
+	var feet_s: Vector2i = Vector2i(f.sim.pos.round()) - dorigin
+	var gimg: Image = BossView.glow_texture(BossSim.Anim.IDLE).get_image()
+	gimg.convert(Image.FORMAT_RGBA8)
+	var simg: Image = Image.load_from_file(ProjectSettings.globalize_path(BossView.SHEETS[BossSim.Anim.IDLE].resource_path))
+	simg.convert(Image.FORMAT_RGBA8)
+	var r0: Rect2i = BossView.frame_rect(BossSim.Anim.IDLE, 0, 0)
+	var boss_glow_px: int = 0
+	var boss_glow_ok: int = 0
+	var body_shown: float = 0.0
+	var body_art: float = 0.0
+	for y6: int in r0.size.y:
+		for x6: int in r0.size.x:
+			var sp: Vector2i = feet_s + Vector2i(x6, y6) - Vector2i(28, 48)
+			var gc6: Color = gimg.get_pixel(r0.position.x + x6, r0.position.y + y6)
+			var bc6: Color = simg.get_pixel(r0.position.x + x6, r0.position.y + y6)
+			if gc6.a8 > 0:
+				boss_glow_px += 1
+				if boss_dark.get_pixelv(sp).to_rgba32() == gc6.to_rgba32():
+					boss_glow_ok += 1
+			elif bc6.a8 > 0:
+				body_shown += _brightness(boss_dark.get_pixelv(sp))
+				body_art += _brightness(bc6)
+	var body_dim: bool = body_shown < body_art * 0.6
+	var fp: Vector2i = Vector2i(BossView.fire_point(BossSim.Anim.IDLE, 0, 0))
+	var near_gain: float = 0.0
+	var far_gain: float = 0.0
+	for oy: int in range(-1, 2):
+		for ox: int in range(-1, 2):
+			var near_p: Vector2i = feet_s + Vector2i(fp.x - 12 + ox, fp.y + oy)
+			var far_p: Vector2i = feet_s + Vector2i(-fp.x + 12 + ox, fp.y + oy)
+			near_gain += _brightness(boss_lit.get_pixelv(near_p)) - _brightness(boss_dark.get_pixelv(near_p))
+			far_gain += _brightness(boss_lit.get_pixelv(far_p)) - _brightness(boss_dark.get_pixelv(far_p))
+	var light_on_flame: bool = fp.x < 0 and near_gain > 0.05 and near_gain > far_gain * 1.3
+	if save_all or boss_glow_ok != boss_glow_px or not body_dim or not light_on_flame:
+		_save(boss_dark, "boss_in_dark_got.png")
+		_save(boss_lit, "boss_in_dark_lit_got.png")
 	var shrine: Rect2i = DungeonGen.shrine_rect(dun.data)
 	dun.camera.position = Vector2(FixtureView.foot_of(shrine)).round()
 	dun.camera.reset_smoothing()
@@ -560,10 +625,12 @@ func _check_boss() -> void:
 	world.altar_tier_changed()
 	world.data.progress = null
 	world.altar_tier_changed()
-	var line: String = ("boss_screens=%d boss_mismatches=%d pillar_mismatches=%d bar_pixels=%d bar_mismatches=%d telegraph_px=%d " \
-		+ "telegraph_wrong=%d floor_dark=%s shrine_glow_px=%d altar_tier1_wrong=%d tier1_lit_8_tiles=%s") % [screens, total, pillar_bad,
-		want.size(), bar_bad, tele_px, tele_bad, floor_dark, glow_seen, altar_bad, lit1]
-	if total == 0 and pillar_bad == 0 and bar_bad == 0 and tele_bad == 0 and floor_dark and glow_seen > 10 and altar_bad == 0 and lit1:
+	var line: String = ("boss_screens=%d boss_mismatches=%d posed_wrong=%d pillar_mismatches=%d bar_pixels=%d bar_mismatches=%d " \
+		+ "telegraph_px=%d telegraph_wrong=%d floor_dark=%s boss_glow=%d/%d boss_body_dim=%s boss_light_near_far=%.2f/%.2f " \
+		+ "shrine_glow_px=%d altar_tier1_wrong=%d tier1_lit_8_tiles=%s") % [screens, total, posed_wrong, pillar_bad, want.size(), bar_bad,
+		tele_px, tele_bad, floor_dark, boss_glow_ok, boss_glow_px, body_dim, near_gain, far_gain, glow_seen, altar_bad, lit1]
+	if total == 0 and posed_wrong == 0 and pillar_bad == 0 and bar_bad == 0 and tele_bad == 0 and floor_dark and glow_seen > 10 \
+			and altar_bad == 0 and lit1 and boss_glow_px > 40 and boss_glow_ok == boss_glow_px and body_dim and light_on_flame:
 		print("EVENSONG_RENDER boss ok %s" % line)
 	else:
 		_fail("boss", line)
@@ -870,26 +937,26 @@ func _check_m12b() -> void:
 		_fail("m12b", " | ".join(lines))
 
 
-## M12a: sets boss `b` to show animation `a` at frame `f`.
+## M12a: sets boss `b` to show sheet `a` (BossSim.Anim; M12 boss art: CAST too) at frame `f`.
 static func _pose_boss(b: BossSim, a: int, f: int) -> void:
 	b.hp = 100
 	b.hp_max = 100
 	b.flash_ticks = 0
 	b.stun_ticks = 0
-	b.walking = a == HereticSim.Anim.WALK
-	b.clock = f * (HereticSim.WALK_FRAME_TICKS if a == HereticSim.Anim.WALK else HereticSim.IDLE_FRAME_TICKS)
+	b.walking = a == BossSim.Anim.WALK
+	b.clock = f * (HereticSim.WALK_FRAME_TICKS if a == BossSim.Anim.WALK else HereticSim.IDLE_FRAME_TICKS)
 	b.state_ticks = 0
 	b.state = BossSim.State.CHASE
 	match a:
-		HereticSim.Anim.ATTACK:
+		BossSim.Anim.ATTACK, BossSim.Anim.CAST:
 			b.state = BossSim.State.ATTACK
-			b.attack = BossSim.Attack.CLEAVE
-			var pre: int = HereticSim.hit_frame(b.row())
-			var blow: int = BossSim.strike_tick(BossSim.Attack.CLEAVE)
+			b.attack = BossSim.Attack.CLEAVE if a == BossSim.Anim.ATTACK else BossSim.Attack.VOLLEY
+			var pre: int = BossSim.hit_frame(a, b.row())
+			var blow: int = BossSim.strike_tick(b.attack)
 			b.state_ticks = f * Config.HERETIC_ATTACK_FRAME_TICKS if f < pre else blow + (f - pre) * Config.HERETIC_ATTACK_FRAME_TICKS
-		HereticSim.Anim.HURT:
-			b.stun_ticks = 10
-		HereticSim.Anim.DEATH:
+		BossSim.Anim.HURT:
+			b.flash_ticks = Config.HIT_FLASH_TICKS - 2 * f  # a hit shows frames 0-2 (BossSim.frame; a stun holds 1): f < 3
+		BossSim.Anim.DEATH:
 			b.state = BossSim.State.DEAD
 			b.state_ticks = f * Config.HERETIC_DEATH_FRAME_TICKS
 
@@ -5220,7 +5287,8 @@ static func _diff_in(a: Image, b: Image, rect: Rect2i) -> int:
 ## dungeon with the boss mid-volley (its bolts in the air), burning circles waiting, one pillar cracked, one badly cracked, one breaking (its
 ## dust) and one rubble, the boss exposed, taunted and slowed, drawn by a BossFightView on the host's dungeon; then the client's dungeon from
 ## the host's map snapshot, its NetCombat fed the batch with the boss block and the fight's late-join events (BossFight.snapshot_events) and
-## sampled at that tick, drawn by its own BossFightView. The staff's flame and light follow the clock, not the wire: both hidden. Then the
+## sampled at that tick, drawn by its own BossFightView. M12 boss art: the boss's fire glow and its light follow its frame (the wire's),
+## not the clock (M12a's staff flame did): both shown. Then the
 ## shrine's demon-orange fire on the client's dungeon (the snapshot's standing shrine) and a client's surface at tier 1 from the host's
 ## snapshot: candA's pixels and the 9-tile light as the host draws them.
 func _check_boss_net() -> void:
@@ -5270,7 +5338,6 @@ func _check_boss_net() -> void:
 	var hview: BossFightView = BossFightView.new()
 	host_w.add_child(hview)
 	hview.setup(f, host_w.entities)
-	_quiet_staff(hview)
 	host_w.camera.make_current()
 	host_w.camera.position = Vector2(f.room.floor_px().get_center().round())
 	host_w.camera.reset_smoothing()
@@ -5298,7 +5365,6 @@ func _check_boss_net() -> void:
 	var cview: BossFightView = BossFightView.new()
 	client_w.add_child(cview)
 	cview.setup(nc.arena.boss, client_w.entities)
-	_quiet_staff(cview)
 	client_w.camera.make_current()
 	client_w.camera.position = Vector2(origin + Config.VIEW_SIZE / 2)
 	client_w.camera.reset_smoothing()
@@ -5365,13 +5431,6 @@ func _check_boss_net() -> void:
 		print("EVENSONG_RENDER boss_net ok %s" % line)
 	else:
 		_fail("boss_net", "%s ready=%s" % [line, ready])
-
-
-## The boss's staff flame, its glow and its light follow the clock (BossView.FLAME_FRAME_MS), not the wire: hidden for a pixel comparison.
-func _quiet_staff(v: BossFightView) -> void:
-	v.boss.flame.visible = false
-	v.boss.flame_glow.visible = false
-	v.boss.light.enabled = false
 
 
 ## World `w` without the fight's drawing (the room as it is), looked at from `origin`.

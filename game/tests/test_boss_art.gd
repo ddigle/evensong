@@ -1,0 +1,447 @@
+extends "res://tests/base_test.gd"
+## M12 boss art (README "M12 보스 그림"): the heretic leader drawn from its own sheets (03-pixel PixelLab 17차 boss_leader_v02, byte copies:
+## test_actors) in place of M12a's code-drawn placeholder. Pictures only: the fight, its timing and the wire are M12's (test_boss,
+## test_boss_keeps, test_net_boss). What it checks:
+##   sheets   the six sheets and their flame masks load with the art step's cells (body 56x48, action 64x64 with the body cell at (4, 6))
+##            and columns (BossSim.FIRST_COLUMN + FRAME_COUNTS, the heretic's counts), rows south / east / north; every cell drawn, no
+##            semi-transparent pixel; the feet on the feet row; the action sheets' start and end columns = the walk's first frame on the
+##            same feet; the sheet's west is not drawn (the view mirrors east); the held telegraph columns differ between the attack and
+##            the cast in every row
+##   glow     each glow texture = its sheet's pixels exactly where the mask burns (read from the PNG files apart), demon orange only
+##   states   asleep, walking (and walking home), every attack's telegraph held and its blow (the cleave on the attack sheet, the volley
+##            and the burn on the cast sheet, the burn's raise held over its whole cast), the hit flash standing, a stun (also cutting an
+##            attack), dead (frame by frame, then lying on the last frame): the sheet, the frame and the source rect the view shows
+##   view     west = the east row mirrored (and its light), the overlay on the body's rect and place, unshaded, the hit flash on both;
+##            the light on the frame's flame (the centroid of its mask pixels, measured here from the PNG) for every frame of every sheet
+##            in four directions, kept where it was on a frame without fire; dead: the light out, the ember kept; the marks over the
+##            tallest picture; the shadow wider than the hem; no placeholder part left (staff, flame sprite, derived sheet)
+##   box      the M11a hit-box rule on the sheets (Config.BOSS hit_height_px = the tallest picture +-2, 2r between the narrowest and
+##            the widest standing picture + 2)
+
+var _nodes: Array[Node] = []
+## The PNGs read apart from the imported textures (Image.load_from_file of the res:// files), per sheet.
+var _png: Dictionary[int, Image] = {}
+var _png_em: Dictionary[int, Image] = {}
+
+
+func run() -> Array[String]:
+	_load_pngs()
+	_check_sheets()
+	_check_glow()
+	_check_states()
+	_check_view()
+	_check_light()
+	_check_box_and_marks()
+	for n: Node in _nodes:
+		if is_instance_valid(n) and n.get_parent() == null:
+			n.free()
+	return failures
+
+
+func view() -> BossView:
+	var v: BossView = BossView.new()
+	_nodes.append(v)
+	return v
+
+
+func boss(state: int, facing: int = RigData.Dir.SOUTH) -> BossSim:
+	var b: BossSim = BossSim.new()
+	b.pos = Vector2(200.25, 120.75)
+	b.facing = facing
+	b.state = state
+	b.hp = 100
+	b.hp_max = 100
+	return b
+
+
+func _load_pngs() -> void:
+	for a: int in BossView.SHEETS.size():
+		_png[a] = LightGen.to_rgba8(Image.load_from_file(ProjectSettings.globalize_path(BossView.SHEETS[a].resource_path)))
+		_png_em[a] = LightGen.to_rgba8(Image.load_from_file(ProjectSettings.globalize_path(BossView.EMISSIVE[a].resource_path)))
+
+
+## The opaque pixels' box of `img` inside `r` (end exclusive), or an empty Rect2i.
+static func opaque_box(img: Image, r: Rect2i) -> Rect2i:
+	var lo: Vector2i = Vector2i(1 << 20, 1 << 20)
+	var hi: Vector2i = Vector2i(-1, -1)
+	for y: int in range(r.position.y, r.end.y):
+		for x: int in range(r.position.x, r.end.x):
+			if img.get_pixel(x, y).a8 > 0:
+				lo = lo.min(Vector2i(x, y))
+				hi = hi.max(Vector2i(x, y))
+	if hi.x < 0:
+		return Rect2i()
+	return Rect2i(lo, hi - lo + Vector2i.ONE)
+
+
+# --- the sheets ---------------------------------------------------------------------------------------------------------------
+
+func _check_sheets() -> void:
+	check_eq(Array(BossSim.ANIM_NAMES.slice(0, 5)), Array(HereticSim.ANIM_NAMES), "the first five sheets are the heretic's animations")
+	for a5: int in 5:
+		check_eq(BossSim.FRAME_COUNTS[a5], HereticSim.FRAME_COUNTS[a5], "%s: the heretic's frame count" % BossSim.ANIM_NAMES[a5])
+		check_eq(BossSim.FIRST_COLUMN[a5], HereticSim.FIRST_COLUMN[a5], "%s: the heretic's first column" % BossSim.ANIM_NAMES[a5])
+	check_eq(BossSim.FRAME_COUNTS[BossSim.Anim.CAST], 8, "the cast: 8 frames")
+	check_eq(BossSim.FRAME_COUNTS[BossSim.Anim.DEATH] * Config.HERETIC_DEATH_FRAME_TICKS, NetProtocol.boss_death_ticks(),
+		"the wire's death time is this sheet's")
+	check_eq(BossView.BODY_CELL, Vector2i(56, 48), "the body cell")
+	check_eq(BossView.ACTION_CELL, Vector2i(64, 64), "the action cell")
+	check_eq(BossView.feet_in_cell(BossSim.Anim.IDLE), Vector2i(28, 48), "the body cell's feet: under the bottom row, x 27.5 + 0.5")
+	check_eq(BossView.feet_in_cell(BossSim.Anim.CAST), Vector2i(32, 54), "the action cell's feet: the body cell at (4, 6)")
+	for a: int in BossView.SHEETS.size():
+		var nm: String = BossSim.ANIM_NAMES[a]
+		var c: Vector2i = BossView.cell(a)
+		var want: Vector2i = Vector2i(c.x * BossView.columns(a), c.y * RigData.ROWS)
+		var tex: Texture2D = BossView.SHEETS[a]
+		check_eq(tex.resource_path.get_file(), "boss_leader_v02_%s.png" % nm, "%s: its sheet file" % nm)
+		check_eq(Vector2i(tex.get_size()), want, "%s: %d columns of %s, three rows" % [nm, BossView.columns(a), c])
+		check_eq(Vector2i(BossView.EMISSIVE[a].get_size()), want, "%s: its mask the same size" % nm)
+		check_eq(Vector2i(_png[a].get_size()), want, "%s: the PNG file the same" % nm)
+		check_eq(BossView.EMISSIVE[a].resource_path.get_file(), "boss_leader_v02_%s_emissive.png" % nm, "%s: its mask file" % nm)
+		var img: Image = _png[a]
+		var semi: int = 0
+		for y: int in img.get_height():
+			for x: int in img.get_width():
+				var al: int = img.get_pixel(x, y).a8
+				if al != 0 and al != 255:
+					semi += 1
+		check_eq(semi, 0, "%s: no semi-transparent pixel" % nm)
+		var feet_row: int = BossView.feet_in_cell(a).y - 1
+		for row: int in RigData.ROWS:
+			for col: int in BossView.columns(a):
+				var r: Rect2i = Rect2i(Vector2i(col * c.x, row * c.y), c)
+				var box: Rect2i = opaque_box(img, r)
+				if not check(box.has_area(), "%s row %d column %d drawn" % [nm, row, col]):
+					continue
+				var bottom: int = box.end.y - 1 - r.position.y
+				if a == BossSim.Anim.IDLE:
+					check_eq(bottom, feet_row, "%s %s %d: on the feet row" % [nm, RigData.DIR_NAMES[row], col])
+				elif a == BossSim.Anim.WALK:
+					check_between(bottom, feet_row - 2, feet_row, "%s %s %d: on the feet row (a step 2 px up at most)" % [nm,
+						RigData.DIR_NAMES[row], col])
+	# The action sheets' start and end columns: the walk's first frame (the art step's KEY) with its own lowest row on the feet row (the
+	# walk north's first frame steps 2 px up in its sheet: the art step puts the key's feet on the feet row).
+	var walk: Image = _png[BossSim.Anim.WALK]
+	for a2: int in [BossSim.Anim.ATTACK, BossSim.Anim.CAST]:
+		for row2: int in RigData.ROWS:
+			var wr: Rect2i = BossView.frame_rect(BossSim.Anim.WALK, row2, 0)
+			var lift: int = wr.end.y - opaque_box(walk, wr).end.y
+			for col2: int in [0, BossView.columns(a2) - 1]:
+				var bad: int = 0
+				var at: Vector2i = Vector2i(col2 * BossView.ACTION_CELL.x, row2 * BossView.ACTION_CELL.y)
+				for y2: int in BossView.ACTION_CELL.y:
+					for x2: int in BossView.ACTION_CELL.x:
+						var inside: Vector2i = Vector2i(x2, y2) - BossView.ACTION_AT - Vector2i(0, lift)
+						var want_c: Color = Color(0, 0, 0, 0)
+						if Rect2i(Vector2i.ZERO, BossView.BODY_CELL).has_point(inside):
+							want_c = walk.get_pixel(inside.x, row2 * BossView.BODY_CELL.y + inside.y)
+						var got_c: Color = _png[a2].get_pixel(at.x + x2, at.y + y2)
+						if (got_c.a8 > 0 or want_c.a8 > 0) and got_c != want_c:
+							bad += 1
+				check_eq(bad, 0, "%s %s column %d: the walk's first frame on the feet row (%d px down)" % [BossSim.ANIM_NAMES[a2],
+					RigData.DIR_NAMES[row2], col2, lift])
+	# The blow columns: the art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것"), not the heretic's 3, 4, 5.
+	check_eq(Array(BossSim.HIT_COLUMN_ATTACK), [3, 3, 3], "the attack's blow columns (south, east, north)")
+	check_eq(Array(BossSim.HIT_COLUMN_CAST), [4, 3, 3], "the cast's blow columns")
+	# Cleave and cast read apart: their held telegraph columns differ in every row (and their blows).
+	for row3: int in RigData.ROWS:
+		for k: int in [0, 1]:
+			var ca: int = BossSim.hit_column(BossSim.Anim.ATTACK, row3) - 1 + k
+			var cc: int = BossSim.hit_column(BossSim.Anim.CAST, row3) - 1 + k
+			var ia: Image = _png[BossSim.Anim.ATTACK].get_region(Rect2i(ca * 64, row3 * 64, 64, 64))
+			var ic: Image = _png[BossSim.Anim.CAST].get_region(Rect2i(cc * 64, row3 * 64, 64, 64))
+			var differ: int = 0
+			for y3: int in 64:
+				for x3: int in 64:
+					if ia.get_pixel(x3, y3) != ic.get_pixel(x3, y3):
+						differ += 1
+			check(differ > 150, "%s: the attack's %s column %d and the cast's %d differ (%d px)" % [RigData.DIR_NAMES[row3],
+				"held" if k == 0 else "blow", ca, cc, differ])
+		var hit_a: int = BossSim.hit_column(BossSim.Anim.ATTACK, row3)
+		var hit_c: int = BossSim.hit_column(BossSim.Anim.CAST, row3)
+		check(hit_a >= 2 and hit_c >= 2, "a raise column before each blow")
+
+
+# --- the glow -----------------------------------------------------------------------------------------------------------------
+
+func _check_glow() -> void:
+	for a: int in BossView.SHEETS.size():
+		var nm: String = BossSim.ANIM_NAMES[a]
+		var g: Image = LightGen.to_rgba8(BossView.glow_texture(a).get_image())
+		check_eq(g.get_size(), _png[a].get_size(), "%s: its glow the sheet's size" % nm)
+		var wrong: int = 0
+		var lit: int = 0
+		var orange: int = 0
+		for y: int in g.get_height():
+			for x: int in g.get_width():
+				var burns: bool = _png_em[a].get_pixel(x, y).a8 >= BossView.GLOW_MIN_ALPHA
+				var want: Color = _png[a].get_pixel(x, y) if burns else Color(0, 0, 0, 0)
+				var got: Color = g.get_pixel(x, y)
+				if (got.a8 > 0 or want.a8 > 0) and got != want:
+					wrong += 1
+				if burns:
+					lit += 1
+					if got.a8 == 255 and got.h * 360.0 <= 30.0:
+						orange += 1
+		check_eq(wrong, 0, "%s: the glow = the sheet's pixels where its mask burns, nothing else" % nm)
+		check(lit > 100, "%s: fire to glow (%d px)" % [nm, lit])
+		check_eq(orange, lit, "%s: every glowing pixel opaque demon orange or blood" % nm)
+		note("%s: %d fire px" % [nm, lit])
+	check(BossView.glow_texture(BossSim.Anim.IDLE) == BossView.glow_texture(BossSim.Anim.IDLE), "cached")
+
+
+# --- the states -> sheet and frame ----------------------------------------------------------------------------------------
+
+## Shows `b` on view `v` and checks its sheet, frame and source rect.
+func expect(v: BossView, b: BossSim, a: int, f: int, what: String) -> void:
+	v.show_sim(b)
+	check_eq(v.anim, a, "%s: the %s sheet" % [what, BossSim.ANIM_NAMES[a]])
+	check_eq(v.frame, f, "%s: frame %d" % [what, f])
+	check(v.body.texture == BossView.SHEETS[a], "%s: drawn from the %s sheet" % [what, BossSim.ANIM_NAMES[a]])
+	check_eq(Rect2i(v.body.region_rect), BossView.frame_rect(a, RigData.sheet_row(b.facing), f), "%s: its cell" % what)
+
+
+func _check_states() -> void:
+	var v: BossView = view()
+	# Asleep and standing: idle, 12 ticks a frame.
+	var b: BossSim = boss(BossSim.State.SLEEP)
+	for t: int in [0, 11, 12, 36, 47, 48]:
+		b.clock = t
+		expect(v, b, BossSim.Anim.IDLE, (t / HereticSim.IDLE_FRAME_TICKS) % 4, "asleep at %d" % t)
+	b.state = BossSim.State.CHASE
+	b.clock = 25
+	expect(v, b, BossSim.Anim.IDLE, 2, "awake, standing")
+	# Walking (and walking home): 7 ticks a frame over 6.
+	b.walking = true
+	for t2: int in [0, 6, 7, 41, 42, 50]:
+		b.clock = t2
+		expect(v, b, BossSim.Anim.WALK, (t2 / HereticSim.WALK_FRAME_TICKS) % 6, "walking at %d" % t2)
+	b.state = BossSim.State.RETURN
+	b.clock = 14
+	expect(v, b, BossSim.Anim.WALK, 2, "walking home")
+	# The hit flash standing: hurt frames 0..2 over the flash.
+	var hb: BossSim = boss(BossSim.State.CHASE)
+	for fl: int in [Config.HIT_FLASH_TICKS, Config.HIT_FLASH_TICKS - 2, 1]:
+		hb.flash_ticks = fl
+		expect(v, hb, BossSim.Anim.HURT, mini((Config.HIT_FLASH_TICKS - fl) / 2, 5), "flashing (%d)" % fl)
+	check(v.body.modulate == Player.HIT_FLASH and v.glow.modulate == Player.HIT_FLASH, "the flash on the body and its fire")
+	# Every attack in every row: the raise frames at the heretic's frame time, the column before the blow held to the blow tick, then
+	# the blow's column on the blow tick (the cleave on the attack sheet, the volley and the burn on the cast sheet).
+	var ft: int = Config.HERETIC_ATTACK_FRAME_TICKS
+	for dir: int in 4:
+		var row: int = RigData.sheet_row(dir)
+		for atk: int in [BossSim.Attack.CLEAVE, BossSim.Attack.VOLLEY, BossSim.Attack.BURN]:
+			var sheet: int = BossSim.Anim.ATTACK if atk == BossSim.Attack.CLEAVE else BossSim.Anim.CAST
+			var nm: String = "%s %s" % [BossSim.ATTACK_NAMES[atk], RigData.DIR_NAMES[dir]]
+			var held: int = BossSim.hit_column(sheet, row) - 1 - BossSim.FIRST_COLUMN[sheet]
+			var blow: int = BossSim.strike_tick(atk) if atk != BossSim.Attack.BURN else BossSim.attack_int(atk, "cast_ticks")
+			var ab: BossSim = boss(BossSim.State.ATTACK, dir)
+			ab.attack = atk
+			ab.state_ticks = 0
+			expect(v, ab, sheet, 0, "%s: its first frame" % nm)
+			ab.state_ticks = ft
+			expect(v, ab, sheet, mini(1, held), "%s: the raise" % nm)
+			ab.state_ticks = blow - 1
+			expect(v, ab, sheet, held, "%s: the telegraph held a tick before the blow" % nm)
+			check_eq(v.body.region_rect.position.x, float((BossSim.hit_column(sheet, row) - 1) * 64), "%s: held on the column before the blow" % nm)
+			if atk == BossSim.Attack.BURN:
+				check_eq(BossSim.attack_length(atk), blow, "the burn stands its cast only: its raise is all it shows")
+				continue
+			ab.state_ticks = blow
+			expect(v, ab, sheet, held + 1, "%s: the blow" % nm)
+			check_eq(v.body.region_rect.position.x, float(BossSim.hit_column(sheet, row) * 64), "%s: on its blow column" % nm)
+			ab.state_ticks = blow + ft
+			expect(v, ab, sheet, held + 2, "%s: after the blow" % nm)
+			ab.state_ticks = BossSim.attack_length(atk) - 1
+			expect(v, ab, sheet, mini(held + 1 + (BossSim.attack_length(atk) - 1 - blow) / ft, 7), "%s: its last tick" % nm)
+	# The rule is M12a's (BossSim.attack_frame) on the boss's own columns.
+	for t3: int in 60:
+		check_eq(BossSim.attack_frame(BossSim.Anim.ATTACK, 1, BossSim.Attack.CLEAVE, t3),
+			mini(t3 / ft, 1) if t3 < 36 else mini(2 + (t3 - 36) / ft, 7), "the cleave east at %d" % t3)
+	# A stun holds the hurt pose's stun frame, mid-attack too.
+	var sb: BossSim = boss(BossSim.State.ATTACK, RigData.Dir.EAST)
+	sb.attack = BossSim.Attack.VOLLEY
+	sb.state_ticks = 20
+	sb.stun_ticks = 30
+	expect(v, sb, BossSim.Anim.HURT, Config.SKILL_STUN_FRAME, "stunned mid-volley")
+	sb.state = BossSim.State.CHASE
+	sb.walking = true
+	expect(v, sb, BossSim.Anim.HURT, Config.SKILL_STUN_FRAME, "stunned walking")
+	check(v.marks.shown.has(EffectMarks.Kind.STUN), "its stun mark")
+	# Dead: the death frames 6 ticks each, then lying on the last.
+	var db: BossSim = boss(BossSim.State.DEAD, RigData.Dir.NORTH)
+	for t4: int in [0, 5, 6, 30, 41, 42, 999]:
+		db.state_ticks = t4
+		expect(v, db, BossSim.Anim.DEATH, mini(t4 / Config.HERETIC_DEATH_FRAME_TICKS, 6), "dead at %d" % t4)
+	check_eq(v.frame, BossSim.FRAME_COUNTS[BossSim.Anim.DEATH] - 1, "lying on the last frame")
+	check(not v.light.enabled and not v.light.visible, "dead: its light out")
+	check(v.glow.visible and v.glow.texture == BossView.glow_texture(BossSim.Anim.DEATH), "dead: the fallen brazier's ember still drawn")
+	check(v.marks.shown.is_empty(), "dead: no marks")
+	db.flash_ticks = 3
+	v.show_sim(db)
+	check(v.body.modulate == Color.WHITE, "dead: no flash")
+
+
+# --- the view -----------------------------------------------------------------------------------------------------------------
+
+func _check_view() -> void:
+	var v: BossView = view()
+	check(v.get_node_or_null(^"Rig/Staff") == null and v.get_node_or_null(^"Rig/Flame") == null
+		and v.get_node_or_null(^"Rig/FlameGlow") == null, "no placeholder staff or flame sprite")
+	check(v.glow.material == FixtureView.unshaded_material(), "the fire drawn unshaded")
+	check_eq(v.glow.get_parent(), v.rig, "the fire in the rig (mirrored with the body)")
+	check_eq(v.light.color, Config.HERETIC_FIRE_LIGHT_COLOR, "the orange light")
+	check(is_equal_approx(v.light.energy, Config.BOSS_FIRE_LIGHT_ENERGY), "its energy")
+	var b: BossSim = boss(BossSim.State.CHASE, RigData.Dir.EAST)
+	b.clock = 14
+	v.show_sim(b)
+	check_eq(v.position, Vector2(200, 121), "on its feet (rounded)")
+	check_eq(v.rig.scale, Vector2.ONE, "east as drawn")
+	var east_rect: Rect2 = v.body.region_rect
+	var east_light: Vector2 = v.light.position
+	b.facing = RigData.Dir.WEST
+	v.show_sim(b)
+	check_eq(v.rig.scale, Vector2(-1.0, 1.0), "west = east mirrored (R19)")
+	check_eq(v.body.region_rect, east_rect, "west uses the east row")
+	check_eq(v.light.position, Vector2(-east_light.x, east_light.y), "its light mirrored")
+	check(v.body.texture is CompressedTexture2D, "the imported sheet itself (no derived texture)")
+	for dir: int in 4:
+		for a: int in BossView.SHEETS.size():
+			var vb: BossSim = boss(BossSim.State.CHASE, dir)
+			_pose(vb, a, 1)
+			v.show_sim(vb)
+			check_eq(v.glow.region_rect, v.body.region_rect, "%s %s: the fire on the body's frame" % [BossSim.ANIM_NAMES[a],
+				RigData.DIR_NAMES[dir]])
+			check_eq(v.glow.position, v.body.position, "its place")
+			check(v.glow.texture == BossView.glow_texture(v.anim), "the glow of that sheet")
+			check_eq(Vector2i(v.body.position), -BossView.feet_in_cell(v.anim), "the cell's feet on the node")
+	# The shadow: wider than the hem of every standing frame (it shows either side of the robe).
+	var widest_hem: int = 0
+	for a2: int in [BossSim.Anim.IDLE, BossSim.Anim.WALK]:
+		for row: int in RigData.ROWS:
+			for f: int in BossSim.FRAME_COUNTS[a2]:
+				var r: Rect2i = BossView.frame_rect(a2, row, f)
+				var box: Rect2i = opaque_box(_png[a2], Rect2i(Vector2i(r.position.x, r.end.y - 1), Vector2i(r.size.x, 1)))
+				widest_hem = maxi(widest_hem, box.size.x)
+	note("hem: widest feet row %d px, shadow %s" % [widest_hem, BossView.SHADOW_SIZE])
+	check(BossView.SHADOW_SIZE.x > widest_hem, "the shadow wider than the hem (%d px)" % widest_hem)
+
+
+## Sets `b` to show sheet `a` at frame `f` (a state that shows it).
+static func _pose(b: BossSim, a: int, f: int) -> void:
+	b.walking = a == BossSim.Anim.WALK
+	b.clock = f * (HereticSim.WALK_FRAME_TICKS if a == BossSim.Anim.WALK else HereticSim.IDLE_FRAME_TICKS)
+	b.state = BossSim.State.CHASE
+	b.state_ticks = 0
+	b.stun_ticks = 0
+	b.flash_ticks = 0
+	match a:
+		BossSim.Anim.ATTACK, BossSim.Anim.CAST:
+			b.state = BossSim.State.ATTACK
+			b.attack = BossSim.Attack.CLEAVE if a == BossSim.Anim.ATTACK else BossSim.Attack.VOLLEY
+			var pre: int = BossSim.hit_frame(a, b.row())
+			var blow: int = BossSim.picture_blow_tick(b.attack)
+			b.state_ticks = f * Config.HERETIC_ATTACK_FRAME_TICKS if f < pre else blow + (f - pre) * Config.HERETIC_ATTACK_FRAME_TICKS
+		BossSim.Anim.HURT:
+			b.flash_ticks = Config.HIT_FLASH_TICKS - 2 * f
+		BossSim.Anim.DEATH:
+			b.state = BossSim.State.DEAD
+			b.state_ticks = f * Config.HERETIC_DEATH_FRAME_TICKS
+
+
+# --- the light ----------------------------------------------------------------------------------------------------------------
+
+func _check_light() -> void:
+	var v: BossView = view()
+	var frames: int = 0
+	var placed: int = 0
+	var no_fire: int = 0
+	for dir: int in 4:
+		var row: int = RigData.sheet_row(dir)
+		var mirror: float = -1.0 if RigData.is_mirrored(dir) else 1.0
+		for a: int in BossView.SHEETS.size():
+			var count: int = BossSim.FRAME_COUNTS[a] if a != BossSim.Anim.HURT else 3
+			for f: int in count:
+				var b: BossSim = boss(BossSim.State.CHASE, dir)
+				_pose(b, a, f)
+				v.show_sim(b)
+				if v.anim != a or v.frame != f:
+					fail("%s %s %d: posed as %s %d" % [BossSim.ANIM_NAMES[a], RigData.DIR_NAMES[dir], f, BossSim.ANIM_NAMES[v.anim], v.frame])
+					continue
+				frames += 1
+				# The centroid of the frame's mask pixels in the PNG, from the feet.
+				var r: Rect2i = BossView.frame_rect(a, row, f)
+				var sum: Vector2 = Vector2.ZERO
+				var n: int = 0
+				for y: int in range(r.position.y, r.end.y):
+					for x: int in range(r.position.x, r.end.x):
+						if _png_em[a].get_pixel(x, y).a8 > 0:
+							sum += Vector2(x - r.position.x + 0.5, y - r.position.y + 0.5)
+							n += 1
+				if n == 0:
+					no_fire += 1
+					continue
+				var want: Vector2 = sum / n - Vector2(BossView.feet_in_cell(a))
+				want.x *= mirror
+				if absf(v.light.position.x - want.x) <= 0.5 and absf(v.light.position.y - want.y) <= 0.5:
+					placed += 1
+				else:
+					fail("%s %s %d: the light at %s, the flame's middle %s" % [BossSim.ANIM_NAMES[a], RigData.DIR_NAMES[dir], f,
+						v.light.position, want])
+				check_eq(v.light.enabled, a != BossSim.Anim.DEATH, "its light on while it lives")
+	note("light: %d frames, %d on their flame, %d without fire" % [frames, placed, no_fire])
+	check_eq(placed + no_fire, frames, "the light on the flame of every frame with fire")
+	check_eq(frames, 4 * (6 + 4 + 8 + 3 + 7 + 8), "every frame seen (the hurt frames 0-2 a hit shows)")
+	# A frame without fire keeps the light where it was (none in this art: one made so for the check, then put back).
+	var b2: BossSim = boss(BossSim.State.CHASE, RigData.Dir.SOUTH)
+	_pose(b2, BossSim.Anim.IDLE, 0)
+	v.show_sim(b2)
+	var before: Vector2 = v.light.position
+	var cache: PackedVector2Array = BossView._fire[BossSim.Anim.WALK]
+	var held: PackedVector2Array = cache.duplicate()
+	cache[0] = BossView.NO_FIRE
+	BossView._fire[BossSim.Anim.WALK] = cache
+	_pose(b2, BossSim.Anim.WALK, 0)
+	v.show_sim(b2)
+	check_eq(v.anim, BossSim.Anim.WALK, "a frame without fire shown")
+	check_eq(v.light.position, before, "the light kept where it was")
+	BossView._fire[BossSim.Anim.WALK] = held
+	v.show_sim(b2)
+	check(v.light.position != before, "and on the flame again with fire")
+
+
+# --- the box and the marks ----------------------------------------------------------------------------------------------------
+
+func _check_box_and_marks() -> void:
+	var tallest: int = 0
+	var tallest_at: String = ""
+	var widest: int = 0
+	var narrowest: int = 1 << 20
+	for a: int in BossView.SHEETS.size():
+		var feet: Vector2i = BossView.feet_in_cell(a)
+		for row: int in RigData.ROWS:
+			for f: int in BossSim.FRAME_COUNTS[a]:
+				var r: Rect2i = BossView.frame_rect(a, row, f)
+				var box: Rect2i = opaque_box(_png[a], r)
+				var h: int = feet.y - (box.position.y - r.position.y)
+				if h > tallest:
+					tallest = h
+					tallest_at = "%s %s %d" % [BossSim.ANIM_NAMES[a], RigData.DIR_NAMES[row], f]
+				if a == BossSim.Anim.IDLE or a == BossSim.Anim.WALK:
+					widest = maxi(widest, box.size.x)
+					narrowest = mini(narrowest, box.size.x)
+	note("boss sheets: tallest %d px (%s), standing %d..%d px wide; box %d tall, %d wide" % [tallest, tallest_at, narrowest, widest,
+		roundi(Config.BOSS["hit_height_px"]), roundi(2.0 * Config.BOSS["hit_radius_px"])])
+	check_eq(BossView.TALLEST_PX, tallest, "TALLEST_PX is the sheets' tallest picture")
+	# The M11a hit-box rule: height = the tallest picture +-2; the width within the standing pictures (+2).
+	check(absi(roundi(Config.BOSS["hit_height_px"]) - tallest) <= 2, "the box's height is the picture's (+-2)")
+	var w: int = roundi(2.0 * Config.BOSS["hit_radius_px"])
+	check(w <= widest + 2 and w >= narrowest, "its width within the standing pictures (%d in %d..%d)" % [w, narrowest, widest + 2])
+	check(Config.BOSS["hit_height_px"] > Config.BODY_HIT_HEIGHT_PX and Config.BOSS["hit_radius_px"] > Config.BODY_HIT_RADIUS_PX,
+		"a bigger box than a heretic's")
+	# The marks: their bottom row MARKS_GAP rows over the tallest picture.
+	var v: BossView = view()
+	check_eq(v.marks.position, Vector2(0, -BossView.MARKS_LIFT), "the marks lifted")
+	var bottom_row: int = EffectMarks.MARK_Y - BossView.MARKS_LIFT + EffectMarks.SIZE - 1
+	check_eq(-tallest - 1 - bottom_row, BossView.MARKS_GAP, "the marks %d rows clear of the hood's tip" % BossView.MARKS_GAP)
+	check(BossView.MARKS_GAP >= 1, "never touching it")

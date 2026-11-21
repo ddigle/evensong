@@ -690,9 +690,10 @@ func _check_flame_colours() -> void:
 		check_eq(off_hue(LightGen.to_rgba8(FixtureView.heretic_glow_texture(large).get_image()), 0.0, 30.0), 0, "its glow too")
 	check(hue(Config.HERETIC_FIRE_LIGHT_COLOR) < 30.0, "the shrine's light orange (%d deg)" % roundi(hue(Config.HERETIC_FIRE_LIGHT_COLOR)))
 	check(hue(BossFightView.ORANGE) < 30.0 and hue(BossFightView.SCARLET) < 30.0, "the boss's fire the same row")
-	var staff: BossView = BossView.new()
-	_nodes.append(staff)
-	check(staff.flame.texture == FixtureView.HERETIC_FLAME_SMALL, "the boss's staff burns with the small candB flame")
+	# M12 boss art: the boss's fire is its sheets' own flame pixels (their glow: the brazier, the jet, the pillar, the ring), the same row.
+	for a: int in BossView.SHEETS.size():
+		var g: Image = LightGen.to_rgba8(BossView.glow_texture(a).get_image())
+		check_eq(off_hue(g, 0.0, 30.0), 0, "the boss's %s fire: demon orange and blood only" % BossSim.ANIM_NAMES[a])
 	# The faith side: candle gold, hues 30..60 (the torches, the relic bench's candle, the altar's lamps at both tiers).
 	for tex2: Texture2D in [FixtureView.FLAME, FixtureView.SMALL_FLAME]:
 		check_eq(off_hue(LightGen.to_rgba8(tex2.get_image()), 30.0, 60.0), 0, "%s: candle gold" % tex2.resource_path.get_file())

@@ -6,8 +6,8 @@ extends "res://tests/base_test.gd"
 ## anyone's, its CRAFT index after every older recipe), the light = safe radius 7 -> 9 tiles and every rule that reads it (heretic spawn
 ## tiles and the light rule, fields, building costs, the creatures' spawns, the merchant's tile, the prayer circle as it was, the
 ## carried altar keeping the tier), the candA picture (its 9 lamps on the prayer's lamps, its candles), the heretic shrine's demon-orange
-## fire (lit while it stands, out when broken, its light no safety; the faith flames still candle gold), the pillar's four pictures and
-## the boss's code-drawn view.
+## fire (lit while it stands, out when broken, its light no safety; the faith flames still candle gold) and the pillar's four pictures
+## (M12 boss art: the boss's view moved to test_boss_art.gd, its sheets replaced the code-drawn placeholder).
 
 const TICK: float = 1.0 / 60.0
 
@@ -23,7 +23,6 @@ func run() -> Array[String]:
 	await _check_world_view()
 	await _check_shrine_fire()
 	_check_pillar_art()
-	_check_boss_view()
 	for n: Node in _nodes:
 		if is_instance_valid(n) and n.get_parent() == null:
 			n.free()
@@ -339,7 +338,7 @@ func _check_shrine_fire() -> void:
 	check(broken.get_node_or_null(^"FlameLeft") == null and broken.get_node_or_null(^"FireLight") == null, "its fire is out")
 
 
-# --- the pillar and the boss's pictures ----------------------------------------------------------------------------------------
+# --- the pillar's pictures ----------------------------------------------------------------------------------------------------
 
 func _check_pillar_art() -> void:
 	var src: Image = LightGen.to_rgba8(PillarArt.PICTURE.get_image())
@@ -367,79 +366,3 @@ func _check_pillar_art() -> void:
 	check(PillarArt.texture(2) == PillarArt.texture(2), "cached")
 	check_eq(PillarArt.origin(Vector2i(10, 10)), Vector2i(10 * 16 + 8 - PillarArt.CENTRE_X, 11 * 16 - 1 - PillarArt.BOTTOM_ROW),
 		"stands on its tile's bottom row")
-
-
-func _check_boss_view() -> void:
-	for a: int in HereticSim.SHEET_PATHS.size():
-		var src: Texture2D = BossView.SOURCE_SHEETS[a]
-		var tex: ImageTexture = BossView.sheet(a)
-		var c: int = HereticSim.CELLS[a]
-		check_eq(tex.get_width(), src.get_width() / c * BossView.cell(a), "anim %d: cells padded" % a)
-		check_eq(tex.get_height(), 3 * BossView.cell(a), "anim %d: three rows" % a)
-	# The idle frame south: the mitre's gold band and stone are drawn, the outline ring is there, the robe recoloured.
-	var img: Image = BossView.sheet(HereticSim.Anim.IDLE).get_image()
-	var r: Rect2i = BossView.frame_rect(HereticSim.Anim.IDLE, 0, 0)
-	var gold: int = 0
-	var stone: int = 0
-	var ring: int = 0
-	var robe: int = 0
-	for y: int in range(r.position.y, r.end.y):
-		for x: int in range(r.position.x, r.end.x):
-			var p: Color = img.get_pixel(x, y)
-			if p.a8 == 0:
-				continue
-			if p == BossView.MITRE_COLOURS["g"]:
-				gold += 1
-			if p == BossView.MITRE_COLOURS["F"]:
-				stone += 1
-			if p == BossView.OUTLINE:
-				ring += 1
-			if BossView.ROBE.has(p):
-				robe += 1
-	check(gold >= 6, "the mitre's gold band (%d px)" % gold)
-	check(stone >= 4, "its demon-orange stone (%d px)" % stone)
-	check(ring > 40, "a second outline (%d px)" % ring)
-	check(robe > 40, "the robe recoloured (%d px)" % robe)
-	check_eq(BossView.recolour(Color8(0x1a, 0x17, 0x14)), Color8(0x1a, 0x17, 0x14), "the outline colour stays")
-	# The M11a hit-box rule on its picture: box height = the tallest standing picture +-2, 2r <= its widest standing picture + 2.
-	var tallest: int = 0
-	var widest: int = 0
-	for a2: int in [HereticSim.Anim.WALK, HereticSim.Anim.IDLE]:
-		var sheet_img: Image = BossView.sheet(a2).get_image()
-		for row: int in 3:
-			for f: int in HereticSim.FRAME_COUNTS[a2]:
-				var cr: Rect2i = BossView.frame_rect(a2, row, f)
-				var feet: Vector2i = cr.position - BossView.cell_offset(a2)
-				var lo: Vector2i = Vector2i(9999, 9999)
-				var hi: Vector2i = Vector2i(-9999, -9999)
-				for y2: int in range(cr.position.y, cr.end.y):
-					for x2: int in range(cr.position.x, cr.end.x):
-						if sheet_img.get_pixel(x2, y2).a8 > 0:
-							lo = lo.min(Vector2i(x2, y2))
-							hi = hi.max(Vector2i(x2, y2))
-				tallest = maxi(tallest, (feet.y - lo.y) * BossView.SCALE)
-				widest = maxi(widest, (hi.x - lo.x + 1) * BossView.SCALE)
-	note("boss picture: tallest standing %d px, widest %d px; box %d tall, %d wide" % [tallest, widest,
-		roundi(Config.BOSS["hit_height_px"]), roundi(2.0 * Config.BOSS["hit_radius_px"])])
-	check(absi(roundi(Config.BOSS["hit_height_px"]) - tallest) <= 2, "the box's height is the picture's (+-2)")
-	check(roundi(2.0 * Config.BOSS["hit_radius_px"]) <= widest + 2, "its width within the picture's")
-	check(BossView.SCALE >= 1, "an integer scale")
-	# The view shows a sim.
-	var v: BossView = BossView.new()
-	_nodes.append(v)
-	var b: BossSim = BossSim.new()
-	b.pos = Vector2(100, 100)
-	b.facing = RigData.Dir.WEST
-	b.state = BossSim.State.CHASE
-	b.walking = true
-	b.clock = 7
-	v.show_sim(b)
-	check_eq(v.anim, HereticSim.Anim.WALK, "walking")
-	check_eq(v.rig.scale.x, -1.0, "west mirrored")
-	check_eq(v.position, Vector2(100, 100), "on its feet")
-	b.state = BossSim.State.DEAD
-	b.state_ticks = 999
-	v.show_sim(b)
-	check_eq(v.anim, HereticSim.Anim.DEATH, "dead: the death frames")
-	check_eq(v.frame, HereticSim.FRAME_COUNTS[HereticSim.Anim.DEATH] - 1, "lying")
-	check(not v.flame.visible and not v.light.enabled, "its fire out")
