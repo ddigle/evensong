@@ -314,7 +314,7 @@ func _check_cleave() -> void:
 	run_world(a, players, tele - 1)
 	check_eq(p.vitals.hp, Config.PLAYER_HP_MAX, "no damage before the telegraph ends")
 	check_eq(a.boss.sim.state, BossSim.State.ATTACK, "still its telegraph")
-	check_eq(a.boss.sim.anim(), HereticSim.Anim.ATTACK, "the raise shows")
+	check_eq(a.boss.sim.anim(), BossSim.Anim.ATTACK, "the raise shows (the cleave: its attack sheet)")
 	run_world(a, players, 1)
 	check_eq(p.vitals.hp, Config.PLAYER_HP_MAX - BossSim.attack_int(BossSim.Attack.CLEAVE, "damage"), "the cleave lands on its tick")
 	check_eq(a.boss.stat("player_hits_cleave"), 1, "counted")
@@ -839,7 +839,7 @@ func _check_death() -> void:
 	check(not again.boss.sim.alive(), "a fight made again on the world: dead (the flag)")
 	run_world(again, two, 60)
 	check(not again.boss.sim.awake(), "it never wakes again")
-	check(again.boss.sim.anim() == HereticSim.Anim.DEATH, "it lies there")
+	check(again.boss.sim.anim() == BossSim.Anim.DEATH, "it lies there")
 
 
 # --- the pillars ----------------------------------------------------------------------------------------------------------------

@@ -53,7 +53,7 @@ func setup(p_fight: BossFight, p_entities: Node2D) -> void:
 	entities = p_entities
 	if fight == null or fight.sim == null:
 		return
-	BossView.warm()  # the sheets now, not on the boss's first attack (README "M12a 보스 그림")
+	BossView.warm()  # the glow textures and flame points now, not on the boss's first frame (README "M12 보스 그림")
 	for k: int in 4:
 		PillarArt.texture(k)
 		PillarArt.glint_texture(k)
