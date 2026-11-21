@@ -14,9 +14,19 @@ extends "res://tests/base_test.gd"
 ##   view     west = the east row mirrored (and its light), the overlay on the body's rect and place, unshaded, the hit flash on both;
 ##            the light on the frame's flame (the centroid of its mask pixels, measured here from the PNG) for every frame of every sheet
 ##            in four directions, kept where it was on a frame without fire; dead: the light out, the ember kept; the marks over the
-##            tallest picture; the shadow wider than the hem; no placeholder part left (staff, flame sprite, derived sheet)
+##            tallest picture (poison, taunt, slow and stun shown, gone with the effects); the shadow as drawn wider than the hem, its
+##            ember tint while exposed; the body on the actors' light layer, the fire over it; no placeholder part left (staff, flame
+##            sprite, derived sheet)
 ##   box      the M11a hit-box rule on the sheets (Config.BOSS hit_height_px = the tallest picture +-2, 2r between the narrowest and
-##            the widest standing picture + 2)
+##            the widest standing picture + 2) and this step's choice in it: 2r within the south / north body (staff and fire cut)
+##   columns  the blow columns written here (attack 3, 3, 3; cast 4, 3, 3), so the sheet -> column mapping is pinned, not only its
+##            constants
+
+## The body's rows for the box's width (the art step's body centring: the lowest 18 rows) and the staff's side cut away, in cell x:
+## south the staff is left of x 16, north right of x 38 (03-pixel prompts.md 17차 "가로 맞춤": raw x 13 / 34 plus the shift 2 / 5).
+const BODY_ROWS: int = 18
+const STAFF_CUT_SOUTH: int = 15
+const STAFF_CUT_NORTH: int = 39
 
 var _nodes: Array[Node] = []
 ## The PNGs read apart from the imported textures (Image.load_from_file of the res:// files), per sheet.
@@ -226,14 +236,20 @@ func _check_states() -> void:
 		expect(v, hb, BossSim.Anim.HURT, mini((Config.HIT_FLASH_TICKS - fl) / 2, 5), "flashing (%d)" % fl)
 	check(v.body.modulate == Player.HIT_FLASH and v.glow.modulate == Player.HIT_FLASH, "the flash on the body and its fire")
 	# Every attack in every row: the raise frames at the heretic's frame time, the column before the blow held to the blow tick, then
-	# the blow's column on the blow tick (the cleave on the attack sheet, the volley and the burn on the cast sheet).
+	# the blow's column on the blow tick (the cleave on the attack sheet, the volley and the burn on the cast sheet). The blow columns
+	# are written here (the art step's candidates, rows south / east / north), not read from BossSim.hit_column: a wrong sheet -> column
+	# mapping (the cast on the attack's columns, the two swapped, a row off by one) fails here and not only the constants' check above.
 	var ft: int = Config.HERETIC_ATTACK_FRAME_TICKS
+	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [3, 3, 3], BossSim.Anim.CAST: [4, 3, 3]}
 	for dir: int in 4:
 		var row: int = RigData.sheet_row(dir)
 		for atk: int in [BossSim.Attack.CLEAVE, BossSim.Attack.VOLLEY, BossSim.Attack.BURN]:
 			var sheet: int = BossSim.Anim.ATTACK if atk == BossSim.Attack.CLEAVE else BossSim.Anim.CAST
 			var nm: String = "%s %s" % [BossSim.ATTACK_NAMES[atk], RigData.DIR_NAMES[dir]]
-			var held: int = BossSim.hit_column(sheet, row) - 1 - BossSim.FIRST_COLUMN[sheet]
+			var want_blow: int = blow_columns[sheet][row]
+			check_eq(BossSim.hit_column(sheet, row), want_blow, "%s: its blow column" % nm)
+			check_eq(BossSim.hit_frame(sheet, row), want_blow - BossSim.FIRST_COLUMN[sheet], "%s: its blow frame" % nm)
+			var held: int = want_blow - 1 - BossSim.FIRST_COLUMN[sheet]
 			var blow: int = BossSim.strike_tick(atk) if atk != BossSim.Attack.BURN else BossSim.attack_int(atk, "cast_ticks")
 			var ab: BossSim = boss(BossSim.State.ATTACK, dir)
 			ab.attack = atk
@@ -243,13 +259,13 @@ func _check_states() -> void:
 			expect(v, ab, sheet, mini(1, held), "%s: the raise" % nm)
 			ab.state_ticks = blow - 1
 			expect(v, ab, sheet, held, "%s: the telegraph held a tick before the blow" % nm)
-			check_eq(v.body.region_rect.position.x, float((BossSim.hit_column(sheet, row) - 1) * 64), "%s: held on the column before the blow" % nm)
+			check_eq(v.body.region_rect.position.x, float((want_blow - 1) * 64), "%s: held on the column before the blow" % nm)
 			if atk == BossSim.Attack.BURN:
 				check_eq(BossSim.attack_length(atk), blow, "the burn stands its cast only: its raise is all it shows")
 				continue
 			ab.state_ticks = blow
 			expect(v, ab, sheet, held + 1, "%s: the blow" % nm)
-			check_eq(v.body.region_rect.position.x, float(BossSim.hit_column(sheet, row) * 64), "%s: on its blow column" % nm)
+			check_eq(v.body.region_rect.position.x, float(want_blow * 64), "%s: on its blow column" % nm)
 			ab.state_ticks = blow + ft
 			expect(v, ab, sheet, held + 2, "%s: after the blow" % nm)
 			ab.state_ticks = BossSim.attack_length(atk) - 1
@@ -323,8 +339,45 @@ func _check_view() -> void:
 				var r: Rect2i = BossView.frame_rect(a2, row, f)
 				var box: Rect2i = opaque_box(_png[a2], Rect2i(Vector2i(r.position.x, r.end.y - 1), Vector2i(r.size.x, 1)))
 				widest_hem = maxi(widest_hem, box.size.x)
-	note("hem: widest feet row %d px, shadow %s" % [widest_hem, BossView.SHADOW_SIZE])
-	check(BossView.SHADOW_SIZE.x > widest_hem, "the shadow wider than the hem (%d px)" % widest_hem)
+	# Measured on the rows the view draws (BossView.shadow_rows), not on the constant.
+	var rows: Array[Rect2] = BossView.shadow_rows()
+	var drawn_w: int = 0
+	for rr: Rect2 in rows:
+		drawn_w = maxi(drawn_w, roundi(rr.size.x))
+	note("hem: widest feet row %d px, shadow %s drawn %d px wide in %d rows" % [widest_hem, BossView.SHADOW_SIZE, drawn_w, rows.size()])
+	check(drawn_w > widest_hem, "the shadow drawn wider than the hem (%d px over %d)" % [drawn_w, widest_hem])
+	check_eq(drawn_w, BossView.SHADOW_SIZE.x + 1, "its widest row: SHADOW_SIZE.x and the middle pixel")
+	check(rows.size() <= BossView.SHADOW_SIZE.y + 2, "a flat ellipse (%d rows)" % rows.size())
+	# The body on the actors' light layer (lit by the torches and its own fire, as a heretic) and the fire drawn over it.
+	check_eq(v.body.light_mask, Config.LIGHT_LAYER_ACTORS, "the body on the actors' light layer")
+	check_eq(v.light_mask, Config.LIGHT_LAYER_ACTORS, "the view too")
+	check(v.glow.get_index() > v.body.get_index(), "the fire drawn over the body")
+	# Exposed: the shadow's ember tint follows it, then back.
+	var xb: BossSim = boss(BossSim.State.CHASE)
+	xb.exposed_ticks = 30
+	v.show_sim(xb)
+	check(v.exposed and v.shadow_colour() == BossView.SHADOW_EXPOSED, "exposed: the ember-tinted shadow")
+	xb.exposed_ticks = 0
+	v.show_sim(xb)
+	check(not v.exposed and v.shadow_colour() == BossView.SHADOW, "no longer exposed: the plain shadow")
+	check(BossView.SHADOW_EXPOSED != BossView.SHADOW, "the two shadows differ")
+	# The marks besides the stun (test_boss_art's states check the stun): poison, taunt and slow over it.
+	var mb: BossSim = boss(BossSim.State.CHASE)
+	mb.poison_ticks = 30
+	mb.taunt_ticks = 30
+	mb.taunt_by = 7
+	mb.slow_ticks = 30
+	mb.slow_pct = 50
+	v.show_sim(mb)
+	check(v.marks.shown.has(EffectMarks.Kind.POISON), "its poison mark")
+	check(v.marks.shown.has(EffectMarks.Kind.TAUNT), "its taunt mark")
+	check(v.marks.shown.has(EffectMarks.Kind.SLOW), "its slow mark")
+	check(not v.marks.shown.has(EffectMarks.Kind.STUN), "no stun mark without a stun")
+	mb.poison_ticks = 0
+	mb.taunt_ticks = 0
+	mb.slow_ticks = 0
+	v.show_sim(mb)
+	check(v.marks.shown.is_empty(), "the marks gone with the effects")
 
 
 ## Sets `b` to show sheet `a` at frame `f` (a state that shows it).
@@ -437,6 +490,31 @@ func _check_box_and_marks() -> void:
 	check(absi(roundi(Config.BOSS["hit_height_px"]) - tallest) <= 2, "the box's height is the picture's (+-2)")
 	var w: int = roundi(2.0 * Config.BOSS["hit_radius_px"])
 	check(w <= widest + 2 and w >= narrowest, "its width within the standing pictures (%d in %d..%d)" % [w, narrowest, widest + 2])
+	# M12 boss art's choice (README "M12 보스 그림" 판정 상자): 2r = the south / north body. The body: the lowest BODY_ROWS rows of each
+	# standing frame, its fire left out and the staff's side cut (STAFF_CUT: the art step's raw cut plus its shift, in cell x). A wider
+	# radius (to take in the staff and the brazier, a human's call: README) means changing this check with it.
+	var body_lo: int = 1 << 20
+	var body_hi: int = 0
+	for a2: int in [BossSim.Anim.IDLE, BossSim.Anim.WALK]:
+		for row2: int in [0, 2]:
+			for f2: int in BossSim.FRAME_COUNTS[a2]:
+				var r2: Rect2i = BossView.frame_rect(a2, row2, f2)
+				var low: int = opaque_box(_png[a2], r2).end.y - 1
+				var x_lo: int = 1 << 20
+				var x_hi: int = -1
+				for y2: int in range(low - BODY_ROWS + 1, low + 1):
+					for x2: int in range(r2.position.x, r2.end.x):
+						var cx: int = x2 - r2.position.x
+						if (row2 == 0 and cx <= STAFF_CUT_SOUTH) or (row2 == 2 and cx >= STAFF_CUT_NORTH):
+							continue
+						if _png[a2].get_pixel(x2, y2).a8 > 0 and _png_em[a2].get_pixel(x2, y2).a8 < BossView.GLOW_MIN_ALPHA:
+							x_lo = mini(x_lo, cx)
+							x_hi = maxi(x_hi, cx)
+				body_lo = mini(body_lo, x_hi - x_lo + 1)
+				body_hi = maxi(body_hi, x_hi - x_lo + 1)
+	note("south / north standing body (staff and fire cut): %d..%d px wide" % [body_lo, body_hi])
+	check(w >= body_lo and w <= body_hi, "2r within the south / north body (%d in %d..%d; a wider radius: change this check too)" % [w,
+		body_lo, body_hi])
 	check(Config.BOSS["hit_height_px"] > Config.BODY_HIT_HEIGHT_PX and Config.BOSS["hit_radius_px"] > Config.BODY_HIT_RADIUS_PX,
 		"a bigger box than a heretic's")
 	# The marks: their bottom row MARKS_GAP rows over the tallest picture.

@@ -237,10 +237,23 @@ func show_sim(b: BossSim) -> void:
 	marks.show_kinds(kinds)
 
 
-func _draw_shadow() -> void:
-	var c: Color = SHADOW_EXPOSED if exposed else SHADOW
+## The ground shadow's rows from the feet (an ellipse of SHADOW_SIZE), one rect a row (test_boss_art measures them).
+static func shadow_rows() -> Array[Rect2]:
+	var rows: Array[Rect2] = []
 	var half: Vector2 = Vector2(SHADOW_SIZE) / 2.0
 	for y: int in range(-roundi(half.y), roundi(half.y) + 1):
 		var t: float = float(y) / maxf(half.y, 1.0)
 		var w: int = roundi(half.x * sqrt(maxf(1.0 - t * t, 0.0)))
-		shadow.draw_rect(Rect2(Vector2(-w, y - 1), Vector2(2 * w + 1, 1)), c)
+		rows.append(Rect2(Vector2(-w, y - 1), Vector2(2 * w + 1, 1)))
+	return rows
+
+
+## The ground shadow's colour now: ember-tinted while exposed.
+func shadow_colour() -> Color:
+	return SHADOW_EXPOSED if exposed else SHADOW
+
+
+func _draw_shadow() -> void:
+	var c: Color = shadow_colour()
+	for r: Rect2 in shadow_rows():
+		shadow.draw_rect(r, c)

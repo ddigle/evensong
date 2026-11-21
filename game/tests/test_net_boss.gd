@@ -755,7 +755,7 @@ func _check_telegraphs_and_debris() -> void:
 	_tick(r, NetProtocol.boss_death_ticks() + 10)
 	check(NetProtocol.boss_of(f, r.s.tick) == null, "dead and lying: no block any more")
 	var mf3: BossFight = _mirror(r, pal)
-	check(mf3.sim.state == BossSim.State.DEAD and mf3.sim.frame() == HereticSim.FRAME_COUNTS[HereticSim.Anim.DEATH] - 1,
+	check(mf3.sim.state == BossSim.State.DEAD and mf3.sim.frame() == BossSim.FRAME_COUNTS[BossSim.Anim.DEATH] - 1,
 		"the paladin draws it lying (frame %d)" % mf3.sim.frame())
 	_free_rig(r)
 
