@@ -1126,7 +1126,7 @@ TALLEST_PX = 45   # 게임 BossView.TALLEST_PX: 판정 상자 높이 45가 기�
 
 
 def check_v03(sheets2, fires2, sheets3, fires3):
-    """v03을 저장하기 전: 바뀌지 않은 줄 = v02 (픽셀까지), 바뀐 줄은 다름, 가장 큰 그림 <= TALLEST_PX. 어긋나면 아무것도 쓰지 않고 멈춘다"""
+    """v03을 저장하기 전: 바뀌지 않은 줄 = v02 (픽셀까지), 바뀐 줄은 다름, 가장 큰 그림 <= TALLEST_PX. 어긋나면 v03 파일을 쓰지 않고 멈춘다(v02 16개와 GIF·scale_check는 그 전에 이미 씀)"""
     print(f"v03 changed rows (COLUMNS_V03 vs COLUMNS): {[(name, DIRS[r]) for name, r in CHANGED_V03]}")
     for name in BODY_ANIMS + ACTIONS:
         for r in range(len(DIRS)):
