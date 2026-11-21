@@ -199,8 +199,8 @@ static func refusal(data: WorldData, feet: Vector2, id: StringName, c: Vector2i,
 		return WHY_COST
 	var kind: int = wall_kind_of(id)
 	var lays_floor: bool = floor_piece_of(id) != WorldData.FLOOR_PIECE_NONE
-	if Walls.is_natural(data, c):
-		return WorldItems.WHY_NOT_OPEN
+	if Walls.is_natural(data, c) or data.blockers.has(c):
+		return WorldItems.WHY_NOT_OPEN  # M12c-fix (review): nor on a standing pillar's tile (WorldData.blockers)
 	if lays_floor:
 		# M7-rf: the floor side's own byte: one floor piece a tile, laid before the wall or door that stands on it.
 		if data.has_floor_piece(c):

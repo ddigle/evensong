@@ -52,4 +52,4 @@ func _draw() -> void:
 	if data.altar_rect.has_area():
 		draw_rect(Rect2(Vector2(data.altar_rect.position * t), Vector2(data.altar_rect.size * t)), ALTAR_COLOR,
 			false, 1.0)
-		draw_arc(data.altar_center_px(), Config.safe_radius_px(), 0.0, TAU, 96, ALTAR_COLOR, 1.0)
+		draw_arc(data.altar_center_px(), WorldProgress.radius_px(data), 0.0, TAU, 96, ALTAR_COLOR, 1.0)

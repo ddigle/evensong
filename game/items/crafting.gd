@@ -44,6 +44,11 @@ extends RefCounted
 ## appended after the repairs (26..30), anyone's.
 ## M11b: the snare (the archer's, like the herbalist's poison potion) and the rare armour (Config.COLLECTION_RECIPES), and the rare armour's
 ## repair, appended after those. An Ingredient may take any of several items (`others`: the snare's wood and hide).
+## M12a: the altar upgrade at the relic bench (Config.ALTAR_UPGRADE_RECIPES, ● game-concept §9.3 R49: the boss drop is the one thing it needs),
+## appended after everything else: an upgrade recipe (Recipe.upgrade) outputs no item; craft() takes its one relic and raises the world's
+## altar tier (WorldProgress.raise_altar, the `progress` the caller passes: offline Main's world). Refused with nothing spent at the slice's
+## maximum tier (WHY_TIER_MAX) and where there is no world progress to raise (WHY_NO_ALTAR: a session's host until M12c, a test's bare
+## inventory). Unlocked like any recipe: once the relic has been in the inventory (Inventory.seen).
 
 ## Station kinds. M7a: the workbench, the anvil, the relic bench, and HAND (no station).
 const ALCHEMY: StringName = &"alchemy"
@@ -72,6 +77,9 @@ const WHY_NOTHING_TO_REPAIR: String = "nothing to repair"
 ## M7-fix: a repair while Gear.repair_on is off (Config.GEAR_REPAIR_AT_ANVIL; M7-rf: on by the human's decision, so only a
 ## test that turns the switch off reaches it).
 const WHY_NO_REPAIR: String = "repair is the engineer's work"
+## M12a: the altar upgrade at the slice's maximum tier (Config.ALTAR_TIER_MAX), and with no world progress to raise.
+const WHY_TIER_MAX: String = "the altar is at its highest tier"
+const WHY_NO_ALTAR: String = "no altar to raise here"
 
 
 ## One input of a recipe: `count` of `item` at `grade` (-1 = any grade). M11b: `others` = items that do as well (taken after `item`).
@@ -106,12 +114,18 @@ class Recipe:
 	var classes: PackedStringArray = []
 	## M7a: a repair recipe's item (&"" = an ordinary recipe): its input is the material, its output that item restored.
 	var repair: StringName = &""
+	## M12a: what an upgrade recipe raises (&"" = none; Config.ALTAR_UPGRADE: the world's altar tier). It outputs no item.
+	var upgrade: StringName = &""
 
 	func allows(class_id: String) -> bool:
 		return classes.is_empty() or classes.has(class_id)
 
 	func is_repair() -> bool:
 		return not repair.is_empty()
+
+	## M12a: an upgrade (the altar's tier), no item out.
+	func is_upgrade() -> bool:
+		return not upgrade.is_empty()
 
 	## M6-fix: why another class may not craft it ("<class>[/<class>...] only"; WHY_CLASS for the herbalist's).
 	func class_refusal() -> String:
@@ -123,6 +137,8 @@ class Recipe:
 			parts.append("%s x%d%s" % [i.item, i.count, "" if i.grade < 0 else " (%s)" % ItemDB.GRADE_NAMES[i.grade]])
 		if is_repair():
 			return "%s: %s -> %s repaired" % [id, ", ".join(parts), repair]
+		if is_upgrade():
+			return "%s: %s -> %s" % [id, ", ".join(parts), upgrade]
 		return "%s: %s -> %s x%d (%s)" % [id, ", ".join(parts), output, out_count, ItemDB.GRADE_NAMES[out_grade]]
 
 
@@ -187,6 +203,10 @@ static func _build_chain() -> void:
 	_add_rows(Config.COLLECTION_RECIPES)  # M11b
 	for rare_item: StringName in Config.GEAR_REPAIR_RARE:
 		_add_repair(rare_item, Config.GEAR_REPAIR_RARE[rare_item])
+	var before: int = _recipes.size()
+	_add_rows(Config.ALTAR_UPGRADE_RECIPES)  # M12a: the altar's tier (its output names what it raises)
+	for i: int in range(before, _recipes.size()):
+		_recipes[i].upgrade = _recipes[i].output
 
 
 ## One repair recipe for `item`, at the anvil, from `material`.
@@ -412,7 +432,8 @@ static func shown_input(inv: Inventory, i: Ingredient) -> StringName:
 
 ## Why a player of `class_id` with `inv` may not craft `r` now ("" = it may). Checks the class, the inputs
 ## and the room for the output after the inputs are out. M7a: a repair needs a worn one of its item (no room needed).
-static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
+## M12a: an upgrade needs `progress` (the world's) below its maximum tier (no room needed: no item out).
+static func refusal(r: Recipe, class_id: String, inv: Inventory, progress: WorldProgress = null) -> String:
 	if r == null:
 		return WHY_BAD_RECIPE
 	if r.is_repair() and not Gear.repair_on:
@@ -421,11 +442,18 @@ static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
 		return WHY_LOCKED
 	if not r.allows(class_id):
 		return r.class_refusal()
+	if r.is_upgrade():
+		if progress == null:
+			return WHY_NO_ALTAR  # M12a: before the inputs: a host (M12c) or a maxed altar says why whatever is held
+		if not progress.can_raise():
+			return WHY_TIER_MAX
 	for i: Ingredient in r.inputs:
 		if have_input(inv, i) < i.count:
 			return WHY_MISSING
 	if r.is_repair():
 		return "" if Gear.most_worn(inv, r.repair) != null else WHY_NOTHING_TO_REPAIR
+	if r.is_upgrade():
+		return ""  # no item out: no room needed
 	var trial: Inventory = copy_of(inv)
 	_take_inputs(r, trial)
 	if trial.room_for(r.output, r.out_grade) < r.out_count:
@@ -436,10 +464,17 @@ static func refusal(r: Recipe, class_id: String, inv: Inventory) -> String:
 ## Crafts `r` for a player of `class_id` from `inv`, all or nothing (see the class comment). M7a: a repair takes its
 ## material (M7-rf: Config.GEAR_REPAIR_COST_ANYONE of it) and gives the most worn one of its item (Gear.most_worn) its
 ## full durability; nothing is added.
-static func craft(r: Recipe, class_id: String, inv: Inventory) -> Outcome:
+## M12a: an upgrade takes its inputs (the one relic) and raises `progress` (WorldProgress.raise_altar); `item` is what it raised.
+static func craft(r: Recipe, class_id: String, inv: Inventory, progress: WorldProgress = null) -> Outcome:
 	var o: Outcome = Outcome.new()
-	o.why = refusal(r, class_id, inv)
+	o.why = refusal(r, class_id, inv, progress)
 	if not o.ok():
+		return o
+	if r.is_upgrade():
+		_take_inputs(r, inv)
+		progress.raise_altar()
+		o.item = r.upgrade
+		o.count = 1
 		return o
 	if r.is_repair():
 		var target: ItemStack = Gear.most_worn(inv, r.repair)

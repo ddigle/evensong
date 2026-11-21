@@ -186,7 +186,25 @@ func run() -> Array[String]:
 	await _check_leave_mid_windup()
 	await _check_dungeon_death()
 	await _check_respawn_waits_for_stream()
+	_check_m12c_boss_on()  # M12c (M12a: none in a session)
 	return failures
+
+
+## M12c (M12a: a session had no boss fight and its host refused the altar upgrade): the host's dungeon arena has the seed's boss fight, its
+## standing pillars block the host's dungeon, one world progress on both maps at tier 0 (the radius as before), the surface's arena has none;
+## the host's craft path takes the world's progress (no relic: missing, not "no altar"). tests/test_net_boss.gd has the rest.
+func _check_m12c_boss_on() -> void:
+	var r: Rig = _rig()
+	var f: BossFight = r.host.arenas[Config.MAP_DUNGEON].boss
+	check(f != null and f.sim != null and f.room.room == BossRoom.for_seed(SEED).room, "M12c: a session's dungeon has the seed's boss")
+	check(r.host.arenas[Config.MAP_SURFACE].boss == null, "M12c: the surface has none")
+	check(f != null and r.dungeon.data.blockers.size() == f.pillars.size() and f.pillars.size() >= 3, "M12c: its pillars block the host's dungeon")
+	check(r.surface.data.progress != null and r.surface.data.progress == r.dungeon.data.progress
+		and SafeZone.for_world(r.surface.data).radius == Config.safe_radius_px(), "M12c: one world progress, tier 0: the radius as before")
+	var inv: Inventory = r.s.local.player.inventory
+	var o: Crafting.Outcome = Crafting.craft(Crafting.recipe(Config.ALTAR_UPGRADE), "paladin", inv, r.host.world_progress())
+	check(not o.ok() and o.why != Crafting.WHY_NO_ALTAR and r.host.world_progress().altar_tier == 0, "M12c: the host's upgrade path has the progress")
+	_free_rig(r)
 
 
 # --- the rig ---------------------------------------------------------------------------------------

@@ -203,7 +203,7 @@ static func _slots_refusal(data: WorldData, rect: Rect2i, px: Rect2, lift: Vecto
 ## (the margin the M1 generator keeps between the light and the ash), else "".
 static func light_corruption_refusal(data: WorldData, rect: Rect2i) -> String:
 	var centre: Vector2 = centre_px(rect)
-	var reach: float = Config.safe_radius_px() + Config.ASH_CLEARANCE_TILES * Config.TILE
+	var reach: float = WorldProgress.radius_px(data) + Config.ASH_CLEARANCE_TILES * Config.TILE  # M12a: the tier's
 	var lo: Vector2i = Vector2i(floori((centre.x - reach) / Config.TILE), floori((centre.y - reach) / Config.TILE))
 	var hi: Vector2i = Vector2i(floori((centre.x + reach) / Config.TILE), floori((centre.y + reach) / Config.TILE))
 	var layer: PackedByteArray = data.layers[WorldData.Layer.CORRUPTION]
@@ -250,7 +250,7 @@ static func set_down_rect(data: WorldData, feet: Vector2, bodies: Array[Vector2]
 
 ## Whether an altar on `rect` would light one of `heretics` (place_refusal's WHY_HERETIC test alone).
 static func _lights_a_heretic(data: WorldData, rect: Rect2i, heretics: Array[Vector2]) -> bool:
-	var zone: SafeZone = SafeZone.new(centre_px(rect), Config.safe_radius_px())
+	var zone: SafeZone = SafeZone.new(centre_px(rect), WorldProgress.radius_px(data))  # M12a: the tier's
 	for h: Vector2 in heretics:
 		if not Combat.box_outside_light(data, zone, h):
 			return true

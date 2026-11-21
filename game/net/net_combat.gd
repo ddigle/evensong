@@ -35,6 +35,9 @@ extends RefCounted
 ## arena's herd (surface only), which CombatView draws, Capture.target_at picks from and the bots aim at. One missing from a batch is gone
 ## or out of this client's view. Its HP, flash and marks are the host's; a click this machine refused shows the refused mark at once
 ## (mark_refused).
+##
+## M12c: on a map whose snapshot brought a boss site (the dungeon) the mirror arena holds a mirror fight (BossFight.mirror) that `boss`
+## (net/net_boss.gd) fills from the batches' boss block and the fight's events; CombatView draws it, the HUD's bar and the bots read it.
 
 ## M9c: a skill's burst as the host's event tells it (Arena.Burst at its age, drawn by CombatView).
 class BurstTrack:
@@ -268,6 +271,9 @@ var kinds_seen: Dictionary[String, bool] = {}
 var creature_marks: Dictionary[String, int] = {}
 var _refused_until: Dictionary[int, float] = {}
 var _t_fresh: float = 0.0
+## M12c: the boss fight's tracks (null on a map without a boss site); boss blocks on a map without one (malformed, skipped).
+var boss: NetBoss = null
+var boss_missing: int = 0
 
 
 ## Starts over on map `p_map` (its data): no heretic, no shot until the host's keyframe.
@@ -277,6 +283,11 @@ func reset(p_map: int, p_data: WorldData) -> void:
 	arena = Arena.mirror(p_data)
 	if p_map == Config.MAP_SURFACE:
 		arena.herd = Creatures.mirror(p_data)  # M11c: filled from the host's batches, never stepped
+	boss = null
+	if p_data.boss_site != null:
+		# M12c: the fight as the snapshot left it (asleep at home, or dead), the pillars as it said; the keyframe and events follow.
+		arena.boss = BossFight.mirror(arena, p_data.boss_site, WorldProgress.boss_dead(p_data))
+		boss = NetBoss.new(arena.boss)
 	creatures.clear()
 	creature_tick = -1
 	creature_last = null
@@ -338,6 +349,13 @@ func on_batch(b: NetProtocol.EnemyBatch, payload: PackedByteArray, keyframe: boo
 	for id: int in foes:
 		if not seen.has(id) and foes[id].gone_at < 0:
 			foes[id].gone_at = b.tick
+	if b.boss != null:
+		if boss != null:
+			boss.on_body(b.tick, b.boss)  # M12c
+		else:
+			boss_missing += 1
+	elif boss != null:
+		boss.on_rest(b.tick)  # M12c: no block: it rests (asleep at home, or lying dead)
 	if not shrine.is_empty():
 		var before: Vector2i = shrine.back()
 		if b.shrine_hp < before.y:
@@ -370,6 +388,12 @@ func on_shots(s: NetProtocol.ShotEvents) -> bool:
 		other_map += 1
 		return false
 	for e: NetProtocol.ShotEvent in s.events:
+		if e.kind >= NetProtocol.ShotEvent.Kind.BOSS_ATTACK:
+			if boss != null:
+				boss.on_event(e)  # M12c: the boss fight's
+			else:
+				boss_missing += 1
+			continue
 		if e.kind == NetProtocol.ShotEvent.Kind.THROW or e.kind == NetProtocol.ShotEvent.Kind.SPLASH:
 			_on_flask(e)
 			continue
@@ -655,6 +679,8 @@ func sample(t_fresh: float, delay: float, positions: Dictionary[int, Vector2] = 
 			sp.age = age
 			arena.splashes.append(sp)
 	_sample_skills(t_fresh, t_draw, positions)  # M9c
+	if boss != null:
+		boss.sample(t_fresh, t_draw)  # M12c: the body a buffer behind, the warnings at once
 	arena.shrine_hp = shrine_hp_at(t_draw)
 	arena.shrine_flash = maxi(Config.HIT_FLASH_TICKS - floori(t_draw - shrine_hit_tick), 0) if t_draw >= shrine_hit_tick else 0
 
@@ -834,6 +860,8 @@ static func sample_foe(tr: FoeTrack, t_draw: float, t_fresh: float) -> HereticSi
 func fighting() -> bool:
 	if not shots.is_empty() or not flasks.is_empty() or not strikes.is_empty() or not zones.is_empty():
 		return true
+	if boss != null and boss.fighting():
+		return true  # M12c
 	if last_batch == null:
 		return false
 	for e: NetProtocol.EnemyState in last_batch.enemies:
@@ -895,4 +923,4 @@ func to_dict() -> Dictionary:
 		"poisoned_seen": poisoned, "skill_events": skill_events, "bursts_seen": bursts_seen, "marks_seen": marks,
 		"warded_seen": warded,
 		"heretics": last_batch.enemies.size() if last_batch != null else 0,
-		"shrine_hp": last_batch.shrine_hp if last_batch != null else -1}
+		"shrine_hp": last_batch.shrine_hp if last_batch != null else -1, "boss_missing": boss_missing}

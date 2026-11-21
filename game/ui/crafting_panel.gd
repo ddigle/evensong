@@ -42,6 +42,8 @@ const MARK_NO: Color = Color8(0xa3, 0x49, 0x2c)           # rust
 
 var inventory: Inventory
 var class_id: String = ""
+## M12a: the world's progress an upgrade row is checked against (Crafting.refusal; offline Main sets it, null = refused like a host's).
+var progress: WorldProgress = null
 var station: Crafting.StationAt
 var recipes: Array[Crafting.Recipe] = []
 var selected: int = 0
@@ -236,7 +238,7 @@ func _draw() -> void:
 		if not r.classes.is_empty():
 			_pixels(ARCHER_MARK if r.classes.has(Config.HUNTER_CLASS) else MARK, output_slot(i) + Vector2i(Hud.SLOT + 2, (ROW - 5) / 2),
 				MARK_OK if r.allows(class_id) else MARK_NO)
-		if not Crafting.refusal(r, class_id, inventory).is_empty():
+		if not Crafting.refusal(r, class_id, inventory, progress).is_empty():
 			draw_rect(Rect2(row_rect(i)), DIM)
 		if i == selected:
 			_frame(row_rect(i).grow(1), Hud.SELECT)

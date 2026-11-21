@@ -106,6 +106,15 @@ extends RefCounted
 ##                                it is farther than that
 ##   snare:<ticks>                walk to the nearest rare creature a snare could take and click on it in reach, until none is left
 ##   collection                   K: open or close the collection panel
+## M12a (offline: the boss as Main has it, `boss_aim`, `boss_state`, set before each step; a session has no boss until M12c):
+##   aimboss                      from now on aim at the boss (the middle of its figure; none or dead: not aiming)
+##   bossfight:<ticks>[,<px>]     hold the use button aimed at the boss while it lives, at most that many ticks; with px, walk toward it
+##                                while it is farther than px (melee)
+##   waitboss:<sleep|awake|phase2|dead>[,<ticks>]   stand until the boss is in that state (default 1800 ticks)
+## M12c (sessions too: the boss as this machine has it, the host's fight or a client's mirror; the map as this machine has it, `world`):
+##   walkpath:<x>,<y>[,<ticks>]   walk to the centre of tile x,y along the shortest 4-way path of standing tiles on this machine's map
+##                                (find_path: walls, faces, placeables and standing pillars in the way; worked out when it starts),
+##                                tile centre to tile centre; gives up after <ticks> (default 1800) or when there is no path
 ## A finished bot stands still. Its script starts when the host says go (session flags).
 
 ## M11b: `snare` clicks this far inside the snare's reach (measured to the figure's middle; its feet are a little farther); `huntrare`
@@ -116,18 +125,23 @@ const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall"
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
 	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt",
-	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen"]
+	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen", "aimboss", "bossfight", "waitboss", "walkpath"]
+## M12a: waitboss's states (BossFight's as Main names them: boss_state).
+const BOSS_STATES: PackedStringArray = ["sleep", "awake", "phase2", "dead"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
 const WALL_NAMES: Dictionary[String, int] = {"none": Walls.KIND_NONE, "wall": Walls.KIND_STONE, "door": Walls.KIND_DOOR,
 	"open": Walls.KIND_DOOR_OPEN}
 ## Longest stall a script may ask for (a test hook, not a way to hang a session for good).
 const MAX_STALL_MS: int = 5000
 const WALK_LIMIT_TICKS: int = 600
+## M12c: walkpath's default limit, and the most tiles its search looks at (a map of 512 x 512).
+const WALKPATH_LIMIT_TICKS: int = 1800
+const WALKPATH_SEARCH_MAX: int = 262144
 const WAITMAP_LIMIT_TICKS: int = 1800
 ## walkto stops on an axis within this many px of the target (half a step: 1.2 px per tick).
 const ARRIVE_PX: float = 0.6
 
-enum Aiming { NONE, OFFSET, CELL, FOE, PREY }
+enum Aiming { NONE, OFFSET, CELL, FOE, PREY, BOSS }
 
 class Command:
 	extends RefCounted
@@ -221,6 +235,9 @@ var prey: Array[Vector2] = []
 ## M11b: the live rare creatures among them, and whether a snare could take each now.
 var rare: Array[Vector2] = []
 var rare_ready: Array[bool] = []
+## M12a: the boss's aim point while it lives (null: no boss or dead) and its state (BOSS_STATES; "" = none), as Main has them.
+var boss_aim: Variant = null
+var boss_state: String = ""
 ## walkdown stops this near a downed player (well inside Config.REVIVE_REACH_PX).
 const DOWN_NEAR_PX: float = 12.0
 var index: int = 0
@@ -229,6 +246,8 @@ var _left: int = -1
 var _aiming: int = Aiming.NONE
 var _aim: Vector2 = Vector2.ZERO
 var _held_last: bool = false
+## M12c: walkpath's tiles still to walk.
+var _path: Array[Vector2i] = []
 
 
 ## Parses `text`; returns "" or the first error.
@@ -236,6 +255,7 @@ func parse(text: String) -> String:
 	commands.clear()
 	index = 0
 	_left = -1
+	_path.clear()
 	finished = false
 	_aiming = Aiming.NONE
 	for part: String in text.split(";", false):
@@ -290,6 +310,12 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 				return "expected walkto:<x>,<y>[,<ticks>]"
 			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
 			c.ticks = args[2].to_int() if args.size() == 3 else WALK_LIMIT_TICKS
+		"walkpath":
+			if args.size() < 2 or args.size() > 3 or not _whole(args[0], 0) or not _whole(args[1], 0) \
+					or (args.size() == 3 and not _whole(args[2], 1)):
+				return "expected walkpath:<x>,<y>[,<ticks>]"
+			c.cell = Vector2i(args[0].to_int(), args[1].to_int())
+			c.ticks = args[2].to_int() if args.size() == 3 else WALKPATH_LIMIT_TICKS
 		"aim":
 			if args.size() == 1 and args[0] == "off":
 				c.aiming = Aiming.NONE
@@ -347,6 +373,19 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"aimprey":
 			if args.size() != 0:
 				return "aimprey takes no arguments"
+		"aimboss":
+			if args.size() != 0:
+				return "aimboss takes no arguments"
+		"bossfight":
+			if args.size() < 1 or args.size() > 2 or not _whole(args[0], 1) or (args.size() > 1 and not _whole(args[1], 1)):
+				return "expected bossfight:<ticks>[,<px>]"
+			c.ticks = args[0].to_int()
+			c.offset = Vector2(args[1].to_float() if args.size() > 1 else 0.0, 0.0)
+		"waitboss":
+			if args.size() < 1 or args.size() > 2 or not BOSS_STATES.has(args[0]) or (args.size() == 2 and not _whole(args[1], 1)):
+				return "expected waitboss:<%s>[,<ticks>]" % "|".join(BOSS_STATES)
+			c.item = StringName(args[0])
+			c.ticks = args[1].to_int() if args.size() == 2 else WAITMAP_LIMIT_TICKS
 		"hunt":
 			if args.size() < 1 or args.size() > 3 or not _whole(args[0], 1) or (args.size() > 1 and not _whole(args[1], 0)) \
 					or (args.size() > 2 and not _whole(args[2], 1)):
@@ -583,6 +622,23 @@ func _advance(a: Action, feet: Vector2) -> void:
 					_next()
 				if a.dir != Vector2i.ZERO:
 					return
+			"walkpath":
+				if _left < 0:
+					_left = c.ticks
+					_path = find_path(world, Aim.feet_cell(feet), c.cell)
+				_left -= 1
+				while not _path.is_empty():
+					var at: Vector2 = (Vector2(_path[0]) + Vector2(0.5, 0.5)) * Config.TILE
+					var dp: Vector2 = at - feet
+					a.dir = Vector2i(_toward(dp.x), _toward(dp.y))
+					if a.dir != Vector2i.ZERO:
+						break
+					_path.pop_front()
+				if _path.is_empty() or _left <= 0:
+					_path.clear()
+					_next()
+				if a.dir != Vector2i.ZERO:
+					return
 			"aim", "aimat":
 				_aiming = c.aiming
 				_aim = c.offset if c.aiming == Aiming.OFFSET else (Vector2(c.cell) + Vector2(0.5, 0.5)) * Config.TILE
@@ -792,6 +848,32 @@ func _advance(a: Action, feet: Vector2) -> void:
 				_aiming = Aiming.PREY
 				_next()
 				_fill_aim(a, feet)
+			"aimboss":
+				_aiming = Aiming.BOSS
+				_next()
+				_fill_aim(a, feet)
+			"bossfight":
+				if _left < 0:
+					_left = c.ticks
+				if boss_aim == null or _left <= 0:
+					_next()
+				else:
+					_left -= 1
+					var spot_b: Vector2 = boss_aim
+					a.aiming = true
+					a.mouse = spot_b
+					if c.offset.x > 0.0 and feet.distance_to(spot_b) > c.offset.x:
+						a.dir = Vector2i(_toward(spot_b.x - feet.x), _toward(spot_b.y - feet.y))
+					else:
+						a.use_held = true
+					return
+			"waitboss":
+				if _left < 0:
+					_left = c.ticks
+				_left -= 1
+				if boss_state == String(c.item) or _left <= 0:
+					_next()
+				return
 			"hunt":
 				if _left < 0:
 					_left = c.ticks
@@ -894,6 +976,35 @@ func _advance(a: Action, feet: Vector2) -> void:
 				return
 
 
+## M12c: the shortest 4-way path of tiles a player can stand on in the middle of (Movement.can_stand) on `data` from tile `from` to tile
+## `to`: the tiles after `from`, `to` last (empty: no data, `to` cannot be stood on, or no path). Ties: DungeonGen.STEPS's order.
+static func find_path(data: WorldData, from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if data == null or not data.in_bounds(to) or not Movement.can_stand(data, (Vector2(to) + Vector2(0.5, 0.5)) * Config.TILE):
+		return out
+	var parent: Dictionary[Vector2i, Vector2i] = {from: from}
+	var queue: Array[Vector2i] = [from]
+	var i: int = 0
+	while i < queue.size() and i < WALKPATH_SEARCH_MAX:
+		var c: Vector2i = queue[i]
+		i += 1
+		if c == to:
+			break
+		for d: Vector2i in DungeonGen.STEPS:
+			var n: Vector2i = c + d
+			if parent.has(n) or not data.in_bounds(n) or not Movement.can_stand(data, (Vector2(n) + Vector2(0.5, 0.5)) * Config.TILE):
+				continue
+			parent[n] = c
+			queue.append(n)
+	if not parent.has(to):
+		return out
+	var at: Vector2i = to
+	while at != from:
+		out.push_front(at)
+		at = parent[at]
+	return out
+
+
 ## The direction (-1/0/1) that brings an axis distance `d` toward 0, 0 when within ARRIVE_PX.
 static func _toward(d: float) -> int:
 	if absf(d) <= ARRIVE_PX:
@@ -925,6 +1036,13 @@ func _fill_aim(a: Action, feet: Vector2) -> void:
 			if quarry != null:
 				a.aiming = true
 				a.mouse = quarry
+		Aiming.BOSS:
+			a.aiming = boss_aim != null
+			if boss_aim != null:
+				var at: Vector2 = boss_aim
+				a.mouse = at
+			else:
+				a.mouse = feet
 		Aiming.FOE:
 			var foe: Variant = nearest_foe(feet)
 			a.aiming = foe != null

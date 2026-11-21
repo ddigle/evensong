@@ -187,7 +187,7 @@ func _check_map_entry_codec() -> void:
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "more chunks than packed bytes: refused")
 	e.chunk_count = 0
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "no chunks: refused")
-	check_eq(NetProtocol.VERSION, 13, "protocol version 13 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12; M11c: 13)")
+	check_eq(NetProtocol.VERSION, 14, "protocol version 14 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12; M11c: 13; M12c: 14)")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 1
 	info.state.map = Config.MAP_DUNGEON
@@ -468,9 +468,10 @@ func _check_travel_requests() -> void:
 	for m: Array in msgs:
 		kinds.append(str(m[1]))
 	# M4b: after the map entry come that map's enemies (a keyframe) and nothing else of another kind. M11c: and the world's collection.
+	# M12c: the dungeon's boss fight as it is (its pillars' states: shot events) between them; the collection message is the world message.
 	var entry_at: int = kinds.find("map")
-	check(kinds.size() >= 2 and entry_at > 0 and kinds[0] == "world" and kinds.slice(entry_at + 1) == PackedStringArray(["enemy_key", "tally"]),
-		"chunks, then the map entry, then its enemies and the collection (%s)" % ", ".join(kinds))
+	check(kinds.size() >= 2 and entry_at > 0 and kinds[0] == "world" and kinds.slice(entry_at + 1) == PackedStringArray(["enemy_key", "shots", "tally"]),
+		"chunks, then the map entry, then its enemies, the boss fight's pillars and the world message (%s)" % ", ".join(kinds))
 	for t: int in Config.NET_OP_INTERVAL_TICKS:
 		near.refill_ops()
 	r.host.run_frame(near, _op(NetProtocol.Op.TRAVEL, Config.MAP_DUNGEON, DungeonGen.exit_rect(r.dungeon.data).position))

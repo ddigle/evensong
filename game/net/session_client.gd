@@ -87,6 +87,14 @@ extends RefCounted
 ## then as a CAPTURE request; the prediction plays the throw's body action at once, like a USE's, nothing it does: the creature, the
 ## snare, the material and the entry are the host's. The rare zone and the collection come in the surface's snapshot; this client keeps
 ## one Collection for the whole session (on every map's data: its panel reads it), the host's collection messages (on_tally) set it.
+##
+## M12c (the boss, the pillars, the relic, the altar's tier): the boss comes in the dungeon's enemy batches and its fight's events (an
+## attack's telegraph, bolts, burning circles, pillar states, debris) on the shot events into NetCombat's NetBoss, which fills a mirror fight
+## the dungeon's CombatView draws (the boss site comes with the dungeon's snapshot); the HUD's boss bar, the bots and the prediction (the
+## standing pillars block here as on the host) read the mirror. The relic comes with the host's inventory. The world's progress comes in every
+## snapshot and in the world message (on_tally, with the collection): this client keeps one WorldProgress for the session on every map's
+## data, and when the host's tier goes up it redraws the surface's light and altar (GameWorld.altar_tier_changed) from that number. The altar
+## upgrade is a CRAFT like any recipe (nothing predicted).
 
 var s: NetSession
 var prediction: Prediction
@@ -153,6 +161,9 @@ var collection: Collection
 var tally_msgs: int = 0
 var bad_tally: int = 0
 var wild_msgs: int = 0
+## M12c: the world's progress as this client has it (the host's; one object for the session), and the tier changes it took.
+var progress: WorldProgress
+var tier_changes: int = 0
 
 var _last_state_tick: int = -1
 
@@ -215,6 +226,7 @@ func on_welcome(payload: PackedByteArray) -> void:
 	if data == null:
 		_world_failed(receiver.error)
 		return
+	_keep_progress(data)  # M12c: before the world is built (its light reads the tier)
 	s.world.load_data(data)
 	s.worlds[Config.MAP_SURFACE] = s.world
 	s.world.show_rare_zone()  # M11c: from the snapshot, never from this machine's generator
@@ -324,6 +336,7 @@ func on_map_entry(payload: PackedByteArray) -> void:
 			left_maps.pop_front()  # test results only (M3-fix: a client travelling all session long)
 		s.log_event("map_left", "map=%s edits=%d world=%s" % [Config.MAP_NAMES[old], s.log_for(old).size(),
 			old_world.data.content_hash().left(12)])
+	_keep_progress(data)  # M12c: before the world is built
 	w.load_data(data)
 	_keep_collection(data)  # M11c
 	if e.map == Config.MAP_SURFACE:
@@ -349,9 +362,10 @@ func on_map_entry(payload: PackedByteArray) -> void:
 	last_entry = {"map": e.map, "bytes": e.packed_size, "raw": e.raw_size, "chunks": e.chunk_count,
 		"edit_position": e.edit_position, "build_ms": ms}
 	s.log_event("map", ("entered map=%s world=%s bytes=%d raw=%d chunks=%d edits=%d drops=%d torches=%d cracked=%d merchant=%s " +
-		"shop=%s build_ms=%.1f") % [Config.MAP_NAMES[e.map], data.content_hash().left(12), e.packed_size, e.raw_size, e.chunk_count,
-		e.edit_position, data.drops.size(), data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH), _cracked(data),
-		SessionReport.merchant_of(data), _stock_line(data), ms])
+		"shop=%s build_ms=%.1f boss=%s progress=%s") % [Config.MAP_NAMES[e.map], data.content_hash().left(12), e.packed_size, e.raw_size,
+		e.chunk_count, e.edit_position, data.drops.size(), data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_TORCH),
+		_cracked(data), SessionReport.merchant_of(data), _stock_line(data), ms,
+		data.boss_site.describe().replace(" ", "|") if data.boss_site != null else "none", progress.describe().replace(" ", "|")])
 	s.local_map_changed.emit(e.map)
 
 
@@ -805,11 +819,23 @@ func _keep_collection(data: WorldData) -> void:
 	data.collection = collection
 
 
-## M11c: the world's collection as the host has it now (absolute). A malformed message is counted and dropped.
+## M12c: world `data` just came from the host: this session's one WorldProgress stays on it. The welcome's snapshot sets it; a map entry's
+## does not (its snapshot was packed when the stream started, while world messages kept reaching this client: the copy is newer; the world
+## message after the entry says it again).
+func _keep_progress(data: WorldData) -> void:
+	if progress == null:
+		progress = data.progress if data.progress != null else WorldProgress.new()
+	data.progress = progress
+	if s.world != null and s.world.data != null:
+		s.world.data.progress = progress  # the surface's world kept while this client is below (its light reads the tier)
+
+
+## M11c: the world's collection as the host has it now (absolute). A malformed message is counted and dropped. M12c: the world message, with the
+## world's progress: a new tier redraws the surface's light and altar from the host's number.
 func on_tally(payload: PackedByteArray) -> void:
 	if not s.active or s.over or collection == null:
 		return
-	var c: NetProtocol.CollectionState = NetProtocol.decode_collection(payload)
+	var c: NetProtocol.WorldState = NetProtocol.decode_world(payload)
 	if not c.ok:
 		bad_tally += 1
 		s.bad_messages += 1
@@ -820,6 +846,22 @@ func on_tally(payload: PackedByteArray) -> void:
 	var fresh: Array[StringName] = collection.take_fresh()
 	if not fresh.is_empty():
 		s.log_event("collection", "entries=%s count=%d/%d kills=%d" % [",".join(fresh), at, Collection.total(), c.kills])
+	if progress == null:
+		return
+	if c.defeated != progress.boss_defeated:
+		progress.boss_defeated = c.defeated
+		progress.revision += 1
+		s.log_event("progress", "boss_defeated=%s" % c.defeated)
+	if c.tier != progress.altar_tier:
+		progress.altar_tier = c.tier
+		progress.revision += 1
+		tier_changes += 1
+		if s.world != null and s.world.data != null:
+			s.world.altar_tier_changed()  # the light, the safe zone, the altar's picture: the host's tier
+		if combat != null and combat.arena != null:
+			combat.arena.sync_world()  # the mirror's light rule (the build ghost, the bots)
+		s.log_event("altar", "tier=%d radius_tiles=%d radius_px=%d light_px=%d" % [c.tier, Config.ALTAR_TIER_RADIUS_TILES[c.tier],
+			roundi(WorldProgress.radius_px(s.world.data)), _light_width()])
 
 
 ## M11c results: the collection and the rare zone as this client has them, the creatures it was told of.
@@ -827,6 +869,26 @@ func hunt_result() -> Dictionary:
 	var zone: RareZone = s.world.data.rare_zone if s.world != null and s.world.data != null else null
 	return {"collection": collection.describe() if collection != null else "none", "msgs": tally_msgs, "bad": bad_tally,
 		"wild_msgs": wild_msgs, "zone": zone.describe() if zone != null else "none"}
+
+
+## M12c: the surface altar light's texture width here (texels: the radius this machine draws).
+func _light_width() -> int:
+	var w: GameWorld = s.world_of(Config.MAP_SURFACE)
+	if w == null or w.lighting == null or w.lighting.altar_light == null or w.lighting.altar_light.actor_light == null \
+			or w.lighting.altar_light.actor_light.texture == null:
+		return 0
+	return w.lighting.altar_light.actor_light.texture.get_width()
+
+
+## M12c results: the world's progress, the boss as this client draws it (the dungeon) and what came of the fight here.
+func boss_result() -> Dictionary:
+	var out: Dictionary = {"progress": progress.describe() if progress != null else "none", "tier_changes": tier_changes,
+		"radius_px": roundi(WorldProgress.radius_px(s.world.data)) if s.world != null and s.world.data != null else -1,
+		"light_px": _light_width(), "altar_picture": SessionHost.altar_picture(s.world_of(Config.MAP_SURFACE)),
+		"ring_lit": SessionHost.ring_lit(s.world_of(Config.MAP_SURFACE))}
+	if combat != null and combat.boss != null:
+		out.merge(combat.boss.to_dict())
+	return out
 
 
 ## M10b: the host tick as this client knows it now (the newest heard plus this client's ticks since).

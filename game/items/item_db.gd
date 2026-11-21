@@ -39,12 +39,15 @@ extends RefCounted
 ## frame); it is no potion (nobody throws it, it does not splash). The hides are materials.
 ## M11b: the snare (CONSUMABLE, thrown at a rare creature with "use": items/capture.gd), the rare material (MATERIAL) and the rare armour
 ## (ARMOR), appended at the end of the table, their icons drawn in code (PLACEHOLDERS).
-enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD, MONEY, FOOD }
+## M12a: RELIC = the boss's relic (Config.BOSS_RELIC, a placeholder name Config.BOSS_RELIC_NAME): kept, used up only by the relic bench's
+## altar upgrade (items/crafting.gd); "use" does nothing with it; it stays in the inventory on death (○ gameplay-design §2.6 "퀘스트 아이템
+## 제외", WorldItems.death_drop_counts); the merchant neither sells nor buys it; the chest takes it. Appended at the end of the table.
+enum Kind { TOOL, MATERIAL, GATHERABLE, PLACEABLE, POTION, SEED, CONSUMABLE, ARMOR, BUILD, MONEY, FOOD, RELIC }
 ## NONE = the item has no grade. COMMON = 일반, FINE = 상급.
 enum Grade { NONE, COMMON, FINE }
 
 const KIND_NAMES: PackedStringArray = ["tool", "material", "gatherable", "placeable", "potion", "seed", "consumable", "armor",
-	"build", "money", "food"]
+	"build", "money", "food", "relic"]
 ## M7a: the icons of the wood and the ingots (04-env 묶음 2 #62 log, #46 planks, #42 / #44 ingots: the 3/4 icons v02, like the
 ## stone block and the ores; whether material icons are 3/4 v02 or front v03 is ○ brief §5.7).
 const WOOD_ICONS: Dictionary[StringName, String] = {
@@ -151,6 +154,10 @@ class ItemDef:
 	## M11a: eaten through the drink path (items/potions.gd).
 	func is_food() -> bool:
 		return kind == Kind.FOOD
+
+	## M12a: the boss's relic (kept out of the death bag).
+	func is_relic() -> bool:
+		return kind == Kind.RELIC
 
 
 static var _table: Dictionary[StringName, ItemDef] = {}
@@ -377,6 +384,12 @@ static func _build() -> void:
 	rare_armor.tier = 2
 	rare_armor.durability = Config.GEAR_DURABILITY.get(&"armor_rare", 0)
 	_add(rare_armor)
+	# M12a (appended): the boss's relic (● game-concept §9.3 R49: the boss drop is what the altar's next tier needs; ○ gameplay-design §5 one per
+	# player; the placeholder name Config.BOSS_RELIC_NAME). No art: a code icon (PLACEHOLDER, ItemIcons: a dark reliquary with the
+	# demon-orange fire of the heretic side, ● brief §5.7 R49).
+	var relic: ItemDef = ItemDef.new(Config.BOSS_RELIC, Kind.RELIC, Config.STACK_RELIC)
+	relic.icon_code = Config.BOSS_RELIC
+	_add(relic)
 
 
 static func _tool(id: StringName, action: int) -> void:

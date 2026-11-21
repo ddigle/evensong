@@ -16,6 +16,12 @@ extends RefCounted
 ##          + (M11c, protocol v13) the rare zone: u8 1 + u16 x, u16 y (its middle tile), u8 radius, or u8 0 (none: another map, or no
 ##          site) + the world's collection: u8 1 + u16 entries (bit per Config.COLLECTION_ENTRIES row), u32 kills, or u8 0 (only the
 ##          surface's snapshot carries it: the object is one per world, a map entry's snapshot of another map has none)
+##          + (M12c, protocol v14) the world's progress: u8 1 + u8 the altar's tier + u8 the boss defeated (0 / 1), or u8 0 (a world with none:
+##          generated data; one object on every map's data, so every map's snapshot carries it) + the boss site: u8 1 + u16 x, u16 y, u8 w,
+##          u8 h (the room as DungeonGen made it, its face row included) + u16 x, u16 y (the boss's home tile) + u8 n + n x (u16 x, u16 y of a
+##          pillar's tile, u8 its miner hits, u8 1 = rubble), or u8 0 (no boss fight on that map: only the dungeon's may have one). Neither is in
+##          the dungeon's content hash (the boss site is the fight's, not the tiles': the generated dungeon hashes golden with the fight on it);
+##          the surface's covers the tier once above 0 (WorldData.content_hash)
 ##   header u16 w, u16 h, i64 seed, u16 altar x, u16 altar y, u16 altar w, u16 altar h, u8 layers (WorldData.LAYER_COUNT: 7),
 ##          u8 map id (M3b: which map this is; not in the content hash)
 ## M3b: the same path sends a map to a player who enters it (net/session_host.gd: a stream per entry,
@@ -47,8 +53,13 @@ const CHEST_BYTES: int = 4 + EditLog.STACK_BYTES * Config.CHEST_SLOTS
 ## M11c: the rare zone's and the collection's bytes after their flags.
 const ZONE_BYTES: int = 5
 const COLLECTION_BYTES: int = NetProtocol.COLLECTION_SIZE
+## M12c: the progress block's and the boss site's bytes after their flags (the site: before its pillars, then each pillar's).
+const PROGRESS_BYTES: int = 2
+const SITE_BYTES: int = 6 + 4 + 1
+const SITE_PILLAR_BYTES: int = 6
 const MAX_RAW: int = HEADER_SIZE + WorldData.LAYER_COUNT * MAX_SIDE * MAX_SIDE + 2 + WorldData.DROP_BYTES * Config.MAX_DROPS \
-	+ 2 + CHEST_BYTES * MAX_CHESTS + 1 + 255 + 1 + ZONE_BYTES + 1 + COLLECTION_BYTES
+	+ 2 + CHEST_BYTES * MAX_CHESTS + 1 + 255 + 1 + ZONE_BYTES + 1 + COLLECTION_BYTES + 1 + PROGRESS_BYTES + 1 + SITE_BYTES \
+	+ SITE_PILLAR_BYTES * NetProtocol.PILLARS_MAX
 ## zstd never grows data by more than a small fraction; a receiver refuses more than this.
 const MAX_PACKED: int = MAX_RAW + MAX_RAW / 64 + 1024
 
@@ -202,7 +213,67 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 		out.append_array(NetProtocol.encode_collection(data.collection))
 	else:
 		out.append(0)
+	# M12c: the world's progress (every map) and the boss site (the dungeon's fight).
+	if data.progress != null:
+		out.append_array(PackedByteArray([1, data.progress.altar_tier, 1 if data.progress.boss_defeated else 0]))
+	else:
+		out.append(0)
+	out.append_array(site_bytes(data.boss_fight.site() if data.boss_fight != null and data.boss_fight.sim != null else null))
 	return out
+
+
+## M12c: boss site `site` as the snapshot carries it (null or roomless: u8 0).
+static func site_bytes(site: BossFight.Site) -> PackedByteArray:
+	if site == null or not site.room.has_area():
+		return PackedByteArray([0])
+	var n: int = mini(site.pillars.size(), NetProtocol.PILLARS_MAX)
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(1 + SITE_BYTES + SITE_PILLAR_BYTES * n)
+	out.encode_u8(0, 1)
+	out.encode_u16(1, site.room.position.x)
+	out.encode_u16(3, site.room.position.y)
+	out.encode_u8(5, clampi(site.room.size.x, 0, 255))
+	out.encode_u8(6, clampi(site.room.size.y, 0, 255))
+	out.encode_u16(7, site.home.x)
+	out.encode_u16(9, site.home.y)
+	out.encode_u8(11, n)
+	for i: int in n:
+		var at: int = 1 + SITE_BYTES + SITE_PILLAR_BYTES * i
+		out.encode_u16(at, site.pillars[i].x)
+		out.encode_u16(at + 2, site.pillars[i].y)
+		out.encode_u8(at + 4, site.hits[i])
+		out.encode_u8(at + 5, 1 if site.fallen[i] else 0)
+	return out
+
+
+## M12c: the boss site whose bytes (without the flag) start at `at` in `raw` on a map of `size`, or null when it is out of range (the room
+## off the map or with no walkable row, the home or a pillar off its walkable rows, a pillar twice or on the home, more than
+## NetProtocol.PILLARS_MAX, hits past the broken state's, rubble that is not broken). `end` (out): where it ends.
+static func read_site(raw: PackedByteArray, at: int, size: Vector2i, end: Array[int]) -> BossFight.Site:
+	if raw.size() < at + SITE_BYTES:
+		return null
+	var site: BossFight.Site = BossFight.Site.new()
+	site.room = Rect2i(raw.decode_u16(at), raw.decode_u16(at + 2), raw.decode_u8(at + 4), raw.decode_u8(at + 5))
+	site.home = Vector2i(raw.decode_u16(at + 6), raw.decode_u16(at + 8))
+	var n: int = raw.decode_u8(at + 10)
+	var walk: Rect2i = BossRoom.walk_of(site.room)
+	if n > NetProtocol.PILLARS_MAX or raw.size() < at + SITE_BYTES + SITE_PILLAR_BYTES * n or site.room.size.y < 2 \
+			or not site.room.has_area() or not Rect2i(Vector2i.ZERO, size).encloses(site.room) or not walk.has_point(site.home):
+		return null
+	var broken: int = BossFight.Pillar.hits_per_state() * 3
+	for i: int in n:
+		var p: int = at + SITE_BYTES + SITE_PILLAR_BYTES * i
+		var tile: Vector2i = Vector2i(raw.decode_u16(p), raw.decode_u16(p + 2))
+		var hits: int = raw.decode_u8(p + 4)
+		var rubble: int = raw.decode_u8(p + 5)
+		if not walk.has_point(tile) or tile == site.home or site.pillars.has(tile) or hits > broken or rubble > 1 \
+				or (rubble == 1 and hits != broken):
+			return null
+		site.pillars.append(tile)
+		site.hits.append(hits)
+		site.fallen.append(rubble == 1)
+	end[0] = at + SITE_BYTES + SITE_PILLAR_BYTES * n
+	return site
 
 
 ## The world from raw_bytes(), or null when the bytes do not describe a valid one (size, layer
@@ -210,7 +281,8 @@ static func raw_bytes(data: WorldData) -> PackedByteArray:
 ## pieces, drops: at most
 ## Config.MAX_DROPS, each a valid item stack inside the map, ids unique; M7c: the chests; M8b: the shop, none or every offer
 ## with a count within its cap, M11c: the rare zone on the surface with its whole disc on the map, the collection on the surface with
-## entries its table has, nothing after them).
+## entries its table has; M12c: the progress with a tier up to Config.ALTAR_TIER_MAX and a 0 / 1 flag, a boss site only on the dungeon and
+## in range (read_site), nothing after them).
 static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if raw.size() < HEADER_SIZE:
 		return null
@@ -241,7 +313,31 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 	if has_zone > 1 or raw.size() < collection_at + 1:
 		return null
 	var has_collection: int = raw.decode_u8(collection_at)
-	if has_collection > 1 or raw.size() != collection_at + 1 + (COLLECTION_BYTES if has_collection == 1 else 0):
+	var progress_at: int = collection_at + 1 + (COLLECTION_BYTES if has_collection == 1 else 0)
+	if has_collection > 1 or raw.size() < progress_at + 2:
+		return null
+	# M12c: the progress, then the boss site, nothing after them.
+	var has_progress: int = raw.decode_u8(progress_at)
+	var site_at: int = progress_at + 1 + (PROGRESS_BYTES if has_progress == 1 else 0)
+	if has_progress > 1 or raw.size() < site_at + 1:
+		return null
+	var progress: WorldProgress = null
+	if has_progress == 1:
+		var tier: int = raw.decode_u8(progress_at + 1)
+		var dead: int = raw.decode_u8(progress_at + 2)
+		if tier > Config.ALTAR_TIER_MAX or dead > 1:
+			return null
+		progress = WorldProgress.new()
+		progress.altar_tier = tier
+		progress.boss_defeated = dead == 1
+	var has_site: int = raw.decode_u8(site_at)
+	var site: BossFight.Site = null
+	var site_end: Array[int] = [site_at + 1]
+	if has_site == 1:
+		site = read_site(raw, site_at + 1, size, site_end)
+		if site == null or raw.decode_u8(21) != Config.MAP_DUNGEON:
+			return null
+	if has_site > 1 or raw.size() != site_end[0]:
 		return null
 	var altar: Rect2i = Rect2i(raw.decode_u16(12), raw.decode_u16(14), raw.decode_u16(16), raw.decode_u16(18))
 	if altar.has_area() and not Rect2i(Vector2i.ZERO, size).encloses(altar):
@@ -298,11 +394,14 @@ static func decode_raw(raw: PackedByteArray) -> WorldData:
 			return null
 		data.rare_zone = z
 	if has_collection == 1:
-		var c: NetProtocol.CollectionState = NetProtocol.decode_collection(raw.slice(collection_at + 1))
+		var c: NetProtocol.CollectionState = NetProtocol.decode_collection(raw.slice(collection_at + 1,
+			collection_at + 1 + COLLECTION_BYTES))  # M12c: the progress and the site follow it
 		if not c.ok or data.map_id != Config.MAP_SURFACE:
 			return null
 		data.collection = Collection.new()
 		data.collection.take_state(c.bits, c.kills)
+	data.progress = progress  # M12c
+	data.boss_site = site
 	return data
 
 

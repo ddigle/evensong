@@ -12,7 +12,11 @@ extends Node
 ##             debris (dungeon_entrance_debris_v01) as a ground decal around it
 ##   exit      PLACEHOLDER: the same arch with the stairs overlay flipped upside down (steps going up
 ##             toward the light), set into the wall face above its footprint. No exit art exists
-##   shrine    heretic_shrine_v02, fire off (? the heretic fire's colour is open, brief §5.7)
+##   shrine    heretic_shrine_v02. M12a (● brief §5.7 R49 heretic-side fire = demon orange): it burns while it stands with the candB
+##             flames (04-env flame_heretic_large_candB_v01 on its two front corners, flame_heretic_small_candB_v01 on its top skull, where
+##             the 04-env candidates sheet put them: SHRINE_FLAMES), 4 frames looped, each drawn on the world light with its glowing
+##             pixels (its _emissive mask) again unshaded, and an orange point light (Config.HERETIC_FIRE_LIGHT_*: light only, never
+##             safety); broken, its fire is out (M4a's broken picture, no flame, no light)
 ##   wall torch  prop_wall_torch_a_v02 with the shared large flame (flame_large_v01 frames 1-4,
 ##             unshaded, at the 04-env mockup's anchor) and a small light
 ##   torch     prop_lantern_ground_v03_lit (the ground lantern a player sets down in the 04-env mockup;
@@ -63,6 +67,17 @@ const RELIC_BENCH: Texture2D = preload("res://art/env/relic_bench_v03.png")
 const CHEST: Texture2D = preload("res://art/env/storage_chest_v02.png")
 const SMALL_FLAME: Texture2D = preload("res://art/env/flame_small_v01.png")
 const RELIC_FLAME_AT: Vector2i = Vector2i(37, -4)
+## M12a: the heretic-side flames (● brief §5.7 R49 candB, demon orange): strips of 5 frames (4 looped + the 5th an ember) of 8x13 (large)
+## and 5x8 (small), and their emissive masks (A=255 where a pixel glows).
+const HERETIC_FLAME_LARGE: Texture2D = preload("res://art/env/flame_heretic_large_candB_v01.png")
+const HERETIC_FLAME_LARGE_EMISSIVE: Texture2D = preload("res://art/env/flame_heretic_large_candB_v01_emissive.png")
+const HERETIC_FLAME_SMALL: Texture2D = preload("res://art/env/flame_heretic_small_candB_v01.png")
+const HERETIC_FLAME_SMALL_EMISSIVE: Texture2D = preload("res://art/env/flame_heretic_small_candB_v01_emissive.png")
+## M12a (IMPL, measured on the 04-env candidates sheet stage4_candidates_v01, candB panel: frame 1 of each matches there exactly): the
+## standing shrine's flames [large?, the frame's top-left in heretic_shrine_v02's picture, node name] and where its light sits (picture px).
+const SHRINE_FLAMES: Array[Array] = [[true, Vector2i(3, 22), "FlameLeft"], [true, Vector2i(37, 22), "FlameRight"],
+	[false, Vector2i(21, 3), "FlameTop"]]
+const SHRINE_LIGHT_AT: Vector2i = Vector2i(24, 26)
 ## Placeable -> [picture, opaque bottom row, node name prefix] (the alchemy table's row is M6a's).
 const FURNITURE: Dictionary[int, Array] = {
 	WorldData.PLACEABLE_ALCHEMY: [TABLE, TABLE_BOTTOM_ROW, "AlchemyTable"],
@@ -127,6 +142,8 @@ var _flames: Array[Sprite2D] = []
 static var _glow: ImageTexture
 static var _post_glow: ImageTexture
 static var _unshaded: CanvasItemMaterial
+## M12a: the heretic flames' glowing pixels (large, small).
+static var _heretic_glows: Dictionary[bool, ImageTexture] = {}
 ## M7b: trees being shaken (tile -> the msec the shake started).
 var _shakes: Dictionary[Vector2i, int] = {}
 
@@ -214,6 +231,9 @@ func _add_shrines() -> void:
 	for anchor: Vector2i in nodes.keys():
 		var n: Node2D = nodes[anchor]
 		if is_instance_valid(n) and n.has_meta(&"shrine_rect"):
+			for child: Node in n.get_children():
+				if child is Sprite2D and _flames.has(child):
+					_flames.erase(child)  # M12a: its flames stop animating with it
 			_free(n)
 			nodes.erase(anchor)
 	for rect: Rect2i in data.footprints(WorldData.PLACEABLE_SHRINE):
@@ -438,6 +458,44 @@ func _add_shrine(rect: Rect2i) -> void:
 	n.set_meta(&"shrine_rect", rect)
 	var origin: Vector2i = shrine_origin(rect)
 	_sprite(n, SHRINE, Vector2(origin), foot, Config.LIGHT_LAYER_WORLD).name = &"Sprite"
+	for i: int in SHRINE_FLAMES.size():
+		var spec: Array = SHRINE_FLAMES[i]  # M12a: its demon-orange fire while it stands
+		var large: bool = spec[0]
+		var at: Vector2i = spec[1]
+		var flame_name: String = spec[2]
+		var phase: int = posmod(rect.position.x * 7 + rect.position.y * 3 + i * 2, FLAME_LOOP)
+		var f: Sprite2D = _sprite(n, HERETIC_FLAME_LARGE if large else HERETIC_FLAME_SMALL, Vector2(origin + at), foot,
+			Config.LIGHT_LAYER_WORLD)
+		f.name = StringName(flame_name)
+		f.hframes = FLAME_FRAMES
+		f.set_meta(&"phase", phase)
+		_flames.append(f)
+		var g: Sprite2D = _sprite(n, heretic_glow_texture(large), Vector2(origin + at), foot, Config.LIGHT_LAYER_WORLD)
+		g.name = StringName(flame_name + "Glow")
+		g.hframes = FLAME_FRAMES
+		g.material = unshaded_material()
+		g.set_meta(&"phase", phase)
+		_flames.append(g)
+	var l: PointLight2D = TorchLight.make(Config.HERETIC_FIRE_LIGHT_RADIUS_PX, Config.HERETIC_FIRE_LIGHT_ENERGY,
+		Vector2(origin + SHRINE_LIGHT_AT) - foot)
+	l.color = Config.HERETIC_FIRE_LIGHT_COLOR
+	l.name = &"FireLight"
+	n.add_child(l)
+
+
+## M12a: a heretic flame strip's glowing pixels (its _emissive mask's opaque pixels, the flame's own colours), the same 5-frame layout:
+## drawn unshaded over the flame so the fire glows in the dark dungeon (like the lanterns' glow_texture).
+static func heretic_glow_texture(large: bool) -> ImageTexture:
+	if not _heretic_glows.has(large):
+		var lit: Image = LightGen.to_rgba8((HERETIC_FLAME_LARGE if large else HERETIC_FLAME_SMALL).get_image())
+		var em: Image = LightGen.to_rgba8((HERETIC_FLAME_LARGE_EMISSIVE if large else HERETIC_FLAME_SMALL_EMISSIVE).get_image())
+		var out: Image = Image.create_empty(lit.get_width(), lit.get_height(), false, Image.FORMAT_RGBA8)
+		for y: int in lit.get_height():
+			for x: int in lit.get_width():
+				if em.get_pixel(x, y).a8 >= 128:
+					out.set_pixel(x, y, lit.get_pixel(x, y))
+		_heretic_glows[large] = ImageTexture.create_from_image(out)
+	return _heretic_glows[large]
 
 
 ## M4a: the broken shrine (PLACEHOLDER, see the class comment): the slab, the bones on it.

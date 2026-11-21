@@ -14,6 +14,7 @@ extends Node
 ## zone) go on a ground layer just before the entities (like the AllyMark: under every figure); the falling shapes and the
 ## bursts sort with the entities.
 ## M11a: the surface's creatures (sync_creatures: a CreatureView per creature of Arena.herd, under the entities like a heretic).
+## M12a: the arena's boss fight (Arena.boss) through a BossFightView child (combat/boss_fight_view.gd), made in setup, synced with the rest.
 
 ## IMPL: bars over a downed player: width, place above the feet, colours (bleed-out = rust, revive = the
 ## faith gold, background ash black).
@@ -52,6 +53,8 @@ var zones: Dictionary[int, Node2D] = {}
 var ground: Node2D
 ## M11a: a node per creature (Arena.herd).
 var creatures: Dictionary[int, CreatureView] = {}
+## M12a: the boss fight's view (null without one).
+var boss_view: BossFightView = null
 var _bars: Dictionary[int, Node2D] = {}
 var _shrine_ratio: float = 1.0
 ## M4-fix: the shrine's fixture node found once for its footprint (not a walk over every entity per sync).
@@ -141,6 +144,11 @@ func setup(p_arena: Arena, p_entities: Node2D) -> void:
 	entities = p_entities
 	if arena != null and arena.herd != null:
 		CreatureView.warm()  # M11 creature art review: the sheets now, not on the first creature's frame
+	if arena != null and arena.boss != null:
+		boss_view = BossFightView.new()  # M12a
+		boss_view.name = &"BossFight"
+		add_child(boss_view)
+		boss_view.setup(arena.boss, entities)
 
 
 func clear() -> void:
@@ -162,6 +170,10 @@ func clear() -> void:
 	for v: CreatureView in creatures.values():  # M11a
 		_free(v)
 	creatures.clear()
+	if boss_view != null:
+		boss_view.clear()  # M12a
+		_free(boss_view)
+		boss_view = null
 	flasks.clear()
 	splashes.clear()
 	bursts.clear()
@@ -213,6 +225,8 @@ func sync(players: Array[Player] = []) -> void:
 	_sync_shrine()
 	_sync_down_bars(players)
 	sync_creatures()  # M11a
+	if boss_view != null:
+		boss_view.sync()  # M12a
 
 
 ## M11a: the herd as it is now (Main after its step: the creatures' clock runs with nobody on the map too).

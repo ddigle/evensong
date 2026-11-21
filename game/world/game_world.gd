@@ -22,6 +22,8 @@ extends Node2D
 ## M5b: purification's effects with a PurifyView (Purify, above the decals); the altar follows its footprint in the
 ## world: an edit that picks it up or puts it down (WorldData.refresh_altar_rect) moves the safe zone, the altar's node and
 ## its light here (_altar_moved) and says so (altar_moved).
+## M12a: the world's altar tier (WorldProgress on the data) sets the safe zone's radius and the altar's picture (candA at tier 1); a raise
+## (altar_tier_changed) rebuilds both and the light like a move does, and says so (tier_changed).
 ## M7b: built pieces (walls, doors, floor pieces: the WALL layer's built kinds; M7-rf: floor pieces are the FLOOR_PIECE
 ## layer, under the walls) with a BuildView (Builds, right above the
 ## decals, below the entities, on both maps; a dungeon's own walls stay the CaveView's). Trees, stumps and lantern posts
@@ -31,6 +33,8 @@ extends Node2D
 signal generated
 ## M5b: the altar was picked up or put down (its footprint changed through world edits).
 signal altar_moved
+## M12a: the world's altar went up a tier (altar_tier_changed): a wider light and safe zone, the tier's picture.
+signal tier_changed
 
 ## Generate in _ready from the --seed flag (Config.DEFAULT_SEED without it). Tests turn this off
 ## and call generate() themselves.
@@ -176,6 +180,7 @@ func _place_altar() -> void:
 	altar = Altar.new()
 	altar.name = &"Altar"
 	altar.setup(data.altar_rect)
+	altar.set_tier(WorldProgress.tier_of(data))  # M12a: candA at tier 1
 	entities.add_child(altar)
 	entities.move_child(altar, 0)
 
@@ -190,6 +195,17 @@ func _altar_moved() -> void:
 	lighting.altar_light.set_lit(lighting.evening_on)
 	overlay.queue_redraw()
 	altar_moved.emit()
+
+
+## M12a: the world's altar went up a tier (WorldProgress.raise_altar, the relic bench's upgrade): the safe zone's radius, the altar's
+## picture and its light follow as after a move (the rules that cache the zone, the arena and the herd, see the tier themselves).
+func altar_tier_changed() -> void:
+	safe_zone = SafeZone.for_world(data)
+	_place_altar()
+	lighting.altar_light.setup(safe_zone)
+	lighting.altar_light.set_lit(lighting.evening_on)
+	overlay.queue_redraw()
+	tier_changed.emit()
 
 
 ## THE safe-zone rule for game logic (the light shows the same zone).

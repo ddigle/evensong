@@ -67,6 +67,9 @@ var taunt_ticks: int = 0
 var stun_ticks: int = 0
 var slow_pct: int = 0
 var slow_ticks: int = 0
+## M12b (PROVISIONAL "M12b 넓어진 빛 안의 이단", the host's AI only, not sent): the altar's wider light (its tier went up, Arena.sync_world)
+## reached it where it stood; it walks straight out (Arena._walk_out_of_light) and this goes off once its box is outside.
+var lit_out: bool = false
 ## Display: ticks since spawning (walk / idle frames), hit flash ticks left.
 var clock: int = 0
 var flash_ticks: int = 0

@@ -472,10 +472,10 @@ func _check_recipes() -> void:
 	check_eq(recipe_inputs(armor), "rare_essence x3, hide_fine x2", "● the rare material is required")
 	check(armor.classes.is_empty(), "anyone's")
 	# Appended: the indices before them keep their meaning.
-	var n: int = Crafting.recipe_count()
+	var n: int = Crafting.recipe_count() - Config.ALTAR_UPGRADE_RECIPES.size()  # M12a: the altar upgrade comes after them
 	check_eq(Crafting.index_of(Capture.SNARE), n - 3, "appended")
 	check_eq(Crafting.index_of(&"armor_rare"), n - 2, "appended")
-	check_eq(Crafting.index_of(&"repair_armor_rare"), n - 1, "its repair last")
+	check_eq(Crafting.index_of(&"repair_armor_rare"), n - 1, "its repair last (before M12a's altar upgrade)")
 	check_eq(Crafting.index_of(&"stone_wall"), 26 + Config.GEAR_REPAIR_MATERIAL.size() - 6, "M7b's rows where they were")
 	# Every mix of the snare's inputs, the archer's; the class rule.
 	for wood: StringName in [&"planks", &"log"]:
