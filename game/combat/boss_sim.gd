@@ -1,7 +1,7 @@
 class_name BossSim
 extends RefCounted
 ## M12a: the heretic leader's state (combat/boss_fight.gd steps it; combat/boss_view.gd draws it). Numbers are Config "M12a" (BOSS,
-## BOSS_ATTACKS: PROVISIONAL). M12 boss art: its picture is its own sheets (03-pixel PixelLab 17차 boss_leader_v02, README "M12 보스 그림"):
+## BOSS_ATTACKS: PROVISIONAL). M12 boss art: its picture is its own sheets (03-pixel PixelLab 17차 boss_leader_v03, README "M12 보스 그림"):
 ## the heretic's five animations with the same frame counts plus a CAST sheet (the fire volley and the burning ground; the cleave keeps
 ## the attack sheet), rows south / east / north, west mirrored. anim() / frame() below only pick the picture: nothing in the fight reads
 ## them (the simulation, its timing and the wire are M12's).
@@ -29,8 +29,13 @@ const FIRST_COLUMN: PackedInt32Array = [0, 0, 1, 0, 0, 1]
 ## M12 boss art (IMPL "M12 보스 그림 맞는 열", picture only): the sheet column (rows south, east, north) the blow shows on, the attack's
 ## and the cast's; the column before it is the telegraph picture held until the blow (the attack: the staff raised to swing; the cast:
 ## the fire gathering). The art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것"): with the heretic's columns (Config
-## HERETIC_HIT_COLUMN 3, 4, 5) the held east and north columns would already be mid-swing.
-const HIT_COLUMN_ATTACK: PackedInt32Array = [3, 3, 3]
+## HERETIC_HIT_COLUMN 3, 4, 5) the held east and north columns would already be mid-swing. The v03 re-takes (17차 다시 뽑기, README
+## "M12 보스 그림" 다시 뽑기 (v03)) changed the attack south (a big circular sweep): its blow is column 5 (the art step's candidate),
+## the brazier low on the right on the blow tick, with column 4 (cocked low on the right) held before it, then 6 (low in front, over
+## the fan) and 7 (swept to the left). Column 6 as the blow was tried: its brazier sits low in front of the feet, behind the cleave's
+## own target to the south (y-sorted), so the blow tick showed no fire. The cast east is a new row too and keeps 3 (held: the brazier
+## pushed out from the face; blow: at arm's length).
+const HIT_COLUMN_ATTACK: PackedInt32Array = [5, 3, 3]
 const HIT_COLUMN_CAST: PackedInt32Array = [4, 3, 3]
 
 var pos: Vector2 = Vector2.ZERO

@@ -352,6 +352,9 @@ static func paste_at(dst: Image, img: Image, at: Vector2i) -> void:
 func _check_boss() -> void:
 	world.lighting.set_evening(false)
 	var origin: Vector2i = _look_at(Vector2i(400, 400))
+	# The world's own entities (the meadow's weeds and stones) hidden while the boss frames and the pillars are compared: the v03 attack
+	# south's fire reaches 10 rows under the feet, onto a weed that y-sorts in front of it (README "M12 보스 그림" 다시 뽑기 (v03)).
+	var hidden: Array[CanvasItem] = _hide_entities()
 	var bg: Image = await _capture()
 	var views: Array[BossView] = []
 	var feet_list: Array[Vector2i] = []
@@ -439,6 +442,8 @@ func _check_boss() -> void:
 	for n3: Node2D in pnodes:
 		world.entities.remove_child(n3)
 		n3.free()
+	for ci: CanvasItem in hidden:
+		ci.visible = true
 	# The HUD's boss bar: 60% in phase 2, exposed.
 	var hud: Hud = Hud.new()
 	root.add_child(hud)
