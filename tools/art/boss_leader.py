@@ -39,10 +39,11 @@
 
 손질 순서 (프레임마다. 좌표는 raw 캔버스 좌표):
  1 지우기 (ERASE, raw 좌표 상자, 양 끝 포함): 걷기 동 4·5번의 몸 오른쪽 긴 검은 창, 피격(템플릿) 동 0~5번의 둘째 지팡이와 그 작은 불꽃.
-   손(창·지팡이를 쥔 주먹)은 상자 밖에 남기고, 드러난 가장자리는 8의 외곽선이 닫는다.
+   손(창·지팡이를 쥔 주먹)은 상자 밖에 남기고, 드러난 가장자리는 8의 외곽선이 닫는다. v03: 사망 남(death_r2) 1번의 칸 밖 지팡이 끝,
+   공격 남(cleave_r2) 4번 두건 오른쪽에 붙어 남은 불 조각, 피격 북(hurt_r2) 1번 몸 가장자리의 짙은 줄(SHAFT의 빈 줄 자리).
    시전 동 예고 두 장(CHARGE): hurt_v3 동 1번의 불 줄기를 뿌리 둘레 반지름 2.5 · 4.5px 안만 남긴다 (손에 모이는 불)
  1b 옮겨 그리기 (v03 손질, 같은 판의 다른 프레임에서 raw 픽셀을 옮김, 우리 손질): SHAFT = 피격 북(hurt_r2) 1번의 빠진 아래 자루를
-   시작 그림(0번)의 자루 픽셀로(1px 왼쪽: 1번의 손·화로 목이 왼쪽에 있다), FLAME = 시전 동(cast_r2) 6번의 꺼진 화로에 5번의
+   시작 그림(0번)의 자루 픽셀로(같은 자리: 1번 몸 가장자리 짙은 줄을 ERASE로 지워 시작 그림처럼 몸과 자루 사이에 빈 줄), FLAME = 시전 동(cast_r2) 6번의 꺼진 화로에 5번의
    불꽃 마스크 픽셀을 6번이 투명한 자리에만. 옮긴 픽셀도 3~8을 그대로 거친다
  2 떨어진 덩어리 (DETACHED, 상자 하나 또는 여럿): 공격 남 2·3번(raw cleave 남) 머리 위 왼쪽의 붉은 점들, 다시 뽑기의 떠 있는 불티·불
    조각(cleave_r2 3·5·6, death_r2 3, 쓰지 않는 cast_r2 남 2·3·4·7). 상자에 닿는, 가장 큰 덩어리가 아닌 덩어리를 지운다
@@ -158,8 +159,9 @@ COLUMNS_V03["cast"]["east"] = [KEY] + [("cast_r2", i) for i in range(1, 8)] + [K
 # v02보다 낫지만, 예고 장(1 지팡이를 듦: 화로가 시작 그림보다 3px 위, 2 화로를 두건 옆으로 당김)이 1배에서 서 있는 그림과 갈리지
 # 않는다. 게임은 화염 일제 예고 42틱 동안 맞는 열 앞 열들을, 불바닥의 서 있는 24틱 내내 들어 올림 열만 보이고 타격 장은 일제의
 # 12틱뿐이라, 화면에 머무는 시간으로는 예고 장이 5배 넘게 길다. v02의 예고(지팡이를 머리 위 왼쪽으로 크게 기울여 듦)가 그 시간에
-# 읽혀서 v02 줄을 남겼다. 사람이 cast_r2 남을 고르면 아래 줄과 HIT_COLUMN_V03 시전 남 3으로 바꾼다(붙잡는 2열이 가장 높이 든
-# 1번이 되게 1·2를 바꾼 줄. 손질 표 DETACHED·ERASE의 cast_r2 남 항목은 그때 쓰려고 남김)
+# 읽혀서 v02 줄을 남겼다. 사람이 cast_r2 남을 고르면 COLUMNS_V03["cast"]["south"] = CAST_SOUTH_R2 한 줄을 더하고
+# HIT_COLUMN_V03 시전 남을 3으로 바꾼다(붙잡는 2열이 가장 높이 든 1번이 되게 1·2를 바꾼 줄. CHANGED_V03은 COLUMNS_V03에서
+# 저절로 셈. 손질 표 DETACHED·ERASE의 cast_r2 남 항목은 그때 쓰려고 남김)
 CAST_SOUTH_R2 = [KEY, ("cast_r2", 2), ("cast_r2", 1)] + [("cast_r2", i) for i in range(3, 8)] + [KEY]
 # 피격 북 = hurt_r2 북. 게임은 맞을 때 0~2열(번쩍임), 기절 때 1열만 보인다: 0~2열 모두 1번(움찔, 아래 자루는 SHAFT로 시작 그림에서
 # 옮김). 3·4열은 생성된 회복 장 5번(화로가 두건 옆, 자루 없음: 게임은 보이지 않음), 끝 열 시작 그림. 2~4번은 지팡이가 사라지거나
@@ -171,7 +173,9 @@ COLUMNS_V03["death"]["south"] = [KEY] + [("death_r2", i) for i in range(1, 7)]
 # 맞는 열 후보 (○, 게임이 정함). 바뀐 줄만 v02와 다르다. 공격 남 5: 예고 동안 1~3열(듦 -> 오른쪽으로 휘둘러 냄)을 지나 4열
 # (화로를 오른쪽 아래로 젖힘)을 붙잡고, 타격 5·6·7열 = 오른쪽 아래 -> 앞 아래 -> 왼쪽 아래(앞의 부채꼴을 가로지름). 다른 후보 3은
 # 2열(머리 옆으로 듦)을 붙잡아 예고는 또렷하지만 보이는 3·4·5열이 오른쪽에만 있어 앞을 지나지 않는다. 시전 동 3: 붙잡는 2열 =
-# 화로를 얼굴에서 앞으로 밀어냄, 타격 3열 = 팔 길이 앞의 화로와 앞으로 나간 불. 시전 남은 v02 줄이라 v02의 4 그대로
+# 화로를 얼굴에서 앞으로 밀어냄, 타격 3열 = 팔 길이 앞의 화로와 앞으로 나간 불. 시전 남은 v02 줄이라 v02의 4 그대로.
+# 게임(BossSim.HIT_COLUMN_ATTACK)도 공격 남 5다(검토에서 6과 견줌: 6열의 화로는 발 앞 아래라 남쪽 대상에 가린다. game/README
+# "M12 보스 그림" 다시 뽑기 (v03)). 게임에서 맞는 열을 바꾸면 이 표도 같이 바꿔 GIF를 다시 쓴다
 HIT_COLUMN_V03 = {"attack": {"south": 5, "east": 3, "north": 3}, "cast": {"south": 4, "east": 3, "north": 3}}
 
 # --- 칸 (그림은 1배 그대로, 4의 배수) ---
@@ -199,6 +203,13 @@ ERASE = {
     ("hurt", "east", 5): [(35, 0, 47, 10), (37, 11, 47, 17), (37, 24, 47, 47)],
     # v03 사망 남 1번: 기우는 지팡이 끝(x 16~18)이 발 줄(raw y 50) 1px 아래. 칸 밖이라 프레임째 올리면 선 몸이 1px 뛰어서 그 3px만 지움
     ("death_r2", "south", 1): [(16, 51, 18, 51)],
+    # v03 공격 남 cleave_r2 4번: 3번의 큰 불 꼬리가 지나간 뒤 두건 오른쪽(얼굴 옆)에 붙어 남은 불 조각 6px(x 40~42, y 30~31)와 그
+    # 아래 붉은 꼬리·외곽선 3px(y 32). 두건 외곽선(x 39)에 닿아 DETACHED·SPECK에 걸리지 않고, 어둠에서 얼굴 옆에 홀로 빛나는 점이
+    # 된다(게임은 맞는 열 5에서 이 4열을 예고 동안 18틱 붙잡음). y 32까지 지우지 않으면 붉은 꼬리가 외곽선 두른 돌기로 남음
+    ("cleave_r2", "south", 4): [(40, 30, 42, 32)],
+    # v03 피격 북 hurt_r2 1번: 몸 외곽선(x 35) 오른쪽의 짙은 줄(x 36, 손 아래 y 40~48). 지우고 SHAFT를 같은 자리(x 37~39)에 덮어
+    # 시작 그림(0번)처럼 몸과 자루 사이에 빈 줄을 둔다(1px 왼쪽에 덮던 것은 자루가 몸 외곽선에 붙어 두꺼운 로브 가장자리로 읽힘)
+    ("hurt_r2", "north", 1): [(36, 40, 36, 48)],
     # 시전 남 cast_r2 3번 (v03에는 쓰지 않음, CAST_SOUTH_R2용): 지운 불 고리(DETACHED) 끝에 붙어 왼쪽 어깨 위로 나온 붉은·녹빛·잿빛
     # 4px(x 20, y 21~23과 x 21, y 23).
     # 어깨 외곽선에 닿아 떨어진 덩어리가 아니라서 상자로 지운다(지우지 않으면 타격 열 어깨에 외곽선 두른 붉은 돌기)
@@ -220,10 +231,11 @@ DETACHED = {
 SPECK = 2
 # 1b 옮겨 그리기 (v03, 우리 손질). SHAFT: (판, 방향, 프레임) -> (옮겨 올 프레임, raw 상자 (x0, y0, x1, y1, 양 끝 포함), (dx, dy)).
 # 그 프레임의 상자 안 불투명 픽셀을 (dx, dy) 옮겨 덮어쓴다. 피격 북 1번(움찔)은 화로·목·손(x 36~38, y 34~38)까지만 있고 아래 자루가
-# 없다. 시작 그림(0번)의 자루(x 37~39: 외곽선 · 심 · 외곽선, 손 아래 y 39~50)를 1px 왼쪽으로 옮기면 1번 손의 오른쪽 외곽선(x 38)과
-# 이어지고, 1번의 몸 가장자리 짙은 줄(x 36)이 자루의 왼쪽 외곽선이 된다(0px로 옮기면 몸과 자루 사이에 짙은 줄이 셋, 2px는 심이
-# 몸 외곽선에 묻힘: 셋을 그려 보고 고름)
-SHAFT = {("hurt_r2", "north", 1): (0, (37, 39, 39, 50), (-1, 0))}
+# 없다. 시작 그림(0번)의 자루(x 37~39: 외곽선 · 심 · 외곽선, 손 아래 y 39~50)를 같은 자리에 덮는다. 1번의 몸 가장자리 짙은 줄(x 36)은
+# ERASE로 지워 시작 그림처럼 몸 외곽선(x 35)과 자루 사이가 빈 줄(x 36)이다. 1번의 화로 목은 시작 그림보다 2px 왼쪽이지만 손(x 37)에서
+# 아래로 자루 심(x 38)이 이어져 기운 지팡이로 읽힌다. 처음 손질은 1px 왼쪽에 덮어 자루가 몸 외곽선에 붙어 두꺼운 로브 가장자리로
+# 읽혔다(검토에서 찾음)
+SHAFT = {("hurt_r2", "north", 1): (0, (37, 39, 39, 50), (0, 0))}
 # FLAME: (판, 방향, 프레임) -> (옮겨 올 프레임, raw 상자). 그 프레임(떨어진 점을 지운 뒤)의 불꽃 마스크 픽셀 중 상자 안이고 이 프레임이
 # 투명한 자리에만 붙인다. 시전 동 6번은 화로를 팔 길이 앞에 그대로 든 채 불꽃이 없다(5번과 7번에는 있음). 5번 화로는 같은 자리라
 # 그 불꽃이 6번 화로 입(x 38~39) 오른쪽에 붙는다(x 40~41, y 24~30의 12px). 화로 입의 흰 심 6px는 붙인 불에 이어져 4의 심 채우기로
@@ -1108,17 +1120,18 @@ def report(log, sheets, fires, info, dx, ver="v02", names=BODY_ANIMS + ACTIONS +
               f"feet line y {ACT_AT[1] + BODY[1] - 1}")
 
 
-# v03에서 바뀐 줄 (시트, 줄 번호). 나머지 줄은 v02와 픽셀까지 같아야 한다 (report_v03이 확인)
-CHANGED_V03 = (("attack", 0), ("cast", 1), ("hurt", 2), ("death", 0))
+# v03에서 바뀐 줄 (시트, 줄 번호) = COLUMNS_V03이 COLUMNS와 다른 줄. 나머지 줄은 v02와 픽셀까지 같아야 한다 (check_v03이 저장 전에 확인)
+CHANGED_V03 = tuple((name, r) for name in BODY_ANIMS + ACTIONS for r, d in enumerate(DIRS) if COLUMNS_V03[name][d] != COLUMNS[name][d])
 TALLEST_PX = 45   # 게임 BossView.TALLEST_PX: 판정 상자 높이 45가 기대는 가장 큰 그림. 어느 그림도 이보다 크면 안 된다
 
 
-def report_v03(sheets2, fires2, sheets3, fires3):
-    """v03: 바뀌지 않은 줄 = v02 (픽셀까지), 바뀐 줄의 열마다 키(게임처럼 발 + 1 - 맨 위 줄, 불 포함)·폭·맨 아래 줄·불꽃 px·
-    떨어진 덩어리, 가장 큰 그림 <= TALLEST_PX, 맞는 열 후보의 붙잡는 열·타격 열이 공격과 시전에서 다른 픽셀 수(게임 시험은 150 초과)"""
+def check_v03(sheets2, fires2, sheets3, fires3):
+    """v03을 저장하기 전: 바뀌지 않은 줄 = v02 (픽셀까지), 바뀐 줄은 다름, 가장 큰 그림 <= TALLEST_PX. 어긋나면 아무것도 쓰지 않고 멈춘다"""
+    print(f"v03 changed rows (COLUMNS_V03 vs COLUMNS): {[(name, DIRS[r]) for name, r in CHANGED_V03]}")
     for name in BODY_ANIMS + ACTIONS:
         for r in range(len(DIRS)):
-            same = all(np.array_equal(a, b) for a, b in zip(sheets2[name][r], sheets3[name][r])) and                 all(np.array_equal(a, b) for a, b in zip(fires2[name][r], fires3[name][r]))
+            same = (all(np.array_equal(a, b) for a, b in zip(sheets2[name][r], sheets3[name][r]))
+                    and all(np.array_equal(a, b) for a, b in zip(fires2[name][r], fires3[name][r])))
             assert same == ((name, r) not in CHANGED_V03), (name, DIRS[r], same)
     print("v03: every row not in CHANGED_V03 is pixel-identical to v02 (sheet and fire mask)")
     tallest = 0
@@ -1129,9 +1142,15 @@ def report_v03(sheets2, fires2, sheets3, fires3):
                 tallest = max(tallest, feet - top(f))
     print(f"v03 tallest picture (feet + 1 - top, fire included) over the six sheets: {tallest} px (limit {TALLEST_PX})")
     assert tallest <= TALLEST_PX, tallest
+
+
+def report_v03(sheets2, fires2, sheets3, fires3):
+    """v03: 바뀐 줄의 열마다 키(게임처럼 발 + 1 - 맨 위 줄, 불 포함)·폭·맨 아래 줄·불꽃 px·불꽃 덩어리 수·떨어진 덩어리,
+    맞는 열 후보의 붙잡는 열·타격 열이 공격과 시전에서 다른 픽셀 수(게임 시험은 150 초과)"""
     for name, r in CHANGED_V03:
         feet = (ACT_AT[1] if name in ACTIONS else 0) + BODY[1]
-        print(f"  v03 {name} {DIRS[r]} per column: height / width / lowest row / fire px / detached parts (8-way, besides the body)")
+        print(f"  v03 {name} {DIRS[r]} per column: height / width / lowest row / fire px / fire blobs (8-way) / detached parts "
+              f"(8-way, besides the body)")
         for c, (f, fo) in enumerate(zip(sheets3[name][r], fires3[name][r])):
             op = f[..., 3] > 0
             ys, xs = np.nonzero(op)
@@ -1139,7 +1158,7 @@ def report_v03(sheets2, fires2, sheets3, fires3):
             main = int(np.argmax(sizes))
             det = [sizes[k] for k in range(1, len(sizes)) if k != main]
             print(f"    col {c}: H {feet - top(f)}  W {int(xs.max() - xs.min() + 1)}  lowest y {bottom(f)} (feet row {feet - 1})  "
-                  f"fire {int(fo.sum())}  detached {det}")
+                  f"fire {int(fo.sum())}  fire blobs {components(fo)[1][1:]}  detached {det}")
     for name in ACTIONS:
         for r, d in enumerate(DIRS):
             h = HIT_COLUMN_V03[name][d]
@@ -1177,6 +1196,7 @@ def main(argv):
     # v03: 같은 손질 결과(cleaned)에서 COLUMNS_V03으로. 회전·scale_check는 v02 그대로라 쓰지 않는다
     log3 = []
     sheets3, fires3, info3, _ = build(cleaned, raw, log3, COLUMNS_V03)
+    check_v03(sheets, fires, sheets3, fires3)
     for name in BODY_ANIMS + ACTIONS:
         sheet = sheet_of(sheets3[name])
         save(sheet, f"{NAME}_v03_{name}.png")
