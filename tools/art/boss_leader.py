@@ -96,9 +96,10 @@ COLUMNS = {
     "idle": {d: [("idle", i) for i in range(4)] for d in DIRS},
     "walk": {d: [("walk", i) for i in range(6)] for d in DIRS},
     # 피격: 남·동은 템플릿(동은 둘째 지팡이를 지움), 북은 v3 피격(템플릿 북은 지팡이가 사라지고 두건 끝이 줄어듦).
-    # v3 북 0번은 시작 그림이라 빼고 1~5번 + 시작 그림(6번 끝 그림은 시작 그림과 53px 차이)
+    # 북은 게임에서 지팡이가 같은 쪽(오른쪽)에 있는 1·5번만 쓴다: 1, 5, 5, 1, 1, 시작 그림. 2~4번은 지팡이를 두건 왼쪽으로 넘겨,
+    # boss_sim이 맞을 때 보여 주는 0~2열과 기절 동안 붙잡는 1열(SKILL_STUN_FRAME)에서 지팡이가 좌우로 건너뛰었다
     "hurt": {"south": [("hurt", i) for i in range(6)], "east": [("hurt", i) for i in range(6)],
-             "north": [("hurt_v3", i) for i in range(1, 6)] + [KEY]},
+             "north": [("hurt_v3", 1), ("hurt_v3", 5), ("hurt_v3", 5), ("hurt_v3", 1), ("hurt_v3", 1), KEY]},
     "death": {d: [("death", i) for i in range(7)] for d in DIRS},
     # v3 동작은 모두 첫 열과 끝 열이 시작 그림(손질한 걷기 첫 프레임). 끝 그림을 넣어 만든 판의 끝 장은 시작 그림과 19~53px만
     # 다르고, 공격 남(끝 그림 없이 만듦)의 8번은 지팡이가 사라져 손에 불만 남는다
@@ -186,8 +187,9 @@ RAMPS = {
 }
 OUT = hx(RAMPS["outline"][0])
 PALETTE = {hx(c) for r in RAMPS.values() for c in r}
-# 불꽃 색: raw L* 띠. 흰빛·노랑 심 -> #ff7a1a, 주황 -> #c8321f, 붉은 불 -> #8f1a1a, 어두운 끝 -> #5c1010
-# (가장 가까운 L*로 하면 흰빛·노랑·주황이 모두 #ff7a1a가 되어 불기둥이 한 색 덩어리가 된다. candB 불꽃도 #c8321f가 몸, #ff7a1a가 심)
+# 불꽃 색: raw L* 띠. FIRE_CORE_L 60 이상(흰빛·노랑·주황) -> #ff7a1a, 46~60(주황빛 빨강) -> #c8321f, 34~46(빨강) -> #8f1a1a,
+# 그 아래 -> #5c1010. L*가 가장 가까운 색(경계 55.6 · 38.6 · 26)보다 빨강 쪽 경계를 올려 불꽃 가장자리가 한 단 어둡다.
+# 72로 올리면 주황까지 #c8321f가 되어 불꽃이 어두워져(시험) 60으로 두었다. 흰 심이 많은 slam 남 3번 불기둥은 #ff7a1a 덩어리가 된다
 FIRE_BANDS = ((FIRE_CORE_L, "#ff7a1a"), (46, "#c8321f"), (34, "#8f1a1a"), (0, "#5c1010"))
 # 불꽃 마스크의 빛 세기 = 04-env flame_heretic_*_candB_v01_emissive와 같은 값
 EMISSIVE = {hx("#ff7a1a"): 205, hx("#c8321f"): 150, hx("#8f1a1a"): 100, hx("#5c1010"): 60}
