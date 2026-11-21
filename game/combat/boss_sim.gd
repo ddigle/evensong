@@ -30,10 +30,12 @@ const FIRST_COLUMN: PackedInt32Array = [0, 0, 1, 0, 0, 1]
 ## and the cast's; the column before it is the telegraph picture held until the blow (the attack: the staff raised to swing; the cast:
 ## the fire gathering). The art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것"): with the heretic's columns (Config
 ## HERETIC_HIT_COLUMN 3, 4, 5) the held east and north columns would already be mid-swing. The v03 re-takes (17차 다시 뽑기, README
-## "M12 보스 그림" 다시 뽑기 (v03)) changed the attack south (a big circular sweep): its blow is column 6, the brazier low in front on
-## the fan on the blow tick, with column 5 (cocked low on the right) held before it, then 7 (swept to the left) and 8 (back to the
-## ready stance). The cast east is a new row too and keeps 3 (held: the brazier pushed out from the face; blow: at arm's length).
-const HIT_COLUMN_ATTACK: PackedInt32Array = [6, 3, 3]
+## "M12 보스 그림" 다시 뽑기 (v03)) changed the attack south (a big circular sweep): its blow is column 5 (the art step's candidate),
+## the brazier low on the right on the blow tick, with column 4 (cocked low on the right) held before it, then 6 (low in front, over
+## the fan) and 7 (swept to the left). Column 6 as the blow was tried: its brazier sits low in front of the feet, behind the cleave's
+## own target to the south (y-sorted), so the blow tick showed no fire. The cast east is a new row too and keeps 3 (held: the brazier
+## pushed out from the face; blow: at arm's length).
+const HIT_COLUMN_ATTACK: PackedInt32Array = [5, 3, 3]
 const HIT_COLUMN_CAST: PackedInt32Array = [4, 3, 3]
 
 var pos: Vector2 = Vector2.ZERO

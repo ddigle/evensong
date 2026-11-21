@@ -19,12 +19,14 @@ extends "res://tests/base_test.gd"
 ##            sprite, derived sheet)
 ##   box      the M11a hit-box rule on the sheets (Config.BOSS hit_height_px = the tallest picture +-2, 2r between the narrowest and
 ##            the widest standing picture + 2) and this step's choice in it: 2r within the south / north body (staff and fire cut)
-##   columns  the blow columns written here (attack 6, 3, 3; cast 4, 3, 3), so the sheet -> column mapping is pinned, not only its
+##   columns  the blow columns written here (attack 5, 3, 3; cast 4, 3, 3), so the sheet -> column mapping is pinned, not only its
 ##            constants
 ##   re-takes what the v03 re-takes (17차 다시 뽑기) were made to fix, measured on the sheets: the attack south sweeps across the front
-##            (held cocked on the right, the blow's flame low in front on the fan, then swept to the left), the hurt north's frames a hit
-##            shows (0-2, the stun's 1 among them) keep the staff's shaft down to the ground, the cast east's blow holds the brazier out
-##            in front with the face showing, the death south lies with its staff fallen (no brazier held up on a standing staff)
+##            (every column the cleave shows from the held one: cocked on the right, the blow low on the right, then low in front on the
+##            fan, then swept to the left), the hurt north's frames a hit shows (0-2, the stun's 1 among them) keep the staff's shaft
+##            down to the ground, apart from the robe (a clear column between them, as in the start picture), the cast east's blow holds
+##            the brazier out in front with the face showing, the death south lies with its staff fallen (no brazier held up on a
+##            standing staff)
 
 ## The body's rows for the box's width (the art step's body centring: the lowest 18 rows) and the staff's side cut away, in cell x:
 ## south the staff is left of x 16, north right of x 38 (03-pixel prompts.md 17차 "가로 맞춤": raw x 13 / 34 plus the shift 2 / 5).
@@ -34,7 +36,7 @@ const STAFF_CUT_NORTH: int = 39
 ## The re-takes' checks (picture measurements, README "M12 보스 그림" 다시 뽑기 (v03)): the east face's candle gold (the face the
 ## re-take shows, mapped to the palette's candle gold by the art step), the hood's rows (px over the feet), the lying picture's most
 ## height and its brazier's most height over the feet (v02's standing staff held it 40-42 px up), the shaft's rows (px over the feet)
-## and the sideways sweep (px from the middle line).
+## and the clear rows between the robe and the shaft, the sideways sweep (px from the middle line) and the low blow (px over the feet).
 const FACE_GOLD: Color = Color8(0xf4, 0xc9, 0x5d)
 const HOOD_OVER_FEET: int = 26
 const LYING_MAX_PX: int = 32
@@ -42,6 +44,8 @@ const LYING_FIRE_MAX_PX: int = 12
 const SHAFT_ROWS_OVER_FEET: Vector2i = Vector2i(5, 15)
 const SWEEP_SIDE_PX: float = 8.0
 const SWEEP_FRONT_PX: float = 6.0
+const SWEEP_LOW_PX: float = 8.0
+const SHAFT_GAP_MIN_ROWS: int = 6
 
 var _nodes: Array[Node] = []
 ## The PNGs read apart from the imported textures (Image.load_from_file of the res:// files), per sheet.
@@ -166,10 +170,10 @@ func _check_sheets() -> void:
 							bad += 1
 				check_eq(bad, 0, "%s %s column %d: the walk's first frame on the feet row (%d px down)" % [BossSim.ANIM_NAMES[a2],
 					RigData.DIR_NAMES[row2], col2, lift])
-	# The blow columns: the art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것"), not the heretic's 3, 4, 5; the v03
-	# attack south's re-chosen here (README "M12 보스 그림" 다시 뽑기 (v03): the art step's 5 would blow on the right, 7 px from the
-	# held picture).
-	check_eq(Array(BossSim.HIT_COLUMN_ATTACK), [6, 3, 3], "the attack's blow columns (south, east, north)")
+	# The blow columns: the art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것" and 17차 다시 뽑기 7), not the heretic's
+	# 3, 4, 5. The v03 attack south's 5 (README "M12 보스 그림" 다시 뽑기 (v03): 6 was tried, its blow hidden behind a target to the
+	# south).
+	check_eq(Array(BossSim.HIT_COLUMN_ATTACK), [5, 3, 3], "the attack's blow columns (south, east, north)")
 	check_eq(Array(BossSim.HIT_COLUMN_CAST), [4, 3, 3], "the cast's blow columns")
 	# Cleave and cast read apart: their held telegraph columns differ in every row (and their blows).
 	for row3: int in RigData.ROWS:
@@ -258,7 +262,7 @@ func _check_states() -> void:
 	# are written here (the art step's candidates, rows south / east / north), not read from BossSim.hit_column: a wrong sheet -> column
 	# mapping (the cast on the attack's columns, the two swapped, a row off by one) fails here and not only the constants' check above.
 	var ft: int = Config.HERETIC_ATTACK_FRAME_TICKS
-	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [6, 3, 3], BossSim.Anim.CAST: [4, 3, 3]}
+	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [5, 3, 3], BossSim.Anim.CAST: [4, 3, 3]}
 	for dir: int in 4:
 		var row: int = RigData.sheet_row(dir)
 		for atk: int in [BossSim.Attack.CLEAVE, BossSim.Attack.VOLLEY, BossSim.Attack.BURN]:
@@ -562,20 +566,25 @@ func _flame(a: int, row: int, col: int, out: Array[Vector2i] = []) -> Vector2:
 
 
 func _check_retakes() -> void:
-	# The attack south (v02: the staff held level to the right, a thrust): cocked on the right while the telegraph holds, the blow's
-	# flame low in front on the fan on the blow tick (the cleave's fan is in front of it), then swept to the left; its last shown
-	# column (the blow + 2: the cleave's after-pause is 18 ticks) is the ready stance again.
+	# The attack south (v02: the staff held level to the right, a thrust), every column the cleave shows from the telegraph's held one
+	# (the blow + 2 is the last: the cleave's after-pause is 18 ticks), each column's flame measured on the PNG: cocked on the right
+	# while the telegraph holds, the blow low on the right (the brazier still in sight: a target stands in the fan to the south, in
+	# front of anything lower in front of the feet), then low in front over the fan, then swept to the left.
 	var hit: int = BossSim.hit_column(BossSim.Anim.ATTACK, 0)
 	var held_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit - 1)
 	var blow_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit)
 	var then_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit + 1)
-	note("attack south's flame from the feet: held %s, blow %s, then %s" % [held_at, blow_at, then_at])
+	var last_at: Vector2 = _flame(BossSim.Anim.ATTACK, 0, hit + 2)
+	note("attack south's flame from the feet: held %s, blow %s, then %s, last %s" % [held_at, blow_at, then_at, last_at])
 	check(held_at.x > SWEEP_SIDE_PX, "the attack south held cocked on the right (flame x %.1f)" % held_at.x)
-	check(absf(blow_at.x) <= SWEEP_FRONT_PX and blow_at.y >= -2.0, "its blow low in front, on the fan (flame %s)" % blow_at)
-	check(then_at.x < -SWEEP_SIDE_PX, "then swept to the left (flame x %.1f)" % then_at.x)
-	check_eq(hit + 2, BossView.columns(BossSim.Anim.ATTACK) - 1, "the cleave's last shown column: the ready stance again")
+	check(blow_at.x > SWEEP_SIDE_PX and blow_at.y >= -SWEEP_LOW_PX, "its blow low on the right (flame %s)" % blow_at)
+	check(absf(then_at.x) <= SWEEP_FRONT_PX and then_at.y >= -2.0, "then low in front, on the fan (flame %s)" % then_at)
+	check(hit + 2 < BossView.columns(BossSim.Anim.ATTACK) and last_at.x < -SWEEP_SIDE_PX,
+		"the cleave's last shown column (%d): swept to the left (flame x %.1f)" % [hit + 2, last_at.x])
 	# The hurt north (v02: the brazier floated at the shoulder, no shaft): every frame a hit shows keeps the shaft right of the robe's
-	# edge down to the ground (a pixel in each row from SHAFT_ROWS_OVER_FEET.y to .x px over the feet).
+	# edge down to the ground (a pixel in each row from SHAFT_ROWS_OVER_FEET.y to .x px over the feet), apart from the robe: the first
+	# column on the staff's side clear in most of those rows, as in the start picture (the first re-paint lay on the robe's outline and
+	# read as a thicker robe edge).
 	var hurt: Image = _png[BossSim.Anim.HURT]
 	for f: int in 3:
 		var r: Rect2i = BossView.frame_rect(BossSim.Anim.HURT, 2, f)
@@ -588,6 +597,12 @@ func _check_retakes() -> void:
 					break
 		check_eq(rows, SHAFT_ROWS_OVER_FEET.y - SHAFT_ROWS_OVER_FEET.x + 1, "hurt north %d: the staff's shaft down to the ground%s" % [f,
 			" (the stun's frame)" if f == Config.SKILL_STUN_FRAME else ""])
+		var clear: int = 0
+		for up2: int in range(SHAFT_ROWS_OVER_FEET.x, SHAFT_ROWS_OVER_FEET.y + 1):
+			if hurt.get_pixel(r.position.x + STAFF_CUT_NORTH, r.position.y + BossView.BODY_FEET.y - up2).a8 == 0:
+				clear += 1
+		check(clear >= SHAFT_GAP_MIN_ROWS, "hurt north %d: the shaft apart from the robe (%d clear rows of %d)" % [f, clear,
+			SHAFT_ROWS_OVER_FEET.y - SHAFT_ROWS_OVER_FEET.x + 1])
 	# The cast east (v02: the brazier at the face): the blow holds it out in front (its flame all ahead of where the start picture's
 	# flame sits before the face) and the face shows in the held and the blow columns (its candle gold in the hood's rows; the start
 	# picture shows none).
