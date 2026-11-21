@@ -55,6 +55,9 @@
    발이 칸 맨 아래 줄에 오는 자리에 둔다. KEY 열(v3 동작의 첫 열·끝 열, 피격 북 끝 열)은 손질한 걷기 첫 프레임
  7 두건 끝 (TIP): 템플릿은 그림이 캔버스 윗줄(y=0)에 닿아 두건 끝이 잘린 프레임이 있다. 잘린 윗줄의 불꽃 아닌 덩어리(폭 n >= 3)
    위에 폭 n-2 줄을 한 줄 더하고(가운데에서 두건이 기운 쪽으로), 8의 외곽선이 그 위를 닫는다 (작은 손질, 뾰족한 모양은 다 살리지 못함)
+ 7b 땅의 불 (GROUND, 동작 칸의 v3 프레임만): 발 줄(y 53) 아래의 불꽃 아닌 픽셀 중 raw 색이 불빛(색상 < 75° 또는 >= 340°,
+   채도 >= GROUND_CH, 밝기 >= GROUND_L)인 것을 불꽃으로(마스크에 넣고 FIRE_BANDS 색). 발 줄 아래에는 몸이 없고 지팡이 끝·화로는
+   어둡거나 잿빛이다. 4의 크기 문턱보다 작은 불 고리 조각·노란 불티가 8에서 외곽선 검정이 되거나 촛불 금빛이 되던 것
  8 외곽선: 칸 좌표에서 실루엣 가장자리(4방향 이웃이 투명)의 불꽃 아닌 픽셀: 어두우면(L* < DARK_L) 그 자리를, 밝으면 바깥 1px를
    #1a1714로. 칸 경계·발 줄 아래로는 더하지 않고 그 자리를 외곽선으로. 불꽃은 외곽선을 두르지 않는다 (04-env 불꽃처럼)
  9 검사: 칸 안, 반투명 0, 팔레트 밖 색 0, 불꽃 아닌 실루엣 가장자리 100% 외곽선, 어두운 색 중 B > R+5는 보라 맥뿐
@@ -135,11 +138,13 @@ STAFF_CUT = {"south": (">", 13), "east": None, "north": ("<", 34)}   # 남기는
 
 # --- 1~3 손질 표 (raw 좌표, 양 끝 포함) ---
 ERASE = {
-    # 걷기 동 4·5: 몸 오른쪽 위아래로 긴 검은 창. 주먹(4번 y 19~24, 5번 y 21~27)은 남김
+    # 걷기 동 4·5: 몸 오른쪽 위아래로 긴 검은 창. 주먹(4번 y 19~24, 5번 y 21~27)은 남김.
+    # 5번은 창의 왼쪽 외곽선(x 30, y 6~12: 화로 불꽃 오른쪽)까지 지운다. y 13~16의 x 30은 몸의 외곽선이라 남김
     ("walk", "east", 4): [(32, 0, 47, 18), (33, 25, 47, 47)],
-    ("walk", "east", 5): [(31, 0, 47, 21), (31, 28, 47, 47)],
-    # 피격 동: 얼굴 앞 화로와 따로, 오른쪽에 작은 불꽃을 얹은 둘째 지팡이. 불꽃·사발·자루를 지우고 쥔 주먹은 남김
-    ("hurt", "east", 0): [(35, 0, 47, 17), (37, 18, 47, 24), (36, 25, 47, 47)],
+    ("walk", "east", 5): [(30, 0, 47, 12), (31, 13, 47, 21), (31, 28, 47, 47)],
+    # 피격 동: 얼굴 앞 화로와 따로, 오른쪽에 작은 불꽃을 얹은 둘째 지팡이. 불꽃·사발·자루를 지우고 쥔 주먹은 남김.
+    # 0번은 둘째 사발의 왼쪽 외곽선(x 34, y 9~12: 얼굴 앞 불꽃 오른쪽)까지
+    ("hurt", "east", 0): [(35, 0, 47, 17), (34, 9, 34, 12), (37, 18, 47, 24), (36, 25, 47, 47)],
     ("hurt", "east", 1): [(35, 0, 47, 14), (38, 22, 47, 47)],
     ("hurt", "east", 2): [(29, 0, 47, 8), (30, 9, 47, 12), (31, 13, 47, 47)],
     ("hurt", "east", 3): [(27, 0, 47, 9), (29, 10, 47, 14), (30, 15, 47, 28), (31, 29, 47, 35), (30, 36, 47, 47)],
@@ -157,6 +162,11 @@ FIRE_MIN = 6
 FLAME_BIT_MIN = 5
 FIRE_CORE_L = 60
 EMBER_MAX = 4
+# 땅의 불 (GROUND, 동작 칸): 발 줄 아래(몸이 없는 곳)의 불꽃 아닌 픽셀 중 raw 색이 불빛(색상 < 75° 또는 >= 340°, 채도 >= GROUND_CH,
+# HLS 밝기 >= GROUND_L)인 것은 불꽃. slam의 불 고리·땅의 불에서 떨어진 3~4px 조각과 노란 불티(위 마스크 규칙의 크기 문턱 아래)가
+# 외곽선 검정이나 촛불 금빛이 되지 않게
+GROUND_CH = 0.2
+GROUND_L = 0.3
 
 # --- 5 팔레트 ---
 
@@ -622,6 +632,23 @@ def tip_fix(cell, fire, raw_top, log, tag):
     return added
 
 
+def ground_fire(cell, fire, rawf, ox, oy, floor):
+    """땅의 불 (GROUND): 칸의 발 줄(floor) 아래 불꽃 아닌 픽셀 중 raw 색(같은 raw 자리, rawf)이 불빛인 것을 불꽃으로 (마스크에 넣고
+    FIRE_BANDS 색으로). 칸 좌표 = raw 좌표 + (ox, oy)"""
+    n = 0
+    ys, xs = np.nonzero((cell[..., 3] > 0) & ~fire)
+    for y, x in zip(ys, xs):
+        if y <= floor:
+            continue
+        c = tuple(int(v) for v in rawf[y - oy, x - ox, :3])
+        hue, l, ch = hlc(c)
+        if (hue < 75 or hue >= 340) and ch >= GROUND_CH and l >= GROUND_L:
+            fire[y, x] = True
+            cell[y, x, :3] = fire_colour(c)
+            n += 1
+    return n
+
+
 def outline(cell, fire, floor):
     out = cell.copy()
     op = cell[..., 3] > 0
@@ -752,7 +779,12 @@ def build(cleaned, raw, log):
                 else:
                     sx, sy = locate(raw[(PLACE_AS.get(clip, clip), d)][0], raw[("walk", d)][0])
                     f, fire = cleaned[(clip, d)][i]
-                    c, fo = place(f, fire, AW, AH, ax + dx[d] - sx, ay + key_dy[d] - sy, f"{anim} {d} {clip} {i}")
+                    ox, oy = ax + dx[d] - sx, ay + key_dy[d] - sy
+                    c, fo = place(f, fire, AW, AH, ox, oy, f"{anim} {d} {clip} {i}")
+                    n = ground_fire(c, fo, raw[(clip, d)][i], ox, oy, ay + floor)
+                    if n:
+                        stats["ground"] += n
+                        log.append(f"{anim} {d} {clip} {i}: {n} px under the feet line made fire (GROUND)")
                     g, fo = finish(c, fo, f"{anim} {d} {clip} {i}")
                     info[(anim, d, clip)] = f"start picture at ({sx}, {sy}) in the {clip} canvas"
                 out.append(g)
@@ -772,7 +804,8 @@ def build(cleaned, raw, log):
     rot.append(rot[1][:, ::-1].copy())
     rfire.append(rfire[1][:, ::-1].copy())
     sheets["rotations"], fires["rotations"] = [rot], [rfire]
-    log.append(f"outline: {stats['recol']} edge px recoloured, {stats['added']} px added outside; hood tips +{stats['tip']} px")
+    log.append(f"outline: {stats['recol']} edge px recoloured, {stats['added']} px added outside; hood tips +{stats['tip']} px; "
+               f"ground fire +{stats['ground']} px")
     return sheets, fires, info, dx
 
 
