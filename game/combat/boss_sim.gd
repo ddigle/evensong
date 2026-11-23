@@ -34,9 +34,11 @@ const FIRST_COLUMN: PackedInt32Array = [0, 0, 1, 0, 0, 1]
 ## the brazier low on the right on the blow tick, with column 4 (cocked low on the right) held before it, then 6 (low in front, over
 ## the fan) and 7 (swept to the left). Column 6 as the blow was tried: its brazier sits low in front of the feet, behind the cleave's
 ## own target to the south (y-sorted), so the blow tick showed no fire. The cast east is a new row too and keeps 3 (held: the brazier
-## pushed out from the face; blow: at arm's length).
+## pushed out from the face; blow: at arm's length). The cast south is the re-taken row since the human chose it (2026-11-23; v02's
+## row had 4): its blow is column 3 (the fire pillar planted on the ground in front, the body upright), column 2 (the staff raised
+## high) held before it.
 const HIT_COLUMN_ATTACK: PackedInt32Array = [5, 3, 3]
-const HIT_COLUMN_CAST: PackedInt32Array = [4, 3, 3]
+const HIT_COLUMN_CAST: PackedInt32Array = [3, 3, 3]
 
 var pos: Vector2 = Vector2.ZERO
 var home: Vector2 = Vector2.ZERO
