@@ -50,6 +50,8 @@ var respawn_pending: bool = false
 ## altar is carried).
 var altar_hold: int = 0
 var respawn_wait_logged: bool = false
+## Host (M13 review): its LEAVE request ran (SessionHost._leave): nothing of it runs any more; it is gone once its client disconnects.
+var leaving: bool = false
 var combat: Dictionary[String, int] = {}
 ## Host (M9c): this member's client's copy of its skill state as the host works it out (the last skills message's state run on with
 ## its moving / up flags, SessionHost._tick_skills: what the client shows now) and how many skills messages it got

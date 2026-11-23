@@ -1,0 +1,69 @@
+{
+	"format": "evensong-character",
+	"version": 1,
+	"name": "fixture",
+	"class": "miner",
+	"saved": "2026-11-23T13:41:01",
+	"selected": 2,
+	"slots": [
+		{
+			"item": "money",
+			"count": 137,
+			"grade": "none"
+		},
+		{
+			"item": "wild_healing",
+			"count": 3,
+			"grade": "fine"
+		},
+		{
+			"item": "sword_t1",
+			"count": 1,
+			"grade": "none",
+			"durability": 41
+		},
+		null,
+		null,
+		{
+			"item": "boss_relic",
+			"count": 1,
+			"grade": "none"
+		},
+		null,
+		{
+			"item": "pickaxe",
+			"count": 1,
+			"grade": "none"
+		},
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null
+	],
+	"armor": {
+		"item": "armor_t1",
+		"count": 1,
+		"grade": "none",
+		"durability": 23
+	},
+	"seen": [
+		"boss_relic",
+		"armor_t1",
+		"money",
+		"sword_t1",
+		"wild_healing",
+		"pickaxe"
+	]
+}

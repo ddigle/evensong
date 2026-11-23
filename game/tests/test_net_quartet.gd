@@ -161,6 +161,12 @@ func _session_quartet() -> void:
 			c.describe() if c != null else "none"])
 	var w: WorldSave.Saved = WorldSave.load_from(SaveStore.new(devs["host"]).world_path(Q_WORLD))
 	check(w.ok() and w.maps[Config.MAP_SURFACE].progress.boss_defeated, "quartet: the world was written with the boss dead (%s)" % w.error)
+	# M13 review: written at once, not only when someone leaves or quits (a crash after the kill keeps the boss dead and each relic).
+	check(_line_with(hl, "world saved name=%s why=progress" % Q_WORLD).length() > 0, "quartet: the kill wrote the world at once (progress)")
+	for row3: Array in [["c1", "pal"], ["c2", "arc"], ["c3", "min"]]:
+		var inst3: Instance = cs[int(str(row3[0]).right(1)) - 1]
+		check(_log_has(inst3, "EVENSONG_SAVE character saved name=%s why=relic" % row3[1]),
+			"quartet/%s: its relic wrote its character at once" % row3[0])
 	_quartet_traffic(host, cs[1])
 
 

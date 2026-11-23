@@ -28,7 +28,9 @@ extends RefCounted
 ##   META  i64 seed, i64 saved (unix s), i64 world ticks, u32 deaths, u32 prayers, u16 protocol (diagnostic), u8 n + name
 ##   ITEM  u16 n + n x (u8 len + id): ItemDB's ids in index order (the maps' stacks are indices): the game's table must start with them
 ##   MAP0  the surface, MAP1 the dungeon: u8 map id, u32 raw size, 16 B content hash (md5), u32 next drop id, u16 x4 the altar's last
-##         footprint, then the map's WorldSnapshot.raw_bytes compressed with zstd (the late-join snapshot's form, its decoder's checks)
+##         footprint, u8 a chest's slots and u8 n + n x (u8 len + id) the shop's offers by item (M13 review: the snapshot bytes' shape that
+##         hangs on PROVISIONAL values, so fit_raw can read them into a later build's), then u32 packed size + the map's
+##         WorldSnapshot.raw_bytes compressed with zstd (the late-join snapshot's form, its decoder's checks, after fit_raw)
 ##   ARN0  ARN1  a map's arena: u8 1 (0 = none), i64 random state, u32 next id, u32 spawn timer, i32 shrine HP, u16 n heretics + n x
 ##         HERETIC_BYTES
 ##   FRM0  FRM1  a map's farm: u8 1, u32 n + n x (u32 tile index, u32 growth ticks in its stage, u32 water left), tile order
@@ -39,6 +41,10 @@ extends RefCounted
 ##         u8 fallen)
 ## A file that does not read (wrong magic, version, md5, a section or a value out of range, a map whose content hash after decoding is
 ## not the one saved) is refused whole: read() returns a Saved with `error` and no world (never half a world).
+## M13 review: values that only lie outside this build's PROVISIONAL limits (a stack past its size, durability past full, a chest's other
+## slot count, the shop's other offers, drops past the most, the shrine's HP, a pillar's hits, a creature kind the table dropped) are fitted
+## to this build instead (fit_raw, the sections' readers; Saved.fitted says what), so tuning an 임시값 does not lock a world out. The
+## committed fixture (tests/fixtures/saves) fails a test when a change would still do that: then FORMAT_VERSION goes up with a migration.
 
 const MAGIC: PackedByteArray = [0x45, 0x56, 0x53, 0x57]
 ## The file format's version (bumped when a section changes; an older or newer file is refused with both numbers).
@@ -186,6 +192,9 @@ class Saved:
 	var path: String = ""
 	## Why the files tried before it did not read ("" = it was the first: the file itself).
 	var skipped: String = ""
+	## M13 review: what was fitted to this build's PROVISIONAL values (fit_raw and the sections' readers; empty = the file is exactly this
+	## build's). Main logs it; the write guard wants it empty (this build never writes a file that needs fitting).
+	var fitted: PackedStringArray = []
 
 	func ok() -> bool:
 		return error.is_empty()
@@ -406,6 +415,15 @@ static func _map_bytes(data: WorldData, last: Rect2i) -> PackedByteArray:
 	w.u32(data.drop_serial)
 	for v: int in [last.position.x, last.position.y, last.size.x, last.size.y]:
 		w.u16(v)
+	# M13 review: the shape of the snapshot bytes that hangs on PROVISIONAL values (fit_raw reads it back into a later build's shape): a
+	# chest's slots and the shop's offers, by item.
+	w.u8(Config.CHEST_SLOTS)
+	var offers: Array[Shop.Offer] = []
+	if data.shop != null:
+		offers = Shop.offers()
+	w.u8(offers.size())
+	for o: Shop.Offer in offers:
+		w.text(String(o.item))
 	var packed: PackedByteArray = raw.compress(WorldSnapshot.COMPRESSION)
 	w.u32(packed.size())
 	w.put(packed)
@@ -664,15 +682,31 @@ static func _read_map(bytes: PackedByteArray, m: int, s: Saved) -> String:
 	var hash: String = r.take(16).hex_encode()
 	var serial: int = r.u32()
 	var last: Rect2i = Rect2i(r.u16(), r.u16(), r.u16(), r.u16())
+	var chest_slots: int = r.u8()
+	var offer_ids: Array[StringName] = []
+	var offer_count: int = r.u8()
+	for i: int in offer_count:
+		offer_ids.append(StringName(r.text()))
 	var packed_size: int = r.u32()
 	var packed: PackedByteArray = r.take(packed_size)
-	if not r.done() or map_id != m:
+	if not r.done() or map_id != m or chest_slots < 1:
 		return "map %d's section is not one" % m
-	var data: WorldData = WorldSnapshot.unpack(packed, raw_size)
+	if packed.is_empty() or raw_size < WorldSnapshot.HEADER_SIZE or raw_size > WorldSnapshot.MAX_RAW * 2:
+		return "map %s does not decode" % Config.MAP_NAMES[m]
+	var raw: PackedByteArray = packed.decompress(raw_size, WorldSnapshot.COMPRESSION)
+	if raw.size() != raw_size:
+		return "map %s does not decode" % Config.MAP_NAMES[m]
+	var notes: PackedStringArray = []
+	var fitted: PackedByteArray = fit_raw(raw, chest_slots, offer_ids, notes)
+	var data: WorldData = WorldSnapshot.decode_raw(fitted)
 	if data == null or data.map_id != m:
 		return "map %s does not decode" % Config.MAP_NAMES[m]
-	if data.content_hash() != hash:
+	if fitted == raw and data.content_hash() != hash:
 		return "map %s decodes to another world (hash %s, saved %s)" % [Config.MAP_NAMES[m], data.content_hash(), hash]
+	for note: String in notes:
+		s.fitted.append("%s: %s" % [Config.MAP_NAMES[m], note])
+	if fitted != raw:
+		hash = data.content_hash()  # fitted to this build: the world as it opens now (the file's own md5 vouched for the bytes)
 	if serial < 1 or serial > 0x7FFFFFFF:
 		return "map %s's next drop id %d" % [Config.MAP_NAMES[m], serial]
 	if last.has_area() and not Rect2i(Vector2i.ZERO, data.size).encloses(last):
@@ -687,6 +721,177 @@ static func _read_map(bytes: PackedByteArray, m: int, s: Saved) -> String:
 	s.hashes[m] = hash
 	s.last_altar[m] = last
 	return ""
+
+
+## M13 review: the saved snapshot bytes `raw` of one map, as the build that wrote them shaped them (`chest_slots` slots a chest, `offer_ids`
+## the shop's offers in their order: the MAP section says), in this build's shape, so that tuning a PROVISIONAL value (README 임시값: a
+## stack's size, an item's durability, the chest's slots, the shop's offers and caps, the most drops, the altar's top tier, a pillar's
+## hits) does not lock a world out: counts and durability are cut to this build's most, the drops past Config.MAX_DROPS left out (the
+## newest), a chest's stacks put into its first Config.CHEST_SLOTS slots (one that finds no free slot is lost), the shop's stock matched to
+## this build's offers by item (a new offer full, a gone one dropped), the collection's entries past this build's table dropped, the tier
+## and the pillars' hits cut. Each change goes into `notes`. The layout is checked as it is walked; bytes that are not that layout come back
+## as they are (the strict snapshot decoder then refuses them: damage stays a refusal). The late-join snapshot itself stays strict.
+static func fit_raw(raw: PackedByteArray, chest_slots: int, offer_ids: Array[StringName], notes: PackedStringArray) -> PackedByteArray:
+	var hs: int = WorldSnapshot.HEADER_SIZE
+	if raw.size() < hs or raw.decode_u8(20) != WorldData.LAYER_COUNT or chest_slots < 1:
+		return raw
+	var size: Vector2i = Vector2i(raw.decode_u16(0), raw.decode_u16(2))
+	if size.x < 1 or size.y < 1 or size.x > WorldSnapshot.MAX_SIDE or size.y > WorldSnapshot.MAX_SIDE:
+		return raw
+	var at: int = hs + WorldData.LAYER_COUNT * size.x * size.y
+	if raw.size() < at + 2:
+		return raw
+	var out: PackedByteArray = raw.slice(0, at)
+	var cut: Array[int] = [0, 0]  # counts cut, durability cut
+	# The drops (u16 n + DROP_BYTES each, by id: the oldest first).
+	var drops: int = raw.decode_u16(at)
+	at += 2
+	if raw.size() < at + WorldData.DROP_BYTES * drops + 2:
+		return raw
+	var kept: int = mini(drops, Config.MAX_DROPS)
+	var head: PackedByteArray = PackedByteArray([0, 0])
+	head.encode_u16(0, kept)
+	out.append_array(head)
+	for i: int in kept:
+		var d: PackedByteArray = raw.slice(at + WorldData.DROP_BYTES * i, at + WorldData.DROP_BYTES * (i + 1))
+		var def: ItemDB.ItemDef = ItemDB.get_def(ItemDB.id_at(d.decode_u8(4)))
+		if def != null and d.decode_u8(5) > def.stack_max:
+			d.encode_u8(5, def.stack_max)
+			cut[0] += 1
+		out.append_array(d)
+	if drops > kept:
+		notes.append("%d drops past the most (%d) left out" % [drops - kept, Config.MAX_DROPS])
+	at += WorldData.DROP_BYTES * drops
+	# The chests (u16 n + per chest u16 x, u16 y, chest_slots stacks).
+	var chests: int = raw.decode_u16(at)
+	at += 2
+	var chest_bytes: int = 4 + EditLog.STACK_BYTES * chest_slots
+	if raw.size() < at + chest_bytes * chests + 1:
+		return raw
+	head = PackedByteArray([0, 0])
+	head.encode_u16(0, chests)
+	out.append_array(head)
+	var lost: int = 0
+	for i: int in chests:
+		var c: int = at + chest_bytes * i
+		out.append_array(raw.slice(c, c + 4))
+		var slots: Array[PackedByteArray] = []
+		for k: int in Config.CHEST_SLOTS:
+			slots.append(PackedByteArray([0, 0, 0, 0, 0]))
+		var extra: Array[PackedByteArray] = []
+		for k: int in chest_slots:
+			var st: PackedByteArray = _fit_stack(raw.slice(c + 4 + EditLog.STACK_BYTES * k, c + 4 + EditLog.STACK_BYTES * (k + 1)), cut)
+			if k < Config.CHEST_SLOTS:
+				slots[k] = st
+			elif st[0] != 0:
+				extra.append(st)
+		for st: PackedByteArray in extra:
+			var free: int = -1
+			for k: int in slots.size():
+				if slots[k][0] == 0:
+					free = k
+					break
+			if free < 0:
+				lost += 1
+			else:
+				slots[free] = st
+		for st: PackedByteArray in slots:
+			out.append_array(st)
+	if chest_slots != Config.CHEST_SLOTS:
+		notes.append("chests had %d slots, now %d%s" % [chest_slots, Config.CHEST_SLOTS,
+			" (%d stacks found no slot and are lost)" % lost if lost > 0 else ""])
+	at += chest_bytes * chests
+	# The shop (u8 offers + a count each), matched to this build's offers by item.
+	var offers: int = raw.decode_u8(at)
+	at += 1
+	if raw.size() < at + offers or (offers != 0 and offers != offer_ids.size()):
+		return raw
+	if offers == 0:
+		out.append(0)
+	else:
+		var now: Array[Shop.Offer] = Shop.offers()
+		var stock: PackedByteArray = PackedByteArray()
+		var changed: bool = now.size() != offers
+		for k: int in now.size():
+			var j: int = offer_ids.find(now[k].item)
+			var left: int = now[k].cap if j < 0 else mini(raw.decode_u8(at + j), now[k].cap)
+			changed = changed or j != k or (j >= 0 and left != raw.decode_u8(at + j))
+			stock.append(left)
+		out.append(stock.size())
+		out.append_array(stock)
+		if changed:
+			notes.append("the shop's stock matched to this game's %d offers (%d saved)" % [now.size(), offers])
+	at += offers
+	# The rare zone (copied), the collection (entries past this build's table dropped).
+	if raw.size() < at + 1:
+		return raw
+	var zone: int = raw.decode_u8(at)
+	var zone_end: int = at + 1 + (WorldSnapshot.ZONE_BYTES if zone == 1 else 0)
+	if raw.size() < zone_end + 1:
+		return raw
+	out.append_array(raw.slice(at, zone_end))
+	at = zone_end
+	var has_col: int = raw.decode_u8(at)
+	var col_end: int = at + 1 + (WorldSnapshot.COLLECTION_BYTES if has_col == 1 else 0)
+	if raw.size() < col_end + 1:
+		return raw
+	var col: PackedByteArray = raw.slice(at, col_end)
+	if has_col == 1:
+		var bits: int = col.decode_u16(1)
+		var known: int = bits & ((1 << Collection.total()) - 1)
+		if known != bits:
+			col.encode_u16(1, known)
+			notes.append("collection entries past this game's %d left out" % Collection.total())
+	out.append_array(col)
+	at = col_end
+	# The progress (the tier cut to this build's top), the boss site (each pillar's hits cut to its broken state).
+	var has_progress: int = raw.decode_u8(at)
+	var progress_end: int = at + 1 + (WorldSnapshot.PROGRESS_BYTES if has_progress == 1 else 0)
+	if raw.size() < progress_end + 1:
+		return raw
+	var progress: PackedByteArray = raw.slice(at, progress_end)
+	if has_progress == 1 and progress[1] > Config.ALTAR_TIER_MAX:
+		notes.append("the altar's tier %d cut to %d" % [progress[1], Config.ALTAR_TIER_MAX])
+		progress[1] = Config.ALTAR_TIER_MAX
+	out.append_array(progress)
+	at = progress_end
+	var site: PackedByteArray = raw.slice(at)
+	if site.size() >= 1 + WorldSnapshot.SITE_BYTES and site[0] == 1:
+		var n: int = site.decode_u8(1 + WorldSnapshot.SITE_BYTES - 1)
+		var broken: int = BossFight.Pillar.hits_per_state() * 3
+		var pillars_cut: int = 0
+		for k: int in n:
+			var p: int = 1 + WorldSnapshot.SITE_BYTES + WorldSnapshot.SITE_PILLAR_BYTES * k
+			if site.size() < p + WorldSnapshot.SITE_PILLAR_BYTES:
+				break
+			if site[p + 4] > broken or (site[p + 5] == 1 and site[p + 4] != broken):
+				site[p + 4] = broken if site[p + 5] == 1 else mini(site[p + 4], broken)
+				pillars_cut += 1
+		if pillars_cut > 0:
+			notes.append("%d boss pillars' hits cut to this game's broken state (%d)" % [pillars_cut, broken])
+	out.append_array(site)
+	if cut[0] > 0:
+		notes.append("%d stacks cut to their stack size" % cut[0])
+	if cut[1] > 0:
+		notes.append("%d stacks' durability cut to full" % cut[1])
+	return out
+
+
+## M13 review: one chest stack's bytes (EditLog.STACK_BYTES: item + 1, count, grade, durability) with its count and durability cut to this
+## build's (cut[0], cut[1] count them); an unknown item or an empty slot as it is.
+static func _fit_stack(st: PackedByteArray, cut: Array[int]) -> PackedByteArray:
+	if st.size() != EditLog.STACK_BYTES or st[0] == 0:
+		return st
+	var def: ItemDB.ItemDef = ItemDB.get_def(ItemDB.id_at(st[0] - 1))
+	if def == null:
+		return st
+	if st[1] > def.stack_max:
+		st[1] = def.stack_max
+		cut[0] += 1
+	if st.decode_u16(3) > def.durability:
+		st.encode_u16(3, def.durability)
+		cut[1] += 1
+	return st
 
 
 ## Whether `p` is inside map `data` (px) with a little slack (feet may sit on the edge).
@@ -707,8 +912,11 @@ static func _read_arena(bytes: PackedByteArray, m: int, s: Saved) -> String:
 	a.spawn_timer = r.u32()
 	a.shrine_hp = r.s32()
 	var n: int = r.u16()
-	if has != 1 or a.shrine_hp < 0 or a.shrine_hp > Config.SHRINE_HP or a.next_id < 1 or n > MAX_ACTORS:
+	if has != 1 or a.shrine_hp < 0 or a.next_id < 1 or n > MAX_ACTORS:
 		return "arena %d's numbers are out of range" % m
+	if a.shrine_hp > Config.SHRINE_HP:
+		s.fitted.append("arena %d: the shrine's HP %d cut to %d" % [m, a.shrine_hp, Config.SHRINE_HP])  # M13 review: a tuned SHRINE_HP
+		a.shrine_hp = Config.SHRINE_HP
 	var ids: Dictionary[int, bool] = {}
 	for i: int in n:
 		var h: HereticRecord = HereticRecord.new()
@@ -847,6 +1055,9 @@ static func _read_herd(bytes: PackedByteArray, s: Saved) -> String:
 		c.refused_ticks = r.u8()
 		c.walking = walking == 1
 		c.bound = bound == 1
+		if r.ok and not String(c.kind).is_empty() and not Config.CREATURES.has(c.kind):
+			s.fitted.append("HERD: a creature of kind '%s', which this game has not, left out" % c.kind)  # M13 review: a tuned table
+			continue
 		if not r.ok or c.id < 1 or c.id > NetProtocol.CREATURE_ID_MAX or ids.has(c.id) or not Config.CREATURES.has(c.kind) \
 				or not _on_map(c.pos, data) or not _on_map(c.home, data) or c.facing > RigData.Dir.WEST \
 				or c.state >= CreatureSim.STATE_NAMES.size() or c.hp < 0 or c.hp > 0xFFFF or walking > 1 or bound > 1 \
@@ -861,6 +1072,9 @@ static func _read_herd(bytes: PackedByteArray, s: Saved) -> String:
 	for i: int in waits:
 		var kind: StringName = StringName(r.text())
 		var due: int = r.u32()
+		if r.ok and not String(kind).is_empty() and not Config.CREATURES.has(kind) and due <= 0x7FFFFFFF:
+			s.fitted.append("HERD: a waiting respawn of kind '%s', which this game has not, left out" % kind)  # M13 review
+			continue
 		if not r.ok or not Config.CREATURES.has(kind) or due > 0x7FFFFFFF:
 			return "HERD's waiting respawn %d is not one" % i
 		h.waiting.append([kind, due])
@@ -889,8 +1103,11 @@ static func _read_boss(bytes: PackedByteArray, s: Saved) -> String:
 	for i: int in n:
 		var hits: int = r.u16()
 		var fallen: int = r.u8()
-		if not r.ok or hits > broken or fallen > 1:
+		if not r.ok or fallen > 1:
 			return "BOSS's pillar %d is not one" % i
+		if hits > broken:
+			s.fitted.append("BOSS: pillar %d's hits %d cut to %d" % [i, hits, broken])  # M13 review: a tuned BOSS_PILLARS hits_per_state
+			hits = broken
 		b.hits.append(hits)
 		b.fallen.append(fallen == 1)
 	if not r.done():
@@ -993,6 +1210,9 @@ static func apply_herd(h: Creatures, rec: HerdRecord) -> void:
 
 ## The boss fight (set up from the seed and the world's progress: asleep, or dead with its pillars as rubble) takes its random stream and
 ## ids; a boss that slept when saved keeps its clock and its pillars' hits (an awake one: the reset, which BossFight.setup already is).
+## M13 review: a dead one keeps its pillars as the fight left them (BossFight.setup lays every pillar of a dead boss down as rubble: right for
+## a world whose boss died by a flag, not for one killed in play with pillars still standing, which block where they stand): standing,
+## cracked or rubble as saved (a broken one is rubble: the quiet arena lays a falling pillar down at once).
 static func apply_boss(f: BossFight, rec: BossRecord) -> void:
 	if f == null or rec == null or f.sim == null:
 		return
@@ -1003,6 +1223,10 @@ static func apply_boss(f: BossFight, rec: BossRecord) -> void:
 	f.sim.clock = rec.clock
 	if rec.state == BOSS_DEAD and f.sim.state == BossSim.State.DEAD:
 		f.sim.state_ticks = rec.state_ticks
+		var broken: int = BossFight.Pillar.hits_per_state() * 3
+		for i: int in mini(rec.hits.size(), f.pillars.size()):
+			var fallen: bool = rec.fallen[i] or rec.hits[i] >= broken
+			f.set_pillar_state(i, broken if fallen else rec.hits[i], -1, fallen)
 	if rec.state == BOSS_ASLEEP and f.sim.state == BossSim.State.SLEEP:
 		for i: int in mini(rec.hits.size(), f.pillars.size()):
 			if rec.hits[i] != f.pillars[i].hits or rec.fallen[i] != f.pillars[i].fallen:

@@ -119,8 +119,13 @@ extends RefCounted
 ##   --test-duplicate-classes     M13b, test only (the host): two players of one class may join (● R54 refuses them)
 ##   --save-dir=<folder>          the saves' folder (default Config.SAVE_DIR_DEFAULT); tests always give one
 ##   --no-save                    open (or make) them but never write a file
-##   --list-worlds, --list-characters   print the saved worlds / characters of the folder (EVENSONG_SAVE lines) and quit
+##   --list-worlds, --list-characters   print the saved worlds / characters of the folder (EVENSONG_SAVE lines) and quit (M13 review:
+##                                not with --host / --join: they only list)
 ##   --test-autosave-ticks=<n>    test only: write every n ticks in place of Config.SAVE_AUTOSAVE_TICKS
+## M13 review:
+##   --test-close-after=<ticks>   test only: press the window's close button after that many physics ticks (Main.request_close, the
+##                                path a person's window close takes; Godot's --quit-after quits without it)
+##   --test-lag-inventory         test only, a client with --net-lag: the host's inventory messages come half the round trip late too
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -229,6 +234,10 @@ var test_autosave_ticks: int = 0
 var seed_given: bool = false
 ## M13b, test only (the host): allow two players of one class at once (● R54 refuses it: Roster.allow_duplicates).
 var test_duplicate_classes: bool = false
+## M13 review, test only: press the window's close button after that many physics ticks (0 = never; Main.request_close), and a client's
+## host inventory messages late by half its --net-lag (SessionClient.on_inventory).
+var test_close_after: int = 0
+var test_lag_inventory: bool = false
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -283,6 +292,10 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.test_perturb_generator = true
 			"test-allow-give":
 				o.test_allow_give = true
+			"test-lag-inventory":
+				o.test_lag_inventory = true
+			"test-close-after":
+				o.test_close_after = _parse_positive(value, raw, o.errors, 0)
 			"test-duplicate-classes":
 				o.test_duplicate_classes = true
 			"test-snapshot-chunk-bytes":
@@ -578,6 +591,9 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 	if o.join and not o.world_name.is_empty():
 		# M13b: ● R54 the world is the host's (a client plays the host's world and never writes it); a client brings its character.
 		o.errors.append("--world: the world is the host's (--host --world=<name>); a client joins with --character=<name>")
+	if (o.list_worlds or o.list_characters) and (o.host or o.join):
+		# M13 review: the list flags only list (a host would otherwise open its port and make the names it was given first).
+		o.errors.append("--list-worlds / --list-characters: they only list the saves; start without --host / --join")
 	return o
 
 

@@ -165,6 +165,14 @@ func _check_request_codec() -> void:
 		and p.frames[6].op == NetProtocol.Op.TRAVEL and p.frames[6].cell == Vector2i(37, 14), "M3b: maps and TRAVEL round trip")
 	var plain: Array[NetProtocol.InputFrame] = [NetProtocol.InputFrame.new(1, Vector2i(1, 0))]
 	check_eq(NetProtocol.encode_inputs(plain).size(), NetProtocol.INPUT_HEADER + 1, "no request: no request section (M1 size)")
+	var leaving: Array[NetProtocol.InputFrame] = [NetProtocol.InputFrame.new(1, Vector2i.ZERO)]
+	leaving[0].op = NetProtocol.Op.LEAVE
+	var leave_bytes: PackedByteArray = NetProtocol.encode_inputs(leaving)
+	var leave_back: NetProtocol.InputPacket = NetProtocol.decode_inputs(leave_bytes)
+	check(leave_bytes.size() == NetProtocol.INPUT_HEADER + 1 + 1 + 2 and leave_back.ok and leave_back.frames.size() == 1
+		and leave_back.frames[0].op == NetProtocol.Op.LEAVE and NetProtocol.OP_NAMES[NetProtocol.Op.LEAVE] == "leave"
+		and not NetProtocol.op_has_map(NetProtocol.Op.LEAVE), "M13 review (v15): LEAVE, a request with no fields, round trips (%d B)" %
+		leave_bytes.size())
 	# Every truncation of the request section is refused.
 	var short_ok: int = 0
 	for n: int in range(NetProtocol.INPUT_HEADER + 9, bytes.size()):

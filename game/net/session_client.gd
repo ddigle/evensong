@@ -173,6 +173,12 @@ var wild_msgs: int = 0
 ## M12c: the world's progress as this client has it (the host's; one object for the session), and the tier changes it took.
 var progress: WorldProgress
 var tier_changes: int = 0
+## M13 review (begin_leave): leaving (a LEAVE request queued or sent), its frame's seq (0 = not numbered yet), ticks since it began, and
+## how it ended ("confirmed": the host's inventory message for it came; "unconfirmed": Config.NET_LEAVE_WAIT_TICKS ran out; "host gone").
+var leaving: bool = false
+var leave_seq: int = 0
+var leave_ticks: int = 0
+var leave_end: String = ""
 
 var _last_state_tick: int = -1
 
@@ -208,7 +214,40 @@ func before_tick(now: int, start_ms: int) -> bool:
 func on_server_disconnected() -> void:
 	if s.bots.finish_wait >= 0 or s.bots.leave_wait >= 0:
 		return
+	if leaving:
+		_end_leave("host gone")  # the host went before it confirmed: the character as the host last sent it
+		return
 	s.end_session("lost the host", NetSession.EXIT_FAILED)
+
+
+## M13 review (README "M13b 나가기", Config.NET_LEAVE_WAIT_TICKS): leaving the host so that this machine's character file holds what the
+## host holds. Every request this client sent runs on the host first: the local requests not sent yet are dropped (they never happened),
+## a LEAVE request goes out in the next frame (frames run on the host in order: SessionHost._leave), and the session ends ("left": Main
+## writes the character) once the host's inventory message acknowledges that frame (on_inventory) or after Config.NET_LEAVE_WAIT_TICKS
+## (logged: what was in flight may then differ between the world file and the character). Meanwhile the player stands. Returns false when
+## there is no host to leave yet (not admitted, no inventory from it: the caller ends at once; nothing of the character is written).
+func begin_leave(why: String) -> bool:
+	if leaving:
+		return true
+	if not s.active or s.over or s.local == null or inventories == 0:
+		return false
+	leaving = true
+	leave_ticks = 0
+	s.local_ops.clear()
+	var f: NetProtocol.InputFrame = NetProtocol.InputFrame.new()
+	f.op = NetProtocol.Op.LEAVE
+	s.local_ops.append(f)
+	s.log_event("leaving", "slot=%d why=%s" % [s.local.slot, why])
+	return true
+
+
+## M13 review: the leave is over (`how`: confirmed, unconfirmed, host gone): the session ends as "left" (Main writes the character).
+func _end_leave(how: String) -> void:
+	if not leave_end.is_empty():
+		return
+	leave_end = how
+	s.log_event("left_host", "how=%s seq=%d ticks=%d" % [how, leave_seq, leave_ticks])
+	s.end_session("left", NetSession.EXIT_OK)
 
 
 # --- joining ---------------------------------------------------------------------------------
@@ -517,6 +556,17 @@ func on_edit(payload: PackedByteArray) -> void:
 func on_inventory(payload: PackedByteArray) -> void:
 	if not s.active or s.local == null:
 		return
+	if s.options.test_lag_inventory:
+		# M13 review, test only (--test-lag-inventory with --net-lag): the host's inventory messages come half the round trip late too,
+		# in order (LinkSim.delay, a reliable message's way), so a test can leave with a request's answer still on its way.
+		s.link.delay(_take_inventory_message.bind(payload), Time.get_ticks_msec())
+		return
+	_take_inventory_message(payload)
+
+
+func _take_inventory_message(payload: PackedByteArray) -> void:
+	if not s.active or s.local == null:
+		return
 	var inv: NetProtocol.InventoryState = NetProtocol.decode_inventory(payload)
 	if not inv.ok:
 		s.bad_messages += 1
@@ -530,6 +580,8 @@ func on_inventory(payload: PackedByteArray) -> void:
 		if q.op == NetProtocol.Op.SELECT:
 			selected = q.slot
 	take_inventory(mine, inv, selected)
+	if leaving and leave_seq > 0 and inv.ack >= leave_seq:
+		_end_leave("confirmed")  # M13 review: the host ran the LEAVE frame (and every request before it): this is the character
 
 
 ## The host's inventory `inv` into `mine` with hotbar slot `selected`. M6b: what it holds counts as had here (the
@@ -602,6 +654,15 @@ func _show_predicted(tick: bool) -> void:
 
 func tick(action: NetBot.Action) -> void:
 	var me: Player = s.local.player
+	if leaving:
+		# M13 review (begin_leave): the player stands and asks nothing new; only the LEAVE frame (and the frames before it) go out.
+		leave_ticks += 1
+		if leave_ticks > Config.NET_LEAVE_WAIT_TICKS:
+			_end_leave("unconfirmed")
+			return
+		var still: NetBot.Action = NetBot.Action.new()
+		still.mouse = action.mouse
+		action = still
 	# M9c: the own skill state as the host last sent it, run on here by its rule up to the host's time as heard (the host runs the
 	# same copy, _send_skills).
 	_run_skills_copy(me)
@@ -612,6 +673,8 @@ func tick(action: NetBot.Action) -> void:
 	prayer_net.attach_local(me, f, s.tick)  # M10b: praying, no move; a key in its window = the ANSWER
 	SessionHost.attach_local_op(s, me, f, action)
 	var frame: NetProtocol.InputFrame = prediction.step_frame(f)
+	if frame != null and frame.op == NetProtocol.Op.LEAVE:
+		leave_seq = frame.seq  # M13 review: the host's inventory message acknowledging this frame ends the leave (on_inventory)
 	_show_predicted(true)
 	if f.op != NetProtocol.Op.NONE:
 		s.request_ticks = 3

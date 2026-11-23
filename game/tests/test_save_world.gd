@@ -12,6 +12,13 @@ const SEED: int = 3
 const PLAY_TICKS: int = 240
 const PLAY_ON_TICKS: int = 420
 const MAPS: Array[int] = [Config.MAP_SURFACE, Config.MAP_DUNGEON]
+## M13 review: the rich world's healing crop reaches its next stage this many ticks into the play-on.
+const GROW_INTO_PLAY_ON: int = 60
+## M13 review: the committed fixture files (a world and a character this build wrote; _check_fixture). A run with the runner flag
+## --write-save-fixtures writes them again (only when the format changes: FORMAT_VERSION goes up with a migration for the old ones).
+const FIXTURE_WORLD: String = "res://tests/fixtures/saves/m13_world.evw"
+const FIXTURE_CHARACTER: String = "res://tests/fixtures/saves/m13_character.json"
+const Runner := preload("res://tests/run_all.gd")
 
 var _dir: String = ""
 
@@ -153,7 +160,11 @@ func run() -> Array[String]:
 	_check_carried_altar()
 	_check_fight_reset()
 	_check_pillar_cap()
+	_check_dead_pillars()
+	_check_mined_spawns()
+	_check_fitting(bytes)
 	_check_character_file()
+	_check_fixture(bytes)
 	_check_golden()
 	_remove_dir(_dir)
 	return failures
@@ -268,6 +279,12 @@ func _rich() -> Rig:
 		Rig.put(s, [EditLog.WorldEdit.new(WorldData.Layer.FLOOR, c, Terrain.SOIL),
 			EditLog.WorldEdit.new(WorldData.Layer.VEGETATION, c, Farming.Field.new(kind, stage, is_wet, fast).value())])
 		r.farms[Config.MAP_SURFACE].sync_cell(c)
+		if kind == Farming.KIND_HEALING:
+			# M13 review: this crop reaches its next stage GROW_INTO_PLAY_ON ticks into the play-on (after the save): the check sees a crop grow.
+			var farm: Farm = r.farms[Config.MAP_SURFACE]
+			var plot: Farm.Plot = farm.plots[s.index_of(c)]
+			plot.progress = Farming.stage_ticks(fast, farm.stage_ticks_base) - PLAY_TICKS - GROW_INTO_PLAY_ON
+			plot.water_left = maxi(plot.water_left, PLAY_TICKS + PLAY_ON_TICKS + 100)
 	# A chest with three stacks (one worn).
 	var chest_at: Vector2i = _free_tile(s, near + Vector2i(4, 4), taken)
 	s.put_placeable(Rect2i(chest_at, Config.CHEST_FOOTPRINT), WorldData.PLACEABLE_CHEST)
@@ -524,7 +541,7 @@ func _check_play_on(a: Rig, bytes: PackedByteArray) -> void:
 	for m: int in MAPS:
 		check_eq(b.maps[m].content_hash(), a.maps[m].content_hash(), "map %d: the same content hash" % m)
 	check(b.forests[Config.MAP_SURFACE].stat("regrown") >= 1, "a stump grew back during the play-on")
-	check(b.farms[Config.MAP_SURFACE].stat("grown") >= 0, "the farm ran")
+	check(b.farms[Config.MAP_SURFACE].stat("grown") > 0, "a crop grew during the play-on (M13 review: a check that can fail)")
 	check_ne(differing(c.capture(), after_a), PackedStringArray(), "the control (the herd's stream not put back) is another world")
 	check_ne(differing(after_a, bytes, false), PackedStringArray(), "the world did change during the play-on (the check is not empty)")
 	note("play-on: %d ticks saved, %d after; herd %d creatures, %d heretics on the surface; file %d bytes" % [PLAY_TICKS, PLAY_ON_TICKS,
@@ -585,10 +602,10 @@ func _check_refusals(bytes: PackedByteArray) -> void:
 	refused.append(_patched("a META byte left over", sections, order, "META", -1, 0))
 	refused.append(_patched("a heretic off the map", sections, order, "ARN0", 1 + 8 + 4 + 4 + 4 + 2 + 4 + 7, 0x7f))
 	refused.append(_patched("a heretic at NaN", sections, order, "ARN0", 1 + 8 + 4 + 4 + 4 + 2 + 4 + 6, 0xf8, false, 0xff))
-	refused.append(_patched("a creature of no kind", sections, order, "HERD", 1 + 8 + 4 + 4 + 2 + 4 + 1, 0x5a))
+	refused.append(_patched("a creature of no kind (its name's length 0)", sections, order, "HERD", 1 + 8 + 4 + 4 + 2 + 4, 0))
 	refused.append(_patched("a farm plot off the map", sections, order, "FRM0", 1 + 4 + 3, 0x7f))
-	refused.append(_patched("a pillar past broken", sections, order, "BOSS", 1 + 8 + 4 + 1 + 4 + 4 + 1 + 1, 0x7f))
-	refused.append(_patched("the shrine above its HP", sections, order, "ARN1", 1 + 8 + 4 + 4 + 3, 0x7f))
+	refused.append(_patched("a negative shrine HP", sections, order, "ARN1", 1 + 8 + 4 + 4 + 3, 0x80))
+	# M13 review: a pillar past broken, the shrine above its HP and a creature kind the table dropped are fitted now (_check_fitting).
 	for row: Array in refused:
 		var label: String = row[0]
 		var b: PackedByteArray = row[1]
@@ -730,6 +747,263 @@ func _check_pillar_cap() -> void:
 	check_eq(f.pillars[0].hits, 20, "the live pillar keeps its hits")
 
 
+## M13 review (● R54 "보스와 기둥" go on where they were): a boss killed in play lies dead with its pillars as the fight left them, whole,
+## cracked or rubble, each blocking as it did (BossFight.setup alone lays every pillar of a dead boss down: right for a flag's dead boss).
+func _check_dead_pillars() -> void:
+	var r: Rig = Rig.fresh(SEED)
+	var f: BossFight = r.arenas[Config.MAP_DUNGEON].boss
+	var broken: int = BossFight.Pillar.hits_per_state() * 3
+	f.set_pillar_hits(1, broken)
+	f.set_pillar_hits(2, BossFight.Pillar.hits_per_state() + 1)
+	f.wake([] as Array[Player])
+	f.hit(f.sim.hp, 0)
+	check(f.sim.state == BossSim.State.DEAD and r.maps[Config.MAP_DUNGEON].progress.boss_defeated, "the rig's boss is killed in play")
+	var want: Array = []
+	for p: BossFight.Pillar in f.pillars:
+		want.append([p.hits, p.fallen, r.maps[Config.MAP_DUNGEON].blockers.has(p.tile)])
+	var s: WorldSave.Saved = WorldSave.read(r.capture())
+	if not check(s.ok() and s.fitted.is_empty(), "a world with a boss killed in play reads: %s" % s.error):
+		return
+	var b: Rig = Rig.loaded(s)
+	var g: BossFight = b.arenas[Config.MAP_DUNGEON].boss
+	var got: Array = []
+	for p: BossFight.Pillar in g.pillars:
+		got.append([p.hits, p.fallen, b.maps[Config.MAP_DUNGEON].blockers.has(p.tile)])
+	check(g.sim.state == BossSim.State.DEAD, "it lies dead after the load")
+	check_eq(got, want, "its pillars as the fight left them: whole and cracked ones standing (blocking), the broken one rubble")
+	var shape: bool = str(want.slice(0, 2)) == str([[0, false, true], [broken, true, false]]) and str(want[2]).ends_with("true]")
+	check(shape, "(whole blocks, rubble does not, cracked blocks: %s)" % str(want))
+	check_eq(differing(b.capture(), r.capture()), PackedStringArray(), "and it saves again as it was")
+
+
+## M13 review: the dungeon's spawn tiles follow mining (Arena._sync_dungeon_terrain). Before, the live arena kept the tiles of its setup
+## while a loaded one worked them out on the mined map, so after the same "everyone left" the two spawned elsewhere (ARN1 differed) and the
+## determinism claim did not hold where players had mined. Here: walls mined next to the far floor, the live arena's tiles = worked out on
+## the mined map, and a loaded world spawns its heretics where the world that never stopped does (stand-in players: the Rig has none).
+func _check_mined_spawns() -> void:
+	var a: Rig = Rig.fresh(SEED)
+	var dg: WorldData = a.maps[Config.MAP_DUNGEON]
+	var arena: Arena = a.arenas[Config.MAP_DUNGEON]
+	var before: Array[Vector2i] = arena.spawn_cells.duplicate()
+	var dist: Dictionary[Vector2i, int] = Arena.arrival_distances(dg)
+	var mined: Array[EditLog.WorldEdit] = []
+	for c: Vector2i in dist:
+		if dist[c] < Config.HERETIC_SPAWN_ARRIVAL_MIN_TILES + 6:
+			continue
+		for d: Vector2i in DungeonGen.STEPS:
+			var w: Vector2i = c + d
+			if mined.size() < 40 and dg.in_bounds(w) and Walls.kind_at(dg, w) == Walls.KIND_ROCK and w.x > 1 and w.y > 1 \
+					and w.x < dg.size.x - 2 and w.y < dg.size.y - 2:
+				mined.append(EditLog.WorldEdit.new(WorldData.Layer.WALL, w, 0))
+	Rig.put(dg, mined)
+	a.step(1)
+	check(mined.size() >= 10, "%d rock walls mined next to the far floor" % mined.size())
+	var fresh: Array[Vector2i] = Arena.dungeon_spawn_cells(dg)
+	check(arena.spawn_cells == fresh, "the live arena's spawn tiles are worked out on the mined map (%d, fresh %d)" % [arena.spawn_cells.size(),
+		fresh.size()])
+	check(arena.spawn_cells != before, "and they changed (%d -> %d)" % [before.size(), arena.spawn_cells.size()])
+	a.quiesce()
+	var s: WorldSave.Saved = WorldSave.read(a.capture())
+	if not check(s.ok(), "the mined world reads: %s" % s.error):
+		return
+	var b: Rig = Rig.loaded(s)
+	var pa: Player = Player.new()
+	pa.setup(dg, "paladin", DungeonGen.arrival_point(dg), Config.SPAWN_FACING)
+	var pb: Player = Player.new()
+	pb.setup(b.maps[Config.MAP_DUNGEON], "paladin", DungeonGen.arrival_point(b.maps[Config.MAP_DUNGEON]), Config.SPAWN_FACING)
+	var spawned: int = 0
+	var same: bool = true
+	for i: int in 6:
+		var ha: HereticSim = a.arenas[Config.MAP_DUNGEON].try_spawn([pa] as Array[Player])
+		var hb: HereticSim = b.arenas[Config.MAP_DUNGEON].try_spawn([pb] as Array[Player])
+		same = same and (ha == null) == (hb == null) and (ha == null or ha.pos == hb.pos)
+		spawned += 1 if ha != null else 0
+	check(spawned > 0 and same, "%d heretics spawned, each where the world that never stopped put its own" % spawned)
+	check_eq(differing(b.capture(), a.capture()), PackedStringArray(), "every section the same after the spawns (ARN1 too)")
+	pa.free()
+	pb.free()
+
+
+## M13 review: tuning a PROVISIONAL value (README 임시값) must not lock a world out. A file as a build with other values would write it: a
+## chest of two slots more (a stack in one of them), a shop with an offer this game has not, a drop and a chest stack past their stack size,
+## a sword past full durability, a collection entry past the table, the altar past its top tier, a pillar past broken, the shrine above its
+## HP, a creature of a kind the table dropped. It loads, fitted to this build (each change noted), and plays.
+func _check_fitting(bytes: PackedByteArray) -> void:
+	var order: PackedStringArray = []
+	var sections: Dictionary[String, PackedByteArray] = sections_of(bytes, order)
+	var plain: WorldSave.Saved = WorldSave.read(bytes)
+	if not check(plain.ok() and plain.fitted.is_empty(), "the rich world reads with nothing fitted"):
+		return
+	var parts: Dictionary = map_parts(sections["MAP0"])
+	var raw: PackedByteArray = parts["raw"]
+	var surface: WorldData = plain.maps[Config.MAP_SURFACE]
+	var cells: int = surface.size.x * surface.size.y
+	var at: int = WorldSnapshot.HEADER_SIZE + WorldData.LAYER_COUNT * cells
+	var drops: int = raw.decode_u16(at)
+	check(drops >= 1, "the rich surface has drops (%d)" % drops)
+	raw[at + 2 + 5] = 255  # the first drop's count, past any stack
+	var chests_at: int = at + 2 + WorldData.DROP_BYTES * drops
+	var chests: int = raw.decode_u16(chests_at)
+	var old_chest: int = 4 + EditLog.STACK_BYTES * Config.CHEST_SLOTS
+	var wider: PackedByteArray = raw.slice(0, chests_at + 2)
+	var planks: PackedByteArray = PackedByteArray([ItemDB.index_of(&"planks") + 1, 3, ItemDB.Grade.NONE, 0, 0])
+	for i: int in chests:
+		var chest: PackedByteArray = raw.slice(chests_at + 2 + old_chest * i, chests_at + 2 + old_chest * (i + 1))
+		for k: int in Config.CHEST_SLOTS:
+			var st: int = 4 + EditLog.STACK_BYTES * k
+			if chest[st] == ItemDB.index_of(&"stone_a") + 1:
+				chest[st + 1] = 255  # past the stone's stack
+			if chest[st] == ItemDB.index_of(&"sword_t1") + 1:
+				chest.encode_u16(st + 3, 9999)  # past the sword's full durability
+		wider.append_array(chest)
+		wider.append_array(planks)  # two slots more: planks in the first, the second empty
+		wider.append_array(PackedByteArray([0, 0, 0, 0, 0]))
+	var shop_at: int = chests_at + 2 + old_chest * chests
+	var offers: int = raw.decode_u8(shop_at)
+	var stock: PackedByteArray = raw.slice(shop_at + 1, shop_at + 1 + offers)
+	wider.append(offers + 1)
+	wider.append(4)  # an offer this game has not, in front
+	wider.append_array(stock)
+	var tail: PackedByteArray = raw.slice(shop_at + 1 + offers)
+	var zone_end: int = 1 + (WorldSnapshot.ZONE_BYTES if tail[0] == 1 else 0)
+	if tail[zone_end] == 1:
+		tail.encode_u16(zone_end + 1, tail.decode_u16(zone_end + 1) | (1 << Collection.total()))  # an entry past the table
+	var progress_at: int = zone_end + 1 + (WorldSnapshot.COLLECTION_BYTES if tail[zone_end] == 1 else 0)
+	if tail[progress_at] == 1:
+		tail[progress_at + 1] = Config.ALTAR_TIER_MAX + 3
+	wider.append_array(tail)
+	var ids: Array[StringName] = [&"gone_offer"]
+	var saved_ids: Array[StringName] = parts["offers"]
+	ids.append_array(saved_ids)
+	parts["raw"] = wider
+	parts["chest_slots"] = Config.CHEST_SLOTS + 2
+	parts["offers"] = ids
+	var tuned: Dictionary[String, PackedByteArray] = sections.duplicate()
+	tuned["MAP0"] = map_payload(parts)
+	var boss: PackedByteArray = sections["BOSS"].duplicate()
+	boss[1 + 8 + 4 + 1 + 4 + 4 + 1 + 1] = 0x7f  # pillar 0's hits past broken
+	tuned["BOSS"] = boss
+	var shrine: PackedByteArray = sections["ARN1"].duplicate()
+	shrine[1 + 8 + 4 + 4 + 2] = 0x7f  # the shrine's HP far above Config.SHRINE_HP
+	tuned["ARN1"] = shrine
+	var herd: PackedByteArray = tuned["HERD"].duplicate()
+	herd[1 + 8 + 4 + 4 + 2 + 4 + 1] = 0x5a  # the first creature's kind: a name the table has not
+	tuned["HERD"] = herd
+	var s: WorldSave.Saved = WorldSave.read(rebuild(tuned, order))
+	if not check(s.ok(), "a file of other PROVISIONAL values loads: %s" % s.error):
+		return
+	var notes: String = " | ".join(s.fitted)
+	for want: String in ["2 stacks cut to their stack size", "chests had %d slots, now %d" % [Config.CHEST_SLOTS + 2, Config.CHEST_SLOTS], "shop's stock matched",
+			"collection entries past", "altar's tier", "durability cut to full", "pillar 0's hits",
+			"shrine's HP", "kind 'Z"]:
+		check(notes.contains(want), "fitted: %s (%s)" % [want, notes.left(300)])
+	var fs: WorldData = s.maps[Config.MAP_SURFACE]
+	var held: WorldData.Chest = fs.chests[fs.held_chests()[0]] if not fs.held_chests().is_empty() else null
+	var found: Dictionary[StringName, ItemStack] = {}
+	if held != null:
+		for st: ItemStack in held.slots:
+			if st != null:
+				found[st.id] = st
+	check(found.has(&"planks") and found[&"planks"].count == 3, "the stack from the extra slot moved into a free slot")
+	check(found.has(&"stone_a") and found[&"stone_a"].count == ItemDB.get_def(&"stone_a").stack_max, "the stone stack cut to its size")
+	check(found.has(&"sword_t1") and found[&"sword_t1"].durability == ItemDB.get_def(&"sword_t1").durability, "the sword cut to full")
+	check_eq(fs.shop.stock_bytes(), surface.shop.stock_bytes(), "the shop's stock as saved, by item (the gone offer left out)")
+	check_eq(fs.collection.count(), surface.collection.count(), "the collection's entries this game has")
+	check_eq(fs.progress.altar_tier, Config.ALTAR_TIER_MAX, "the tier at this game's top")
+	check(s.arenas[Config.MAP_DUNGEON].shrine_hp == Config.SHRINE_HP, "the shrine at its full HP")
+	check_eq(s.herd.creatures.size(), plain.herd.creatures.size() - 1, "the creature of the dropped kind left out")
+	var b: Rig = Rig.loaded(s)
+	b.step(30)
+	var again: WorldSave.Saved = WorldSave.read(b.capture())
+	check(again.ok() and again.fitted.is_empty(), "it plays and saves again as this build's file (nothing to fit)")
+
+
+## [map id, raw size, hash, serial, last place, chest slots, offers, raw] of a MAP section (its fields as WorldSave._read_map reads them).
+static func map_parts(payload: PackedByteArray) -> Dictionary:
+	var r: WorldSave.Reader = WorldSave.Reader.new(payload)
+	var map: int = r.u8()
+	var raw_size: int = r.u32()
+	var out: Dictionary = {"map": map, "raw_size": raw_size, "hash": r.take(16), "serial": r.u32(), "last": r.take(8),
+		"chest_slots": r.u8()}
+	var ids: Array[StringName] = []
+	var n: int = r.u8()
+	for i: int in n:
+		ids.append(StringName(r.text()))
+	out["offers"] = ids
+	var packed: PackedByteArray = r.take(r.u32())
+	out["raw"] = packed.decompress(raw_size, WorldSnapshot.COMPRESSION)
+	return out
+
+
+static func map_payload(parts: Dictionary) -> PackedByteArray:
+	var w: WorldSave.Writer = WorldSave.Writer.new()
+	var raw: PackedByteArray = parts["raw"]
+	var map: int = parts["map"]
+	var hash: PackedByteArray = parts["hash"]
+	var serial: int = parts["serial"]
+	var last: PackedByteArray = parts["last"]
+	var chest_slots: int = parts["chest_slots"]
+	var ids: Array[StringName] = parts["offers"]
+	w.u8(map)
+	w.u32(raw.size())
+	w.put(hash)
+	w.u32(serial)
+	w.put(last)
+	w.u8(chest_slots)
+	w.u8(ids.size())
+	for id: StringName in ids:
+		w.text(String(id))
+	var packed: PackedByteArray = raw.compress(WorldSnapshot.COMPRESSION)
+	w.u32(packed.size())
+	w.put(packed)
+	return w.bytes
+
+
+## M13 review: the committed fixture files (FIXTURE_WORLD, FIXTURE_CHARACTER: what this build wrote) read exactly, nothing fitted. A change
+## that would read them otherwise fails here: then FORMAT_VERSION goes up with a migration for the files people have (and the runner flag
+## --write-save-fixtures writes new fixtures).
+func _check_fixture(bytes: PackedByteArray) -> void:
+	var args: Dictionary[String, String] = Runner.parse_args(OS.get_cmdline_user_args())
+	if args.has("write-save-fixtures"):
+		_write(ProjectSettings.globalize_path(FIXTURE_WORLD), bytes)
+		_write(ProjectSettings.globalize_path(FIXTURE_CHARACTER), CharacterSave.encode(fixture_character()))
+		note("wrote the save fixtures")
+	var s: WorldSave.Saved = WorldSave.read(FileAccess.get_file_as_bytes(FIXTURE_WORLD))
+	if not check(s.ok() and s.fitted.is_empty(), "the fixture world (%s) reads exactly: %s %s" % [FIXTURE_WORLD, s.error, " ".join(s.fitted)]):
+		return
+	var fs: WorldData = s.maps[Config.MAP_SURFACE]
+	check(s.world_seed == SEED and s.ticks == PLAY_TICKS and s.prayers == 4 and s.deaths == 2, "its META (seed, age, prayers, deaths)")
+	check(fs.progress.altar_tier == 1 and fs.collection.count() == 3 and fs.collection.kills >= 5, "its tier and collection")
+	check(fs.held_chests().size() == 1 and fs.drops.size() >= 2 and fs.shop != null, "its chest, drops (%d) and shop" % fs.drops.size())
+	check(s.herd != null and s.herd.creatures.size() >= 3 and not s.herd.waiting.is_empty(), "its herd and a death waiting")
+	check(s.boss != null and s.boss.state == WorldSave.BOSS_ASLEEP and s.boss.hits.size() >= 2 and s.boss.hits[0] == 4, "its sleeping boss")
+	var b: Rig = Rig.loaded(s)
+	b.step(10)
+	check(WorldSave.read(b.capture()).ok(), "it plays and saves")
+	var c: CharacterSave.Result = CharacterSave.read(FileAccess.get_file_as_bytes(FIXTURE_CHARACTER))
+	check(c.ok() and c.fitted.is_empty(), "the fixture character reads exactly: %s %s" % [c.error, " ".join(c.fitted)])
+	if c.ok():
+		check_eq(CharacterSave.encode(c.character).slice(0, 40), CharacterSave.encode(fixture_character()).slice(0, 40), "its head")
+		check(c.character.describe() == fixture_character().describe() and str(c.character.stacks) == str(fixture_character().stacks),
+			"its class, slots, money, armour and seen as written")
+
+
+## The fixture's character: a miner with money, fine herbs, a worn sword, worn armour, the relic.
+static func fixture_character() -> CharacterSave.Sheet:
+	var c: CharacterSave.Sheet = CharacterSave.Sheet.new()
+	c.name = "fixture"
+	c.class_id = "miner"
+	c.selected = 2
+	c.stacks[0] = ItemStack.new(ItemDB.MONEY, 137, ItemDB.Grade.NONE)
+	c.stacks[1] = ItemStack.new(&"wild_healing", 3, ItemDB.Grade.FINE)
+	c.stacks[2] = ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 41)
+	c.stacks[5] = ItemStack.new(Config.BOSS_RELIC, 1, ItemDB.Grade.NONE)
+	c.stacks[Config.START_WEAPON_SLOT] = ItemStack.new(Combat.class_weapon("miner"), 1, ItemDB.Grade.NONE)
+	c.armor = ItemStack.new(&"armor_t1", 1, ItemDB.Grade.NONE, 23)
+	c.seen.assign([Config.BOSS_RELIC, &"armor_t1", ItemDB.MONEY, &"sword_t1", &"wild_healing", Combat.class_weapon("miner")])
+	return c
+
+
 ## The character file: what a hand may change (what is left out, a byte order mark, other keys, unknown ids in seen) and what is refused
 ## (broken text, the wrong header, impossible stacks, wrong types) without an engine error; the backup when the file does not load.
 func _check_character_file() -> void:
@@ -776,7 +1050,7 @@ func _check_character_file() -> void:
 	refused.append(["larger than the limit", (text.left(text.length() - 1) + "," + "\"pad\": \"%s\"}" % " ".repeat(Config.CHARACTER_FILE_MAX_BYTES)).to_ascii_buffer()])
 	for row: Array in [["format", "evensong-world"], ["format", 1], ["version", 2], ["version", "1"], ["version", 1.5], ["class", "wizard"],
 			["class", null], ["selected", 8], ["selected", -1], ["selected", "2"], ["slots", {}], ["slots", "x"], ["seen", "x"], ["armor", 5],
-			["armor", {"item": "sword_t1", "count": 1}], ["armor", {"item": "armor_t1", "count": 1, "durability": 999}]]:
+			["armor", {"item": "sword_t1", "count": 1}], ["armor", {"item": "armor_t1", "count": 1, "durability": -3}]]:
 		var key: String = row[0]
 		var d: Dictionary = good.duplicate(true)
 		d[key] = row[1]
@@ -784,7 +1058,7 @@ func _check_character_file() -> void:
 	var no_class: Dictionary = good.duplicate(true)
 	no_class.erase("class")
 	refused.append(["no class", JSON.stringify(no_class).to_ascii_buffer()])
-	for row: Array in [["item", "no_such_item"], ["item", 7], ["count", 0], ["count", 251], ["count", 1.5], ["count", "3"], ["count", -1],
+	for row: Array in [["item", "no_such_item"], ["item", 7], ["count", 0], ["count", 1.5], ["count", "3"], ["count", -1],
 			["grade", "fine"], ["grade", "epic"], ["grade", 1]]:
 		var key: String = row[0]
 		var d: Dictionary = good.duplicate(true)
@@ -797,7 +1071,7 @@ func _check_character_file() -> void:
 	var huge_money: Dictionary = huge_slots[0]
 	huge_money["count"] = 777777
 	refused.append(["a count of 1e400 (infinite)", JSON.stringify(huge).replace("777777", "1e400").to_ascii_buffer()])
-	for v: Variant in [999, -1, 2.5]:
+	for v: Variant in [-1, 2.5]:
 		var d: Dictionary = good.duplicate(true)
 		var slots: Array = d["slots"]
 		var sword: Dictionary = slots[3]
@@ -820,9 +1094,10 @@ func _check_character_file() -> void:
 	var over: Dictionary = good.duplicate(true)
 	var over_slots: Array = over["slots"]
 	var over_money: Dictionary = over_slots[0]
-	over_money["count"] = 251
-	check(CharacterSave.read(JSON.stringify(over).to_ascii_buffer()).error.contains("count must be 1..250"),
-		"the reason names the stack's limit (money 251: count must be 1..250)")
+	over_money["count"] = 0
+	check(CharacterSave.read(JSON.stringify(over).to_ascii_buffer()).error.contains("count must be a whole number 1..250"),
+		"the reason names the stack's limit (money 0: count must be a whole number 1..250)")
+	_check_character_fitting(good)
 	note("character file: %d refusals, e.g. '%s'" % [refused.size(), CharacterSave.read("[1, 2]".to_ascii_buffer()).error])
 	# The backup when the file does not load.
 	var path: String = _dir.path_join("characters/hand.json")
@@ -835,3 +1110,40 @@ func _check_character_file() -> void:
 	var none: CharacterSave.Result = CharacterSave.load_from(path)
 	check(not none.ok() and none.error.contains("hand.json:") and none.error.contains("hand.json.bak:"), "nothing loads: every file's reason")
 	check_eq(CharacterSave.load_from(_dir.path_join("characters/nobody.json")).error, "missing", "no file: missing")
+
+
+## M13 review: what a tuned 임시값 (a stack's size, an item's durability) or a hand edit leaves past this build's limits is fitted, not refused:
+## the count cut to its stack, the durability to full, each noted (Result.fitted); this build never writes such a file (Main's write guard).
+## And the collection: a character's carried history (its `seen`, what it holds) registers nothing in a world (● game-concept §4).
+func _check_character_fitting(good: Dictionary) -> void:
+	var over: Dictionary = good.duplicate(true)
+	var slots: Array = over["slots"]
+	var money: Dictionary = slots[0]
+	money["count"] = 251
+	var sword: Dictionary = slots[3]
+	sword["durability"] = 999
+	var armor: Dictionary = over["armor"]
+	armor["durability"] = 5000
+	var r: CharacterSave.Result = CharacterSave.read(JSON.stringify(over).to_ascii_buffer())
+	if not check(r.ok(), "a character past this build's limits loads: %s" % r.error):
+		return
+	check(r.character.stacks[0].count == 250 and r.character.stacks[3].durability == ItemDB.get_def(&"sword_t1").durability
+		and r.character.armor.durability == ItemDB.get_def(&"armor_t1").durability, "cut: money to 250, the sword and the armour to full")
+	var notes: String = " | ".join(r.fitted)
+	check(r.fitted.size() == 3 and notes.contains("money count 251 cut to its stack's 250") and notes.contains("sword_t1 durability 999")
+		and notes.contains("armor_t1 durability 5000"), "each cut noted (%s)" % notes)
+	check(CharacterSave.read(CharacterSave.encode(r.character)).fitted.is_empty(), "written again it reads exactly")
+	check(CharacterSave.read(JSON.stringify(good).to_ascii_buffer()).fitted.is_empty(), "a file within the limits: nothing fitted")
+	# The collection reads what came into the inventory in its world, not the character's history.
+	var vet: CharacterSave.Sheet = CharacterSave.Sheet.new()
+	vet.class_id = "archer"
+	vet.stacks[0] = ItemStack.new(&"hide_fine", 1, ItemDB.Grade.NONE)
+	vet.seen.assign([&"hide_fine", Config.RARE_MATERIAL])
+	var inv: Inventory = Inventory.new()
+	vet.to_inventory(inv)
+	var col: Collection = Collection.new()
+	col.note_inventory(inv)
+	check(col.count() == 0 and inv.has_seen(Config.RARE_MATERIAL), "a veteran's carried hide and seen history register nothing (its recipes stay)")
+	inv.add(Config.RARE_MATERIAL, 1)
+	col.note_inventory(inv)
+	check(col.has(&"first_rare_essence") and col.count() == 1, "the rare material gained here registers its entry")

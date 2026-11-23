@@ -273,7 +273,11 @@ func client_after_tick(action: NetBot.Action) -> void:
 	if bot != null and bots_started and bot.finished and not _sent_done and not s.client.prediction.has_unacked():
 		_sent_done = true
 		s.send_done()
-	if action.leave and leave_wait < 0:
+	if action.close:
+		s.bot_close.emit()  # M13 review, test only: Main.request_close (the window's close button)
+	if action.leave and leave_wait < 0 and not s.client.leaving and not s.client.begin_leave("bot"):
+		# M13 review: an admitted client leaves by the LEAVE request (SessionClient.begin_leave: the host's last inventory first); one the
+		# host sent nothing yet has nothing of its own to settle and goes the old way.
 		leave_wait = LEAVE_FLUSH_TICKS
 		s.log_event("leaving", "slot=%d" % s.local.slot)
 	if leave_wait >= 0:

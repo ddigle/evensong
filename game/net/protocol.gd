@@ -275,14 +275,16 @@ const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "c
 ## (right-click), DOOR (F on a door), ARMOR (put the armour on / take it off), CHEST (store / take in the chest panel).
 ## M8b: BUY and SELL (the open shop panel's clicks). M9c: SKILL (the skill keys 1 2 3 R; the herbalist's key 1 is THROW).
 ## M10b: PRAY (an F tap at the altar) and ANSWER (a participant's answer to its turn). M11c: CAPTURE (a click with the snare).
+## M13 review (v15): LEAVE = the client is leaving (no fields): the frames before it ran on the host first (SessionHost._leave).
 enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE, DEMOLISH, DOOR, ARMOR,
-	CHEST, BUY, SELL, SKILL, PRAY, ANSWER, CAPTURE }
+	CHEST, BUY, SELL, SKILL, PRAY, ANSWER, CAPTURE, LEAVE }
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
-	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer", "capture"]
+	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer", "capture", "leave"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
 ## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9). M9c: SKILL 11.
 ## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12). M10b: PRAY 1, ANSWER 4. M11c: CAPTURE 9.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4, 9]
+## M13 review: LEAVE 0.
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4, 9, 0]
 ## M8b: a SELL request's whole byte.
 const SELL_ONE: int = 0
 const SELL_WHOLE: int = 1
@@ -534,6 +536,8 @@ class InputFrame:
 					if answer >= 0 and answer < Prayer.DIR_KEYS.size() else ("several" if answer == Prayer.WIRE_SEVERAL else "?")]
 			Op.CAPTURE:
 				return "capture map=%d slot=%d at=%d,%d creature=%d" % [map, slot, cell.x, cell.y, capture_id]
+			Op.LEAVE:
+				return "leave"
 			Op.CHANNEL:
 				return "channel map=%d" % map
 			Op.ALTAR_LIFT:
@@ -1238,6 +1242,8 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.aim = bytes.decode_u8(at + 5)
 			f.capture_id = bytes.decode_u16(at + 6)
 			return f.slot < Config.HOTBAR_SLOTS and f.capture_id != 0  # ids count from 1; a stale one is the host's to refuse
+		Op.LEAVE:
+			return true  # M13 review: no fields
 	return false
 
 

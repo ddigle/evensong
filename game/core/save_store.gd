@@ -25,6 +25,8 @@ const WORLD_EXT: String = ".evw"
 const CHARACTER_EXT: String = ".json"
 const TMP_EXT: String = ".tmp"
 const BAK_EXT: String = ".bak"
+## M13 review: a cut-off first write set aside (set_aside: <file>.tmp.broken).
+const BROKEN_EXT: String = ".broken"
 ## Windows device names (with or without an extension they name a device, not a file).
 const RESERVED: PackedStringArray = ["con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
 	"com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9"]
@@ -89,6 +91,20 @@ static func candidates(path: String) -> PackedStringArray:
 ## Whether anything of `path` exists (the file, its .tmp or its .bak): the name is taken.
 static func exists(path: String) -> bool:
 	return not candidates(path).is_empty()
+
+
+## M13 review: what a crash in the very first write of a name leaves: only <file>.tmp (no file, no backup: nothing was ever saved under it).
+static func lone_tmp(path: String) -> bool:
+	return FileAccess.file_exists(path + TMP_EXT) and not FileAccess.file_exists(path) and not FileAccess.file_exists(path + BAK_EXT)
+
+
+## M13 review: moves file `path` aside as <path>.broken (an older one there replaced), out of candidates() and names_in(). Returns where it
+## went ("" = it could not be moved).
+static func set_aside(path: String) -> String:
+	var to: String = path + BROKEN_EXT
+	if FileAccess.file_exists(to) and DirAccess.remove_absolute(to) != OK:
+		return ""
+	return to if DirAccess.rename_absolute(path, to) == OK else ""
 
 
 ## The names of the saved files in `dir` with extension `ext` (a file, or only its .tmp / .bak left), sorted.

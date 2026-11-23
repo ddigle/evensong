@@ -4,11 +4,14 @@ extends RefCounted
 ## of them taken into any world, Terraria style; ● §2 the class is fixed, no swapping): one character as one small text (JSON) file a friend
 ## may open and change (● R54 "친구끼리라 손댄 파일을 막지는 않는다": no checksum, no signature; read() checks only what keeps a broken or
 ## hostile file from crashing the game or putting impossible things into a world: a known class, known items in counts their stacks allow,
-## grades they can have, durability up to full, armour in the armour slot, numbers that are whole numbers).
+## grades they can have, durability up to full, armour in the armour slot, numbers that are whole numbers). M13 review: a count past its
+## stack's size and durability past full are cut to this build's (Result.fitted) rather than refused, so tuning an 임시값 does not lock a
+## character out; the wire's sheet (NetProtocol.decode_sheet) stays strict.
 ##
 ## What belongs to the character (saved; README "M13a 캐릭터"): its class, the 24 inventory slots (the hotbar is the first 8) with each
 ## stack's grade and durability, the selected hotbar slot, the armour worn and its durability, its money (an item, ItemDB.MONEY), and
-## what it has ever held (Inventory.seen: recipes unlock on it, ○ gameplay-design §3.5, and the collection reads it). Not saved, each with
+## what it has ever held (Inventory.seen: recipes unlock on it, ○ gameplay-design §3.5; M13 review: the world's collection does not read it,
+## only what came into the inventory in that world, Inventory.gained, ● game-concept §4 "월드마다 독립"). Not saved, each with
 ## its reason in the README: HP, stamina, down / dead (a character comes into a world up and full, at the altar: ● gameplay-design §5
 ## "부활 지점: 제단"), a buff or poison running, the class meter, zeal, the ward and the cooldowns (a fresh spawn's), where it stood and
 ## on which map (the world's altar), a carried altar (the world's: put back in the world file).
@@ -86,6 +89,9 @@ class Result:
 	var path: String = ""
 	## Why the files tried before it did not read ("" = it was the first: the file itself).
 	var skipped: String = ""
+	## M13 review: what was fitted to this build (a count past its stack's size, durability past full: a tuned 임시값 or a hand edit); empty =
+	## the file is exactly this build's. Main logs it; the write guard wants it empty.
+	var fitted: PackedStringArray = []
 
 	func ok() -> bool:
 		return error.is_empty()
@@ -159,8 +165,14 @@ static func _int(v: Variant) -> int:
 	return int(f)
 
 
-## [the stack in JSON value `v` (null = an empty slot), why it is none ("" = fine)].
-static func _read_stack(v: Variant, where: String) -> Array:
+## The most a count or durability in a file may say before it is fitted (a whole number above this is refused as no number at all).
+const FIT_MAX: int = 1 << 30
+
+
+## [the stack in JSON value `v` (null = an empty slot), why it is none ("" = fine)]. M13 review: a count past its stack's size and durability
+## past full are cut to this build's (noted in `fitted`: a tuned 임시값 must not lock the character out, and a hand edit cannot put more into
+## a world than a stack holds); a count below 1, a negative or broken number stays a refusal.
+static func _read_stack(v: Variant, where: String, fitted: PackedStringArray) -> Array:
 	if v == null:
 		return [null, ""]
 	if typeof(v) != TYPE_DICTIONARY:
@@ -175,8 +187,12 @@ static func _read_stack(v: Variant, where: String) -> Array:
 	if def == null:
 		return [null, "%s: unknown item '%s'" % [where, item_s]]
 	var count_v: Variant = d.get("count", null)
-	if not _whole(count_v, 1, def.stack_max):
-		return [null, "%s: %s count must be 1..%d" % [where, item_s, def.stack_max]]
+	if not _whole(count_v, 1, FIT_MAX):
+		return [null, "%s: %s count must be a whole number 1..%d" % [where, item_s, def.stack_max]]
+	var count: int = _int(count_v)
+	if count > def.stack_max:
+		fitted.append("%s: %s count %d cut to its stack's %d" % [where, item_s, count, def.stack_max])
+		count = def.stack_max
 	var grade: int = ItemDB.normalize_grade(id)
 	if d.has("grade"):
 		var grade_v: Variant = d["grade"]
@@ -184,13 +200,16 @@ static func _read_stack(v: Variant, where: String) -> Array:
 		grade = ItemDB.grade_from_name(grade_s)
 		if not ItemDB.valid_grade(id, grade):
 			return [null, "%s: %s cannot have grade '%s'" % [where, item_s, grade_s]]
-	var st: ItemStack = ItemStack.new(id, _int(count_v), grade)
+	var st: ItemStack = ItemStack.new(id, count, grade)
 	if def.durability > 0:
 		st.durability = def.durability
 		if d.has("durability"):
-			if not _whole(d["durability"], 0, def.durability):
-				return [null, "%s: %s durability must be 0..%d" % [where, item_s, def.durability]]
+			if not _whole(d["durability"], 0, FIT_MAX):
+				return [null, "%s: %s durability must be a whole number 0..%d" % [where, item_s, def.durability]]
 			st.durability = _int(d["durability"])
+			if st.durability > def.durability:
+				fitted.append("%s: %s durability %d cut to full (%d)" % [where, item_s, st.durability, def.durability])
+				st.durability = def.durability
 	return [st, ""]
 
 
@@ -219,6 +238,7 @@ static func read(bytes: PackedByteArray) -> Result:
 	if _int(version_v) != VERSION:
 		return _refused("character file version %d, this game reads %d" % [_int(version_v), VERSION])
 	var c: Sheet = Sheet.new()
+	var fitted: PackedStringArray = []
 	var class_v: Variant = root.get("class", null)
 	if typeof(class_v) != TYPE_STRING or not Config.CLASSES.has(str(class_v)):
 		return _refused("class must be one of %s" % ", ".join(Config.CLASSES))
@@ -236,12 +256,12 @@ static func read(bytes: PackedByteArray) -> Result:
 	if slots.size() > Config.INVENTORY_SLOTS:
 		return _refused("%d slots, at most %d" % [slots.size(), Config.INVENTORY_SLOTS])
 	for i: int in slots.size():
-		var got: Array = _read_stack(slots[i], "slot %d" % (i + 1))
+		var got: Array = _read_stack(slots[i], "slot %d" % (i + 1), fitted)
 		var why: String = got[1]
 		if not why.is_empty():
 			return _refused(why)
 		c.stacks[i] = got[0]
-	var armor_got: Array = _read_stack(root.get("armor", null), "armor")
+	var armor_got: Array = _read_stack(root.get("armor", null), "armor", fitted)
 	var armor_why: String = armor_got[1]
 	if not armor_why.is_empty():
 		return _refused(armor_why)
@@ -260,6 +280,7 @@ static func read(bytes: PackedByteArray) -> Result:
 			c.seen.append(StringName(str(v)))
 	var r: Result = Result.new()
 	r.character = c
+	r.fitted = fitted
 	return r
 
 

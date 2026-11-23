@@ -28,6 +28,9 @@ func run() -> Array[String]:
 	await _check_play_on()
 	await _check_altar_restore()
 	await _check_guard()
+	await _check_collection_carry()
+	await _check_cut_write()
+	await _check_down_quit()
 	await _check_processes()
 	SaveWorldTest._remove_dir(_dir)
 	return failures
@@ -103,6 +106,15 @@ func _check_cli() -> void:
 		"M13b: a client's --world is refused (%s)" % ", ".join(client_world.errors))
 	check(CliOptions.parse(PackedStringArray(["--host", "--test-duplicate-classes"])).test_duplicate_classes,
 		"M13b: --test-duplicate-classes (test only, the host)")
+	# M13 review: the list flags only list (a host used to open its port and make the names it was given first).
+	for listing: Array in [["--host", "--world=a", "--list-worlds"], ["--join=127.0.0.1", "--list-characters"]]:
+		var lo: CliOptions = CliOptions.parse(PackedStringArray(listing))
+		check(lo.errors.size() == 1 and lo.errors[0].contains("only list"), "M13 review: %s is refused (%s)" % [str(listing),
+			", ".join(lo.errors)])
+	var tests: CliOptions = CliOptions.parse(PackedStringArray(["--join=127.0.0.1", "--test-close-after=40", "--test-lag-inventory"]))
+	check(tests.errors.is_empty() and tests.test_close_after == 40 and tests.test_lag_inventory,
+		"M13 review: --test-close-after and --test-lag-inventory (test only)")
+	check(not CliOptions.parse(PackedStringArray(["--test-close-after=0"])).errors.is_empty(), "--test-close-after=0 is refused")
 
 
 # --- a world and a character over a restart ------------------------------------------------------------------------
@@ -113,13 +125,27 @@ func _check_restart() -> void:
 	check(a.loaded == null and FileAccess.file_exists(_world_file("keep")) and FileAccess.file_exists(_character_file("hero")),
 		"a new world and character are written at once")
 	var p: Player = a.player
+	_step(a, 1)  # M13 review: the first tick takes the world's progress as it is (a change after it writes the world)
 	# The world: tier 1, the boss killed (its relic carried), the collection, a chest's contents, a built wall.
 	var f: BossFight = a.boss_fight()
+	var broken: int = BossFight.Pillar.hits_per_state() * 3
+	f.set_pillar_hits(1, broken)  # M13 review: the fight broke one pillar (rubble) and cracked another; two stand whole
+	f.set_pillar_hits(2, BossFight.Pillar.hits_per_state())
 	f.wake([] as Array[Player])
 	f.hit(f.sim.hp, p.get_instance_id())
 	check(a.world_progress().boss_defeated, "the boss is dead (the world's flag)")
 	check(a.world_progress().raise_altar(), "the altar goes up a tier")
 	a.world.altar_tier_changed()
+	var pillars_before: Array = []
+	for q0: BossFight.Pillar in f.pillars:
+		pillars_before.append([q0.hits, q0.fallen, a.worlds[Config.MAP_DUNGEON].data.blockers.has(q0.tile)])
+	var shape: String = str(pillars_before.slice(0, 3))
+	check_eq(shape, str([[0, false, true], [broken, true, false], [BossFight.Pillar.hits_per_state(), false, true]]),
+		"after the kill: whole, rubble, cracked")
+	_step(a, 1)
+	var progressed: WorldSave.Saved = WorldSave.load_from(_world_file("keep"))
+	check(progressed.ok() and progressed.maps[Config.MAP_SURFACE].progress.boss_defeated
+		and progressed.maps[Config.MAP_SURFACE].progress.altar_tier == 1, "M13 review: the kill and the raise wrote the world at once (progress)")
 	a.world_collection().put_test(4, 3)
 	a.prayer.prayers = 3  # prayers made (the next one's directions)
 	a.note_collection()
@@ -150,7 +176,7 @@ func _check_restart() -> void:
 	_quit(a)
 	var on_disk: WorldSave.Saved = WorldSave.load_from(_world_file("keep"))
 	check(on_disk.ok() and on_disk.hashes[Config.MAP_SURFACE] == saved_hash, "quitting wrote the world as it was")
-	check_eq(on_disk.ticks, 30, "with its 30 ticks of play")
+	check_eq(on_disk.ticks, 32, "with its 32 ticks of play")
 	var b: Main = await _open(["--world=keep", "--character=hero"])
 	if not check(b.loaded != null and b.player != null, "the world and the character open again"):
 		_quit(b)
@@ -163,7 +189,11 @@ func _check_restart() -> void:
 	check(b.world_progress() == b.worlds[Config.MAP_DUNGEON].data.progress, "one progress on both maps again")
 	var fb: BossFight = b.boss_fight()
 	check(b.world_progress().boss_defeated and fb != null and fb.sim.state == BossSim.State.DEAD, "the boss stays dead")
-	check(fb != null and fb.pillars.all(func(q: BossFight.Pillar) -> bool: return q.fallen), "its pillars lie as rubble")
+	var pillars_after: Array = []
+	if fb != null:
+		for q1: BossFight.Pillar in fb.pillars:
+			pillars_after.append([q1.hits, q1.fallen, b.worlds[Config.MAP_DUNGEON].data.blockers.has(q1.tile)])
+	check_eq(pillars_after, pillars_before, "M13 review: its pillars as the kill left them (standing ones block, rubble does not)")
 	check_eq(b.world_collection().count(), 4, "the collection's entries")
 	check_eq(b.world_collection().kills, 3, "and its kills")
 	check(b.world_collection() == b.worlds[Config.MAP_DUNGEON].data.collection, "one collection on both maps again")
@@ -379,13 +409,27 @@ func _check_processes() -> void:
 	var fifth: Array = await _game(base + ["--character=runner", "--class=miner"])
 	check_eq(fifth[0], 2, "a --class against the character: exit 2")
 	check(str(fifth[1]).contains("character runner is a cleric"), "with the reason")
-	var broken_character: PackedByteArray = "{\"format\": \"evensong-character\", \"version\": 1, \"class\": \"cleric\", \"slots\": [{\"item\": \"money\", \"count\": 251}]}".to_ascii_buffer()
+	# M13 review: a count past its stack (a hand edit, or a stack size tuned down since) is fitted, not refused.
+	var over: PackedByteArray = "{\"format\": \"evensong-character\", \"version\": 1, \"class\": \"cleric\", \"slots\": [{\"item\": \"money\", \"count\": 251}]}".to_ascii_buffer()
+	SaveWorldTest._write(store.character_path("runner"), over)
+	var fitted: Array = await _game(base + ["--character=runner"])
+	check_eq(fitted[0], 0, "a count past its stack: the character opens (exit 0)")
+	check(str(fitted[1]).contains("EVENSONG_SAVE character fitted name=runner") and str(fitted[1]).contains("count 251 cut to its stack's 250")
+		and str(fitted[1]).contains("character saved name=runner why=quit class=cleric slots=1 money=250"), "fitted to 250, logged, written so")
+	var broken_character: PackedByteArray = "{\"format\": \"evensong-character\", \"version\": 1, \"class\": \"cleric\", \"slots\": [{\"item\": \"money\", \"count\": 0}]}".to_ascii_buffer()
 	SaveWorldTest._write(store.character_path("runner"), broken_character)
 	SaveWorldTest._write(store.character_path("runner") + ".bak", broken_character)
 	var sixth: Array = await _game(base + ["--character=runner"])
 	check_eq(sixth[0], Config.EXIT_SAVE_REFUSED, "a character file that does not load: exit %d" % Config.EXIT_SAVE_REFUSED)
-	check(str(sixth[1]).contains("character runner does not load") and str(sixth[1]).contains("count must be 1..250"), "with the reason")
+	check(str(sixth[1]).contains("character runner does not load") and str(sixth[1]).contains("count must be a whole number 1..250"),
+		"with the reason")
 	check_eq(FileAccess.get_file_as_bytes(store.character_path("runner")), broken_character, "and the file left as it is")
+	# M13 review: the window's close button (--test-close-after: the path a person's close takes; no --quit-after) quits and writes.
+	var closing: Array = await _game(base + ["--world=closing", "--character=closer", "--class=miner", "--test-close-after=40"], 0)
+	var log_close: String = closing[1]
+	check_eq(closing[0], 0, "the close button: exit 0")
+	check(log_close.contains("EVENSONG_SAVE close requested role=offline") and log_close.contains("world saved name=closing why=quit")
+		and log_close.contains("character saved name=closer why=quit"), "it quit by itself and wrote both on the way out")
 	var listed: Array = await _game(["--save-dir=" + dir, "--list-worlds", "--list-characters"], 0)
 	var log6: String = listed[1]
 	check_eq(listed[0], 0, "the lists: exit 0")
@@ -433,3 +477,78 @@ func _check_guard() -> void:
 	a.player.inventory.slots[5] = null
 	_quit(a)
 	check(CharacterSave.load_from(_character_file("guardian")).ok(), "once it is whole again the quit writes it")
+
+
+## M13 review (● game-concept §4 "월드마다 독립, 새 월드 = 새 컬렉션"): a veteran character (its file has seen the whole hide and the rare
+## material, and it carries a whole hide in) entering a new world registers nothing; a whole hide that comes into its inventory there does.
+func _check_collection_carry() -> void:
+	var vet: CharacterSave.Sheet = CharacterSave.Sheet.new()
+	vet.name = "veteran"
+	vet.class_id = "archer"
+	vet.stacks[0] = ItemStack.new(&"bow", 1, ItemDB.Grade.NONE)
+	vet.stacks[1] = ItemStack.new(&"hide_fine", 2, ItemDB.Grade.NONE)
+	vet.seen.assign([&"bow", &"hide_fine", Config.RARE_MATERIAL])
+	check_eq(SaveStore.write_atomic(_character_file("veteran"), CharacterSave.encode(vet), false), "", "a veteran's file")
+	var m: Main = await _open(["--world=fresh", "--seed=5", "--character=veteran"])
+	_step(m, 5)
+	check_eq(m.world_collection().count(), 0, "a new world: what the veteran carried in and has seen elsewhere registers nothing")
+	check(m.player.inventory.has_seen(Config.RARE_MATERIAL), "its knowledge came along (the recipes stay unlocked)")
+	m.player.inventory.add(&"hide_fine", 1)
+	_step(m, 1)
+	check(m.world_collection().has(&"first_hide_fine") and m.world_collection().count() == 1,
+		"a whole hide gained in this world registers its entry")
+	_quit(m)
+	var fresh: WorldSave.Saved = WorldSave.load_from(_world_file("fresh"))
+	check(fresh.ok() and fresh.maps[Config.MAP_SURFACE].collection.count() == 1, "the world file holds that one entry")
+
+
+## M13 review: a crash in the very first write of a name leaves only its .tmp (no file, no backup): the name is new again (the .tmp set aside
+## as .tmp.broken), not refused for good.
+func _check_cut_write() -> void:
+	var path: String = _world_file("cutw")
+	SaveWorldTest._write(path + SaveStore.TMP_EXT, "EVSW cut off".to_ascii_buffer())
+	var cpath: String = _character_file("cutc")
+	SaveWorldTest._write(cpath + SaveStore.TMP_EXT, "{\"format\": \"evensong-char".to_ascii_buffer())
+	var m: Main = await _open(["--world=cutw", "--character=cutc", "--class=miner"])
+	check(m.player != null and m.loaded == null and m.character != null, "a lone cut-off .tmp: the world and the character are made new")
+	check(WorldSave.load_from(path).ok() and FileAccess.file_exists(path + SaveStore.TMP_EXT + SaveStore.BROKEN_EXT),
+		"the world was written, the cut-off write kept as .tmp.broken")
+	check(CharacterSave.load_from(cpath).ok() and FileAccess.file_exists(cpath + SaveStore.TMP_EXT + SaveStore.BROKEN_EXT),
+		"so was the character")
+	check(not SaveStore.new(_dir).world_names().has("cutw.evw.tmp"), "the set-aside file is no save of its own")
+	_quit(m)
+	# Beside a file or a backup a broken .tmp changes nothing (the M13a reading order).
+	SaveWorldTest._write(path + SaveStore.TMP_EXT, "junk".to_ascii_buffer())
+	var again: Main = await _open(["--world=cutw"])
+	check(again.loaded != null and again.loaded.path == path, "with its file there the junk .tmp is passed over")
+	_quit(again)
+
+
+## M13 review (Config.LEAVE_WHILE_DOWN_DIES, ● gameplay-design §2.6): a player who closes the window while down dies first (Main.die_if_down,
+## what request_close runs before it quits): the bag lies in the world, the gear wears, and the files written on the way out hold that.
+func _check_down_quit() -> void:
+	var m: Main = await _open(["--world=downw", "--character=downc", "--class=paladin"])
+	var p: Player = m.player
+	p.inventory.add(&"stone_a", 10)
+	var weapon_slot: int = Config.START_WEAPON_SLOT
+	var full: int = p.inventory.stack_at(weapon_slot).durability if p.inventory.stack_at(weapon_slot) != null else 0
+	p.sim_position = m.world.spawn_point(0) + Vector2(0, 90)
+	check(not m.die_if_down(), "up: nothing happens")
+	p.take_hit(Config.PLAYER_HP_MAX * 4)
+	check_eq(p.vitals.life, Vitals.Life.DOWN, "the player is down")
+	check(m.die_if_down() and p.vitals.life == Vitals.Life.DEAD, "closing the window while down: it dies")
+	check_eq(m.world.data.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_BAG), 1, "its bag lies in the world")
+	check(p.inventory.count_of(&"stone_a") < 10 and m.deaths == 1, "the bag took part of what it held")
+	var worn: ItemStack = p.inventory.stack_at(weapon_slot)
+	check(worn == null or worn.max_durability() == 0 or worn.durability < full, "its gear wore")
+	var held: int = p.inventory.count_of(&"stone_a")
+	_quit(m)
+	var c: CharacterSave.Result = CharacterSave.load_from(_character_file("downc"))
+	var w: WorldSave.Saved = WorldSave.load_from(_world_file("downw"))
+	var kept: int = 0
+	if c.ok():
+		for st: ItemStack in c.character.stacks:
+			kept += st.count if st != null and st.id == &"stone_a" else 0
+	check(c.ok() and kept == held, "the character file holds what the death left (%d)" % kept)
+	check(w.ok() and w.maps[Config.MAP_SURFACE].count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_BAG) == 1 and w.deaths == 1,
+		"the world file holds the bag and the death")

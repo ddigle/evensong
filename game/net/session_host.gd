@@ -313,6 +313,8 @@ var boss_lines: int = 0
 var pending_sheets: Dictionary[int, PackedByteArray] = {}
 var characters_in: int = 0
 var character_names: Dictionary[int, String] = {}
+## M13 review: LEAVE requests run (_leave).
+var leaves: int = 0
 
 
 func _init(p_session: NetSession) -> void:
@@ -633,7 +635,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	# with an altar tile in reach of this frame's feet, so F held anywhere else (or while reviving) never counts.
 	m.altar_hold = m.altar_hold + 1 if frame.interact and AltarMove.hold_counts(p, players_on(m.map_id)) \
 		and AltarMove.altar_in_reach(p.data, p.sim_position) else 0
-	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
+	if frame.op == NetProtocol.Op.LEAVE:
+		_leave(m)  # M13 review: before any refusal (down, carrying, praying: leaving is always allowed)
+	elif NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
 		_refuse_early(m, frame, WorldItems.WHY_WRONG_MAP)
 	elif NetProtocol.op_has_map(frame.op) and not p.vitals.alive():
 		_refuse_early(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
@@ -806,6 +810,34 @@ func _died(m: NetMember) -> void:
 		if worn > 0:
 			m.inventory_dirty = true
 			s.log_event("gear", "slot=%d death wear items=%d %s" % [m.slot, worn, _gear_line(p.inventory)])
+
+
+## M13 review (README "M13b 나가기"): client member `m` is leaving: its LEAVE request ran after every request it sent before it (frames run
+## in order), so the world and its inventory now hold all of them. A downed member dies now (die_on_leave: closing the window is no way out
+## of the death); its inventory goes to its client once more (the acknowledgement its character file is written on:
+## SessionClient.begin_leave) and nothing of it runs any more (run_client_frames). It is gone when its client disconnects
+## (on_peer_disconnected: the slot, the class, the world written).
+func _leave(m: NetMember) -> void:
+	if m.leaving or m.gate == null:
+		return
+	m.leaving = true
+	var died: bool = die_on_leave(m)
+	m.inventory_dirty = true
+	_changed = true
+	leaves += 1
+	s.log_event("leave", "slot=%d seq=%d died=%s items=%d money=%d" % [m.slot, m.gate.last_seq, died, _item_count(m.player.inventory),
+		m.player.inventory.count_of(ItemDB.MONEY)])
+
+
+## M13 review: member `m` leaves while down (a client's LEAVE; the host's own player when its window closes, Main.request_close): with
+## Config.LEAVE_WHILE_DOWN_DIES it dies now as if its down time ran out (the bag in the world, the gear worn: _died, ● gameplay-design
+## §2.6). Returns whether it died.
+func die_on_leave(m: NetMember) -> bool:
+	if not Config.LEAVE_WHILE_DOWN_DIES or m == null or m.player == null or not m.player.vitals.die_now():
+		return false
+	s.log_event("died_leaving", "slot=%d map=%s" % [m.slot, Config.MAP_NAMES[m.map_id]])
+	_died(m)
+	return true
 
 
 ## M4b: member `m`'s respawn time is up: back at its spawn slot on the surface (● §2.6 "부활 지점: 제단"),
@@ -1228,7 +1260,8 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 		if session.role == NetSession.Role.CLIENT and q.op == NetProtocol.Op.SELECT:
 			p.inventory.select(q.slot)
 	elif f.op == NetProtocol.Op.NONE and not session.local_ops.is_empty() \
-			and (session.local_ops[0].op == NetProtocol.Op.SELECT or session.take_local_token()):
+			and (session.local_ops[0].op == NetProtocol.Op.SELECT or session.local_ops[0].op == NetProtocol.Op.LEAVE
+				or session.take_local_token()):
 		q = session.local_ops.pop_front()
 	if q == null:
 		return
@@ -1432,12 +1465,17 @@ func tick(action: NetBot.Action, now: int) -> void:
 ## When its vitals run and the debt passes the threshold (a client that went quiet, or sends a frame now and
 ## then), the host steps it itself with an empty frame each tick. Idle, the debt is 0.
 func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> void:
+	if m.leaving:
+		return  # M13 review: after its LEAVE nothing of it runs (the gate took the frames: acknowledged, never run)
 	if timed(m):
 		m.clock_debt += 1
 	else:
 		m.clock_debt = 0
 	var ran: int = 0
 	for frame: NetProtocol.InputFrame in frames:
+		if m.leaving:
+			ran += 1
+			continue  # M13 review: the frames after its LEAVE in this tick's take: acknowledged, never run
 		var was_timed: bool = timed(m)
 		if was_timed and m.clock_debt <= 0:
 			break
@@ -1450,7 +1488,7 @@ func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> v
 		held.assign(frames.slice(ran))
 		m.gate.put_back(held)
 		m.frames_held += held.size()
-	if not timed(m):
+	if not timed(m) or m.leaving:
 		m.clock_debt = 0
 		m.host_stepping = false
 		return

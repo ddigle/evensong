@@ -23,6 +23,13 @@ const KEEP_HOST: String = ("wait:20;walkto:63,52;aimat:63,53;wait:30;drop:5;mark
 const KEEP_C1: String = "walkto:66,50;walkto:64,53;aimat:63,53;pick:420;wait:30;mark:picked;wait:10;leave"
 const KEEP_C1B: String = "walkto:48,50;aimat:47,51;pick;wait:30;mark:herb;wait:30"
 const KEEP_C2: String = "move:-1,0,30;wait:30;move:1,0,30;wait:60"
+## M13 review (inflight): the clients' slow link (--net-lag round trip: their input frames and, --test-lag-inventory, the host's inventory
+## messages each half of it late), their scripts, and the host's (it puts c3, slot 3, down).
+const FLIGHT_LAG_MS: int = 300
+const FLIGHT_C1: String = "wait:30;aim:16,0;drop:20;leave"
+const FLIGHT_C2: String = "wait:30;aim:16,0;drop:3;wait:3;drop:3;wait:3;drop:3;close;wait:3;drop:3;wait:3;drop:3"
+const FLIGHT_C3: String = "waitlife:down,900;leave"
+const FLIGHT_HOST: String = "wait:60;hurt:3,100;wait:40;hurt:3,100;wait:40;hurt:3,100;wait:240"
 
 
 func run() -> Array[String]:
@@ -45,6 +52,8 @@ func run() -> Array[String]:
 		await _session_keep()
 	if only.is_empty() or only.has("close"):
 		await _session_close()
+	if only.is_empty() or only.has("inflight"):
+		await _session_inflight()
 	_check_logs()
 	note("keep sessions took %.1f s; run folder %s" % [(Time.get_ticks_msec() - t0) / 1000.0,
 		_run_dir if (_keep or not failures.is_empty()) else "(removed)"])
@@ -242,6 +251,12 @@ func _keep_phase_two(dir: String, dev_host: String, dev_c1: String, dev_c2: Stri
 	check_eq(str(c2b.result.get("ended", "")), "lost the host", "keep2/c2b: lost the host")
 	check(_line_with(h2, "world saved name=keepw why=ended").length() > 0, "keep2: the host wrote the world as it quit")
 	check(_line_with(h2, "world saved name=keepw why=left").length() > 0, "keep2: and when bob left")
+	# M13 review: the world's age goes on in a session too (it used to start again at 0 on a host).
+	var age_loaded: int = _word_after(loaded, " ticks=").to_int()
+	var age_saved: int = _word_after(_line_with(h2, "world saved name=keepw why=ended"), " ticks=").to_int()
+	var session_ticks: int = _word_after(_line_with(h2, "host2 ended "), " ticks=").to_int()
+	check(age_loaded > 120 and session_ticks > 120 and absi(age_saved - (age_loaded + session_ticks)) <= 30,
+		"keep2: the world's age goes on from the file's: %d saved = %d loaded + about %d played" % [age_saved, age_loaded, session_ticks])
 	var cara: CharacterSave.Sheet = read_character(dev_c2, "cara")
 	check(cara != null and cara.class_id == "cleric", "keep2: cara's file reads after the host loss")
 
@@ -315,3 +330,87 @@ static func _own_inventory(inst: Instance) -> String:
 		if roundi(_num(p, "slot")) == slot:
 			return str(p.get("inventory", ""))
 	return ""
+
+
+## M13 review (README "M13b 나가기"): leaving with requests in flight. The clients' links are slow both ways (--net-lag=FLIGHT_LAG_MS: their
+## input frames and, --test-lag-inventory, the host's inventory messages each half of it late), so what a request did on the host has not
+## reached the client when it leaves. Before the LEAVE request a client wrote its character from the last inventory it had while the host
+## wrote the world with the request done: the dropped items were in both files. Now every item is in exactly one of them.
+##   c1 (bob, archer, 20 stones in its first slot) drops all 20 and leaves at once (bot leave)
+##   c2 (cara, cleric, 30 logs) drops 3 at a time and presses the window's close button among the drops (bot close: Main.request_close)
+##   c3 (dan, miner, 10 copper ore, a tier-1 sword at 100) is put down by the host (bot hurt) and leaves while down: it dies first
+##      (Config.LEAVE_WHILE_DOWN_DIES: the bag in the world, the sword worn), so leaving is no way out of the death
+func _session_inflight() -> void:
+	var dir: String = _session_dir("inflight")
+	var port: int = _port()
+	if not check(port > 0, "inflight: free port"):
+		return
+	var dev_host: String = dir.path_join("dev_host")
+	var devs: Array[String] = [dir.path_join("dev_c1"), dir.path_join("dev_c2"), dir.path_join("dev_c3")]
+	var bob: CharacterSave.Sheet = make_character("bob", "archer", [[&"stone_a", 20, ItemDB.Grade.NONE, -1]])
+	var cara: CharacterSave.Sheet = make_character("cara", "cleric", [[&"log", 30, ItemDB.Grade.NONE, -1]])
+	var dan: CharacterSave.Sheet = make_character("dan", "miner", [[&"ore_copper", 10, ItemDB.Grade.NONE, -1],
+		[&"sword_t1", 1, ItemDB.Grade.NONE, 100]])
+	var sheets: Array[CharacterSave.Sheet] = [bob, cara, dan]
+	for i: int in 3:
+		if not check(FileAccess.file_exists(write_character(devs[i], sheets[i])), "inflight: the test wrote %s" % sheets[i].name):
+			return
+	var host_flags: Array = ["--host=%d" % port, "--net-start=3", "--net-expect=3", "--class=paladin", "--world=flight", "--character=hf",
+		"--save-dir=" + dev_host, "--bot=" + FLIGHT_HOST]
+	if not _use_path:
+		host_flags.append("--test-allow-give")  # an exported (release) host takes a client's debug drop only with it
+	var host: Instance = _launch(dir, "host", host_flags, 60)
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "inflight: host listens"):
+		await _reap()
+		return
+	var lag: Array = ["--net-lag=%d" % FLIGHT_LAG_MS, "--test-lag-inventory"]
+	var scripts: Array[String] = [FLIGHT_C1, FLIGHT_C2, FLIGHT_C3]
+	var clients: Array[Instance] = []
+	for i: int in 3:
+		var name: String = "c%d" % (i + 1)
+		clients.append(_launch(dir, name, ["--join=127.0.0.1:%d" % port, "--character=" + sheets[i].name, "--save-dir=" + devs[i],
+			"--bot=" + scripts[i]] + lag, 50))
+		if not check(await _wait_files([dir.path_join(name + ".welcome.marker")], READY_WAIT_SEC), "inflight: %s joined" % name):
+			await _reap()
+			return
+	check(await _wait_files([dir.path_join("host.json"), dir.path_join("c1.json"), dir.path_join("c2.json"), dir.path_join("c3.json")], 50.0),
+		"inflight: every instance wrote its result")
+	await _reap_after(15.0)
+	var everyone: Array[Instance] = [host]
+	everyone.append_array(clients)
+	if not _load_results(dir, everyone):
+		return
+	_expect_codes("inflight", {host: 0, clients[0]: 0, clients[1]: 0, clients[2]: 0})
+	var hl: PackedStringArray = _log_lines(host)
+	var w: WorldSave.Saved = WorldSave.load_from(SaveStore.new(dev_host).world_path("flight"))
+	if not check(w.ok(), "inflight: the world file reads (%s)" % w.error):
+		return
+	var surface: WorldData = w.maps[Config.MAP_SURFACE]
+	var on_ground: Dictionary[StringName, int] = {}
+	for id: int in surface.drops:
+		var d: WorldData.Drop = surface.drops[id]
+		var before: int = on_ground.get(d.item, 0)
+		on_ground[d.item] = before + d.count
+	var files: Array[CharacterSave.Sheet] = []
+	for i: int in 3:
+		files.append(read_character(devs[i], sheets[i].name))
+		var how: String = _line_with(_log_lines(clients[i]), "left_host how=")
+		check(how.contains("how=confirmed"), "inflight/c%d: the host confirmed its leaving (%s)" % [i + 1, how])
+		check(_line_with(hl, "leave slot=%d " % (i + 1)).length() > 0, "inflight: the host ran c%d's LEAVE" % (i + 1))
+	var items: Array[StringName] = [&"stone_a", &"log", &"ore_copper"]
+	var had: Array[int] = [20, 30, 10]
+	for i: int in 3:
+		var kept: int = count_in(files[i], items[i])
+		var ground: int = on_ground[items[i]] if on_ground.has(items[i]) else 0
+		check(files[i] != null and kept + ground == had[i] and ground > 0, "inflight: %s's %s: %d kept + %d on the ground = %d, none twice" % [
+			sheets[i].name, items[i], kept, ground, had[i]])
+	check(_line_with(hl, "drop slot=1 item=stone_a count=20").length() > 0 and count_in(files[0], &"stone_a") == 0,
+		"inflight/c1: the host dropped bob's 20 stones before its LEAVE, and bob's file has none")
+	check(_log_has(clients[1], "EVENSONG_SAVE close requested role=client") and _log_has(clients[1], "leaving slot=2 why=window"),
+		"inflight/c2: the close button started the leaving")
+	check(_line_with(hl, "died_leaving slot=3").length() > 0 and _line_with(hl, "leave slot=3 ").contains("died=true"),
+		"inflight: c3 left while down and died first")
+	var sword: ItemStack = files[2].stacks[1] if files[2] != null else null
+	check(sword != null and sword.id == &"sword_t1" and sword.durability < 100, "inflight/c3: dan's sword wore with the death (%s)" %
+		(str(sword.durability) if sword != null else "none"))
+	check(surface.count_value(WorldData.Layer.PLACEABLE, WorldData.PLACEABLE_BAG) == 1, "inflight: dan's death bag lies in the world")

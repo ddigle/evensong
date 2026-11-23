@@ -128,6 +128,8 @@ signal bot_tap
 signal bot_collection
 ## M13b (host): a client it had admitted left (Main writes the open world then: Config.SAVE_WHEN_CLIENT_LEAVES).
 signal client_left(slot: int)
+## M13 review, test only (bot "close"): the window's close button, pressed by a bot (Main.request_close).
+signal bot_close
 
 enum Role { OFFLINE, HOST, CLIENT }
 const ROLE_NAMES: PackedStringArray = ["offline", "host", "client"]

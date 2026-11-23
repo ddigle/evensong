@@ -1426,6 +1426,23 @@ const SAVE_WHEN_CLIENT_LEAVES: bool = true
 ## losing the host, on F9 and every SAVE_AUTOSAVE_TICKS of its ticks. It never writes the host's world.
 const SAVE_CLIENT_ON_HOST_LOST: bool = true
 
+# --- PROVISIONAL, M13 review (leaving, progress) ---------------------------------------------------------------------------------
+## PROVISIONAL (● R54 "캐릭터는 각자 기기에"; how a client leaves is not in the docs): a client that leaves (the window's close button, a bot's
+## leave) first sends a LEAVE request and writes its character only once the host's inventory message for it came (every request it sent
+## is the host's by then: nothing it dropped, placed, stored or sold is both in the world file and in the character file). It waits at most
+## this many of its ticks (2 s); then it writes what it has and logs that what was in flight may differ.
+const NET_LEAVE_WAIT_TICKS: int = 2 * 60
+## PROVISIONAL (● gameplay-design §2.6 사망: the bag and the wear; closing the window while down is not in the docs): a downed player who
+## leaves (a client's LEAVE, the window's close button offline or on the host) dies first, as if its down time ran out: its death bag lies in
+## the world and its gear wears before its character is written. false: it keeps everything (closing the window escapes the death).
+const LEAVE_WHILE_DOWN_DIES: bool = true
+## PROVISIONAL (● R54 "영속 월드"; when is not in the docs): the open world (and the open character) is written as soon as the world's progress
+## changes (the boss killed, the altar raised), offline and on a host, so a crash afterwards cannot bring a killed boss back.
+const SAVE_ON_PROGRESS: bool = true
+## PROVISIONAL (● R54; not in the docs): a client writes its character as soon as the host's inventory message raises the relics it holds
+## (Config.BOSS_RELIC: the boss does not come back, BOSS_RESPAWNS false), so a client that crashes after the kill keeps its relic.
+const SAVE_CLIENT_ON_RELIC: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.

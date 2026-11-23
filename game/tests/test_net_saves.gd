@@ -113,6 +113,21 @@ func _check_join_with_character() -> void:
 	check(_holds(c.s.local.player.inventory, back) and back.money() == 250, "what the client would write is what it brought (%s)" %
 		back.describe())
 	_free_rig(r)
+	# M13 review (● game-concept §4 "월드마다 독립"): a veteran joiner (a whole hide carried in, the rare material in its seen list) registers
+	# nothing in the host's world; a whole hide that comes into its inventory there does.
+	var r2: Rig = _rig(PALADIN, false, {} as Dictionary[String, int], true)
+	var vet: CharacterSave.Sheet = TestNet.rich_sheet(ARCHER)
+	vet.stacks[2] = ItemStack.new(&"hide_fine", 1, ItemDB.Grade.NONE)
+	vet.seen.append_array([&"hide_fine", Config.RARE_MATERIAL])
+	var c2: Client = _join_as_client(r2, 103, ARCHER, vet)
+	var col: Collection = r2.host.collection()
+	_tick(r2, 3)
+	if check(c2.s.active and col != null, "a veteran joins"):
+		check_eq(col.count(), 0, "the host's collection: nothing registered from what the veteran carried in or has seen elsewhere")
+		member_of_peer(r2, 103).player.inventory.add(&"hide_fine", 1)
+		_tick(r2, 1)
+		check(col.has(&"first_hide_fine") and col.count() == 1, "a whole hide gained in this world registers its entry")
+	_free_rig(r2)
 
 
 func _check_new_character() -> void:

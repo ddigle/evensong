@@ -8,6 +8,8 @@ extends RefCounted
 ##                                replicated like a real edit (late joiners get it)
 ##   mark:<name>                  write the marker file <net-out>/<net-name>.<name>.marker
 ##   leave                        client: leave the session (exit 0)
+##   close                        M13 review, test only: press the window's close button (Main.request_close: a client leaves its
+##                                host, then the game quits)
 ##   stall:<ms>                   test only: block the whole process that long after this tick, in
 ##                                the process step (NetSession._process): a long frame, the kind
 ##                                Godot follows with catch-up physics ticks before it polls the network
@@ -125,7 +127,8 @@ const OPS: PackedStringArray = ["wait", "move", "edit", "mark", "leave", "stall"
 	"select", "drop", "give", "waitmap", "dash", "hold", "aimfoe", "fight", "closein", "waitfoe", "waitlife", "waitdown",
 	"walkdown", "tab", "craft", "throw", "waitfield", "store", "take", "unequip", "wreck", "waitwall", "heretic", "waitat",
 	"waitplaced", "waitchest", "waitfloor", "buy", "sell", "waitstock", "skill", "pray", "answer", "waitturn", "waitprayer", "hurt",
-	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen", "aimboss", "bossfight", "waitboss", "walkpath"]
+	"aimprey", "hunt", "waitprey", "creature", "huntrare", "snare", "collection", "waitseen", "aimboss", "bossfight", "waitboss", "walkpath",
+	"close"]
 ## M12a: waitboss's states (BossFight's as Main names them: boss_state).
 const BOSS_STATES: PackedStringArray = ["sleep", "awake", "phase2", "dead"]
 ## M7c: waitwall's kinds by name (Walls.KIND_*; M7-rf: "floor" left, a floor piece is waitfloor's).
@@ -168,6 +171,8 @@ class Action:
 	var edit: Command
 	var mark: String = ""
 	var leave: bool = false
+	## M13 review, test only: the window's close button pressed this tick (Main.request_close through NetSession.bot_close).
+	var close: bool = false
 	## Test only: block the process this long after the tick (NetSession._process).
 	var stall_ms: int = 0
 	## M2b: where the mouse is (world px) and whether the player aims; the use button.
@@ -300,6 +305,9 @@ func _fill(c: Command, args: PackedStringArray) -> String:
 		"leave":
 			if args.size() != 0:
 				return "leave takes no arguments"
+		"close":
+			if args.size() != 0:
+				return "close takes no arguments"
 		"stall":
 			if args.size() != 1 or not _whole(args[0], 1) or args[0].to_int() > MAX_STALL_MS:
 				return "expected stall:<ms> with ms in 1..%d" % MAX_STALL_MS
@@ -605,6 +613,10 @@ func _advance(a: Action, feet: Vector2) -> void:
 				return
 			"leave":
 				a.leave = true
+				_next()
+				return
+			"close":
+				a.close = true
 				_next()
 				return
 			"stall":
