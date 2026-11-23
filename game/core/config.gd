@@ -1409,6 +1409,12 @@ const HERETIC_FIRE_LIGHT_ENERGY: float = 0.9
 const BOSS_FIRE_LIGHT_RADIUS_PX: int = 64
 const BOSS_FIRE_LIGHT_ENERGY: float = 0.8
 
+# --- PROVISIONAL, M13a (saving: the world file and the character files; offline first) ------------------------------------
+## PROVISIONAL (● game-concept §12 R54: the host saves the world and opens it again; when it writes is not in the docs): besides on quit and
+## on the save key (F9, project.godot "save_now", README 임시값 "M13a 키"), the offline game (hosting alone) writes the open world and the open
+## character every this many ticks of play (5 minutes at NET_TICK_RATE 60). 0 = only on quit and the key.
+const SAVE_AUTOSAVE_TICKS: int = 5 * 60 * 60
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -1676,6 +1682,16 @@ const BOSS_HOME_ARRIVE_PX: float = 1.5
 const BOSS_FLASH_TICKS: int = HIT_FLASH_TICKS
 ## IMPL (M12a): how long a pillar shows the refused mark after a blow that is no miner's (ticks, a creature's: CREATURE_REFUSED_SHOW_TICKS).
 const PILLAR_REFUSED_SHOW_TICKS: int = CREATURE_REFUSED_SHOW_TICKS
+## IMPL (M13a): a save's name (--world=, --character=) is at most this many characters (SaveStore.name_refusal: a-z 0-9 _ -, lowercased).
+const SAVE_NAME_MAX: int = 32
+## IMPL (M13a): the folder the saves go to without --save-dir (Godot's user:// with the project's custom user dir "Evensong": %APPDATA%\Evensong
+## on Windows, README "M13a 파일과 자리").
+const SAVE_DIR_DEFAULT: String = "user://saves"
+## IMPL (M13a): the largest character file read (a hand-made one bigger than this is refused before it is parsed; a real one is a few KB).
+const CHARACTER_FILE_MAX_BYTES: int = 64 * 1024
+## IMPL (M13a): the exit code of a start whose world or character file does not load (every candidate refused: the file, its .tmp, its .bak).
+## Bad flags stay 2 (core/cli.gd), and so does a --class or --seed that conflicts with the file.
+const EXIT_SAVE_REFUSED: int = 3
 
 
 static func safe_radius_px() -> float:

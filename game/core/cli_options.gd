@@ -108,6 +108,15 @@ extends RefCounted
 ##   --test-boss-attack=<cleave|volley|burn>   the boss uses only that attack (the telegraphs one at a time)
 ##   --test-pillar-hits=<i>:<hits>[,...]   pillar i (1 = the first) starts with that many miner hits (its crack state)
 ##   --test-altar-tier=<0..Config.ALTAR_TIER_MAX>   the world's altar starts at that tier (its light, its picture)
+## M13a (saving, offline: README "M13a"; in a session every one of them is refused until M13b):
+##   --world=<name>               open the saved world <name> (core/world_save.gd), or make it from --seed when there is none; it is
+##                                written on quit, every Config.SAVE_AUTOSAVE_TICKS and on F9. Without it: today's unsaved world
+##   --character=<name>           play the saved character <name> (core/character_save.gd: its class, inventory, armour, money),
+##                                or make it with --class when there is none (a --class other than the file's is an error)
+##   --save-dir=<folder>          the saves' folder (default Config.SAVE_DIR_DEFAULT); tests always give one
+##   --no-save                    open (or make) them but never write a file
+##   --list-worlds, --list-characters   print the saved worlds / characters of the folder (EVENSONG_SAVE lines) and quit
+##   --test-autosave-ticks=<n>    test only: write every n ticks in place of Config.SAVE_AUTOSAVE_TICKS
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -203,6 +212,17 @@ var test_boss_hp: int = 0
 var test_boss_attack: String = ""
 var test_pillar_hits: Dictionary[int, int] = {}
 var test_altar_tier: int = -1
+## M13a: the saved world and character to open ("" = none: unsaved, as before), the saves' folder ("" = Config.SAVE_DIR_DEFAULT), never
+## write, list and quit, the autosave period for tests (0 = Config.SAVE_AUTOSAVE_TICKS); whether --seed was given (a seed that differs from
+## an existing world's is an error).
+var world_name: String = ""
+var character_name: String = ""
+var save_dir: String = ""
+var no_save: bool = false
+var list_worlds: bool = false
+var list_characters: bool = false
+var test_autosave_ticks: int = 0
+var seed_given: bool = false
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -279,6 +299,28 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: seed must be an integer" % raw)
 				else:
 					o.world_seed = value.to_int()
+					o.seed_given = true
+			"world", "character":
+				var why: String = SaveStore.name_refusal(value)
+				if not why.is_empty():
+					o.errors.append("%s: %s" % [raw, why])
+				elif key == "world":
+					o.world_name = SaveStore.normalize_name(value)
+				else:
+					o.character_name = SaveStore.normalize_name(value)
+			"save-dir":
+				if value.strip_edges().is_empty():
+					o.errors.append("%s: expected a folder" % raw)
+				else:
+					o.save_dir = value
+			"no-save":
+				o.no_save = true
+			"list-worlds":
+				o.list_worlds = true
+			"list-characters":
+				o.list_characters = true
+			"test-autosave-ticks":
+				o.test_autosave_ticks = _parse_positive(value, raw, o.errors, 0)
 			"screenshot":
 				if not value.to_lower().ends_with(".png"):
 					o.errors.append("%s: screenshot must be a .png path" % raw)
@@ -525,7 +567,14 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.unknown.append(raw)
 	if o.host and o.join:
 		o.errors.append("--host and --join cannot be used together")
+	if (o.host or o.join) and (not o.world_name.is_empty() or not o.character_name.is_empty()):
+		o.errors.append("--world / --character: saving in a session comes with M13b (offline only for now)")
 	return o
+
+
+## M13a: the saves' folder these flags name (--save-dir, else Config.SAVE_DIR_DEFAULT).
+func save_root() -> String:
+	return save_dir if not save_dir.is_empty() else Config.SAVE_DIR_DEFAULT
 
 
 ## "<x>,<y>[/<x>,<y>...]" -> tiles (whole numbers >= 0); an error and none if bad.
