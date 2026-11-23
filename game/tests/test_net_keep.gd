@@ -43,6 +43,8 @@ func run() -> Array[String]:
 	var only: PackedStringArray = only_arg.split(",", false)
 	if only.is_empty() or only.has("keep"):
 		await _session_keep()
+	if only.is_empty() or only.has("close"):
+		await _session_close()
 	_check_logs()
 	note("keep sessions took %.1f s; run folder %s" % [(Time.get_ticks_msec() - t0) / 1000.0,
 		_run_dir if (_keep or not failures.is_empty()) else "(removed)"])
@@ -242,6 +244,68 @@ func _keep_phase_two(dir: String, dev_host: String, dev_c1: String, dev_c2: Stri
 	check(_line_with(h2, "world saved name=keepw why=left").length() > 0, "keep2: and when bob left")
 	var cara: CharacterSave.Sheet = read_character(dev_c2, "cara")
 	check(cara != null and cara.class_id == "cleric", "keep2: cara's file reads after the host loss")
+
+
+## close: what a person does (README "넷이 하기": close the window), with processes started like a person's (no --net-out, no bot: they
+## quit by Godot's --quit-after, the window closing; the session never "finishes"), and the autosave in a session (--test-autosave-ticks).
+## The host (world "closew", character "hc") and two clients: c1 ("cc", archer) closes its window while the host is up (its character
+## written on quit); then the host closes its window (world and character written on quit); c2 ("cd", cleric), started like a person, loses
+## the host, writes its character (host_lost), plays on alone and closes its window later (quit). Everyone autosaves meanwhile.
+func _session_close() -> void:
+	var dir: String = _session_dir("close")
+	var port: int = _port()
+	if not check(port > 0, "close: free port"):
+		return
+	var dev_host: String = dir.path_join("dev_host")
+	var dev_c1: String = dir.path_join("dev_c1")
+	var dev_c2: String = dir.path_join("dev_c2")
+	var quiet: Array = ["--test-no-spawns", "--test-no-creatures", "--test-autosave-ticks=60"]
+	# The host writes its marker files (--net-out: "ready"; it changes nothing of how it quits): an exported (release) child flushes its log
+	# only at exit, so its log cannot say when it listens.
+	var host: Instance = _launch_plain(dir, "host", ["--quit-after", "720"], ["--host=%d" % port, "--world=closew", "--character=hc",
+		"--class=paladin", "--save-dir=" + dev_host, "--net-out=" + dir, "--net-name=host"] + quiet)
+	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "close: host listens"):
+		await _reap()
+		return
+	var c1: Instance = _launch_plain(dir, "c1", ["--quit-after", "300"], ["--join=127.0.0.1:%d" % port, "--character=cc", "--class=archer",
+		"--save-dir=" + dev_c1] + quiet)
+	var c2: Instance = _launch_plain(dir, "c2", ["--quit-after", "1260"], ["--join=127.0.0.1:%d" % port, "--character=cd", "--class=cleric",
+		"--save-dir=" + dev_c2] + quiet)
+	await _reap_after(60.0)
+	_expect_codes("close", {host: 0, c1: 0, c2: 0})
+	var hl: PackedStringArray = _log_lines(host)
+	var l1: PackedStringArray = _log_lines(c1)
+	var l2: PackedStringArray = _log_lines(c2)
+	check(_line_with(hl, "world saved name=closew why=autosave").length() > 0 and _line_with(hl, "character saved name=hc why=autosave").length() > 0,
+		"close: the host autosaves in a session (world and character)")
+	check(_line_with(hl, "world saved name=closew why=left").length() > 0, "close: the host wrote the world when c1's window closed")
+	check(_line_with(hl, "world saved name=closew why=quit").length() > 0 and _line_with(hl, "character saved name=hc why=quit").length() > 0,
+		"close: the host's window closing writes the world and its character")
+	check(_line_with(l1, "character saved name=cc why=new").length() > 0 and _line_with(l1, "character saved name=cc why=autosave").length() > 0
+		and _line_with(l1, "character saved name=cc why=quit").length() > 0, "close/c1: new, autosave, and on closing its window")
+	var lost: int = _first_line(l2, "character saved name=cd why=host_lost")
+	var alone: int = _first_line(l2, "offline playing on alone")
+	var quit: int = _first_line(l2, "character saved name=cd why=quit")
+	check(lost >= 0 and alone > lost and quit > alone, "close/c2: host_lost, then it plays on alone, then quit (%d, %d, %d)" % [lost, alone, quit])
+	check(not _log_has(c2, "world saved"), "close/c2: a client never writes a world")
+	var w: WorldSave.Saved = WorldSave.load_from(SaveStore.new(dev_host).world_path("closew"))
+	var cc: CharacterSave.Sheet = read_character(dev_c1, "cc")
+	var cd: CharacterSave.Sheet = read_character(dev_c2, "cd")
+	check(w.ok() and cc != null and cc.class_id == "archer" and cd != null and cd.class_id == "cleric", "close: every file reads (%s)" % w.error)
+
+
+## Waits up to `seconds` for every child to exit by itself, then reaps (left-overs are killed and fail).
+func _reap_after(seconds: float) -> void:
+	var deadline: int = Time.get_ticks_msec() + int(seconds * 1000.0)
+	while Time.get_ticks_msec() < deadline:
+		var alive: bool = false
+		for inst: Instance in _all:
+			if inst.code == -999 and OS.is_process_running(inst.pid):
+				alive = true
+		if not alive:
+			break
+		await tree.create_timer(0.1).timeout
+	await _reap()
 
 
 ## The inventory line of an instance's own player in its result ("" when none).

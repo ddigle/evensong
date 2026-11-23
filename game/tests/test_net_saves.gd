@@ -239,6 +239,30 @@ func _check_host_opens_world() -> void:
 		if tag != "META" and tag != "MAP0" and a.get(tag, PackedByteArray()) != b.get(tag, PackedByteArray()):
 			differ.append(tag)
 	check(differ.is_empty(), "a host that opens a world writes it back the same: every sim section (differ: %s)" % ", ".join(differ))
+	# The surface map (MAP0): only the merchant may have stepped aside (M8a's rule: the host's own player stands on its spawn slot). Every
+	# other cell of every layer, the drops and the chests are the file's.
+	var pristine: WorldData = WorldSave.read(file).maps[Config.MAP_SURFACE]
+	var live: WorldData = r.surface.data
+	var moved: PackedStringArray = []
+	var other: PackedStringArray = []
+	for layer: int in WorldData.LAYER_COUNT:
+		var x: PackedByteArray = pristine.layers[layer]
+		var y: PackedByteArray = live.layers[layer]
+		for i: int in mini(x.size(), y.size()):
+			if x[i] == y[i]:
+				continue
+			var c: Vector2i = Vector2i(i % pristine.size.x, i / pristine.size.x)
+			if layer == WorldData.Layer.PLACEABLE and (x[i] == WorldData.PLACEABLE_MERCHANT or y[i] == WorldData.PLACEABLE_MERCHANT):
+				moved.append("%d,%d:%d>%d" % [c.x, c.y, x[i], y[i]])
+			else:
+				other.append("layer %d %d,%d:%d>%d" % [layer, c.x, c.y, x[i], y[i]])
+	var chests_same: bool = pristine.chests.size() == live.chests.size()
+	for key: Vector2i in pristine.chests:
+		chests_same = chests_same and live.chests.has(key) and live.chests[key].describe() == pristine.chests[key].describe()
+	check(other.is_empty() and moved.size() <= 2 and pristine.drops.size() == live.drops.size() and chests_same
+		and pristine.drop_serial == live.drop_serial, "the surface as the file had it but the merchant's step (moved %s, other %s)" % [
+		", ".join(moved), ", ".join(other)])
+	note("a host opening the rich world: the merchant %s" % (", ".join(moved) if not moved.is_empty() else "stayed"))
 	var host_herd: Creatures = r.host.herd_on(Config.MAP_SURFACE)
 	check(host_herd.list.size() == saved.herd.creatures.size() and host_herd.next_id == saved.herd.next_id, "the herd as saved (%d)" %
 		host_herd.list.size())
