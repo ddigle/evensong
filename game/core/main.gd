@@ -157,6 +157,8 @@ extends Node2D
 ## every Config.SAVE_AUTOSAVE_TICKS of play and on F9 (save_now), never with --no-save. Without either flag nothing changes and nothing
 ## is written. Tests set `save_flags` before adding a Main to the tree (the process's own flags stay the runner's).
 
+## M5-fix / M13a: why restore_altar put the altar back (its log line), unless the caller says another reason.
+const WHY_RESTORED_HOST_LEFT: String = "the host went while it was carried"
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
 const LINEUP_STEP: int = 56
@@ -294,6 +296,7 @@ func _ready() -> void:
 		world.load_data(loaded.maps[Config.MAP_SURFACE])  # M13a: the saved maps replace the generated ones
 		add_dungeon(false)
 		worlds[Config.MAP_DUNGEON].load_data(loaded.maps[Config.MAP_DUNGEON])
+		_restore_loaded_altar()  # before the players stand on its spawn slots
 	elif not world_name.is_empty() and flags.world_seed != world.data.world_seed:
 		world.generate(flags.world_seed)  # M13a: a new world of a test's own seed (save_flags)
 		add_dungeon(false)
@@ -2842,16 +2845,16 @@ func check_carriers() -> void:
 ## or another client carried it): it comes back where it last stood (`w.last_altar_rect`), or at the nearest place the
 ## placing rules allow around that (with `bodies`, ignoring heretics: the offline arena is not set up yet), or, with no
 ## place known (joined while it was carried), around the local player. Returns the footprint, empty when none allowed
-## it (then a respawn waits as while it is carried; logged).
-func restore_altar(w: GameWorld, bodies: Array[Vector2]) -> Rect2i:
+## it (then a respawn waits as while it is carried; logged). M13a: also a loaded world saved with none (`why` says which, in the log).
+func restore_altar(w: GameWorld, bodies: Array[Vector2], why: String = WHY_RESTORED_HOST_LEFT) -> Rect2i:
 	var from: Vector2 = player.sim_position if player != null and is_instance_valid(player) and player.data == w.data \
 		else Vector2(w.data.size * Config.TILE) / 2.0
-	return restore_altar_at(w, from, bodies)
+	return restore_altar_at(w, from, bodies, why)
 
 
 ## restore_altar's work: where it last stood if the placing rules allow (with `bodies`), else the nearest allowed place
 ## around that, else around `from` (AltarMove.set_down_fallback, home first); the edits go into `w`.
-static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2]) -> Rect2i:
+static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2], why: String = WHY_RESTORED_HOST_LEFT) -> Rect2i:
 	var none: Array[Vector2] = []
 	var rect: Rect2i = AltarMove.set_down_fallback(w.data, from, w.last_altar_rect, bodies, none, true)
 	if not rect.has_area():
@@ -2859,8 +2862,8 @@ static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2]
 		return rect
 	for e: EditLog.WorldEdit in AltarMove.place_edits(rect):
 		w.apply_edit(e)
-	print("EVENSONG_ALTAR restored at=%d,%d (the host went while it was carried) light=%d,%d" % [rect.position.x,
-		rect.position.y, roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
+	print("EVENSONG_ALTAR restored at=%d,%d (%s) light=%d,%d" % [rect.position.x, rect.position.y, why,
+		roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
 	return rect
 
 
@@ -3137,8 +3140,7 @@ func _refuse_start(why: String, code: int) -> bool:
 
 
 ## The loaded world's sims (set up on its maps like a new world's a moment ago) take their saved state (WorldSave.apply_*: the map emptied,
-## the herd, the boss, the fields' and stumps' timers, the shop's clock, the prayers made, the deaths, the world's age). An altar that no
-## place allowed when it was saved comes back now (restore_altar, the M5-fix rule).
+## the herd, the boss, the fields' and stumps' timers, the shop's clock, the prayers made, the deaths, the world's age).
 func _apply_loaded() -> void:
 	if loaded == null:
 		return
@@ -3163,9 +3165,15 @@ func _apply_loaded() -> void:
 		prayer.prayers = loaded.prayers
 	deaths = loaded.deaths
 	world_ticks = loaded.ticks
-	if not world.data.altar_rect.has_area():
-		world.last_altar_rect = loaded.last_altar.get(Config.MAP_SURFACE, Rect2i())
-		restore_altar(world, bodies_on(Config.MAP_SURFACE))
+
+
+## A loaded surface with no altar (no place allowed it when it was saved: WorldSave writes a carried altar put down) gets it back now, before
+## anyone stands on its spawn slots: where it last stood or the nearest place the placing rules allow (restore_altar, the M5-fix rule).
+func _restore_loaded_altar() -> void:
+	if loaded == null or world.data.altar_rect.has_area():
+		return
+	world.last_altar_rect = loaded.last_altar.get(Config.MAP_SURFACE, Rect2i())
+	restore_altar(world, [] as Array[Vector2], "the saved world had none")
 
 
 ## A world or a character named for the first time is written now (so it is there to list and to load even if the process dies), and a new
@@ -3217,6 +3225,12 @@ func capture_world() -> PackedByteArray:
 func _save_world(why: String) -> bool:
 	var t0: int = Time.get_ticks_usec()
 	var bytes: PackedByteArray = capture_world()
+	var back: WorldSave.Saved = WorldSave.read(bytes)
+	if not back.ok():
+		# Never a file its own reader refuses (it would replace a good one and rotate it into the backup): the files there are kept.
+		printerr("EVENSONG_SAVE error: world %s not saved (%s): the file would not load (%s); the files there are kept" % [world_name, why,
+			back.error])
+		return false
 	var err: String = SaveStore.write_atomic(saves.world_path(world_name), bytes, _rotate_world)
 	if not err.is_empty():
 		printerr("EVENSONG_SAVE error: world %s not saved (%s): %s" % [world_name, why, err])
@@ -3232,6 +3246,11 @@ func _save_character(why: String) -> bool:
 		return false
 	character = CharacterSave.from_inventory(character_name, player.class_id(), player.inventory)
 	var bytes: PackedByteArray = CharacterSave.encode(character)
+	var back: CharacterSave.Result = CharacterSave.read(bytes)
+	if not back.ok():
+		printerr("EVENSONG_SAVE error: character %s not saved (%s): the file would not load (%s); the files there are kept" % [
+			character_name, why, back.error])
+		return false
 	var err: String = SaveStore.write_atomic(saves.character_path(character_name), bytes, _rotate_character)
 	if not err.is_empty():
 		printerr("EVENSONG_SAVE error: character %s not saved (%s): %s" % [character_name, why, err])

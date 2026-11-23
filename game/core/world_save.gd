@@ -421,7 +421,7 @@ static func _arena_bytes(a: Arena) -> PackedByteArray:
 	w.s64(a.rng.state)
 	w.u32(a.next_id)
 	w.u32(a.spawn_timer)
-	w.s32(a.shrine_hp)
+	w.s32(clampi(a.shrine_hp, 0, Config.SHRINE_HP))
 	# An awake boss resets at load (the map emptying's rule): the adds it called leave with that reset, so they are not written.
 	var adds: Array[int] = []
 	if a.boss != null and a.boss.sim != null and a.boss.sim.awake():
@@ -439,7 +439,7 @@ static func _arena_bytes(a: Arena) -> PackedByteArray:
 		w.u8(h.facing)
 		w.u8(h.state)
 		w.u32(h.state_ticks)
-		w.s32(h.hp)
+		w.s32(clampi(h.hp, 0, 0xFFFF))
 		w.u32(h.cooldown)
 		w.u32(h.stuck)
 		w.u32(h.poison_damage)
@@ -515,13 +515,13 @@ static func _herd_bytes(h: Creatures) -> PackedByteArray:
 		w.u8(c.facing)
 		w.u8(c.state)
 		w.u32(c.state_ticks)
-		w.s32(c.hp)
+		w.s32(clampi(c.hp, 0, 0xFFFF))
 		w.vec(c.target)
 		w.vec(c.flee_from)
 		w.u32(c.idle_ticks)
 		w.u8(1 if c.walking else 0)
 		w.u32(c.stun_ticks)
-		w.u8(c.slow_pct)
+		w.u8(clampi(c.slow_pct, 0, 100))
 		w.u32(c.slow_ticks)
 		w.u32(c.poison_damage)
 		w.u32(c.poison_ticks)
@@ -553,7 +553,7 @@ static func _boss_bytes(f: BossFight) -> PackedByteArray:
 	var n: int = mini(f.pillars.size(), NetProtocol.PILLARS_MAX)
 	w.u8(n)
 	for i: int in n:
-		w.u16(f.pillars[i].hits)
+		w.u16(mini(f.pillars[i].hits, BossFight.Pillar.hits_per_state() * 3))  # as site() cuts them: a test flag may give more
 		w.u8(1 if f.pillars[i].fallen else 0)
 	return w.bytes
 

@@ -17,6 +17,7 @@ extends RefCounted
 ##   {"format": "evensong-character", "version": 1, "name": "<name>", "class": "<class>", "saved": "<date time>",
 ##    "selected": <0..7>, "slots": [<stack or null> x <= 24], "armor": <stack or null>, "seen": ["<item id>", ...]}
 ##   stack = {"item": "<id>", "count": <n>, "grade": "<none|common|fine>", "durability": <points: only for items that wear>}
+## A UTF-8 byte order mark in front is skipped (an editor may write one).
 ## A missing "grade" is the item's default, a missing "durability" full, a missing "selected" 0, fewer than 24 slots the rest empty;
 ## other keys are ignored (the game writes only its own keys when it saves). An unknown id in "seen" is skipped.
 
@@ -191,6 +192,8 @@ static func _read_stack(v: Variant, where: String) -> Array:
 static func read(bytes: PackedByteArray) -> Result:
 	if bytes.is_empty() or bytes.size() > Config.CHARACTER_FILE_MAX_BYTES:
 		return _refused("empty or larger than %d bytes" % Config.CHARACTER_FILE_MAX_BYTES)
+	if bytes.size() >= 3 and bytes[0] == 0xEF and bytes[1] == 0xBB and bytes[2] == 0xBF:
+		bytes = bytes.slice(3)  # a UTF-8 mark an editor put in front (Notepad's "UTF-8 with BOM"): the text after it is what counts
 	for b: int in bytes:
 		if (b < 0x20 and b != 0x09 and b != 0x0a and b != 0x0d) or b > 0x7e:
 			return _refused("not plain ASCII text (byte %d)" % b)

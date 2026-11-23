@@ -152,6 +152,8 @@ func run() -> Array[String]:
 	_check_fallbacks(bytes)
 	_check_carried_altar()
 	_check_fight_reset()
+	_check_pillar_cap()
+	_check_character_file()
 	_check_golden()
 	_remove_dir(_dir)
 	return failures
@@ -199,7 +201,7 @@ static func differing(x: PackedByteArray, y: PackedByteArray, with_ticks: bool =
 		var py: PackedByteArray = sy.get(tag, PackedByteArray())
 		if tag == "META":
 			# i64 seed, i64 saved (unix s: not compared), i64 ticks, u32 deaths, u32 prayers, u16 protocol, then the name (not compared).
-			var same: bool = px.size() >= 30 and py.size() >= 30 and px.slice(0, 8) == py.slice(0, 8) and px.slice(24, 30) == py.slice(24, 30)
+			var same: bool = px.size() >= 34 and py.size() >= 34 and px.slice(0, 8) == py.slice(0, 8) and px.slice(24, 34) == py.slice(24, 34)
 			if with_ticks:
 				same = same and px.slice(16, 24) == py.slice(16, 24)
 			if not same:
@@ -711,3 +713,125 @@ func _check_fight_reset() -> void:
 	check(not ids.has(add.id), "the heretic it called is gone")
 	check(ids.has(plain.id), "the dungeon's own heretic stays")
 	check(f.sim.awake() and f.pillars[0].hits == 5, "saving did not touch the live fight")
+
+
+## A sleeping boss's pillar with more hits than its broken state (a test flag allows up to 99) is written cut to the broken state, as its
+## snapshot site cuts it: the writer never writes what its reader refuses (review: --test-pillar-hits=1:20 made a world that did not load).
+func _check_pillar_cap() -> void:
+	var r: Rig = Rig.fresh(SEED)
+	var f: BossFight = r.arenas[Config.MAP_DUNGEON].boss
+	f.set_pillar_hits(0, 20)
+	var s: WorldSave.Saved = WorldSave.read(r.capture())
+	if not check(s.ok(), "a sleeping boss's pillar past broken saves and reads: %s" % s.error):
+		return
+	var g: BossFight = Rig.loaded(s).arenas[Config.MAP_DUNGEON].boss
+	var broken: int = BossFight.Pillar.hits_per_state() * 3
+	check(g.pillars[0].fallen and g.pillars[0].hits == broken, "it comes back as rubble at the broken state's hits")
+	check_eq(f.pillars[0].hits, 20, "the live pillar keeps its hits")
+
+
+## The character file: what a hand may change (what is left out, a byte order mark, other keys, unknown ids in seen) and what is refused
+## (broken text, the wrong header, impossible stacks, wrong types) without an engine error; the backup when the file does not load.
+func _check_character_file() -> void:
+	var good: Dictionary = {"format": "evensong-character", "version": 1, "name": "x", "class": "miner", "selected": 2,
+		"slots": [{"item": "money", "count": 250, "grade": "none"}, null, {"item": "wild_healing", "count": 3, "grade": "fine"},
+		{"item": "sword_t1", "count": 1, "grade": "none", "durability": 7}], "armor": {"item": "armor_t1", "count": 1, "durability": 12},
+		"seen": ["money", "no_such_item", "sword_t1"], "note": "a friend's note"}
+	var r: CharacterSave.Result = CharacterSave.read(JSON.stringify(good).to_ascii_buffer())
+	if not check(r.ok(), "a hand-written character reads: %s" % r.error):
+		return
+	var c: CharacterSave.Sheet = r.character
+	check(c.class_id == "miner" and c.selected == 2 and c.stacks.size() == Config.INVENTORY_SLOTS, "its class, selected slot, 24 slots")
+	check(c.stacks[0] != null and c.stacks[0].id == ItemDB.MONEY and c.stacks[0].count == 250 and c.money() == 250, "a full stack of money")
+	check(c.stacks[1] == null and c.stacks[4] == null and c.stacks[23] == null, "null and the slots not written are empty")
+	check(c.stacks[2] != null and c.stacks[2].grade == ItemDB.Grade.FINE, "a fine herb")
+	check(c.stacks[3] != null and c.stacks[3].durability == 7, "a worn sword")
+	check(c.armor != null and c.armor.durability == 12, "the worn armour")
+	var want_seen: Array[StringName] = [&"money", &"sword_t1"]
+	check_eq(c.seen, want_seen, "seen: the unknown id skipped")
+	var back: CharacterSave.Result = CharacterSave.read(CharacterSave.encode(c))
+	check(back.ok() and back.character.describe() == c.describe() and str(back.character.stacks) == str(c.stacks), "it writes back the same")
+	var lenient: Dictionary = {"format": "evensong-character", "version": 1, "class": "cleric",
+		"slots": [{"item": "wild_buff", "count": 2}, {"item": "pickaxe_t1", "count": 1}]}
+	var l: CharacterSave.Result = CharacterSave.read(JSON.stringify(lenient).to_ascii_buffer())
+	check(l.ok() and l.character.stacks[0].grade == ItemDB.Grade.COMMON and l.character.selected == 0 and l.character.armor == null,
+		"left out: the item's default grade, slot 0 selected, no armour: %s" % l.error)
+	check(l.ok() and l.character.stacks[1].durability == ItemDB.get_def(&"pickaxe_t1").durability, "left out: full durability")
+	var bom: PackedByteArray = PackedByteArray([0xEF, 0xBB, 0xBF])
+	bom.append_array(JSON.stringify(good, "\t").to_ascii_buffer())
+	check(CharacterSave.read(bom).ok(), "a UTF-8 byte order mark in front is skipped")
+	var refused: Array[Array] = []
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = 17
+	var junk: PackedByteArray = PackedByteArray()
+	for i: int in 64:
+		junk.append(rng.randi_range(0, 255))
+	var text: String = JSON.stringify(good)
+	refused.append(["empty", PackedByteArray()])
+	refused.append(["random bytes", junk])
+	refused.append(["cut short", text.left(text.length() / 2).to_ascii_buffer()])
+	refused.append(["a non-ASCII byte", text.replace("\"x\"", "\"é\"").to_utf8_buffer()])
+	refused.append(["a list, not an object", "[1, 2]".to_ascii_buffer()])
+	refused.append(["nested too deep", ("[".repeat(5000) + "]".repeat(5000)).to_ascii_buffer()])
+	refused.append(["larger than the limit", (text.left(text.length() - 1) + "," + "\"pad\": \"%s\"}" % " ".repeat(Config.CHARACTER_FILE_MAX_BYTES)).to_ascii_buffer()])
+	for row: Array in [["format", "evensong-world"], ["format", 1], ["version", 2], ["version", "1"], ["version", 1.5], ["class", "wizard"],
+			["class", null], ["selected", 8], ["selected", -1], ["selected", "2"], ["slots", {}], ["slots", "x"], ["seen", "x"], ["armor", 5],
+			["armor", {"item": "sword_t1", "count": 1}], ["armor", {"item": "armor_t1", "count": 1, "durability": 999}]]:
+		var key: String = row[0]
+		var d: Dictionary = good.duplicate(true)
+		d[key] = row[1]
+		refused.append(["%s = %s" % [key, JSON.stringify(row[1])], JSON.stringify(d).to_ascii_buffer()])
+	var no_class: Dictionary = good.duplicate(true)
+	no_class.erase("class")
+	refused.append(["no class", JSON.stringify(no_class).to_ascii_buffer()])
+	for row: Array in [["item", "no_such_item"], ["item", 7], ["count", 0], ["count", 251], ["count", 1.5], ["count", "3"], ["count", -1],
+			["grade", "fine"], ["grade", "epic"], ["grade", 1]]:
+		var key: String = row[0]
+		var d: Dictionary = good.duplicate(true)
+		var slots: Array = d["slots"]
+		var money: Dictionary = slots[0]
+		money[key] = row[1]
+		refused.append(["money's %s = %s" % [key, JSON.stringify(row[1])], JSON.stringify(d).to_ascii_buffer()])
+	var huge: Dictionary = good.duplicate(true)
+	var huge_slots: Array = huge["slots"]
+	var huge_money: Dictionary = huge_slots[0]
+	huge_money["count"] = 777777
+	refused.append(["a count of 1e400 (infinite)", JSON.stringify(huge).replace("777777", "1e400").to_ascii_buffer()])
+	for v: Variant in [999, -1, 2.5]:
+		var d: Dictionary = good.duplicate(true)
+		var slots: Array = d["slots"]
+		var sword: Dictionary = slots[3]
+		sword["durability"] = v
+		refused.append(["the sword's durability = %s" % JSON.stringify(v), JSON.stringify(d).to_ascii_buffer()])
+	var stack_not: Dictionary = good.duplicate(true)
+	var stack_slots: Array = stack_not["slots"]
+	stack_slots[1] = 5
+	refused.append(["a slot that is no stack", JSON.stringify(stack_not).to_ascii_buffer()])
+	var many: Dictionary = good.duplicate(true)
+	var many_slots: Array = many["slots"]
+	while many_slots.size() <= Config.INVENTORY_SLOTS:
+		many_slots.append(null)
+	refused.append(["%d slots" % many_slots.size(), JSON.stringify(many).to_ascii_buffer()])
+	for row: Array in refused:
+		var label: String = row[0]
+		var b: PackedByteArray = row[1]
+		var got: CharacterSave.Result = CharacterSave.read(b)
+		check(not got.ok() and got.character == null, "character file %s: refused (%s)" % [label, got.error])
+	var over: Dictionary = good.duplicate(true)
+	var over_slots: Array = over["slots"]
+	var over_money: Dictionary = over_slots[0]
+	over_money["count"] = 251
+	check(CharacterSave.read(JSON.stringify(over).to_ascii_buffer()).error.contains("count must be 1..250"),
+		"the reason names the stack's limit (money 251: count must be 1..250)")
+	note("character file: %d refusals, e.g. '%s'" % [refused.size(), CharacterSave.read("[1, 2]".to_ascii_buffer()).error])
+	# The backup when the file does not load.
+	var path: String = _dir.path_join("characters/hand.json")
+	_write(path, junk)
+	_write(path + ".bak", CharacterSave.encode(c))
+	var from_bak: CharacterSave.Result = CharacterSave.load_from(path)
+	check(from_bak.ok() and from_bak.path == path + ".bak" and from_bak.skipped.contains("hand.json:"),
+		"a broken character file and a good backup: the backup loads, the reason kept (%s)" % from_bak.skipped)
+	_write(path + ".bak", junk)
+	var none: CharacterSave.Result = CharacterSave.load_from(path)
+	check(not none.ok() and none.error.contains("hand.json:") and none.error.contains("hand.json.bak:"), "nothing loads: every file's reason")
+	check_eq(CharacterSave.load_from(_dir.path_join("characters/nobody.json")).error, "missing", "no file: missing")

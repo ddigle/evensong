@@ -26,6 +26,8 @@ func run() -> Array[String]:
 	await _check_no_save()
 	await _check_autosave_and_key()
 	await _check_play_on()
+	await _check_altar_restore()
+	await _check_guard()
 	await _check_processes()
 	SaveWorldTest._remove_dir(_dir)
 	return failures
@@ -113,6 +115,7 @@ func _check_restart() -> void:
 	check(a.world_progress().raise_altar(), "the altar goes up a tier")
 	a.world.altar_tier_changed()
 	a.world_collection().put_test(4, 3)
+	a.prayer.prayers = 3  # prayers made (the next one's directions)
 	a.note_collection()
 	var spot: Vector2i = a.world.data.altar_rect.position + Vector2i(-6, 6)
 	a.world.apply_edit(Building.edit_for(&"stone_wall", spot))
@@ -177,6 +180,10 @@ func _check_restart() -> void:
 	check_eq(b.deaths, 1, "the deaths counted (the next bag's draw goes on)")
 	check_eq(Merchant.tile_of(b.world.data), merchant, "the merchant stands where he stood")
 	check_eq(b.world_shop().clock, shop_clock, "the shop's restock clock goes on")
+	check_eq(b.prayer.prayers, 3, "the prayers made (the next prayer's directions go on)")
+	for m: int in [Config.MAP_SURFACE, Config.MAP_DUNGEON]:
+		var shown: Dictionary[String, int] = b.worlds[m].view_check()
+		check(shown["mismatches"] == 0 and shown["missing"] == 0 and shown["cells"] > 0, "map %d: the loaded world is drawn as its data (%s)" % [m, str(shown)])
 	_quit(b)
 
 
@@ -366,8 +373,57 @@ func _check_processes() -> void:
 	var fifth: Array = await _game(base + ["--character=runner", "--class=miner"])
 	check_eq(fifth[0], 2, "a --class against the character: exit 2")
 	check(str(fifth[1]).contains("character runner is a cleric"), "with the reason")
+	var broken_character: PackedByteArray = "{\"format\": \"evensong-character\", \"version\": 1, \"class\": \"cleric\", \"slots\": [{\"item\": \"money\", \"count\": 251}]}".to_ascii_buffer()
+	SaveWorldTest._write(store.character_path("runner"), broken_character)
+	SaveWorldTest._write(store.character_path("runner") + ".bak", broken_character)
+	var sixth: Array = await _game(base + ["--character=runner"])
+	check_eq(sixth[0], Config.EXIT_SAVE_REFUSED, "a character file that does not load: exit %d" % Config.EXIT_SAVE_REFUSED)
+	check(str(sixth[1]).contains("character runner does not load") and str(sixth[1]).contains("count must be 1..250"), "with the reason")
+	check_eq(FileAccess.get_file_as_bytes(store.character_path("runner")), broken_character, "and the file left as it is")
 	var listed: Array = await _game(["--save-dir=" + dir, "--list-worlds", "--list-characters"], 0)
 	var log6: String = listed[1]
 	check_eq(listed[0], 0, "the lists: exit 0")
-	check(log6.contains("EVENSONG_SAVE world name=real does not load") and log6.contains("EVENSONG_SAVE character name=runner class=cleric"),
+	check(log6.contains("EVENSONG_SAVE world name=real does not load") and log6.contains("EVENSONG_SAVE character name=runner does not load"),
 		"they list every save and what it is")
+
+
+## A file whose surface has no altar (it was carried and no place was known to put it back) opens with the altar put back before the
+## player comes: the player stands at it, not at the map's corner.
+func _check_altar_restore() -> void:
+	var a: Main = await _open(["--world=noaltar"])
+	for e: EditLog.WorldEdit in AltarMove.pickup_edits(a.world.data):
+		a.world.apply_edit(e)
+	a.world.last_altar_rect = Rect2i()  # nowhere known: the file cannot put it back
+	var bytes: PackedByteArray = a.capture_world()
+	var s: WorldSave.Saved = WorldSave.read(bytes)
+	check(s.ok() and not s.maps[Config.MAP_SURFACE].altar_rect.has_area(), "a file whose altar no place could take: %s" % s.error)
+	check_eq(SaveStore.write_atomic(_world_file("noaltar2"), bytes), "", "written")
+	_quit(a)
+	var b: Main = await _open(["--world=noaltar2"])
+	check(b.world.data.altar_rect.has_area(), "opened: the altar is back")
+	check(b.player.sim_position.distance_to(b.world.data.altar_center_px()) < 64.0, "and the player stands at it")
+	check(b.world.safe_zone != null and b.world.is_in_safe_zone(b.world.data.altar_center_px()), "with its light")
+	_quit(b)
+
+
+## Never a file its own reader refuses: a sim in a state the world file cannot hold (a heretic at NaN) or a stack no character file may
+## have (money past its stack) is not written, the files there are kept (not rotated into the backup), the error logged.
+func _check_guard() -> void:
+	var a: Main = await _open(["--world=guard", "--character=guardian", "--class=paladin"])
+	var world_before: PackedByteArray = FileAccess.get_file_as_bytes(_world_file("guard"))
+	var surface: Arena = a.arenas[Config.MAP_SURFACE]
+	var h: HereticSim = surface.spawn_heretic(Arena.spawn_feet(surface.spawn_cells[0]))
+	h.pos = Vector2(NAN, 0.0)
+	check(not a.save_now("key"), "a world its reader would refuse is not written")
+	check_eq(FileAccess.get_file_as_bytes(_world_file("guard")), world_before, "the world file there is kept")
+	check(not FileAccess.file_exists(_world_file("guard") + ".bak"), "and not rotated into the backup")
+	surface.heretics.erase(h)
+	var character_before: PackedByteArray = FileAccess.get_file_as_bytes(_character_file("guardian"))
+	a.player.inventory.slots[5] = ItemStack.new(ItemDB.MONEY, Config.STACK_MONEY + 1, ItemDB.Grade.NONE)
+	check(not a.save_now("key"), "a character its reader would refuse is not written")
+	check_eq(FileAccess.get_file_as_bytes(_character_file("guardian")), character_before, "the character file there is kept")
+	check(WorldSave.load_from(_world_file("guard")).ticks == 0 and FileAccess.file_exists(_world_file("guard") + ".bak"),
+		"the world (now whole) was written beside it, the good file kept as the backup")
+	a.player.inventory.slots[5] = null
+	_quit(a)
+	check(CharacterSave.load_from(_character_file("guardian")).ok(), "once it is whole again the quit writes it")
