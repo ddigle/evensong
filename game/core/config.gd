@@ -69,10 +69,11 @@ const NET_STATE_HZ: int = 20
 ## PROVISIONAL (not in docs; M1 spec "~100 ms"): how far behind the newest host state a client
 ## draws the other players (interpolation buffer). 2 batch intervals at 20 Hz.
 const NET_INTERP_DELAY_MS: int = 100
-## PROVISIONAL (? not decided whether two players may play the same class; the party UI proposal is
-## 3x3 = one per class, gameplay-design §5 ○). M1 allows duplicates; true makes the host refuse a
-## class that is already taken (refusal "class_taken").
-const NET_UNIQUE_CLASSES: bool = false
+## ● (game-concept §2 역할 / §7 / §12 R54, gameplay-design §5: "한 세션에 같은 클래스는 한 명", only at the same time): the host
+## refuses a join whose class a connected player (the host included) already has (refusal "class_taken", with the classes taken);
+## a player who leaves frees its class. M1-M12 allowed duplicates (this was false). Tests that need more players than classes (the
+## 9-player structure) start their host with --test-duplicate-classes (Roster.allow_duplicates); offline nothing changes.
+const NET_UNIQUE_CLASSES: bool = true
 ## PROVISIONAL (not in docs; the nearest rule is "부활 지점: 제단", gameplay-design §2.6·§5 ○): a
 ## player appears on a free SPAWN_SLOTS place around the altar (alone, as host or joining) facing
 ## this way.
@@ -1409,6 +1410,39 @@ const HERETIC_FIRE_LIGHT_ENERGY: float = 0.9
 const BOSS_FIRE_LIGHT_RADIUS_PX: int = 64
 const BOSS_FIRE_LIGHT_ENERGY: float = 0.8
 
+# --- PROVISIONAL, M13a (saving: the world file and the character files; offline first) ------------------------------------
+## PROVISIONAL (● game-concept §12 R54: the host saves the world and opens it again; when it writes is not in the docs): besides on quit and
+## on the save key (F9, project.godot "save_now", README 임시값 "M13a 키"), the offline game (hosting alone) writes the open world and the open
+## character every this many ticks of play (5 minutes at NET_TICK_RATE 60). 0 = only on quit and the key.
+const SAVE_AUTOSAVE_TICKS: int = 5 * 60 * 60
+
+# --- PROVISIONAL, M13b (saving in sessions: the host's world, each client's character, the class rule) --------------------------
+## PROVISIONAL (● game-concept §12 R54 "호스트가 월드를 저장"; when is not in the docs): a session host writes its open world (and its own
+## open character) also when a client it admitted leaves (the leaver's client writes that character at the same moment, so the world's
+## chests and the character agree as far as two machines can), besides on quit, F9 and every SAVE_AUTOSAVE_TICKS of host ticks.
+const SAVE_WHEN_CLIENT_LEAVES: bool = true
+## PROVISIONAL (● R54 "캐릭터는 각자 기기에"; when a client writes is not in the docs): a client writes its open character (as the host's
+## inventory messages last had it; never before the first one, so a refused or failed join writes nothing) on leaving or quitting, on
+## losing the host, on F9 and every SAVE_AUTOSAVE_TICKS of its ticks. It never writes the host's world.
+const SAVE_CLIENT_ON_HOST_LOST: bool = true
+
+# --- PROVISIONAL, M13 review (leaving, progress) ---------------------------------------------------------------------------------
+## PROVISIONAL (● R54 "캐릭터는 각자 기기에"; how a client leaves is not in the docs): a client that leaves (the window's close button, a bot's
+## leave) first sends a LEAVE request and writes its character only once the host's inventory message for it came (every request it sent
+## is the host's by then: nothing it dropped, placed, stored or sold is both in the world file and in the character file). It waits at most
+## this many of its ticks (2 s); then it writes what it has and logs that what was in flight may differ.
+const NET_LEAVE_WAIT_TICKS: int = 2 * 60
+## PROVISIONAL (● gameplay-design §2.6 사망: the bag and the wear; closing the window while down is not in the docs): a downed player who
+## leaves (a client's LEAVE, the window's close button offline or on the host) dies first, as if its down time ran out: its death bag lies in
+## the world and its gear wears before its character is written. false: it keeps everything (closing the window escapes the death).
+const LEAVE_WHILE_DOWN_DIES: bool = true
+## PROVISIONAL (● R54 "영속 월드"; when is not in the docs): the open world (and the open character) is written as soon as the world's progress
+## changes (the boss killed, the altar raised), offline and on a host, so a crash afterwards cannot bring a killed boss back.
+const SAVE_ON_PROGRESS: bool = true
+## PROVISIONAL (● R54; not in the docs): a client writes its character as soon as the host's inventory message raises the relics it holds
+## (Config.BOSS_RELIC: the boss does not come back, BOSS_RESPAWNS false), so a client that crashes after the kill keeps its relic.
+const SAVE_CLIENT_ON_RELIC: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -1676,6 +1710,21 @@ const BOSS_HOME_ARRIVE_PX: float = 1.5
 const BOSS_FLASH_TICKS: int = HIT_FLASH_TICKS
 ## IMPL (M12a): how long a pillar shows the refused mark after a blow that is no miner's (ticks, a creature's: CREATURE_REFUSED_SHOW_TICKS).
 const PILLAR_REFUSED_SHOW_TICKS: int = CREATURE_REFUSED_SHOW_TICKS
+## IMPL (M13a): a save's name (--world=, --character=) is at most this many characters (SaveStore.name_refusal: a-z 0-9 _ -, lowercased).
+const SAVE_NAME_MAX: int = 32
+## IMPL (M13a): the folder the saves go to without --save-dir (Godot's user:// with the project's custom user dir "Evensong": %APPDATA%\Evensong
+## on Windows, README "M13a 파일과 자리").
+const SAVE_DIR_DEFAULT: String = "user://saves"
+## IMPL (M13a): the largest character file read (a hand-made one bigger than this is refused before it is parsed; a real one is a few KB).
+const CHARACTER_FILE_MAX_BYTES: int = 64 * 1024
+## IMPL (M13a): the exit code of a start whose world or character file does not load (every candidate refused: the file, its .tmp, its .bak).
+## Bad flags stay 2 (core/cli.gd), and so does a --class or --seed that conflicts with the file.
+const EXIT_SAVE_REFUSED: int = 3
+## IMPL (M13b): the most bytes a client's character on the wire (NetProtocol sheet, before its hello) may have; a real one is at most about
+## 175 B (24 slots of 5 B, the armour, the seen bits, the name). The host refuses a bigger one as "character" without reading it.
+const NET_SHEET_MAX_BYTES: int = 256
+## IMPL (M13b): the longest reason text a "character" refusal carries to the client (ASCII; cut there).
+const NET_REFUSAL_WHY_MAX: int = 120
 
 
 static func safe_radius_px() -> float:

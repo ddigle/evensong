@@ -589,8 +589,8 @@ func _check_inventory_codec() -> void:
 	inv.move(2, 20)
 	inv.select(5)
 	var bytes: PackedByteArray = NetProtocol.encode_inventory(inv, 4000000001)
-	check_eq(bytes.size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1),
-		"inventory = 6 + 3 B x 24 slots + the empty armour slot (M7c; no item with durability here)")
+	check_eq(bytes.size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1) + 1 + NetProtocol.seen_bytes(),
+		"inventory = 6 + 3 B x 24 slots + the empty armour slot (M7c; no item with durability here; M13b: + the seen bits)")
 	var back: NetProtocol.InventoryState = NetProtocol.decode_inventory(bytes)
 	check(back.ok and back.ack == 4000000001 and back.selected == 5 and back.stacks.size() == Config.INVENTORY_SLOTS,
 		"inventory decodes")

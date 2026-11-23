@@ -208,6 +208,11 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["prayer"] = s.host.prayer_result()  # M10b
 		out["hunt"] = s.host.hunt_result()  # M11c
 		out["boss"] = s.host.boss_result()  # M12c
+		var names: Dictionary = {}
+		for slot: int in s.host.character_names:
+			names[str(slot)] = s.host.character_names[slot]
+		out["characters"] = names  # M13b: the character each slot brought ("new": none), the ones that came in
+		out["characters_in"] = s.host.characters_in
 	if s.client != null:
 		var c: SessionClient = s.client
 		out["prediction"] = c.prediction.to_dict() if c.prediction != null else {}
@@ -228,6 +233,8 @@ static func build(s: NetSession, reason: String) -> Dictionary:
 		out["left_maps"] = c.left_maps
 		out["others_on_welcome"] = c.others_on_welcome
 		out["wrong_map_edits"] = c.wrong_map_edits
+		out["refused_taken"] = Array(c.refused_taken)  # M13b: a class_taken refusal's classes, a character refusal's reason
+		out["refused_why"] = c.refused_why
 		out["combat"] = c.combat_result()
 		out["effects_on_welcome"] = c.effects_on_welcome
 		out["purify_flashes"] = c.purify_flashes  # M5c

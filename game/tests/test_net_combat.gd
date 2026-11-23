@@ -21,6 +21,9 @@ const SEED: int = Config.DEFAULT_SEED
 ## The fight spot on the seed-1 surface: 13 tiles south of the altar's centre (outside the light).
 const FIGHT_OFFSET: Vector2 = Vector2(0, 208)
 const WEAPON_SLOT: int = Config.START_WEAPON_SLOT
+## M13b: the rig's host allows two players of one class (--test-duplicate-classes): these files were written before ● R54. tests/
+## test_net_saves.gd sets it false and checks the rule.
+var rig_duplicates: bool = true
 
 
 ## A NetSession whose messages are captured instead of sent: [peer, kind, payload].
@@ -100,6 +103,9 @@ class CaptureSession:
 
 	func send_hello(payload: PackedByteArray) -> void:
 		wire.append([1, "hello", payload])
+
+	func send_sheet(payload: PackedByteArray) -> void:
+		wire.append([1, "sheet", payload])  # M13b: a joiner's character, before its hello
 
 	func send_done() -> void:
 		wire.append([1, "done", PackedByteArray()])
@@ -235,6 +241,7 @@ func _rig(host_class: String = "paladin", spawns: bool = false, start_hp: Dictio
 	r.s.world = r.surface
 	r.s.worlds = {Config.MAP_SURFACE: r.surface, Config.MAP_DUNGEON: r.dungeon}
 	r.s.options = CliOptions.new()
+	r.s.options.test_duplicate_classes = rig_duplicates  # M13b: these rigs join classes twice (● R54 is tested in tests/test_net_saves.gd)
 	r.s.options.class_id = host_class
 	r.s.options.test_no_spawns = not spawns
 	r.s.options.test_no_creatures = not creatures  # M11c: these are the fights' checks; tests/test_net_wild.gd turns the herd on

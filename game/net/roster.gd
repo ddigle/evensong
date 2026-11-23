@@ -9,13 +9,18 @@ extends RefCounted
 ## Slots index Config.SPAWN_SLOTS. A joiner gets the lowest free slot, so a slot freed by a player
 ## who left is used again (the spike numbered joins upwards and put a tenth join on the host's spot).
 
+## M13b: ● one player per class at a time (Config.NET_UNIQUE_CLASSES, R54): a class a connected player holds (the host's own player
+## included: it is admitted here too, peer 1) is refused as CLASS_TAKEN; releasing a player frees its class. `allow_duplicates` (test
+## only, --test-duplicate-classes: the 9-player structure needs more players than the slice's classes) turns the rule off.
 var max_players: int = Config.MAX_PLAYERS
+var allow_duplicates: bool = false
 var _slot_of: Dictionary[int, int] = {}
 var _class_of: Dictionary[int, String] = {}
 
 
-func _init(p_max_players: int = Config.MAX_PLAYERS) -> void:
+func _init(p_max_players: int = Config.MAX_PLAYERS, p_allow_duplicates: bool = false) -> void:
 	max_players = clampi(p_max_players, 1, Config.MAX_PLAYERS)
+	allow_duplicates = p_allow_duplicates
 
 
 func count() -> int:
@@ -36,9 +41,23 @@ func refusal_for(class_id: String) -> NetProtocol.Refusal:
 		return NetProtocol.Refusal.CLASS
 	if is_full():
 		return NetProtocol.Refusal.FULL
-	if Config.NET_UNIQUE_CLASSES and _class_of.values().has(class_id):
+	if unique_classes() and _class_of.values().has(class_id):
 		return NetProtocol.Refusal.CLASS_TAKEN
 	return NetProtocol.Refusal.NONE
+
+
+## M13b: whether a class may be held by one player only now (● R54, unless the test flag allows duplicates).
+func unique_classes() -> bool:
+	return Config.NET_UNIQUE_CLASSES and not allow_duplicates
+
+
+## M13b: the classes the admitted players hold now (Config.CLASSES order, each once): what a CLASS_TAKEN refusal tells the joiner.
+func taken_classes() -> PackedStringArray:
+	var out: PackedStringArray = []
+	for c: String in Config.CLASSES:
+		if _class_of.values().has(c):
+			out.append(c)
+	return out
 
 
 ## Adds a player and returns its slot, or -1 when refused (see refusal_for) or already in.

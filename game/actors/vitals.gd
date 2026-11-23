@@ -107,6 +107,18 @@ func alive() -> bool:
 	return life == Life.ALIVE
 
 
+## M13 review: a downed player dies now, as when its down time runs out (PlayerSim.step's DIED; the caller drops the bag and wears the gear:
+## Config.LEAVE_WHILE_DOWN_DIES). Returns whether it was down.
+func die_now() -> bool:
+	if life != Life.DOWN:
+		return false
+	life = Life.DEAD
+	life_ticks = 0
+	revive_ticks = 0
+	give_up_ticks = 0
+	return true
+
+
 func dashing() -> bool:
 	return dash_ticks > 0
 

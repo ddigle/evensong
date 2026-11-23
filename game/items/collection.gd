@@ -10,7 +10,8 @@ extends RefCounted
 ## It belongs to the world, not to a player: a death loses nothing, a new world starts empty, and whoever does the thing registers the
 ## entry for everyone (the rare ones are archers' by construction). Registered entries stay. What triggers an entry: a kill of a prey
 ## kind (by anyone), a capture of a rare kind, the first time any player of the world holds an item (note_inventory reads
-## Inventory.seen, so every way into an inventory counts), and a count of kills.
+## Inventory.gained, so every way into an inventory in this world counts; M13 review: what a saved character carried in from another
+## world, its `seen` history included, does not, ● §4 "새 월드 = 새 컬렉션"), and a count of kills.
 ##
 ## The benefits (Config.COLLECTION_BENEFITS lights each at its count): arrow_damage (the archer's arrows), defence_bonus (everyone's
 ## armour defence, also with no armour on), restock_ticks and world_benefit (the merchant, and the flag M12 can read).
@@ -86,12 +87,13 @@ func note_capture(kind: StringName) -> void:
 	_note("capture", kind)
 
 
-## Whoever holds `inv` has held what it has seen: the "item" rows.
+## Whoever holds `inv` has held what came into it in this world (Inventory.gained, M13 review: not a saved character's carried history):
+## the "item" rows.
 func note_inventory(inv: Inventory) -> void:
 	for row: Dictionary in Config.COLLECTION_ENTRIES:
 		var id: StringName = row["id"]
 		var what: StringName = row["what"]
-		if row["how"] == "item" and not has(id) and inv.has_seen(what):
+		if row["how"] == "item" and not has(id) and inv.gained.has(what):
 			register(id)
 
 

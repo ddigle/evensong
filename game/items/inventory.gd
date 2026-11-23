@@ -26,6 +26,11 @@ var selected: int = 0
 ## (Crafting.unlocked, ○ gameplay-design §3.5). Kept when the items leave (it is knowledge). load_state() does not
 ## touch it: a session client marks what the host's inventories hold (SessionClient.take_inventory, M6b).
 var seen: Dictionary[StringName, bool] = {}
+## M13 review: every item id that came into this inventory since it entered its world (add, add_stack: picked up, crafted, bought, taken
+## from a chest, given, armour taken off). The world's collection reads it ("item" rows, Collection.note_inventory: ● game-concept §4 "월드마다 독립",
+## a new world = a new collection). Never saved and never filled from a character file (CharacterSave.Sheet.to_inventory) or the host's
+## message (load_state): what a character carried in from another world does not count (`seen`, its knowledge, does: recipes).
+var gained: Dictionary[StringName, bool] = {}
 ## M7a: the armour worn (null = none).
 var armor: ItemStack = null
 
@@ -98,6 +103,7 @@ func add(id: StringName, count: int, grade: int = -1) -> int:
 			left -= n
 	if left != count:
 		seen[id] = true
+		gained[id] = true
 		changed.emit()
 	return left
 
@@ -125,6 +131,7 @@ func add_stack(stack: ItemStack) -> int:
 			left -= n2
 	if left != stack.count:
 		seen[stack.id] = true
+		gained[stack.id] = true
 		changed.emit()
 	return left
 

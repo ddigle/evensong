@@ -148,7 +148,23 @@ extends Node2D
 ## its light and its altar's picture (GameWorld.altar_tier_changed), the rules that read the safe zone follow it. --test-boss,
 ## --test-boss-hp, --test-boss-attack, --test-pillar-hits and --test-altar-tier set scenes up (screenshots, tests); the bot's aimboss,
 ## bossfight and waitboss read the boss through _bot_tick.
+## M13a (offline; a session saves nothing until M13b, the flags refuse it): --world=<name> opens a saved world (core/world_save.gd) or makes
+## it from the seed, --character=<name> plays a saved character (core/character_save.gd) or makes it with --class (open_saves, before
+## anything is set up). A loaded world's maps replace the generated ones (GameWorld.load_data), the sims are set up on them as for a new
+## world and then take their saved state (_apply_loaded: the arenas, the herd, the boss, the farms, the forests, the shop's clock, the
+## prayers made, the deaths); the seed every stream reads is then the world's (world_seed()). A character's file fills the local player's
+## inventory in spawn (its class is the file's: a new character's start weapon only on making it). Both are written on quit (_exit_tree),
+## every Config.SAVE_AUTOSAVE_TICKS of play and on F9 (save_now), never with --no-save. Without either flag nothing changes and nothing
+## is written. Tests set `save_flags` before adding a Main to the tree (the process's own flags stay the runner's).
+## M13b (sessions): a host opens and makes its world like offline (open_saves before the session starts; the loaded maps into its worlds,
+## NetSession.loaded for the session's sims) and plays its own character (NetSession.character); it writes both on quit and at the
+## session's end, every Config.SAVE_AUTOSAVE_TICKS of its ticks, on F9 and when a client leaves (_on_client_left, capture_world from the
+## session's sims). A client brings its character (NetSession.character: the sheet before its hello; a new one of --class: none) and writes it
+## from the host's inventory messages: never before the first one (_character_live), then on leaving, at the session's end, on losing the
+## host, every SAVE_AUTOSAVE_TICKS and on F9. A client never writes a world (the flags refuse --world with --join).
 
+## M5-fix / M13a: why restore_altar put the altar back (its log line), unless the caller says another reason.
+const WHY_RESTORED_HOST_LEFT: String = "the host went while it was carried"
 ## Feet offset (px) from the altar centre where --test-action-lineup puts the camera.
 const LINEUP_CENTER: Vector2i = Vector2i(0, 110)
 const LINEUP_STEP: int = 56
@@ -207,6 +223,38 @@ var _f_consumed: bool = false
 var _ally_scripts: Dictionary[int, String] = {}
 var _ally_turns: Dictionary[int, int] = {}
 var _ally_turn_seen: Dictionary[int, int] = {}
+## M13a (offline): the flags the saves read (null = this process's: tests set it before _ready), the store (null: nothing open), the open
+## world's and character's names ("" = none), whether files are written (false with --no-save), the world loaded (null: generated now),
+## the open character (its class and things; null: none open), the ticks of play the world has had and since the last save, the autosave
+## period, whether the next write of each keeps the file there as its backup (false while that file did not load: the backup stays), and
+## whether the start went through (a refused start writes nothing at quit).
+var save_flags: CliOptions = null
+var saves: SaveStore = null
+var world_name: String = ""
+var character_name: String = ""
+var save_writes: bool = false
+var loaded: WorldSave.Saved = null
+var character: CharacterSave.Sheet = null
+var world_ticks: int = 0
+var autosave_ticks: int = Config.SAVE_AUTOSAVE_TICKS
+var _since_save: int = 0
+var _rotate_world: bool = true
+var _rotate_character: bool = true
+var _started: bool = false
+var _quit_saved: bool = false
+## M13b: the local player's inventory holds the character as it counts (offline and a host: from the start; a session client: from the
+## host's first inventory message on). Before that nothing of the character is written (a refused join leaves its file as it was).
+var _character_live: bool = false
+## M13 review: a client left (Config.SAVE_WHEN_CLIENT_LEAVES): the host writes the world once at its next tick, however many left in one;
+## the world's progress (tier and boss) last seen (-1 = not yet: Config.SAVE_ON_PROGRESS) and a client's relics last seen
+## (Config.SAVE_CLIENT_ON_RELIC); whether this Main handles the window's close button (the game's own main scene: request_close), whether
+## it was pressed, and the physics ticks run (--test-close-after).
+var _left_save_due: bool = false
+var _progress_seen: int = -1
+var _relics_seen: int = -1
+var _owns_close: bool = false
+var _closing: bool = false
+var _ticks_run: int = 0
 
 @onready var world: GameWorld = $World
 @onready var camera: PlayerCamera = $Camera
@@ -219,6 +267,11 @@ func _ready() -> void:
 	var options: CliOptions = CliOptions.current()
 	if not options.errors.is_empty():
 		return  # the Cli autoload reports the bad flags and quits
+	if get_tree().current_scene == self:
+		# M13 review: the game's own main scene (not a test's Main): the close button comes here first (request_close: a client leaves its
+		# host, a downed player dies) and every way out of it quits.
+		_owns_close = true
+		get_tree().set_auto_accept_quit(false)
 	hud = Hud.new()
 	add_child(hud)
 	marker = TargetMarker.new()
@@ -240,9 +293,15 @@ func _ready() -> void:
 	world.altar_moved.connect(_on_altar_moved)
 	worlds[Config.MAP_SURFACE] = world
 	if options.host or options.join:
+		var session_flags: CliOptions = save_flags if save_flags != null else options
+		if not open_saves(session_flags):
+			return  # M13b: refused (logged): the process quits with the code
+		var title_class: String = character.class_id if character != null else options.class_id
 		get_window().title = "Evensong (%s, %s)" % ["host" if options.host else "client",
-			options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS]
+			title_class if not title_class.is_empty() else Config.DEFAULT_CLASS]
 		net.local_player_ready.connect(_on_local_player_ready)
+		net.client_left.connect(_on_client_left)  # M13b: the host writes the world when a client leaves
+		net.bot_close.connect(request_close)  # M13 review, test only: a bot presses the window's close button
 		net.local_map_changed.connect(_on_local_map_changed)
 		net.ended.connect(_on_net_ended)
 		net.bot_ui.connect(_on_bot_ui)  # M6b: a bot's tab / craft in a session
@@ -253,24 +312,59 @@ func _ready() -> void:
 		net.bot_tap.connect(_f_press)  # M10b: a bot's `pray` (F pressed and let go: a tap once it is let go)
 		net.bot_collection.connect(toggle_collection)  # M11c: a bot's K
 		_connect_shop_panel()
-		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
+		if loaded != null:
+			# M13b: the host's saved world (a client's --world is a flag error: the world is the host's).
+			world.load_data(loaded.maps[Config.MAP_SURFACE])
+			add_dungeon(false)
+			worlds[Config.MAP_DUNGEON].load_data(loaded.maps[Config.MAP_DUNGEON])
+			_restore_loaded_altar()  # before anyone stands on its spawn slots
+		elif options.host and not world_name.is_empty() and session_flags.world_seed != world.data.world_seed:
+			world.generate(session_flags.world_seed)  # a new world of a test's own seed (save_flags), as offline
+			add_dungeon(false)
+			worlds[Config.MAP_DUNGEON].generate(session_flags.world_seed)
+		else:
+			add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
 			net.worlds[id] = worlds[id]
+		net.character = character  # M13b: the host's own (its player), a client's (the sheet before its hello); null = a new one
+		net.loaded = loaded
+		if loaded != null:
+			world_ticks = loaded.ticks  # M13 review: the world's age goes on (offline: _apply_loaded)
 		net.start(world, options)
 		return
-	add_dungeon()
-	spawn(options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS)
+	if options.list_worlds or options.list_characters:
+		return  # the Cli autoload lists the saves and quits
+	var flags: CliOptions = save_flags if save_flags != null else options
+	if not open_saves(flags):
+		return  # refused (logged): the process quits with the code
+	if loaded != null:
+		world.load_data(loaded.maps[Config.MAP_SURFACE])  # M13a: the saved maps replace the generated ones
+		add_dungeon(false)
+		worlds[Config.MAP_DUNGEON].load_data(loaded.maps[Config.MAP_DUNGEON])
+		_restore_loaded_altar()  # before the players stand on its spawn slots
+	elif not world_name.is_empty() and flags.world_seed != world.data.world_seed:
+		world.generate(flags.world_seed)  # M13a: a new world of a test's own seed (save_flags)
+		add_dungeon(false)
+		worlds[Config.MAP_DUNGEON].generate(flags.world_seed)
+	else:
+		add_dungeon()
+	var start_class: String = character.class_id if character != null else flags.class_id
+	spawn(start_class if not start_class.is_empty() else Config.DEFAULT_CLASS)
 	setup_combat()
 	setup_farming()
 	setup_forests()  # M7b
 	purify_on = true  # M5b (offline; M5c: a session's is the host's)
 	setup_prayer()  # M10a (offline; M10b: a session's is the host's, shown_prayer)
+	_apply_loaded()  # M13a: the saved sims, before the test options (they go on top, like play)
 	_apply_test_options(options)
 	setup_shop()  # M8a. M8 review: after the test options, as a host does (the merchant's tile keeps off their pieces and bodies)
 	if not options.bot.is_empty():
 		bot = NetBot.new()
 		bot.parse(options.bot)
 		player.local_input = false
+	_started = true
+	_character_live = true
+	_write_new()  # M13a: a world or character made now is written at once
 
 
 ## M3a: the dungeon's world (a second world.tscn, hidden until the local player goes down).
@@ -353,6 +447,9 @@ func travel(to: int) -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	_ticks_run += 1
+	if _ticks_run == CliOptions.current().test_close_after:
+		request_close()  # M13 review, test only: the window's close button, pressed now
 	if player == null or not is_instance_valid(player):
 		return
 	_check_crafting()  # M6b: in a session too
@@ -367,6 +464,7 @@ func _physics_process(delta: float) -> void:
 		_track_f_tap()  # M10a. M10b: a tap at the altar is a PRAY request (the host decides)
 		_show_prayer()  # M10b: the host's prayer (a client: its mirror)
 		_show_boss_bar()  # M12c: the host's fight (a client: its mirror)
+		_tick_session_saves()  # M13b: the host's world age and autosave; a client's character from the host's first inventory on
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -384,6 +482,7 @@ func _physics_process(delta: float) -> void:
 	_show_merchant()  # M8a (M8: and which way he looks)
 	ally_mark.show_for(_aim_ring_target(), player.skill_aim_refused)  # M9a (M9 review: dim when refused)
 	_show_boss_bar()  # M12a
+	_tick_saves()  # M13a: the world's age, the autosave
 
 
 func _bot_tick(delta: float) -> void:
@@ -486,6 +585,8 @@ func spawn(local_class: String) -> void:
 	player.gear_on = true  # M7a (M7c: a session's local player too)
 	player.setup(world.data, local_class, world.spawn_point(0), Config.SPAWN_FACING)
 	give_start_weapon(player)
+	if character != null and character.class_id == local_class:
+		character.to_inventory(player.inventory)  # M13a: the saved character's things (its start weapon only when it was made)
 	_connect_gear(player)
 	_connect_skills(player)  # M9a (offline; M9c: sessions)
 	player.action_started.connect(_on_action_started)
@@ -566,6 +667,14 @@ func _on_local_player_ready(p: Player) -> void:
 	_connect_skills(p)  # M9c: the skill keys, the near-cursor pick over the players on its map as this machine has them
 	if not p.capture_refused.is_connected(_on_capture_refused):
 		p.capture_refused.connect(_on_capture_refused)  # M11c: a click this machine refused (the session set capture_on and the herd)
+	if not _started:
+		# M13b: the session is under way. The host's player holds its character now (SessionHost.on_opened) and the world is its own: a
+		# name made now is written at once. A client's player holds nothing of its own until the host's first inventory message
+		# (_tick_session_saves): its character is written only from then on.
+		_started = true
+		if net.is_host():
+			_character_live = true
+			_write_new()
 
 
 ## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
@@ -614,6 +723,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		debug_next_action()
 	elif event.is_action_pressed(&"demolish"):
 		demolish()  # M7b: right-click takes a built piece down
+	elif event.is_action_pressed(&"save_now"):
+		save_now("key")  # M13a: F9 (PROVISIONAL README "M13a 키")
 
 
 func _in_session() -> bool:
@@ -851,7 +962,7 @@ func ensure_combat(id: int) -> bool:
 	_share_collection(w)  # M11b
 	_share_progress(w)  # M12a
 	var a: Arena = Arena.new()
-	a.setup(w.data, CliOptions.current().world_seed)
+	a.setup(w.data, world_seed())
 	a.spawning = not CliOptions.current().test_no_spawns
 	a.threat_on = true  # M9a: offline (a session's host arenas stay off until M9c)
 	if id == Config.MAP_DUNGEON:
@@ -862,7 +973,7 @@ func ensure_combat(id: int) -> bool:
 		print("EVENSONG_BOSS room %s" % a.boss.describe())
 	if id == Config.MAP_SURFACE:
 		a.herd = Creatures.new()  # M11a: offline (M11c: a session's is the host's, SessionHost._setup_combat)
-		a.herd.setup(w.data, CliOptions.current().world_seed, not CliOptions.current().test_no_creatures)
+		a.herd.setup(w.data, world_seed(), not CliOptions.current().test_no_creatures)
 		w.show_rare_zone()  # M11b: the herd placed it
 	arenas[id] = a
 	v = CombatView.new()
@@ -1228,7 +1339,7 @@ func _on_died(p: Player) -> void:
 		return
 	deaths += 1
 	var o: WorldItems.Outcome = WorldItems.death_drop(w.data, p.sim_position, p.inventory, Config.DEATH_DROP_RULE,
-		hash([CliOptions.current().world_seed, deaths]))
+		hash([world_seed(), deaths]))
 	for e: EditLog.WorldEdit in o.edits:
 		w.apply_edit(e)
 	print("EVENSONG_DEATH died who=%s map=%s bag=%s items=%d" % [p.name, Config.MAP_NAMES[w.map_id],
@@ -2182,7 +2293,7 @@ func setup_prayer() -> void:
 		return
 	if prayer == null or prayer.data != world.data:
 		prayer = Prayer.new()
-		prayer.setup(world.data, CliOptions.current().world_seed)
+		prayer.setup(world.data, world_seed())
 
 
 ## F pressed (the key, or a bot's `pray`): pick_up as before (what it does now), and the press waits to be let go (_track_f_tap).
@@ -2792,16 +2903,16 @@ func check_carriers() -> void:
 ## or another client carried it): it comes back where it last stood (`w.last_altar_rect`), or at the nearest place the
 ## placing rules allow around that (with `bodies`, ignoring heretics: the offline arena is not set up yet), or, with no
 ## place known (joined while it was carried), around the local player. Returns the footprint, empty when none allowed
-## it (then a respawn waits as while it is carried; logged).
-func restore_altar(w: GameWorld, bodies: Array[Vector2]) -> Rect2i:
+## it (then a respawn waits as while it is carried; logged). M13a: also a loaded world saved with none (`why` says which, in the log).
+func restore_altar(w: GameWorld, bodies: Array[Vector2], why: String = WHY_RESTORED_HOST_LEFT) -> Rect2i:
 	var from: Vector2 = player.sim_position if player != null and is_instance_valid(player) and player.data == w.data \
 		else Vector2(w.data.size * Config.TILE) / 2.0
-	return restore_altar_at(w, from, bodies)
+	return restore_altar_at(w, from, bodies, why)
 
 
 ## restore_altar's work: where it last stood if the placing rules allow (with `bodies`), else the nearest allowed place
 ## around that, else around `from` (AltarMove.set_down_fallback, home first); the edits go into `w`.
-static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2]) -> Rect2i:
+static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2], why: String = WHY_RESTORED_HOST_LEFT) -> Rect2i:
 	var none: Array[Vector2] = []
 	var rect: Rect2i = AltarMove.set_down_fallback(w.data, from, w.last_altar_rect, bodies, none, true)
 	if not rect.has_area():
@@ -2809,8 +2920,8 @@ static func restore_altar_at(w: GameWorld, from: Vector2, bodies: Array[Vector2]
 		return rect
 	for e: EditLog.WorldEdit in AltarMove.place_edits(rect):
 		w.apply_edit(e)
-	print("EVENSONG_ALTAR restored at=%d,%d (the host went while it was carried) light=%d,%d" % [rect.position.x,
-		rect.position.y, roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
+	print("EVENSONG_ALTAR restored at=%d,%d (%s) light=%d,%d" % [rect.position.x, rect.position.y, why,
+		roundi(w.data.altar_center_px().x), roundi(w.data.altar_center_px().y)])
 	return rect
 
 
@@ -3009,8 +3120,346 @@ func spawn_action_lineup(frame: int) -> void:
 
 func _on_net_ended(reason: String, code: int) -> void:
 	var options: CliOptions = CliOptions.current()
-	if options.net_out.is_empty() and code == NetSession.EXIT_FAILED and reason == "lost the host" and player != null:
+	var playing_on: bool = options.net_out.is_empty() and code == NetSession.EXIT_FAILED and reason == "lost the host" and player != null \
+		and not _closing
+	_left_save_due = false  # the end's write below covers it
+	if _started and (net.is_host() or _character_live):
+		# M13b: what this machine owns, now: the host its world (and character), a client its character as the host last sent it
+		# (Config.SAVE_CLIENT_ON_HOST_LOST). A refused or failed join was never live: nothing is written.
+		var why: String = "host_lost" if reason == "lost the host" else ("left" if reason == "left" else "ended")
+		if why != "host_lost" or Config.SAVE_CLIENT_ON_HOST_LOST:
+			save_now(why)
+		if not playing_on:
+			_quit_saved = true  # the quit right after writes nothing more
+	if playing_on:
 		net.continue_offline()  # alone now: the keys drive the player as offline, its inventory is its own
 		_go_offline_combat()
 		return
 	get_tree().quit(code)
+
+
+## M13b (host): a client it had admitted left: the open world is written (Config.SAVE_WHEN_CLIENT_LEAVES), with the host's own character.
+## M13 review: at the host's next tick (_tick_session_saves), once however many left together (each write reads the whole file back).
+func _on_client_left(_slot: int) -> void:
+	if Config.SAVE_WHEN_CLIENT_LEAVES and net.is_host() and not net.over and not world_name.is_empty():
+		_left_save_due = true
+
+
+## M13 review: the window's close button (NOTIFICATION_WM_CLOSE_REQUEST on the game's own main scene; a test's --test-close-after). A client in
+## a session leaves its host first (SessionClient.begin_leave: every request it sent is the host's before its character is written; the
+## session's end writes it and quits, _on_net_ended). Offline and on a host a downed player dies first (die_if_down), then the game quits
+## (_exit_tree writes). A second press while leaving quits at once (_exit_tree writes what there is).
+func request_close() -> void:
+	if _closing:
+		get_tree().quit()
+		return
+	_closing = true
+	print("EVENSONG_SAVE close requested role=%s" % NetSession.ROLE_NAMES[net.role])
+	if net.client != null and net.role == NetSession.Role.CLIENT and not net.over and net.client.begin_leave("window"):
+		return
+	die_if_down()
+	get_tree().quit()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and _owns_close:
+		request_close()
+
+
+## M13 review (Config.LEAVE_WHILE_DOWN_DIES, ● gameplay-design §2.6): the local player leaves while down (the window closed offline or on a
+## host): it dies now as if its down time ran out (the bag in the world, the gear worn), so the files written next hold the death. Returns
+## whether it died. (A client's is the host's to do: its LEAVE, SessionHost._leave.)
+func die_if_down() -> bool:
+	if not Config.LEAVE_WHILE_DOWN_DIES or not _started or player == null or not is_instance_valid(player):
+		return false
+	if net.host != null and net.role == NetSession.Role.HOST:
+		return net.host.die_on_leave(net.local)
+	if _in_session() or not player.vitals.die_now():
+		return false
+	print("EVENSONG_DEATH died on leaving who=%s" % player.name)
+	_on_died(player)
+	return true
+
+
+# --- M13a / M13b: saving (offline, M13b: in sessions too; README "M13a", "M13b") --------------------------------------------------------
+
+## The seed the world's streams read (the arenas, the herd's rare zone, the prayer's directions, the death bags): the open world's own
+## (loaded, or made now), else --seed as before (an unsaved start is unchanged).
+func world_seed() -> int:
+	if not world_name.is_empty() and world != null and world.data != null:
+		return world.data.world_seed
+	return CliOptions.current().world_seed
+
+
+## Opens what `flags` name (--world, --character): reads the files (the file, else its .tmp, else its .bak: SaveStore.candidates) and
+## checks --class and --seed against them. A name with no file is made later (_write_new). Returns false when a file does not load or a
+## flag conflicts (EVENSONG_SAVE error; the process quits with Config.EXIT_SAVE_REFUSED or 2 unless `save_flags` came from a test); true
+## otherwise (nothing named: nothing open, nothing ever written).
+func open_saves(flags: CliOptions) -> bool:
+	world_name = flags.world_name
+	character_name = flags.character_name
+	if world_name.is_empty() and character_name.is_empty():
+		return true
+	saves = SaveStore.new(flags.save_root())
+	save_writes = not flags.no_save
+	autosave_ticks = flags.test_autosave_ticks if flags.test_autosave_ticks > 0 else Config.SAVE_AUTOSAVE_TICKS
+	print("EVENSONG_SAVE folder=%s writes=%s autosave=%d" % [saves.shown_root(), "on" if save_writes else "off (--no-save)",
+		autosave_ticks])
+	if not world_name.is_empty():
+		var path: String = saves.world_path(world_name)
+		var cut_off: bool = false
+		if SaveStore.lone_tmp(path):
+			var cut: WorldSave.Saved = WorldSave.load_from(path)
+			cut_off = not cut.ok()
+			if cut_off and not _set_aside_cut_write(path, "world", world_name, cut.error):
+				return _refuse_start("world %s does not load: %s" % [world_name, cut.error], Config.EXIT_SAVE_REFUSED)
+		if not cut_off and SaveStore.exists(path):
+			var s: WorldSave.Saved = WorldSave.load_from(path)
+			if not s.ok():
+				return _refuse_start("world %s does not load: %s" % [world_name, s.error], Config.EXIT_SAVE_REFUSED)
+			if flags.seed_given and flags.world_seed != s.world_seed:
+				return _refuse_start("world %s has seed %d: --seed=%d conflicts (a world keeps its seed)" % [world_name, s.world_seed,
+					flags.world_seed], 2)
+			loaded = s
+			_rotate_world = s.path == path  # loaded from its backup: the broken file is not kept as the backup
+			print("EVENSONG_SAVE world loaded name=%s file=%s %s hash=%s dungeon=%s%s" % [world_name, s.path.get_file(), s.describe(),
+				s.hashes[Config.MAP_SURFACE], s.hashes[Config.MAP_DUNGEON], "" if s.skipped.is_empty() else " (skipped %s)" % s.skipped])
+			if not s.fitted.is_empty():
+				print("EVENSONG_SAVE world fitted name=%s to this game's values: %s" % [world_name, "; ".join(s.fitted)])
+		else:
+			print("EVENSONG_SAVE world new name=%s seed=%d" % [world_name, flags.world_seed])
+	if not character_name.is_empty():
+		var cpath: String = saves.character_path(character_name)
+		var cut_off_c: bool = false
+		if SaveStore.lone_tmp(cpath):
+			var cut_c: CharacterSave.Result = CharacterSave.load_from(cpath)
+			cut_off_c = not cut_c.ok()
+			if cut_off_c and not _set_aside_cut_write(cpath, "character", character_name, cut_c.error):
+				return _refuse_start("character %s does not load: %s" % [character_name, cut_c.error], Config.EXIT_SAVE_REFUSED)
+		if not cut_off_c and SaveStore.exists(cpath):
+			var r: CharacterSave.Result = CharacterSave.load_from(cpath)
+			if not r.ok():
+				return _refuse_start("character %s does not load: %s" % [character_name, r.error], Config.EXIT_SAVE_REFUSED)
+			if not flags.class_id.is_empty() and flags.class_id != r.character.class_id:
+				return _refuse_start("character %s is %s %s (a class is fixed): --class=%s conflicts" % [character_name,
+					"an" if "aeiou".contains(r.character.class_id.left(1)) else "a", r.character.class_id, flags.class_id], 2)
+			character = r.character
+			character.name = character_name
+			_rotate_character = r.path == cpath
+			print("EVENSONG_SAVE character loaded name=%s file=%s %s%s" % [character_name, r.path.get_file(), character.describe(),
+				"" if r.skipped.is_empty() else " (skipped %s)" % r.skipped])
+			if not r.fitted.is_empty():
+				print("EVENSONG_SAVE character fitted name=%s to this game's values: %s" % [character_name, "; ".join(r.fitted)])
+		elif flags.class_id.is_empty():
+			return _refuse_start("character %s does not exist: making it needs --class (its class is fixed for good)" % character_name,
+				2)
+		else:
+			print("EVENSONG_SAVE character new name=%s class=%s" % [character_name, flags.class_id])
+	return true
+
+
+## M13 review: the only file of name `name` is a .tmp that does not load (`why`): the process died in the very first write, so nothing was
+## ever saved under the name. It is new again: the .tmp is set aside as <file>.tmp.broken (with --no-save it stays and the start reads
+## past it). False when it cannot be moved (the start is refused, as before).
+func _set_aside_cut_write(path: String, what: String, name: String, why: String) -> bool:
+	if not save_writes:
+		print("EVENSONG_SAVE %s %s: only a cut-off first write is there (%s); --no-save: left as it is, the name is new" % [what, name, why])
+		return true
+	var to: String = SaveStore.set_aside(path + SaveStore.TMP_EXT)
+	if to.is_empty():
+		return false
+	print("EVENSONG_SAVE %s %s: only a cut-off first write was there (%s); kept as %s, the name is new" % [what, name, why, to.get_file()])
+	return true
+
+
+## A start that cannot go on: logged, nothing is ever written, and the process quits with `code` (a test's Main only stops: `save_flags`).
+func _refuse_start(why: String, code: int) -> bool:
+	printerr("EVENSONG_SAVE error: %s" % why)
+	save_writes = false
+	if save_flags == null and is_inside_tree():
+		get_tree().quit(code)
+	return false
+
+
+## The loaded world's sims (set up on its maps like a new world's a moment ago) take their saved state (WorldSave.apply_*: the map emptied,
+## the herd, the boss, the fields' and stumps' timers, the shop's clock, the prayers made, the deaths, the world's age).
+func _apply_loaded() -> void:
+	if loaded == null:
+		return
+	for id: int in loaded.arenas:
+		if arenas.has(id):
+			WorldSave.apply_arena(arenas[id], loaded.arenas[id])
+	if arenas.has(Config.MAP_SURFACE):
+		WorldSave.apply_herd(arenas[Config.MAP_SURFACE].herd, loaded.herd)
+	if arenas.has(Config.MAP_DUNGEON):
+		WorldSave.apply_boss(arenas[Config.MAP_DUNGEON].boss, loaded.boss)
+	for id: int in loaded.farms:
+		if farms.has(id):
+			WorldSave.apply_farm(farms[id], loaded.farms[id])
+	for id: int in loaded.forests:
+		if forests.has(id):
+			WorldSave.apply_forest(forests[id], loaded.forests[id])
+	var sh: Shop = world_shop()
+	if sh != null and loaded.has_shop_clock:
+		sh.clock = loaded.shop_clock
+		sh.restocks = loaded.shop_restocks
+	if prayer != null:
+		prayer.prayers = loaded.prayers
+	deaths = loaded.deaths
+	world_ticks = loaded.ticks
+
+
+## A loaded surface with no altar (no place allowed it when it was saved: WorldSave writes a carried altar put down) gets it back now, before
+## anyone stands on its spawn slots: where it last stood or the nearest place the placing rules allow (restore_altar, the M5-fix rule).
+func _restore_loaded_altar() -> void:
+	if loaded == null or world.data.altar_rect.has_area():
+		return
+	world.last_altar_rect = loaded.last_altar.get(Config.MAP_SURFACE, Rect2i())
+	restore_altar(world, [] as Array[Vector2], "the saved world had none")
+
+
+## A world or a character named for the first time is written now (so it is there to list and to load even if the process dies), and a new
+## character takes what the fresh player holds (the start weapon, --give).
+func _write_new() -> void:
+	var new_character: bool = not character_name.is_empty() and character == null and player != null
+	if new_character:
+		character = CharacterSave.from_inventory(character_name, player.class_id(), player.inventory)
+	if not save_writes:
+		return
+	if not world_name.is_empty() and loaded == null:
+		_save_world("new")
+	if new_character:
+		_save_character("new")
+
+
+## Writes the open world and the open character now (`why`: quit, autosave, key, a test's; M13b: left, host_lost, ended). Returns whether
+## every file it wrote was written (false: nothing open, --no-save, or a write failed: logged, the files there as they were). M13b: in a
+## session the host writes its world (from its session's sims) and its own character; a client writes only its character, and only once
+## the host's first inventory message came (_character_live); a client never writes a world (the flags refuse --world with --join).
+func save_now(why: String) -> bool:
+	if not save_writes or not _started or (world_name.is_empty() and character_name.is_empty()):
+		return false
+	var ok: bool = true
+	if not world_name.is_empty() and net.role != NetSession.Role.CLIENT:
+		ok = _save_world(why) and ok
+	if not character_name.is_empty() and _character_live:
+		ok = _save_character(why) and ok
+	_since_save = 0
+	return ok
+
+
+## The open world's file now (WorldSave.capture of both maps and their sims; the live game untouched). M13b: a host's from its session's
+## maps and sims (SessionHost.live_world).
+func capture_world() -> PackedByteArray:
+	if net.host != null:
+		return WorldSave.capture(net.host.live_world(world_name, world_ticks))
+	var live: WorldSave.Live = WorldSave.Live.new()
+	live.name = world_name
+	for id: int in worlds:
+		var w: GameWorld = _live_world(id)
+		if w != null and w.data != null:
+			live.maps[id] = w.data
+			live.last_altar[id] = w.last_altar_rect
+	live.arenas = arenas
+	live.farms = farms
+	live.forests = forests
+	live.prayers = prayer.prayers if prayer != null else 0
+	live.deaths = deaths
+	live.ticks = world_ticks
+	return WorldSave.capture(live)
+
+
+func _save_world(why: String) -> bool:
+	var t0: int = Time.get_ticks_usec()
+	var bytes: PackedByteArray = capture_world()
+	var back: WorldSave.Saved = WorldSave.read(bytes)
+	if not back.ok() or not back.fitted.is_empty():
+		# Never a file its own reader refuses (it would replace a good one and rotate it into the backup), nor one this build's reader would
+		# have to fit (M13 review: this build writes only what it reads exactly): the files there are kept.
+		printerr("EVENSONG_SAVE error: world %s not saved (%s): the file would not load (%s); the files there are kept" % [world_name, why,
+			back.error if not back.ok() else "it would need fitting: " + "; ".join(back.fitted)])
+		return false
+	var err: String = SaveStore.write_atomic(saves.world_path(world_name), bytes, _rotate_world)
+	if not err.is_empty():
+		printerr("EVENSONG_SAVE error: world %s not saved (%s): %s" % [world_name, why, err])
+		return false
+	_rotate_world = true
+	print("EVENSONG_SAVE world saved name=%s why=%s bytes=%d ticks=%d ms=%.1f" % [world_name, why, bytes.size(), world_ticks,
+		(Time.get_ticks_usec() - t0) / 1000.0])
+	return true
+
+
+func _save_character(why: String) -> bool:
+	if player == null or not is_instance_valid(player):
+		return false
+	character = CharacterSave.from_inventory(character_name, player.class_id(), player.inventory)
+	var bytes: PackedByteArray = CharacterSave.encode(character)
+	var back: CharacterSave.Result = CharacterSave.read(bytes)
+	if not back.ok() or not back.fitted.is_empty():
+		printerr("EVENSONG_SAVE error: character %s not saved (%s): the file would not load (%s); the files there are kept" % [
+			character_name, why, back.error if not back.ok() else "it would need fitting: " + "; ".join(back.fitted)])
+		return false
+	var err: String = SaveStore.write_atomic(saves.character_path(character_name), bytes, _rotate_character)
+	if not err.is_empty():
+		printerr("EVENSONG_SAVE error: character %s not saved (%s): %s" % [character_name, why, err])
+		return false
+	_rotate_character = true
+	print("EVENSONG_SAVE character saved name=%s why=%s %s bytes=%d" % [character_name, why, character.describe(), bytes.size()])
+	return true
+
+
+## M13b: a session tick. A client's player holds its character as the host has it from the host's first inventory message on: then a
+## new character is written at once (its start kit is the host's) and from then on it is written like offline. The host's world ages and
+## both autosave every `autosave_ticks` of their own ticks.
+func _tick_session_saves() -> void:
+	if net.client != null and not _character_live and net.client.inventories > 0:
+		_character_live = true
+		if not character_name.is_empty() and character == null and save_writes:
+			_save_character("new")
+	if _left_save_due:
+		_left_save_due = false
+		save_now("left")  # M13 review: once for every client that left since the last tick
+	_tick_saves()
+
+
+## One offline tick (M13b: or session tick): the world's age (a client's world is the host's), the progress and relic writes (M13 review),
+## and the autosave every `autosave_ticks` of play.
+func _tick_saves() -> void:
+	if net.role != NetSession.Role.CLIENT:
+		world_ticks += 1
+	if not save_writes:
+		return
+	_tick_progress_saves()
+	if autosave_ticks <= 0:
+		return
+	_since_save += 1
+	if _since_save >= autosave_ticks:
+		save_now("autosave")
+
+
+## M13 review: offline and on a host the world (and the character) is written as soon as the world's progress changes (Config.SAVE_ON_PROGRESS:
+## the boss killed, the altar raised); a client writes its character as soon as the host's inventory raised its relics
+## (Config.SAVE_CLIENT_ON_RELIC). The first tick only takes the values (a loaded world's, a test's flags).
+func _tick_progress_saves() -> void:
+	if net.role == NetSession.Role.CLIENT:
+		if not Config.SAVE_CLIENT_ON_RELIC or not _character_live or character_name.is_empty() or player == null:
+			return
+		var relics: int = player.inventory.count_of(Config.BOSS_RELIC)
+		if _relics_seen >= 0 and relics > _relics_seen:
+			save_now("relic")
+		_relics_seen = relics
+		return
+	var progress: WorldProgress = world_progress()
+	if not Config.SAVE_ON_PROGRESS or progress == null or world_name.is_empty():
+		return
+	var now: int = progress.altar_tier * 2 + (1 if progress.boss_defeated else 0)
+	if _progress_seen >= 0 and now != _progress_seen:
+		save_now("progress")
+	_progress_seen = now
+
+
+## Quitting (the window closed, get_tree().quit(), --quit-after, a test freeing this Main): the open world and character are written once.
+func _exit_tree() -> void:
+	if _started and not _quit_saved:
+		_quit_saved = true
+		save_now("quit")

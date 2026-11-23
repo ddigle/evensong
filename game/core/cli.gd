@@ -6,7 +6,9 @@ extends Node
 ##   godot --path game res://scenes/world.tscn -- --seed=7 --screenshot=shots/world.png --frames=30
 ##
 ## Exit codes: 0 ok, 1 smoke check failed / screenshot not saved, 2 bad flags or --screenshot
-## with --headless.
+## with --headless. M13a (Main.open_saves): 2 also a --class / --seed that conflicts with a saved character / world, or a new
+## character without --class; Config.EXIT_SAVE_REFUSED (3) a saved world or character that does not load. --list-worlds /
+## --list-characters print the saves (list_saves) and quit 0.
 
 var options: CliOptions = CliOptions.new()
 
@@ -24,6 +26,10 @@ func _ready() -> void:
 		WorldSnapshot.chunk_bytes = options.test_snapshot_chunk_bytes
 	if options.test_shop_restock > 0:
 		Shop.restock_ticks = options.test_shop_restock  # M8b: the shop's restock period (offline and a host)
+	if options.list_worlds or options.list_characters:
+		list_saves(options)
+		get_tree().quit(0)
+		return
 	if options.smoke:
 		var report: Smoke.Report = Smoke.run(get_tree())
 		print(report.line())
@@ -37,6 +43,26 @@ func _ready() -> void:
 		_apply_scale(fitting_scale(DisplayServer.screen_get_usable_rect().size))
 	if not options.screenshot.is_empty():
 		_take_screenshot.call_deferred(options.screenshot, options.frames)
+
+
+## M13a: --list-worlds / --list-characters: one EVENSONG_SAVE line per saved world / character in the saves' folder (each file read and
+## checked as a start would: a file that does not load says why). Returns the lines (tests).
+static func list_saves(options: CliOptions) -> PackedStringArray:
+	var store: SaveStore = SaveStore.new(options.save_root())
+	var lines: PackedStringArray = ["EVENSONG_SAVE folder=%s" % store.shown_root()]
+	if options.list_worlds:
+		for name: String in store.world_names():
+			var s: WorldSave.Saved = WorldSave.load_from(store.world_path(name))
+			lines.append("EVENSONG_SAVE world name=%s %s" % [name, s.describe() if s.ok() else "does not load: " + s.error])
+		lines.append("EVENSONG_SAVE worlds=%d" % store.world_names().size())
+	if options.list_characters:
+		for name: String in store.character_names():
+			var r: CharacterSave.Result = CharacterSave.load_from(store.character_path(name))
+			lines.append("EVENSONG_SAVE character name=%s %s" % [name, r.character.describe() if r.ok() else "does not load: " + r.error])
+		lines.append("EVENSONG_SAVE characters=%d" % store.character_names().size())
+	for line: String in lines:
+		print(line)
+	return lines
 
 
 ## Largest integer scale of Config.VIEW_SIZE whose window fits `screen` (at least 1), capped at

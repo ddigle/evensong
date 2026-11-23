@@ -911,7 +911,7 @@ func _session_full() -> void:
 	if not check(port > 0, "full: free port"):
 		return
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=8", "--net-expect=8",
-		"--net-expect-refused=1", "--bot=" + FULL_BOT])
+		"--net-expect-refused=1", "--bot=" + FULL_BOT, "--test-duplicate-classes"])  # M13b: nine players, five classes (● 9 is structure only)
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "full: host listens"):
 		await _reap()
 		return

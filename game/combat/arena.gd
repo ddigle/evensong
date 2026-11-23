@@ -275,6 +275,9 @@ var _synced_altar: Rect2i = Rect2i()
 var _synced_corruption: int = 0
 ## M12a: the altar tier they were last worked out for (WorldProgress).
 var _synced_tier: int = 0
+## M13 review: the dungeon's walls and placeables the dungeon's spawn tiles were last worked out for (dungeon_terrain_key: mining opens new
+## floor and new ways from the arrival).
+var _synced_terrain: int = 0
 ## M9a: threat on (the offline game's arenas; off: the M4 nearest rule, a session's host until M9c), and the skills' bursts
 ## being shown.
 var threat_on: bool = false
@@ -327,6 +330,7 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 	_synced_altar = data.altar_rect
 	_synced_corruption = Purify.corrupted_count(data)
 	_synced_tier = WorldProgress.tier_of(data)
+	_synced_terrain = dungeon_terrain_key(data) if map_id == Config.MAP_DUNGEON else 0
 
 
 ## M5b: the world the arena reads changed where it caches: the altar moved (picked up: no light; put down: a new light)
@@ -343,6 +347,7 @@ func setup(p_data: WorldData, world_seed: int) -> void:
 func sync_world() -> bool:
 	if data == null:
 		return false
+	_sync_dungeon_terrain()
 	var corrupted: int = Purify.corrupted_count(data)
 	var tier: int = WorldProgress.tier_of(data)
 	if data.altar_rect == _synced_altar and corrupted == _synced_corruption and tier == _synced_tier:
@@ -362,6 +367,27 @@ func sync_world() -> bool:
 				count("lit_out")
 	count("world_synced")
 	return true
+
+
+## M13 review: the dungeon's spawn tiles follow its terrain as mining leaves it (dungeon_spawn_cells reads the generator's walls and the walk
+## from the arrival): worked out again whenever its walls or placeables changed (dungeon_terrain_key; building changes the key too and gives
+## the same tiles, terrain_blocked leaving what players build out). Before, they stayed as at setup: a mined dungeon spawned from stale tiles
+## (new floor never, and tiles a new tunnel brought near the arrival still), and a world opened from its file (which works them out on the
+## mined map) spawned elsewhere than the one that never stopped.
+func _sync_dungeon_terrain() -> void:
+	if map_id != Config.MAP_DUNGEON:
+		return
+	var key: int = dungeon_terrain_key(data)
+	if key == _synced_terrain:
+		return
+	_synced_terrain = key
+	spawn_cells = dungeon_spawn_cells(data)
+	count("terrain_synced")
+
+
+## M13 review: what the dungeon's spawn tiles depend on (its walls and its placeables), as one number.
+static func dungeon_terrain_key(d: WorldData) -> int:
+	return hash([d.layers[WorldData.Layer.WALL], d.layers[WorldData.Layer.PLACEABLE]])
 
 
 ## Counter `key` (0 when it never counted).

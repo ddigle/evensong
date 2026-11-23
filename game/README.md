@@ -41,6 +41,9 @@
 그 위에 **M12 보스 그림**(2026-11-21, 03-pixel PixelLab 17차 시트로, 브랜치 `art/boss-leader`)을 더했다: 코드 그림 보스(이단 시트 파생 + 주교관·코드 지팡이)를 `art/enemies/boss_leader_v02_{walk,idle,attack,hurt,death,cast}.png`와 불꽃 마스크 `_emissive`(= `assets/concept/03-pixel/`의 같은 이름, 채택 후보)로 바꾸고, 화염 일제·불바닥은 새 시전 시트로(클레이브는 휘두르기 시트), 불꽃 픽셀을 unshaded로 다시 그리고 주황 빛을 그 프레임의 불꽃에 두며, 판정 상자를 M11a 규칙으로 새 그림에 맞췄다(`BOSS` 높이 40 → 45, 반경 10 → 13). 그림과 상자뿐이라 시뮬레이션·전송 형식 v14·월드 해시·`test_boss_keeps` digest는 그대로다(아래 "M12 보스 그림")
 그 위에 **M12 보스 그림 다시 뽑기 (v03)**(2026-11-21, 사람이 승인한 PixelLab 17차 다시 뽑기 5회, 브랜치 `art/boss-retake`)를 더했다: 보스 시트를 `art/enemies/boss_leader_v03_*`(v02에서 공격 남·시전 동·피격 북·사망 남 네 줄만 다시 뽑은 것, 나머지 14줄은 v02와 픽셀까지 같음)로 바꾸고 v02 사본을 지웠으며, 공격 남의 맞는 열을 3 → 5로 다시 골랐다(그림만: 타격 틱에 화로가 오른쪽 아래에서 보이고 그 뒤 앞의 부채꼴 위를 지남. 처음 고른 6은 타격 틱의 화로가 남쪽 대상에 가려 검토 반영에서 5로). 시전 남은 다시 뽑았지만 v02 줄 그대로다(2026-11-23 사람이 다시 뽑은 줄로 바꿈: 아래 줄). 시뮬레이션·전송 형식 v14·월드 해시·`test_boss_keeps` digest·판정 상자 45 × 26 그대로(아래 "M12 보스 그림"의 "다시 뽑기 (v03)"). 같이 사람이 고른 "M12 철광석"의 길을 이 README에 적었다(값은 그대로)
 그 위에 **M12 보스 그림 시전 남 바꾸기**(2026-11-23, 사람이 "시전 남은 다시 뽑은 판으로 바꿔"라고 정함, 생성 0회, 브랜치 `feat/boss-cast-south`)를 더했다: v03 시전 시트의 남 줄을 art 스크립트에 준비해 둔 다시 뽑은 줄(`CAST_SOUTH_R2`: 지팡이를 곧게 든 예고, 곧은 몸 앞 땅의 불기둥)로 바꿔 시전 시트·마스크를 다시 복사하고, 시전 남의 맞는 열을 4 → 3으로 바꿨다(그림만). 예고 장이 1배에서 서 있는 그림과 가깝다는 흠은 사람이 듣고 골랐다. 시뮬레이션·전송 형식 v14·월드 해시·`test_boss_keeps` digest·판정 상자 45 × 26 그대로(아래 "M12 보스 그림"의 "시전 남을 다시 뽑은 줄로")
+그 위에 **M13a "저장: 월드 파일 · 캐릭터 파일"**(혼자 할 때 먼저. ● R54 사람이 2026-11-23 정함: 영속 월드, 캐릭터는 각자 기기에 여러 개, 클래스 고정. 세션은 M13b까지 그대로이고 `--world`·`--character`를 세션에서 거부한다)를 더했다: `--world=<이름>`은 저장된 월드를 열거나(없으면 `--seed`로 만들어 바로 씀) `--character=<이름>`은 저장된 캐릭터로 놀거나(없으면 `--class`로 만듦, 다른 `--class`는 오류) 하고, 플래그가 없으면 오늘과 같다(저장 안 함). 월드 파일(`core/world_save.gd`, "EVSW" 판 1, 두 지도의 늦은 참가 스냅샷 바이트를 zstd로 + 모든 sim 상태 + md5, 시드 1의 새 월드 3.5 KB)은 타일·드롭과 다음 번호·창고·상점 재고와 시계·희귀 구역·컬렉션·티어·보스 처치와 자는 보스의 기둥·밭의 시간·나무와 그루터기·이단·생물·난수열 넷·기도 횟수·사망 수를 담고, 열면 "모든 플레이어가 막 떠난 순간"(M4-fix 빈 지도 규칙: 싸우던 보스는 잠, 든 제단은 내려놓음, 사람 번호는 지움)이다. 캐릭터 파일(`core/character_save.gd`, 손으로 고칠 수 있는 JSON)은 클래스·인벤토리와 핫바·갑옷과 내구도·돈·얻어 본 것을 담는다. 끝낼 때·5분마다·F9에 쓰고, 안전하게 쓰며(`.tmp` → 다시 읽어 비교 → `.bak` 하나), 깨진 파일은 백업으로, 모두 깨지면 종료 3으로 거부한다. 폴더는 `%APPDATA%\Evensong\saves`(사용자 폴더 이름 "Evensong"), `--list-worlds`·`--list-characters`로 본다. 쓰기 전에 그 파일을 읽어 보고 통과하지 못하면 쓰지 않는다. 시험 둘(왕복, 놀아 본 뒤 멈추지 않은 월드와 바이트까지 같음, 월드 파일 거부 34가지·캐릭터 파일 거부 40가지, 실제 게임 일곱 번), 일부러 깨 본 것 열하나. [M13a: 저장](#m13a-저장-월드-파일--캐릭터-파일-혼자-할-때-먼저).
+그 위에 **M13b "세션의 저장 · 각자의 캐릭터 · 한 세션에 같은 클래스 한 명 · 넷"**(● R54 사람이 2026-11-23 정함)을 더했다: 호스트는 `--host --world=<이름> --character=<이름>`으로 자기 월드를 열고(세션의 sim이 저장한 상태를 받음) 끝낼 때·세션 끝·클라이언트가 나갈 때·5분마다·F9에 쓴다. 참가자는 `--join=<주소> --character=<이름>`으로 자기 기기의 캐릭터를 데려온다: hello 바로 앞에 캐릭터(시트, 최대 172 B)를 보내고 호스트가 판 → 클래스 → 시트(아는 아이템, 묶음 크기 안의 수, 등급, 내구도, 칸, hello와 같은 클래스)를 보고 틀리면 이유와 함께 `character`로 거부(잘라 맞추지 않음), 받으면 그때부터 호스트가 가진다. 참가자는 호스트의 인벤토리 메시지(얻어 본 아이템 비트를 더함)로 자기 캐릭터를 쓴다(첫 메시지 전에는 쓰지 않음, 나갈 때·끝·호스트를 잃을 때·5분·F9), 월드는 쓰지 않는다(`--join`의 `--world`는 오류). **한 세션에 같은 클래스 한 명**(`Config.NET_UNIQUE_CLASSES` 켬): 연결된 사람(호스트 포함)의 클래스로 오면 `class_taken`과 차지한 클래스·자유 클래스를 콘솔 한 줄로, 나가면 빈다(9인 구조 등 시험만 `--test-duplicate-classes`). 전송 형식 **v15**(새 RPC `_rpc_sheet`가 `_rpc_refused` 뒤에 정렬: v14와 양쪽 방향 `refused: version`, 실제 프로세스로 확인). 시험 셋(`test_net_saves.gd` 한 프로세스, 실제 세션 `keep`(나갔다 다시, 호스트 재시작, 호스트를 잃음)·`quartet`(넷이 연 월드에서 기도·보스, 다섯째 거부·자유 클래스 받음, 넷의 트래픽)), 일부러 깨 본 것 열둘, 사람이 넷이서 해 볼 명령과 판정 체크리스트. [M13b: 세션의 저장](#m13b-세션의-저장--각자의-캐릭터--한-세션에-같은-클래스-한-명--넷), [넷이 하기](#넷이-하기-m13b-저장한-월드와-각자의-캐릭터-사람이-할-것).
+그 뒤 **M13 검토 반영**(2026-11-23, 아래 [검토 반영 (M13)](#검토-반영-m13-2026-11-23)): 클라이언트가 나갈 때 요청 `LEAVE`를 보내고 호스트의 확인 뒤에 쓴다(오가던 요청의 아이템이 두 파일에 다 있던 복사, 창의 닫기 단추도 같은 길, 다운이면 먼저 죽음), 컬렉션은 그 월드에서 얻은 것만, 호스트의 월드 나이·죽은 보스의 기둥·채굴한 던전의 스폰 자리를 이어서, 임시값을 바꾼 뒤의 옛 저장을 맞춰 열기(커밋한 시험 파일), 진행·성유물을 바로 저장, 잘린 첫 쓰기, 목록 플래그 충돌. 전송 형식은 v15 그대로(요청 하나 더, 새 RPC 없음).
 
 기준 문서: `docs/game-concept.md` §2 §3 §7 §9.3 §9.7 §10 §11 §12 §13, `docs/gameplay-design.md` §1 §2.1 §2.2 §2.3 §2.4 §2.5 §2.6 §3.0 §3.1 §3.2 §3.4 §3.5 §3.8 §5 (M4b: §2.1 실시간·에임형, §2.6 사망 흐름, §3.0 팔라딘 줄, §3.1 ○ "타일 동기화가 던전 안 인원끼리만", game-concept §13 호스트 권한. M6a: §1 ○ "Tab 인벤토리·제작", §2.2 ? 스킬 킷과 ○ 약초사 정체성 스킬 = 약제 투척, §2.4 ○ 상태이상, §3.0 ● R11 약초사 줄, §3.4 ● 상급, §3.5 ○ 제작·해금, game-concept §9.7 ○ 조제대, §12 ● 작물 셋 R28. M6b: game-concept §13 ● 호스트 권한, §2.6 ● 소생(던진 회복과의 관계), 나머지는 M6a와 같음), `docs/concept-art-brief.md` §4 §5.6 §5.7(M6a: ● R29 물약 색), `assets/concept/03-pixel/prompts.md`(8~12차, 몸 동작. M4a: 8차 피격·사망, 13차 이단과 "M4에 넘길 것"), `assets/concept/04-env/prompts.md`("본 제작", 채집물, M3a: 던전 바닥↔벽 타일, 광맥, 벽 금, 던전 입구, 이단의 제단, 소품. M6a: 조제대 v05, 작은 것 묶음 `items_v04_strip`의 물약).
 M5a 기준 문서: `docs/game-concept.md` §9.3(● 제단 = 빛·안전 반경, 위치·이동 자유), §9.7(○ 농사 줄기, 밭은 빛 안에서만, 시듦과 되살아남, 밭은 남음, R37 슬라이스 줄), §10(톤 이원화), §11, §12(● 작물 셋 R28, ● R37 누가 무엇을 심나), `docs/gameplay-design.md` §1(○ 키), §2.6, §3.0(● R11 약초사·팔라딘 줄), §3.4(● 상급), §3.7(○ 정화: M5b), §3.8(○ 농사, ● R37 줄), `docs/concept-art-brief.md` §5.7(● R28 작물, ● R29 시든 작물·물 준 흙 칸별 덧칠·독초 색), `assets/concept/04-env/prompts.md`(1차 시험 손질: 흙 v03·물 준 흙·흙 변형, `crops_v03`, 씨앗 봉투 #18~#20).
@@ -61,6 +64,7 @@ M11b 기준 문서: `docs/game-concept.md` §2(컬렉션 줄), §3(아처 줄: �
 M11c 기준 문서: M11a·M11b와 같음 + `docs/game-concept.md` §13(● 호스트 권한, ○ 늦은 참가 스냅샷).
 M12a 기준 문서: `docs/game-concept.md` §6(○ 1단계 이단, 첫 보스 = 이단의 지도자), §9.2(공동 트랙 = 제단 진행, 보스 = 문), §9.3(● R49 제단 진행 조건 = 보스 드롭 하나·업그레이드 1단계 candA, ○ 안전 반경이 티어가 오르면 넓어짐), §10(팔레트: 악마 = 응고된 피·주홍·불), §11·§12(● 보스 1개 이단의 지도자, ● R49 광부 지형 요소 = 금 간 받침 기둥, 제단 배치 + 업그레이드 1단계 + 빛 반경), `docs/gameplay-design.md` §2.3(○ 위협), §2.4(○ 군중 제어), §2.6(○ 장착·퀘스트 아이템은 가방 밖), §3.0(● R11 광부 줄 클래스 전용 "보스전 지형 상호작용", 3단 접근: 진행은 막히지 않음), §3.1, §4(● R49 해금 줄), §5(○ 보스 드롭은 인원수만큼 분배), `docs/concept-art-brief.md` §5.7(● R49 candA·candB·기둥 4단계), `assets/concept/04-env/prompts.md`(본 제작의 기둥·불꽃·후보 시트).
 M12c 기준 문서: M12a와 같음(`docs/game-concept.md` §6, §9.2, §9.3 ● R49 진행 조건 = 보스 드롭·○ 티어가 오르면 넓어지는 안전 반경, §10 팔레트, §11, §12 ● 보스 1개·● R49 광부 지형 요소; `docs/gameplay-design.md` §2.3 ○ 위협, §2.4, §2.6 ○ 사망 가방에서 퀘스트 아이템 제외, §3.0 ● R11 광부 줄의 클래스 전용 칸, §3.1, §4 ● R49 해금 줄, §5 ○ 보스 드롭은 인원수만큼; `docs/concept-art-brief.md` §5.7 ● R49) + `docs/game-concept.md` §13(● 호스트 권한, ○ 늦은 참가 스냅샷).
+M13a·M13b 기준 문서: `docs/game-concept.md` §2(월드·역할 줄 ● R54), §7(R54의 세 결정), §11(저장 = 슬라이스, Steam = 판정 뒤), §12(● 저장 R54, 2인 → 4인, 9인은 구조만, 판정 기준), §13(● 호스트 권한, 늦은 참가 스냅샷); `docs/gameplay-design.md` §4(세션 흐름, 혼자 접속한 날), §5(● R54, 드롭인·드롭아웃, 공유 창고·개인 인벤토리, 부활 지점), §6.
 문서의 ●는 그대로 따르고, ○·?는 정하지 않고 [임시값](#임시값-사람-확인-필요)으로 둔다.
 
 ## 준비
@@ -94,7 +98,7 @@ timeout 300 "$GODOT" --headless --path game --import < /dev/null
 timeout 1800 "$GODOT" --headless --path game --script res://tests/run_all.gd < /dev/null
 ```
 
-- 출력: 첫 줄 `EVENSONG_TESTS start: 27 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24, M5c: 27, M7a: 30, M7b: 32, M7c: 35. 전체가 M7b까지 약 365~400초, M7c에서 약 510초(실제 세션 둘이 약 70초 더함), M7-fix에서 약 457초, M7-rf에서 약 485~505초(파일 수 그대로, checks 29,093), M7-rf 검토 반영 뒤 약 510~525초(checks 29,144), M8a: 37파일(checks 29,707, 약 460초), M8b: 40파일(checks 30,175, 약 535초: 실제 세션 둘이 약 60초 더함), M8 검토: 40파일(checks 30,230, 약 560~590초), M9a: 41파일(checks 30,671, 약 630~645초. 이 기기가 그때 느렸다: 아래 "측정"의 M9a), M9b: 42파일(checks 31,376, 약 560~595초), M9c: 44파일(checks 31,841, 약 590~595초: 실제 세션 `rites`·`chant`가 약 46초 더함), M9 검토: 45파일(checks 31,939, 약 600초), M10a: 47파일(checks 32,833, 약 650초: `net_session`이 홀로 100~117초라 파일 하나 제한 120초에 가깝다. 다른 무거운 일과 같이 돌리지 않는다), M10b: 50파일(실제 세션 `vigil` 약 50초·`litany`+`silent` 약 80초를 더함, 아래 "측정"의 M10b), M10 검토: 50파일(checks 33,843, 약 740~770초), M11a: 52파일(checks 35,472, 약 805~837초), M11b: 55파일(checks 46,594, 약 777~807초), M11c: 58파일(checks 47,635, 약 898~914초: 실제 세션 `hunt`·`snare`·`wilds`·`herd`가 약 105초 더함), M11 생물 그림: 58파일(checks 48,051, 약 920초), M11 생물 그림 검토: 58파일(checks 48,085, 약 1,060~1,130초: 이 기기가 다른 일로 바빴다, 아래 "측정"), M12a: 62파일(checks 50,157, 약 930초), M12b: 65파일(checks 52,696, 약 980초), M12c: 67파일(checks 53,288, 약 1,040초: 실제 세션 `leader`·`altar`가 약 60초 더함), M12 검토: 67파일(checks 53,548, 약 1,030초), M12 보스 그림: 68파일(checks 54,519, 약 1,022~1,027초), M12 보스 그림 검토: 68파일(checks 54,557, 약 1,023~1,072초), M12 보스 그림 다시 뽑기 v03: 68파일(checks 54,574, 약 1,010초), 그 검토 반영: 68파일(checks 54,577, 약 1,015초), 시전 남 바꾸기(2026-11-23): 68파일(checks 54,581, 약 1,015초), 그 검토 반영: 68파일(checks 54,582, 약 1,009~1,029초)이라 위 명령의 `timeout`은 900이면 빠듯하다: 1800으로 돌린다)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
+- 출력: 첫 줄 `EVENSONG_TESTS start: 27 file(s) in res://tests, ports 24621-24640`(M6a: 19, M6b: 21, M5a: 22, M5b: 24, M5c: 27, M7a: 30, M7b: 32, M7c: 35. 전체가 M7b까지 약 365~400초, M7c에서 약 510초(실제 세션 둘이 약 70초 더함), M7-fix에서 약 457초, M7-rf에서 약 485~505초(파일 수 그대로, checks 29,093), M7-rf 검토 반영 뒤 약 510~525초(checks 29,144), M8a: 37파일(checks 29,707, 약 460초), M8b: 40파일(checks 30,175, 약 535초: 실제 세션 둘이 약 60초 더함), M8 검토: 40파일(checks 30,230, 약 560~590초), M9a: 41파일(checks 30,671, 약 630~645초. 이 기기가 그때 느렸다: 아래 "측정"의 M9a), M9b: 42파일(checks 31,376, 약 560~595초), M9c: 44파일(checks 31,841, 약 590~595초: 실제 세션 `rites`·`chant`가 약 46초 더함), M9 검토: 45파일(checks 31,939, 약 600초), M10a: 47파일(checks 32,833, 약 650초: `net_session`이 홀로 100~117초라 파일 하나 제한 120초에 가깝다. 다른 무거운 일과 같이 돌리지 않는다), M10b: 50파일(실제 세션 `vigil` 약 50초·`litany`+`silent` 약 80초를 더함, 아래 "측정"의 M10b), M10 검토: 50파일(checks 33,843, 약 740~770초), M11a: 52파일(checks 35,472, 약 805~837초), M11b: 55파일(checks 46,594, 약 777~807초), M11c: 58파일(checks 47,635, 약 898~914초: 실제 세션 `hunt`·`snare`·`wilds`·`herd`가 약 105초 더함), M11 생물 그림: 58파일(checks 48,051, 약 920초), M11 생물 그림 검토: 58파일(checks 48,085, 약 1,060~1,130초: 이 기기가 다른 일로 바빴다, 아래 "측정"), M12a: 62파일(checks 50,157, 약 930초), M12b: 65파일(checks 52,696, 약 980초), M12c: 67파일(checks 53,288, 약 1,040초: 실제 세션 `leader`·`altar`가 약 60초 더함), M12 검토: 67파일(checks 53,548, 약 1,030초), M12 보스 그림: 68파일(checks 54,519, 약 1,022~1,027초), M12 보스 그림 검토: 68파일(checks 54,557, 약 1,023~1,072초), M12 보스 그림 다시 뽑기 v03: 68파일(checks 54,574, 약 1,010초), 그 검토 반영: 68파일(checks 54,577, 약 1,015초), 시전 남 바꾸기(2026-11-23): 68파일(checks 54,581, 약 1,015초), 그 검토 반영: 68파일(checks 54,582, 약 1,009~1,029초), M13a: 70파일(checks 54,920, 약 1,040~1,043초: `test_save_main`의 실제 게임이 약 17초 더함), 그 검토 반영: 70파일(checks 55,002, 약 1,047초), M13b: 73파일(checks 55,478, 약 1,157초: 실제 세션 `keep`·`quartet`이 약 113초 더함. 후속의 `close`·지상 비교로 checks 55,497, `net_keep` 약 72초)이라 위 명령의 `timeout`은 900이면 빠듯하다: 1800으로 돌린다)(이 실행이 쓰는 테스트 포트 묶음, 아래 "테스트 포트"), 파일마다 `PASS test_x.gd (n checks, ms)` 또는 `FAIL ...`과 실패 한 줄씩(`  - `), 측정값(`  * `), 경고(`  ! `). 끝에 `EVENSONG_TESTS done: ...`
 - 종료 코드: 모두 통과 0, 하나라도 실패 1 (불러오기 실패·시간 초과·테스트 파일 없음·시작 중 오류·마지막 파일 뒤 오류도 1)
 - 통과하는 실행에도 오류 묶음이 **8개** 찍힌다. 모두 테스트가 `allow_error()`로 미리 알리고 일부러 낸 것이다 (각 묶음 아래 `at:`·backtrace 줄이 붙는다):
   - `ERROR: Character: unknown class 'wizard'` 1개: `test_actors.gd`가 모르는 클래스 이름을 거부하는지 확인
@@ -161,6 +165,9 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_vigil,net_litany < /dev/null   # M10b 실제 세션 vigil / litany·silent (약 50초 + 80초)
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_wild < /dev/null      # M11c 한 프로세스 사냥·포획·컬렉션 (약 10초)
 timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_hunt,net_herd < /dev/null   # M11c 실제 세션 hunt·snare / wilds·herd (약 50초 + 55초)
+timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_saves < /dev/null     # M13b 한 프로세스 캐릭터·같은 클래스·호스트가 연 월드 (약 2초)
+timeout 400 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_keep,net_quartet --timeout=300 < /dev/null   # M13b 실제 세션 keep·close·inflight(M13 검토) / quartet (약 86초 + 66초)
+timeout 400 "$GODOT" --headless --path game --script res://tests/run_all.gd -- --only=net_keep,net_quartet --timeout=300 --net-exe=build/evensong.console.exe < /dev/null   # 자식을 내보낸 exe로
 ```
 
 - `test_net.gd`: 전송 형식(왕복, 잘린 패킷 전부, 무작위 바이트 2,000개), 인원 상한(진짜 9명: 10번째 거부, 빈 자리 다시 쓰기), 호스트 입력 검사(순서·중복·속도 제한·고르게 적용·따라잡기는 틱당 4개까지, 실제 시간 시계 `InputGate.ticks_between`과 그 시계로 두 배 빨리 보내는 클라이언트, 호스트가 1초 멈췄다 따라잡기를 두 순서로: 물리 틱 안에서 멈춤 / 틱 밖에서 멈춰 Godot이 따라잡기 틱 뒤에 네트워크를 읽음, 멈춤 크레딧이 쌓이지 않고 사라짐), 호스트가 바라보기를 방향에서 정하기(클라이언트 예측과 프레임마다 같음), 호스트의 묶음/키프레임/조용함 판단, 클라이언트 예측을 지연·손실 있는 가짜 연결로 호스트와 맞춰 보기(지연 0·5·9틱, 손실 0·25%, 위치와 바라보기), 보간, 월드 스냅샷(여섯 레이어 왕복, 조각 크기·순서·틱당 개수, 받는 쪽 검사: 빠진 조각·바뀐 바이트·다른 월드·크기, 크기 상한 `MAX_SIDE`·`MAX_PACKED`, 크기·md5가 맞는 무작위 조각도 풀기 단계에서 거부), 스냅샷 뒤의 편집 기록, 스냅샷 크기와 참가 시간(128×96, 512×512 합성, 512×512 무작위), 봇 스크립트, CLI, RPC 표(누가 부를 수 있는지·채널·신뢰성), 전송(ENet 호스트+참가를 한 프로세스에서, 양쪽 연결의 패킷 조절 설정, Steam은 신호로 unavailable)
@@ -171,6 +178,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
 - `test_skills_review.gd` (M9 검토): 검토 지적의 고침을 혼자 할 때와 한 프로세스 세션 리그에서(`test_net_skills.gd`를 이어 씀, 아래 "검토 반영 (M9)")
 - `test_net_prayer.gd`·`test_net_vigil.gd`·`test_net_litany.gd` (M10b): 한 프로세스와 실제 세션의 기도(아래 "M10b: 세션의 기도"의 "시험"). 실제 세션 둘은 `test_net_session.gd`의 도구를 쓰고, 파일마다 120초 제한 안에 들게 `silent`를 `litany` 파일에 두었다(`--net-sessions=vigil`·`litany,silent`로 고름)
 - `test_net_wild.gd`·`test_net_hunt.gd`·`test_net_herd.gd` (M11c): 한 프로세스와 실제 세션의 사냥·포획·컬렉션(아래 "M11c: 세션의 사냥 · 포획 · 컬렉션"의 "시험"). 실제 세션 둘은 `test_net_session.gd`의 도구를 쓰고(`--net-sessions=hunt,snare`·`wilds,herd`), 파일마다 120초 제한 안에 든다. 모든 세션 시험 인스턴스는 `--test-no-creatures`로 뜨고 이 파일들만 무리를 켠다(`_launch`의 `creatures`)
+- `test_net_saves.gd`·`test_net_keep.gd`·`test_net_quartet.gd` (M13b): 한 프로세스와 실제 세션의 저장·캐릭터·같은 클래스·넷(아래 "M13b: 세션의 저장 · 각자의 캐릭터 · 한 세션에 같은 클래스 한 명 · 넷"의 "시험"). 실제 세션 둘은 `test_net_session.gd`의 도구를 쓰고(`--net-sessions=keep`·`close`·`inflight`(M13 검토)·`quartet`), 인스턴스마다 실행 폴더 안의 자기 저장 폴더(`--save-dir`, "기기" 하나)를 쓴다: 사람의 `%APPDATA%\Evensong\saves`에는 쓰지 않는다. `quartet`은 약 66초라 파일 하나 기본 제한 120초 안이다
 - `test_net_build.gd`·`test_net_house.gd`·`test_net_stock.gd` (M7c): 한 프로세스와 실제 세션의 작업대·장비·창고·건설·나무(아래 "M7c: 세션의 작업대 · 장비 · 창고 · 건설 · 나무"의 "시험"). `test_net_house.gd`(`house`)와 `test_net_stock.gd`(`stock`)는 `test_net_session.gd`의 도구로 돈다
 - `test_net_fields.gd`·`test_net_farm.gd`·`test_net_purify.gd` (M5c): 한 프로세스와 실제 세션의 농사·정화·제단(아래 "M5c: 세션의 농사 · 정화 · 제단"의 "시험"). `test_net_farm.gd`(`farm`·`farm4`)와 `test_net_purify.gd`(`purify`·`altar`)는 `test_net_session.gd`의 도구로 돌고, 파일 하나 제한 120초 안에 들게 둘로 나눴다
 - `test_net_potions.gd`·`test_net_brew.gd` (M6b): 한 프로세스와 실제 세션의 제작·물약(아래 "M6b: 세션의 제작 · 물약"의 "시험"). `test_net_brew.gd`는 `test_net_session.gd`의 도구로 `brew`·`brew4`(약 55초, 파일 하나 제한 120초 안)
@@ -184,7 +192,7 @@ timeout 300 "$GODOT" --headless --path game --script res://tests/run_all.gd -- -
   - `four`에 더한 것 (M3b): M2b 경주 뒤 c2(아처)와 c3(성직자)가 곡괭이(`--give`)를 들고 내려가(32바이트 조각이라 던전이 10조각·2틱) 같은 바위를 두 쪽에서(c3은 그 앞면을) 친다: 정확히 한 번 깨지고, 돌은 깬 쪽 하나에. c4는 둘이 아래일 때 늦게 참가해 둘을 그리지 않는다
   - `--net-full`(선택): 진짜 상한 9명 = 호스트 + 클라이언트 8, 열 번째 거부. 프로세스 10개라 기본에서는 뺐다
   - (M4b) 모든 세션 인스턴스가 `--test-no-spawns`로 뜬다: M2b·M3b 세션은 하던 것만 본다(이단이 끼어들면 위치·예측·거부 검사가 흔들린다). 싸움은 `test_net_fight.gd`의 `fight`·`fight4`가 `--test-heretic`으로 놓은 이단으로 본다
-- 자식 프로세스 로그(`--log-file`)에 `ERROR:` 줄이 하나라도 있으면 실패. 끝까지 남은 프로세스는 죽이고 실패. 통과하면 실행 폴더(`%APPDATA%/Godot/app_userdata/Evensong/net_test/run_*`)를 지우고, 실패하거나 `--net-keep`이면 남긴다 (로그·결과 JSON·표시 파일)
+- 자식 프로세스 로그(`--log-file`)에 `ERROR:` 줄이 하나라도 있으면 실패. 끝까지 남은 프로세스는 죽이고 실패. 통과하면 실행 폴더(`%APPDATA%/Evensong/net_test/run_*`, M13a 전에는 `%APPDATA%/Godot/app_userdata/Evensong/...`: 사용자 폴더 이름 "Evensong")를 지우고, 실패하거나 `--net-keep`이면 남긴다 (로그·결과 JSON·표시 파일)
 - 포트는 러너의 테스트 포트 묶음(위 "테스트 포트") 안에서 세션마다 빈 것을 찾는다
 
 ### 타일셋 다시 만들기
@@ -227,6 +235,8 @@ timeout 60 game/build/evensong.console.exe --headless -- --smoke < /dev/null
 - M11c: `dungeon_map=325B`(스냅샷의 구역·컬렉션 표시 2B), `items=60`, `chain=28/7`, `shop=67,50/13/9`, `herd=13/5 hunt=2/1` 뒤에 ` wild_wire=11B/10B/135B/6B zone_snapshot=11B`(CAPTURE 11B = 프레임 번호·op 바이트 포함, 생물 10B, 상한 13마리 묶음 135B, 컬렉션 6B, 스냅샷의 구역 + 컬렉션 11B), `rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8`, `snapshot=663B/86056B`, `shop_wire=8B/11B/8B/663B`, `net=v13`, 끝이 `checks=508`다. 내보낸 exe의 줄은 아래 "측정"의 M11c
 - M12a·M12c: `items=61`, `chain=29/7`, `collection=1/8` 뒤에 ` boss=47,33/11x9/4 cleave=36/22 relic=1 tier1=144`(M12a) ` boss_wire=17B/18B/19B/19B/9B/8B site=37B boss_net=0/0/3000:3000 relics=1 tier=1`(M12c: 보스 블록 17B, 공격 사건 18B, 볼트 19B, 불바닥 19B, 기둥 사건 9B, 월드 메시지 8B, 진행 블록 + 보스 자리 37B, 클라이언트가 그린 보스 HP/호스트 HP/기둥 그림 상태, 성유물 하나, 월드 메시지의 티어), `dungeon_map=320B`·`snapshot=663B/86058B`·`builds_wire=85B/638B/38B`·`shop_wire=8B/11B/8B/665B`(스냅샷 끝의 진행·보스 자리 표시 2B), `net=v14`, 끝이 `checks=532`다. 내보낸 exe의 줄은 아래 "측정"의 M12c
 - M12 검토: `shop=67,50/14/9`(상인의 철광석, 항목 열넷). 나머지는 M12c의 줄 그대로(아래 "측정"의 M12 검토)
+- M13b: `lag=30` 뒤에 ` save=1855B/703B sheet=99B class_rule=5/5/1`(메모리에서 쓰고 다시 읽은 시드 1의 맨 월드 파일·캐릭터 파일 바이트, 한 캐릭터의 시트 바이트, ● R54 명단: 다섯이 들어오고 / 다섯 클래스 모두 둘째는 `class_taken` / 나간 클래스에 다른 사람이 들어옴), `net=v15`, 끝이 `checks=536`다. 내보낸 exe의 줄은 아래 "M13b"의 측정
+- M13 검토: `save=1859B/703B`(맨 월드 파일 +4 B: MAP 칸 둘의 창고 칸 수·offer 수). 나머지는 그대로(아래 "측정"의 M13 검토)
 
 ### 실행
 
@@ -266,6 +276,8 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 "$GODOT" --path game -- --class=herbalist --test-at=63,56 --test-heretic=63,59 --test-ally=paladin --give=wild_healing:6 --test-select=8   # M9b: 2 = 휩쓸기(넓은 호, 둔화: 머리 위 쇠빛 아래 화살), R = 회복 안개(회복 약초 셋, 커서 자리에 5초 구름)
 "$GODOT" --path game -- --class=cleric --test-at=63,49 --test-resource=100 --test-ally=paladin,archer,miner --test-pray=c,lc,c --test-no-spawns   # M10a: 성직자(제단 바로 남쪽, 신앙 100)와 동료 셋. F를 짧게 = 기도 시작(동료는 모이기에 스스로 참여), HUD에 큰 화살표가 뜨면 그 W A S D. 동료: 팔라딘 늘 맞음, 아처 늦음 다음 맞음, 광부 맞음
 "$GODOT" --path game -- --class=paladin --test-at=63,49 --test-no-spawns   # M10a: 성직자 없이 F를 짧게 = 3초 묵상(움직이면 끊김), 끝나면 머리 위·HUD에 열정(칼) 표시
+"$GODOT" --path game -- --world=home --character=me --class=miner   # M13a: 저장되는 월드와 캐릭터(없으면 만듦, 있으면 엶. 끝낼 때·5분마다·F9에 씀)
+"$GODOT" --path game -- --list-worlds --list-characters             # M13a: 저장 폴더(%APPDATA%\Evensong\saves)와 목록
 ```
 
 - `main.tscn`(실행 장면): WASD 또는 방향키로 8방향 걷기, 카메라는 내 캐릭터 가운데(맵 밖은 안 보이게 가장자리에서 멈춤). 제단 둘레에 나머지 네 클래스가 제단을 보고 서 있다(움직이지 않는 더미, 표식 다섯 가지가 한 화면에 보이게)
@@ -310,7 +322,7 @@ timeout 60 "$GODOT" --headless --path game --quit-after 120 < /dev/null   # 그�
 - 두 창 모두 WASD/방향키로 걷는다(포커스가 있는 창만 키를 받는다). 창 제목에 `Evensong (host, paladin)` / `(client, cleric)`
 - 클라이언트에서 지연을 느껴 보려면 창 2에 `--net-lag=120 --net-loss=5` (왕복 120ms, 손실 5% 흉내). 자기 캐릭터는 바로 움직이고(예측), 호스트 캐릭터는 100ms 뒤에서 부드럽게 따라온다(보간)
 - 늦은 참가 보기: 창 1을 `-- --host --bot="wait:180;edit:62,50,soil"`로 띄우면(봇이 키 대신 움직인다) 3초 뒤 제단 아래 풀 한 칸이 흙이 된다. 그 뒤에 창 2를 띄우면 흙이 된 칸이 보인다. 참가자는 월드를 시드로 다시 만들지 않고 **호스트에게서 받는다**(아래 "네트워크"의 늦은 참가). 콘솔에 `welcome ... world_bytes=341 raw=73749 chunks=1 ... generator=match`
-- 셋 이상: 창 3, 4 ... 를 같은 `--join`으로. 9명까지, 열 번째는 "full"로 거부된다 (콘솔에 `EVENSONG_NET client ended reason="refused: full" code=3`)
+- 셋 이상: 창 3, 4 ... 를 같은 `--join`으로. 9명까지, 열 번째는 "full"로 거부된다 (콘솔에 `EVENSONG_NET client ended reason="refused: full" code=3`). **M13b부터 한 세션에 같은 클래스는 한 명**(● R54): 슬라이스는 클래스 다섯이라 서로 다른 클래스로 다섯까지, 같은 클래스는 `refused: class_taken (taken: ...; free: ...)`. 9인은 구조만(시험은 `--test-duplicate-classes`)
 - 호스트 창을 닫으면 클라이언트는 다른 사람을 지우고 혼자 계속 걷는다 (콘솔에 `lost the host`, `offline playing on alone`). M2b: 그때부터 마지막으로 받은 인벤토리가 자기 것이 되고 줍기·버리기는 혼자 할 때처럼 바로 된다
 - M2b: 두 창 모두 마우스로 조준하고 좌클릭으로 들고 있는 도구를 휘두르고(상대 창에 그 동작이 보인다), F로 줍고, Q/E로 고른다. 도구는 F5(디버그 묶음)로 받는다: 에디터로 띄운 호스트(디버그 빌드)는 클라이언트의 주기·버리기(F7) 요청을 받아 준다. 내보낸 exe 호스트는 `--test-allow-give`를 붙여야 한다(없으면 `give off`·`drop off`로 거부)
 
@@ -478,8 +490,8 @@ evensong.console.exe -- --join=<데스크탑 주소> --class=paladin --give=hoe,
 두 기기에서 M6 해 보기 (사람이 할 것, M6b):
 
 ```bash
-# 데스크탑: 내보낸 뒤 (클라이언트의 --give를 받으려면 --test-allow-give)
-game/build/evensong.console.exe -- --host --test-allow-give --class=herbalist --give=alchemy_table,wild_poison:4:fine,potion_healing:2:fine,potion_buff:2:fine --test-heretic=63,58 --test-no-spawns
+# 데스크탑: 내보낸 뒤 (클라이언트의 --give를 받으려면 --test-allow-give. M13b: 약초사 둘이라 --test-duplicate-classes)
+game/build/evensong.console.exe -- --host --test-allow-give --test-duplicate-classes --class=herbalist --give=alchemy_table,wild_poison:4:fine,potion_healing:2:fine,potion_buff:2:fine --test-heretic=63,58 --test-no-spawns
 # 서피스: 먼저 전송 형식 비교, 그다음 참가
 evensong.console.exe --headless -- --smoke      # potion_wire=40B/46B net=v6 인지
 evensong.console.exe -- --join=<데스크탑 주소> --class=herbalist --give=wild_poison:4:fine
@@ -727,6 +739,64 @@ evensong.console.exe -- --join=<데스크탑 주소> --class=paladin
 2. 서피스가 기둥 잔해 원 안에 있을 때 맞는 때가 화면과 맞는지(호스트 시간)
 3. 처치 뒤 서피스 인벤토리의 성유물, 업그레이드 뒤 서피스의 candA·9칸 빛(서피스 콘솔 `altar tier=1 … light_px=290`)
 4. 이상하면 두 콘솔의 `boss`·`relic`·`altar` 줄을 남겨 둔다
+
+### 넷이 하기 (M13b: 저장한 월드와 각자의 캐릭터, 사람이 할 것)
+
+구성: 데스크탑 호스트 + 서피스(ARM64) + 친구 둘(Windows x64), 모두 Tailscale. 연결은 지금처럼 직접(ENet, UDP 24600): Steam 로비·릴레이는 슬라이스 판정 뒤(● R54). **넷 모두 이번 판(v15)으로 내보낸 exe여야 한다**: v14 exe는 양쪽 방향에서 `refused: version`이다. M13 검토: M13b 때 내보낸 exe도 v15지만 요청 `LEAVE`를 모른다(그 클라이언트는 나갈 때 기다리지 않고, 그 호스트는 `LEAVE`가 든 입력 패킷을 잘못된 패킷으로 통째로 버려서 새 클라이언트가 2초 기다린 뒤 확인 없이 쓴다): 넷 모두 다시 내보낸 exe를 쓴다.
+
+준비 (데스크탑, 한 번):
+
+```bash
+mkdir -p game/build/arm64
+timeout 600 "$GODOT" --headless --path game --export-release "Windows Desktop" build/evensong.exe < /dev/null
+timeout 600 "$GODOT" --headless --path game --export-release "Windows ARM64" build/arm64/evensong.exe < /dev/null
+```
+
+- 친구 둘에게 `game/build/evensong.exe`와 `evensong.console.exe`(x64), 서피스에 `game/build/arm64/` 의 둘(저장소 README "기기 간 파일 옮기기"). 한 폴더에 두 파일을 같이 둔다(콘솔 래퍼는 옆의 exe를 띄운다)
+- 넷이 Tailscale에 들어와 있고 데스크탑의 Tailscale 이름(또는 100.x 주소)을 안다. 데스크탑이 처음 호스트를 열 때 Windows 방화벽 창이 뜨면 허용
+
+시작 (각자 콘솔 창에서, 처음에는 `--class`로 캐릭터를 만든다. 넷이 서로 다른 클래스: 같은 클래스는 둘째가 거부된다):
+
+```bash
+# 데스크탑 (호스트, 예: 성직자). 월드 evensong이 없으면 만들고, 있으면 이어서 연다
+game/build/evensong.console.exe -- --host --world=evensong --character=host_cleric --class=cleric
+# 서피스 (예: 팔라딘)
+evensong.console.exe -- --join=<데스크탑 주소> --character=surface_pal --class=paladin
+# 친구 1 (예: 아처), 친구 2 (예: 광부)
+evensong.console.exe -- --join=<데스크탑 주소> --character=<이름> --class=archer
+evensong.console.exe -- --join=<데스크탑 주소> --character=<이름> --class=miner
+# 다음 번부터는 --class 없이: 데스크탑 -- --host --world=evensong --character=host_cleric, 다른 셋 -- --join=<주소> --character=<이름>
+```
+
+- 파일 자리: 각 기기의 `%APPDATA%\Evensong\saves\`. 월드는 **데스크탑에만**(`worlds\evensong.evw`, 그 옆 `.bak`), 캐릭터는 **각자 기기에**(`characters\<이름>.json`). 다른 캐릭터로 바꾸려면 `--character`에 다른 이름. 목록은 `evensong.console.exe -- --list-worlds --list-characters`
+- 콘솔에서 볼 줄: 호스트 `EVENSONG_SAVE world loaded name=evensong ...`(또는 `new`), `EVENSONG_NET host joined ... class=archer ... character=<이름> items=.. money=..`, 나갈 때 `EVENSONG_SAVE world saved ... why=left`. 참가자 `EVENSONG_NET client character name=<이름> ... sheet_bytes=..`, `welcome ...`, `EVENSONG_SAVE character saved ... why=new|left|ended|host_lost`
+- 같은 클래스로 들어오면 그 사람 콘솔에 `refused_class ... taken: ...; pick a character of a free class: ...`가 나오고 끝난다(종료 3): 다른 클래스의 캐릭터(`--character=<다른 이름> --class=<자유 클래스>`)로 다시
+- F9 = 지금 저장(호스트는 월드와 자기 캐릭터, 참가자는 자기 캐릭터). 끝낼 때는 창을 닫으면 된다(호스트는 월드를, 참가자는 캐릭터를 쓴다. M13 검토: 참가자는 닫기 단추를 누르면 호스트가 마지막 요청까지 처리했다는 확인을 받고(보통 왕복 한 번, 길어야 2초) 쓴 뒤 닫힌다. 콘솔 `left_host how=confirmed`. 다운인 채 닫으면 먼저 죽는다). 5분마다 자동, 보스를 잡거나 제단을 올리면 바로(호스트), 성유물을 받으면 바로(참가자)
+
+볼 것:
+
+1. 넷이 같은 월드를 보는지(서로의 위치·지은 것·창고), 늦게 들어온 사람도(한 사람이 나갔다 다시 들어와 본다: 가진 것 그대로)
+2. 넷이 제단 원 안에서 기도(성직자가 F 탭 → 셋이 모이기 동안 F 탭 → 차례마다 W A S D): 실제 회선에서 넷의 차례가 늦지 않은지
+3. 넷이 던전으로 내려가 보스를 잡기: 예고가 각자 화면에서 때맞게 뜨는지, 끝나면 넷 모두 성유물
+4. 다섯째 사람을 흉내: 누군가 이미 있는 클래스의 새 캐릭터로 들어와 거부와 그 줄을 보고, 비어 있는 클래스(약초사)로 다시 들어오기
+5. M13 검토: 한 사람이 무언가를 버리거나 창고에 넣자마자 창을 닫아 본다: 다시 들어왔을 때 그 아이템이 월드(바닥·창고)와 캐릭터 둘 중 한 곳에만 있는지
+6. 호스트가 창을 닫고(참가자 셋은 `lost the host`, 캐릭터를 씀) 다시 `--host --world=evensong --character=host_cleric`로 열면: 보스가 죽어 있고 지은 것·창고·티어가 그대로, 셋이 다시 들어오면 각자 가진 것(성유물) 그대로
+7. 서피스(ARM64)도 넷과 같은지: 월드는 호스트가 보내므로 `welcome ... generator=match|differs`는 진단일 뿐이다
+8. 이상하면 넷의 콘솔 줄(`EVENSONG_NET`·`EVENSONG_SAVE`)과 데스크탑의 `worlds\evensong.evw`, 각자의 `characters\<이름>.json`을 남겨 둔다
+
+슬라이스 판정 체크리스트 (game-concept §12 판정 기준. 판정은 사람이 한다: 아래는 물어볼 것만):
+
+- [ ] 루프 한 바퀴가 재미있는가: 제단에서 출발 → 흩어져 각자 일(사냥·캐기·짓기) → 돌아와 제작·창고 → 기도로 모임 → 던전·보스 → 제단 티어 (gameplay-design §4 세션 흐름)
+- [ ] 컬렉션이 혼자 놀 이유가 되는가 (아처의 희귀 구역·포획, 혼자 접속한 날: 산출물이 창고에 쌓이는지)
+- [ ] 기도가 의식처럼 느껴지는가 (넷이 차례로 등잔을 켤 때)
+- [ ] 제단의 빛이 "안전"으로 읽히는가 (빛 밖의 이단·생물, 넓어진 빛)
+- [ ] 표식 장비만으로 클래스가 구분되는가 (넷의 같은 기본 외형에서)
+- [ ] 빛 안의 밭이 지킬 이유가 되는가
+
+그 밖에 볼 것 (M13b가 더한 것: §12 판정 기준의 여섯 줄이 아니다):
+
+- [ ] 저장: 다음에 이어서 열었을 때 "우리 월드"가 그대로인지, 각자 캐릭터를 데려오는 것이 자연스러운지(● R54)
+- [ ] 4인 접속이 실제 회선(Tailscale)에서 견디는지(느림·끊김·멈춤), 빈 클래스(넷이면 하나는 빈다)를 대체 수단으로 메우는지(game-concept §12 ○ "4인 시험이면 5클래스 중 하나는 늘 빈다")
 
 ### 스크린샷
 
@@ -1229,9 +1299,19 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd < /dev/nul
 | `--test-aim=<dx>,<dy>` | 마우스 대신 발에서 이만큼(px) 떨어진 곳을 늘 조준 | 동작 (스크린샷·테스트용, M2a) |
 | `--test-action=<동작>[:<프레임>]` | 내 캐릭터가 그 몸 동작(`pickaxe`·`hoe`·`sickle`·`watering`·`sword`·`bow`·`magic`·`throw`)의 한 프레임(1부터, 기본 가운데)에 멈춘다. 입력은 받지 않는다 | 동작 (스크린샷용, M2a) |
 | `--test-action-lineup[=<프레임>]` | 더미 대신 내 클래스가 몸 동작 8개를 두 줄(남쪽·동쪽)로 한 프레임(1..6, 기본 동작마다 가운데)에 멈춰 서 있고, 내 캐릭터는 숨긴다 | 동작 (스크린샷용, M2a) |
+| `--world=<이름>` | 저장된 월드를 연다. 없으면 `--seed`로 만들고 바로 쓴다. 있는 월드와 다른 `--seed`는 오류. M13b: 호스트도 같다(세션의 월드), 참가자(`--join`)에게는 오류(월드는 호스트의 것) | 동작 (M13a, M13b) |
+| `--character=<이름>` | 저장된 캐릭터로 논다(클래스는 파일의 것, 다른 `--class`는 오류). 없으면 `--class`로 만든다(없으면 오류). M13b: 호스트는 자기 캐릭터로, 참가자는 hello 앞에 호스트에게 데려가고(시트) 호스트의 인벤토리 메시지로 자기 기기에 쓴다 | 동작 (M13a, M13b) |
+| `--save-dir=<폴더>` | 저장 폴더(기본 `user://saves` = `%APPDATA%\Evensong\saves`) | 동작 (M13a) |
+| `--no-save` | 열거나 만들되 아무것도 쓰지 않는다 | 동작 (M13a) |
+| `--list-worlds`, `--list-characters` | 저장 폴더와 저장된 월드·캐릭터를 `EVENSONG_SAVE` 줄로 찍고 끝남(종료 0). M13 검토: `--host`·`--join`과 같이 주면 오류(종료 2: 전에는 목록을 찍은 뒤 호스트가 포트를 열고 이름을 만들어 썼다) | 동작 (M13a) |
+| `--test-autosave-ticks=<n>` | 시험 전용: 자동 저장 간격(틱) | 동작 (M13a) |
+| `--test-duplicate-classes` | 시험 전용(호스트): 같은 클래스 둘을 받는다(● R54는 거부: 9인 구조·약초사 둘 시험) | 동작 (M13b) |
+| `--test-close-after=<틱>` | 시험 전용: 그 물리 틱에 창의 닫기 단추를 누른다(`Main.request_close`: 클라이언트는 나가기, 다운이면 죽음, 그다음 끝남. Godot의 `--quit-after`는 이 길을 거치지 않는다) | 동작 (M13 검토) |
+| `--test-lag-inventory` | 시험 전용(클라이언트, `--net-lag`와): 호스트의 인벤토리 메시지도 왕복의 절반만큼 늦게 받는다 | 동작 (M13 검토) |
 
 아는 인자의 값이 틀리면 `EVENSONG_CLI error: ...`를 찍고 종료 코드 2. 모르는 인자는 무시한다 (테스트 러너의 `--only=` 등이 같은 명령줄로 들어오기 때문).
 세션 종료 코드: 0 끝남·나감, 3 거부됨, 4 접속 실패·호스트 잃음(`--net-out`일 때), 5 받은 월드가 검사를 통과하지 못함(조각 수·크기·md5·월드 해시), 6 `--net-timeout`.
+M13a 저장 종료 코드(혼자 할 때, M13b: 세션도): 2 다른 `--class`·`--seed`, 클래스 없는 새 캐릭터, (M13b: 참가자의 `--world`), 3 월드나 캐릭터 파일이 읽히지 않음(파일·`.tmp`·`.bak` 모두).
 테스트 러너 인자(`run_all.gd`, `--` 뒤): `--only=`, `--timeout=`, `--dir=`, `--prefix=`, `--port-base=<n>`(테스트 포트 묶음), `--ports-from-parent=<n>`(자식 러너용: 부모가 잡은 묶음), `--net-exe=`, `--net-full`, `--net-keep`, `--net-sessions=<a,b>`(M3b: 그 세션만, pair·four·lag·stall·cave·full. M4b: `test_net_fight.gd`의 fight·fight4, M4-fix: fightlag).
 
 ### 스모크 (`--smoke`, `core/smoke.gd`)
@@ -1264,6 +1344,7 @@ M11b: 입력 액션 `collection`, 시드 1 지상의 희귀 구역과 그 안의
 M11c: 전송 형식 v13(CAPTURE 왕복, 상한의 무리 묶음이 왕복해 ¼px 안, 컬렉션 메시지 왕복), 구역과 컬렉션이 스냅샷으로 가서 같은 해시, 생성된 월드는 골든 그대로. 출력 `wild_wire=11B/10B/135B/6B zone_snapshot=11B`
 M12a: 시드 1의 보스 방(도착 방·이단의 제단 방 아님, 기둥 3~4개, 보스 싸움을 얹어도 던전 해시 = 골든, 기둥이 막음), 가져온 그림(candA 56×64·불꽃 97px = 등잔 81 + 촛대 16, 이단 불 띠 둘, 기둥 32×64), 성유물 아이콘, 클레이브(한 틱 전 피해 없음, 그 틱에 22), 처치의 성유물 하나와 깃발, 제단 업그레이드로 빛 9칸. 새 필드 `boss=47,33/11x9/4 cleave=36/22 relic=1 tier1=144`
 M12c: 전송 형식 v14. 시드 1 던전의 호스트 쪽 싸움(사건을 켠 아레나): 던전 스냅샷이 보스 자리를 클라이언트의 `NetCombat`에 가져가고(골든 해시 그대로, 기둥이 막음), 클라이언트가 호스트의 묶음·사건으로 클레이브 예고를 호스트의 나이로, 광부가 부순 기둥의 잔해를 보스 위에(최대 HP 12%, 잔해는 걸을 수 있음), 처치(누움, 성유물 하나, 깃발)를 그리고, 업그레이드의 티어가 월드 메시지로 간다. 출력 `boss_wire=17B/18B/19B/19B/9B/8B site=37B boss_net=0/0/3000:3000 relics=1 tier=1`(보스 블록, 공격·볼트·불바닥·기둥 사건, 월드 메시지, 스냅샷의 진행 + 보스 자리, 그린 HP/호스트 HP/그린 기둥:호스트 기둥, 성유물, 티어)
+M13b: 전송 형식 v15. 시드 1의 맨 지상·던전을 월드 파일로 쓰고 다시 읽어 황금 해시 그대로, 돈·상급 약초·닳은 검·갑옷이 든 캐릭터 파일 왕복, 그 캐릭터의 시트(hello 앞에 보내는 것) 왕복, 명단의 같은 클래스 규칙(출력 `save=<월드>B/<캐릭터>B sheet=<B> class_rule=5/5/1`). 디스크에는 아무것도 쓰지 않는다. 9인 명단 검사는 `--test-duplicate-classes`와 같은 명단으로(클래스 다섯에 아홉 명)
 M10a: 시드 1 지상에서 등잔 아홉 자리에 제단 그림의 불꽃 81픽셀이 다 있음, 원 안의 성직자(신앙 100) 탭으로 시작·둘 참여·차례 아홉(성직자와 첫 동료 맞음, 둘째 틀림) → 등잔 여섯, 셋 모두 열정 21%, 신앙 30 씀, 그 열정의 검 한 번 17, 묵상 열정 5(출력 ` prayer=<켜진 등잔>/<참여자>/<열정 %> faith=<쓴 신앙> zeal_hit=<검 피해> meditate=<묵상 열정 %>` = `prayer=6/3/21 faith=30 zeal_hit=17 meditate=5`, checks 466 → 474).
 기본 월드의 안전 반경 hard 빛 텍스처 226×226 텍셀 전부 = `is_in_safe_zone()`, 불꽃 마스크 81픽셀,
 네트워크(G3): 물리 틱 60, ENet 호스트가 루프백 빈 포트에서 열리고 닫힘(방화벽 창이 뜨지 않게 127.0.0.1만), Steam 가용성 = GodotSteam 유무, 상태 묶음 왕복, 늦은 참가 월드 스냅샷 왕복(H1: 이 빌드의 zstd로 압축 → 조각 → 받기 → 같은 월드), 9명 뒤 열 번째 거부, `main.tscn`에 `Net` 노드.
@@ -1278,6 +1359,8 @@ game/                           Godot 프로젝트 루트 (= res://)
   export_presets.cfg            "Windows Desktop" (x86_64) + "Windows ARM64", release, pck 내장, 콘솔 래퍼, tests/·tools/ 제외
   core/                         cli.gd (오토로드 Cli), cli_options.gd (인자), config.gd (상수: ● / 임시값 / 구현 선택), smoke.gd,
                                 main.gd (main.tscn 루트: 내 플레이어 + 더미 + 카메라 + HUD + 목표 칸 표시, 키, 테스트 플래그)
+                                M13a: save_store.gd (저장 폴더: 이름 규칙, 안전한 쓰기와 백업, 읽는 순서, 목록), world_save.gd (월드 파일: 형식, 캡처·읽기·검사,
+                                sim 상태 되돌리기), character_save.gd (캐릭터 파일: JSON, 검사, 인벤토리와 오가기)
   items/                        item_db.gd (아이템 표, M2a), item_stack.gd (한 칸의 묶음), inventory.gd (인벤토리 + 핫바),
                                 M12a: world_progress.gd (월드의 진행: 제단 티어·보스 처치 깃발), crafting.gd에 업그레이드 레시피
                                 item_icons.gd (아이콘: 그림 불러오기 + 도구 임시 아이콘을 코드로), world_items.gd (M2b:
@@ -1377,6 +1460,8 @@ game/                           Godot 프로젝트 루트 (= res://)
                                 test_net_leader.gd (M12c: 실제 세션 leader·altar, test_net_session.gd를 이어 씀), test_boss_art.gd (M12 보스 그림: 시트·상태 → 그림·불·빛·판정 상자)
                                 test_net_prayer.gd (M10b: 세션의 기도, 한 프로세스, test_net_skills.gd를 이어 씀), test_net_vigil.gd,
                                 test_net_litany.gd (M10b: 실제 세션 vigil / litany, silent, test_net_session.gd를 이어 씀),
+                                test_save_world.gd, test_save_main.gd (M13a: 월드 파일·저장 폴더·결정성·거부 / main.tscn의 다시 시작·캐릭터·플래그·실제 게임)
+                                test_net_saves.gd (M13b: 한 프로세스의 캐릭터 데려오기·같은 클래스·나쁜 캐릭터·호스트가 연 월드), test_net_keep.gd, test_net_quartet.gd (M13b: 실제 세션 keep / quartet, test_net_session.gd를 이어 씀)
                                 fixtures/ (러너 자체 시험)
   tools/                        build_tileset.gd (타일셋 빌더), build_rig_anchors.gd (기준점 표), check_render.gd (창 그림 검사)
   shots/                        스크린샷 (.gdignore)
@@ -2990,7 +3075,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=
 ### 그 밖
 
 - 희귀 구역·포획·올가미·컬렉션·희귀 장비·컬렉션 창은 M11b(아래), 세션의 생물은 M11c. 약초사 인계·가축·덫·공격하는 생물·다른 구역은 만들지 않는다(슬라이스 밖 또는 2차)
-- 월드 저장이 없으므로(M13) 생물은 세계가 시작할 때마다 다시 찬다
+- ~~월드 저장이 없으므로(M13) 생물은 세계가 시작할 때마다 다시 찬다~~ (M13a: 저장된다, 아래 [M13a: 저장](#m13a-저장-월드-파일--캐릭터-파일-혼자-할-때-먼저)): 연 월드의 생물은 저장한 그대로
 
 ### 시험 (M11a)
 
@@ -3065,7 +3150,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=
 
 ### 컬렉션 (`items/collection.gd`, 임시값 "M11b 컬렉션 항목", "M11b 등록")
 
-월드의 것이다(● 월드마다 독립): `WorldData.collection` 하나를 지상과 던전의 데이터가 같이 가리킨다(`Main._share_collection`, 아레나를 만들 때). 죽어도, 지도를 옮겨도 그대로이고 플레이어의 것이 아니라 잃을 것이 없다. 다른 월드는 빈 컬렉션이다. 저장이 없어(M13) 프로세스가 끝나면 사라지고, 스냅샷에는 M11c가 넣는다.
+월드의 것이다(● 월드마다 독립): `WorldData.collection` 하나를 지상과 던전의 데이터가 같이 가리킨다(`Main._share_collection`, 아레나를 만들 때). 죽어도, 지도를 옮겨도 그대로이고 플레이어의 것이 아니라 잃을 것이 없다. 다른 월드는 빈 컬렉션이다. ~~저장이 없어(M13) 프로세스가 끝나면 사라지고~~ (M13a: 저장된다, 아래 [M13a: 저장](#m13a-저장-월드-파일--캐릭터-파일-혼자-할-때-먼저)), 스냅샷에는 M11c가 넣는다.
 
 | 칸 | 항목 | 단위 | 등록 |
 |---|---|---|---|
@@ -3200,7 +3285,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=
 - 항목 등록을 알리는 화면 표시는 M11b처럼 없다(콘솔과 창만). 세션에서는 다른 사람이 등록해도 창을 열어야 안다
 - 모든 공격 조합을 세션에서 다시 재지는 않았다: 공격 길은 호스트의 Arena 하나라 M11a의 시험을 믿고, 세션에서는 칼·1티어 마모·활·꿰뚫는 화살·던진 독만 잰다
 - M11 검토: 오염 칸에 몰린 생물은 깨끗한 땅이 320px 안에 안 보이면 빛에서 곧장 밖으로 간다. 벽이나 맵 끝이 막으면 거기 멈춘다(사냥은 된다). 생성된 오염 구역은 그만큼 크지 않아 건설 벽으로 가두거나 시험에서 칠해야 생긴다
-- M11 검토: 생물 번호는 65535에서 돌아가며 산 번호를 건너뛴다. M13의 저장이 `next_id`를 이어 쓰면 그대로 맞다
+- M11 검토: 생물 번호는 65535에서 돌아가며 산 번호를 건너뛴다. M13의 저장이 `next_id`를 이어 쓰면 그대로 맞다 (M13a: 이어 쓴다, 무리의 시계·난수열·다시 나올 것도)
 - M11 검토, 고치지 않음: 그림의 구별(토끼·여우, 어두운 올빼미, 1배의 포획 고리)은 자리 표시 그림의 일이라 코드를 바꾸지 않고 사람 확인에 넣었다("혼자 M11 해 보기" 6. M11 생물 그림에서 시트로 바뀜: 아래 "M11 생물 그림"의 판단). `_capture_land`의 `_changed`는 지워도 달라지는 것이 없다: 던지는 동안 플레이어의 동작이 돌아 같은 틱에 어차피 활동으로 센다(동등한 변이)
 
 ## M11 생물 그림
@@ -3388,7 +3473,7 @@ big('m11_art_zone_run.png', 'm11_art_zone_run_4x.png', 4, (180, 80, 390, 215))
 - **성물 제작대의 레시피 하나**(M6/M7 제작 틀): 입력은 **성유물 정확히 1개, 그 밖에 없음**, 클래스 제한 없음, 처음 성유물을 지녔을 때 해금(`RECIPES_UNLOCK_ON_FIRST_GET`). 출력은 아이템이 아니라 **월드의 제단 티어 0 → 1**(`WorldProgress.raise_altar`). 1(슬라이스의 최대)이면 거부하고 아무것도 쓰지 않는다(`WHY_TIER_MAX`). 레시피 표의 끝에 붙어 다른 CRAFT 번호는 그대로다. 제작 창의 줄 그림은 코드 그림(제단 위 금빛 화살)
 - **티어 1** (`ALTAR_TIER_RADIUS_TILES` [7, 9]): **안전 반경 = 빛 반경 7 → 9칸**(○ §9.3 "티어가 오르면 넓어진다"). `SafeZone.for_world`가 티어를 읽으므로 안전 반경을 읽는 모든 규칙이 따라간다: 이단이 빛에 안 들어감·스폰 칸(아레나가 티어를 보고 다시 계산), 밭(빛 안), 건설 비용(빛 안 1), 생물이 빛을 피함·나오는 자리, 제단 유령의 빛 점, 디버그 원, 제단 옮기기의 빛 규칙. 상인 자리(제단을 놓을 때만 다시 봄: 그 칸은 더 넓은 빛 안 그대로), 기도 원 64px은 그대로
 - **그림** = candA(`art/env/altar_up1_candA_v02.png`와 `_unlit`·`_litbase`·`_emissive`, 56 × 64): altar_v04와 똑같이 쓴다(켜진 그림 = 월드 빛, 꺼진 그림과 다르고 밝은 픽셀 = 불꽃을 unshaded로 다시: 등잔 아홉 81px + 금 촛대 넷의 밝은 16px, 게임의 밝기 규칙 `FLAME_MIN_LUMA`로 잰 값). 자리는 altar_v04에서 (−4, −7)(그림 노트대로: 몸체가 그대로 겹침). **기도 등잔 아홉은 candA의 등잔 위에 (4, 7) 옮겨 그대로 앉는다**(등잔마다 불꽃 9px 전부: `test_altar_tier.gd`). 기도 중 등잔 덮개는 candA의 꺼진 그림
-- 티어는 **월드의 것**(제단이나 아이템이 아님): 들고 옮겨 놓아도 그대로, 새 월드는 0. 다음 티어가 없으므로 새 레시피·지역·컬렉션 구역은 열리지 않는다(임시값 줄). M12a에는 저장이 없다(M13)
+- 티어는 **월드의 것**(제단이나 아이템이 아님): 들고 옮겨 놓아도 그대로, 새 월드는 0. 다음 티어가 없으므로 새 레시피·지역·컬렉션 구역은 열리지 않는다(임시값 줄). ~~M12a에는 저장이 없다(M13)~~ (M13a: 저장된다, 아래 [M13a: 저장](#m13a-저장-월드-파일--캐릭터-파일-혼자-할-때-먼저))
 - 콘솔 `EVENSONG_ALTAR tier=1 radius_tiles=9 (recipe=altar_upgrade)` (M12b: `heretics_lit=<n>`가 더해짐, 아래 "M12b")
 
 ### 금 간 받침 기둥 (`BossFight.Pillar`, `world/pillar_art.gd`, 임시값 "M12a 기둥")
@@ -3444,7 +3529,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=
 - 보스는 길 찾기가 없다(이단처럼 직선, 벽·기둥에 미끄러짐). 방 밖으로 끌려 나가면 기둥·벽 뒤에서 막힐 수 있다(끈 320px·막힘 120틱이면 집으로)
 - ~~보스 시트는 이단 시트의 파생이라 공격 동작이 칼 휘두르기 그대로다(화염 일제·불바닥도 같은 손짓). 지팡이는 동작을 따라 움직이지 않는다~~ M12 보스 그림에서 바뀜: 휘두르기는 지팡이를 휘두르는 시트, 화염 일제·불바닥은 시전 시트(아래 "M12 보스 그림")
 - ~~세션(M12c 전): 보스·기둥·제단 1단계가 없다. 성유물은 `--give`로만 세션에 들어오고, 업그레이드는 거부된다~~ M12c에서 켬
-- 저장(M13)이 없어 깃발·티어는 프로세스가 끝나면 사라진다
+- ~~저장(M13)이 없어 깃발·티어는 프로세스가 끝나면 사라진다~~ (M13a: 저장된다, 아래 [M13a: 저장](#m13a-저장-월드-파일--캐릭터-파일-혼자-할-때-먼저))
 
 ## M12b: 기둥 · 제단 업그레이드 · 이단 쪽 불 (혼자 할 때: 빈 곳 메우기, 읽힘, 시험)
 
@@ -3570,7 +3655,7 @@ timeout 180 "$GODOT" --path game --script res://tools/check_render.gd -- --only=
 - 몸은 100ms 뒤, 예고는 가장 새 시간이라 공격이 시작되는 순간 걷던 몸이 선 자리로 몇 px 옮겨진다(38px/s × 0.1초 = 4px 안)
 - 실제 세션 `leader`는 보스 HP를 낮춰(300) 싸움이 짧다: 공격이 두세 번이라 불바닥이 안 나올 수 있다. 세 공격 모두는 한 프로세스 시험이 매 틱 본다
 - 다른 사람의 업그레이드·처치를 화면에 알리지 않는다(빛·그림·막대·콘솔만, M11c의 컬렉션처럼)
-- 호스트를 잃고 혼자 계속하면 깨어 있던 싸움·금 간 기둥은 사라진다(위 "클라이언트"). 저장(M13)이 없어 티어·깃발도 프로세스가 끝나면 사라진다
+- 호스트를 잃고 혼자 계속하면 깨어 있던 싸움·금 간 기둥은 사라진다(위 "클라이언트"). ~~저장(M13)이 없어 티어·깃발도 프로세스가 끝나면 사라진다~~ (M13a: 저장된다, 아래 [M13a: 저장](#m13a-저장-월드-파일--캐릭터-파일-혼자-할-때-먼저)) (세션의 저장은 M13b)
 - ~~창 검사 `boss_net`은 보스 지팡이의 불·빛을 숨기고 비교한다(시계로 움직이는 그림이라 전송과 상관없음)~~ M12 보스 그림: 불의 빛남과 빛은 프레임을 따르므로 켠 채 비교한다
 - ~~(두 창 그림에서 봄) 보스가 기둥 곁에 서면 광부가 아닌 사람의 칼 호가 기둥에도 닿아 빨간 ×가 뜬다~~ **M12 검토에서 고침**: 보스를 맞힌 휘두름은 기둥 거부 표시를 내지 않는다(임시값 "M12 보스를 맞힌 휘두름"). `m12c_*` 그림을 다시 찍었다
 - (M12 검토, 고치지 않음. **M12 보스 그림에서 바뀜**: 17차 시트는 이단의 약 1.4배 키(45px)라 크기는 맞췄고, 대신 큰 그림이 바로 북쪽에 붙은 플레이어를 가린다: 아래 "M12 보스 그림"의 알려진 문제 11) 보스는 1배에서 이단·플레이어와 몸 크기가 같다(주교관으로 9px 더). 혼자 서 있으면 붉은 로브·주교관·불 지팡이·주황 빛으로 지도자로 읽히지만, 두 창 그림처럼 광부·팔라딘이 붙으면 그 그림에 많이 가린다. 자리 표시 그림이라 진짜 시트(사람이 PixelLab을 승인하면)나 2배·땅 고리 같은 것은 사람이 정한다
@@ -3895,6 +3980,354 @@ timeout 120 "$GODOT" $S --class=archer --test-boss=0,3 --test-boss-attack=volley
 9. **(v03) 클레이브 남의 맞는 열**: 지금 **5**(위 "다시 뽑기 (v03)"의 표). **2026-11-23 사람이 가려짐을 그대로 두기로 해 (가) 5 그대로로 정함**(docs R54. 아래 고를 것은 기록으로 남김, 끝의 예고 3열 불 꼬리(알려진 문제 13)는 아직 열림). 하나를 고른다. (가) **5 그대로**: 혼자일 때 붙잡는 열·타격 열이 대상 머리 오른쪽에서 보이지만 타격 틱에 그림이 덜 바뀌고(482px), 2단계처럼 둘레에 몸이 붙으면 4열부터 가린다(알려진 문제 12, `m12_art_cleave_blow`·`m12_art_cleave_phase2`). (나) **6**(처음 고른 것): 타격 틱에 화로가 부채꼴 위로 지나가 그림이 크게 바뀌고(755px) 공격이 시작 그림에서 끝나지만, 그 화로는 늘 남쪽 대상에 가린다(혼자 93px 중 5px). 바꾸려면 `BossSim.HIT_COLUMN_ATTACK` 남, `test_boss_art`의 맞는 열 두 곳([5, 3, 3]), `_check_retakes`의 타격 검사를 "발 앞 아래"·그다음 "왼쪽"·마지막 열 "시작 그림"으로. (다) **3**(또는 4): 붙잡는 열·타격 열의 불이 머리 위라 둘레에 사람이 붙어도 보이고 3열의 큰 불 꼬리가 예고가 아니라 타격이 된다(알려진 문제 13이 없어짐). 대신 불이 얼굴을 덮고 보이는 3·4·5열이 오른쪽이라 휘두르기가 앞을 지나지 않는다(바꾸는 곳은 (나)와 같고 검사는 "붙잡는 열 왼쪽 위"·"타격 오른쪽"으로). (라) 맞는 열은 두고 보스의 불 빛남을 y 정렬된 몸들 위에 그림(새 그리기 규칙). 그리고 예고 3열의 큰 불 꼬리(알려진 문제 13)를 받아들일지
 10. **(v03) 피격 북·시전 동·사망 남의 남은 흠**: 피격 북의 한 그림 번쩍임과 1배에서 어두워 잘 안 보이는 자루(알려진 문제 15. 검토 반영으로 몸과 떨어지게 다시 덮음: `m12_art_stunned_north`), 짧은 시전 동의 불과 촛불 금빛 얼굴(16), 사망 남이 등이 아니라 엎드려 쓰러지고 누울 때 몸이 3~4px 떠오르는 것과 넘어질 때 불씨가 몸을 가로질러 건너뛰는 것(17). 새 그림(사이 장, 번쩍임 장, 동작 칸의 사망)이 필요하면 생성이 든다: 사망 남 다시 뽑기 1회(v3 방향당 1회), 피격 북 다시 뽑기 1회. 남은 10회 안이지만 새로 물어야 한다
 
+## M13a: 저장 (월드 파일 · 캐릭터 파일, 혼자 할 때 먼저)
+
+M13a 기준 문서: `docs/game-concept.md` §2(월드 줄 ● R54 "영속 월드: 호스트가 월드를 저장하고 이어서 연다", 역할 줄 ● R54 "캐릭터는 각자 기기에 여러 개를 두고 어느 월드에나 데려간다. 한 세션에 같은 클래스는 한 명", ● 클래스 고정), §7(R54의 세 결정), §11(저장 = 슬라이스, Steam 로비·릴레이 = 슬라이스 판정 뒤), §12(● 저장 R54: "무엇을 어떤 형식으로 저장하는지는 구현이 정하고 game/README.md에 적는다", 2인 → 4인, 9인은 구조만), §13(● 호스트 권한, 늦은 참가 스냅샷); `docs/gameplay-design.md` §4(혼자 접속한 날: 개인 트랙의 산출물이 창고에 쌓인다), §5(● R54, 드롭인·드롭아웃, 공유 창고·개인 인벤토리, 부활 지점 = 제단), §6.
+
+M13a는 혼자 할 때(● R54 "오프라인은 혼자 호스트하는 것과 같다")의 저장이다: 월드 파일(호스트의 것)과 캐릭터 파일(각자 기기의 것, 여러 개). 세션(`--host`·`--join`)은 M13b까지 **바뀐 것이 없다**: `--world`·`--character`를 세션과 같이 주면 시작하지 않는다(`EVENSONG_CLI error: --world / --character: saving in a session comes with M13b`, 종료 2), 전송 형식은 v14 그대로, 생성기 황금 해시(지상 `0da8e0d26ded`, 던전 `8dda0ad69ad9`, 던전 시드들 `acc0a9bc2359`) 그대로. 한 세션에 같은 클래스 한 명(● R54)은 세션의 일이라 M13b다. Steam(● R54 판정 뒤)·글자 있는 제목 메뉴(글꼴이 없다)·새 게임 규칙·새 그림은 M13a가 아니다. PixelLab·힉스필드를 부르지 않았다. 고른 숫자는 [임시값](#임시값-사람-확인-필요)의 "M13a" 줄, 구현에서 고른 것은 [구현에서 고른 값](#구현에서-고른-값-설계-결정-아님)의 "M13a" 줄이다.
+
+### 시작 (`core/cli_options.gd`, `Main.open_saves`)
+
+```bash
+"$GODOT" --path game -- --world=home --character=me --class=miner     # 월드 home·캐릭터 me가 없으면 만들고(광부), 있으면 연다
+"$GODOT" --path game -- --world=home --character=me                   # 다음부터: 클래스는 파일의 것(다른 --class는 오류)
+"$GODOT" --path game -- --world=second --seed=7 --character=me        # 같은 캐릭터를 다른 월드(시드 7로 새로)에
+"$GODOT" --path game -- --character=alt --class=herbalist             # 캐릭터만 저장(월드는 오늘처럼 저장 안 하는 새 월드)
+"$GODOT" --path game -- --list-worlds --list-characters               # 저장 폴더와 저장된 월드·캐릭터 목록을 찍고 끝남
+game/build/evensong.console.exe -- --world=home --character=me        # 내보낸 빌드(거부 이유를 보려면 콘솔 래퍼)
+```
+
+- 플래그 없이 = **오늘과 같다**: 시드로 새로 만든 월드, 아무것도 쓰지 않는다(임시값 "M13a 기본 시작"). 이유: 스모크·스크린샷·테스트 파일 70개(M13a의 둘 포함)와 실제 세션 시험이 모두 "같은 시드의 새 월드"를 전제하고, 제목 메뉴가 없는 지금은 이름을 주는 것이 세이브 칸 고르기다
+- `--world=<이름>`: 그 월드가 있으면 연다. 없으면 `--seed`(기본 1)로 만들고 **바로** 쓴다(목록에 나오고, 프로세스가 죽어도 남게). 있는 월드에 그 시드와 다른 `--seed`를 주면 오류(종료 2: 월드는 자기 시드를 지닌다)
+- `--character=<이름>`: 있으면 연다(클래스는 파일의 것, ● 클래스 고정. 다른 `--class` = 오류, 종료 2). 없으면 `--class`로 만들고 바로 쓴다(`--class`가 없으면 오류, 종료 2). 새 캐릭터는 새로 난 캐릭터가 가진 것(시작 무기, `--give`)을 가지고 시작한다
+- 둘은 따로다(● R54 캐릭터는 월드와 따로): `--character`만 주면 저장하지 않는 새 월드에서 캐릭터만 저장하고, `--world`만 주면 캐릭터는 오늘처럼(`--class`의 새 캐릭터, 저장 안 함)
+- `--save-dir=<폴더>`: 저장 폴더(기본 `user://saves`, 아래). 테스트는 늘 임시 폴더를 준다(사람의 폴더에 쓰지 않는다)
+- `--no-save`: 열거나 만들되 아무것도 쓰지 않는다(시험 삼아 해 볼 때)
+- `--list-worlds`·`--list-characters`: 폴더(`EVENSONG_SAVE folder=...`)와 저장마다 한 줄(`EVENSONG_SAVE world name=home seed=1 ticks=... tier=1 boss=defeated collection=4 saved=...`, `EVENSONG_SAVE character name=me class=miner slots=9 money=37 armor=armor_t1 seen=14`, 읽히지 않는 파일은 `does not load: <이유>`), 끝에 개수. 종료 0
+- `--test-autosave-ticks=<n>`: 시험 전용, 자동 저장 간격
+- 이름(구현 "M13a 이름"): 소문자로 바꾼 a-z 0-9 _ -, 1~32자, 글자나 숫자로 시작, Windows 장치 이름(con, nul, com1 ...) 아님. 이름이 곧 파일 이름이라 폴더·점·한글은 안 된다
+- 키: **F9** = 지금 저장(임시값 "M13a 키", `project.godot`의 `save_now`)
+
+### 파일과 자리 (`core/save_store.gd`)
+
+- 기본 폴더 = Godot의 `user://saves`. `project.godot`에 `config/use_custom_user_dir=true`, `config/custom_user_dir_name="Evensong"`를 넣어서 Windows에서는 **`%APPDATA%\Evensong\saves\`**(예: `C:\Users\<이름>\AppData\Roaming\Evensong\saves\`)다. 에디터·콘솔 빌드·내보낸 exe가 같은 폴더를 쓴다. 이 설정 전에는 user://가 `%APPDATA%\Godot\app_userdata\Evensong\`였다(테스트 러너 로그·`net_test` 실행 폴더도 이제 `%APPDATA%\Evensong\` 아래에 생긴다)
+- 그 안: `worlds\<이름>.evw`(월드), `characters\<이름>.json`(캐릭터). 옆에 `.bak`(그 전의 저장)과, 쓰는 도중이나 쓰다가 죽었을 때만 `.tmp`
+- 찾기: `--list-worlds --list-characters`의 첫 줄이 폴더다. 탐색기 주소창에 `%APPDATA%\Evensong\saves`
+- 백업: 그 폴더를 통째로 복사한다. 게임이 꺼진 동안이면 늘 온전하고, 켜진 동안 복사해도 `<이름>.evw`·`<이름>.json`은 다 쓴 파일만 그 이름이 된다(아래 "쓰기"). 다른 기기로: 캐릭터 파일 하나 = 캐릭터 하나(저장소 README "기기 간 파일 옮기기")
+- 손으로 고치기: 캐릭터 파일은 메모장으로 열리는 JSON이다(아래 "형식"). 고친 파일을 막지 않는다(● R54, 체크섬 없음). 월드 파일은 압축된 바이너리와 체크섬이라 손으로 고치면 "damaged"로 거부된다(친구끼리 고칠 일은 캐릭터 쪽)
+
+### 쓰는 때와 쓰기 (`Main.save_now`, `SaveStore.write_atomic`)
+
+- 끝낼 때(창 닫기, `--quit-after`, 스크린샷 뒤 끝남, 그 밖의 `get_tree().quit()`, 테스트가 Main을 지움: 모두 `Main._exit_tree`에서 한 번), 놀이 5분마다(임시값 "M13a 자동 저장" `SAVE_AUTOSAVE_TICKS` 18000틱), F9, 새 이름은 만들자마자. 열린 월드와 열린 캐릭터를 같이 쓴다. M13 검토: 월드의 진행이 바뀌면(보스 처치, 제단 티어) 바로(`why=progress`, 임시값 "M13 검토 진행 저장"). 창의 닫기 단추는 `Main.request_close`를 거친다: 다운인 채 닫으면 먼저 죽고(가방·내구도, 임시값 "M13 검토 다운 중 나가기") 그다음 끝나며 쓴다(Godot의 `--quit-after`는 닫기 단추가 아니라 바로 끝낸다: 시험은 `--test-close-after=<틱>`)
+- 콘솔: `EVENSONG_SAVE folder=<폴더> writes=on autosave=18000`, `EVENSONG_SAVE world new name=home seed=1`, `EVENSONG_SAVE world loaded name=home file=home.evw seed=1 ticks=... tier=... boss=... collection=... saved=... hash=<지상> dungeon=<던전>`(백업에서 읽었으면 ` (skipped home.evw: <이유>)`), `EVENSONG_SAVE world saved name=home why=quit|autosave|key|new bytes=3537 ticks=58 ms=6.8`, `EVENSONG_SAVE character new|loaded|saved name=me ... class=miner slots=3 money=50 armor=none seen=3`, 거부는 `EVENSONG_SAVE error: ...`(stderr)
+- 쓰기(구현 "M13a 안전한 쓰기"): 파일 전체를 `<파일>.tmp`에 쓰고 닫고 **다시 읽어 바이트까지 비교**한 뒤, 그 자리의 파일을 `<파일>.bak`으로(옛 백업은 지움), `.tmp`를 `<파일>`로 이름을 바꾼다. 프로세스가 어느 순간에 죽어도(강제 종료) 읽히는 파일이 남는다: 이름 바꾸기 전에는 옛 파일이 온전하고, 두 이름 바꾸기 사이에는 `<파일>`이 없고 `.tmp`가 온전하다. M13 검토(바로잡음): `flush()`는 디스크 동기화(fsync)가 아니고 다시 읽기는 운영체제 캐시에서 온다. 정전이면 NTFS가 새 파일의 내용보다 이름 바꾸기를 먼저 디스크에 남겨 `<파일>`이 비거나 0으로 찰 수 있다: 그때는 읽기 순서대로 `.bak`(그 전 저장)이 열린다. 마지막 저장은 잃을 수 있고, 읽히는 파일은 백업 덕에 남는다
+- 쓰기 전 확인(구현 "M13a 쓰기 전 확인"): 쓸 바이트를 먼저 읽기 검사(`WorldSave.read`·`CharacterSave.read`)에 넣어 본다. 통과하지 못하면(게임이 파일에 담을 수 없는 상태: 시험의 NaN 자리 이단, 묶음 크기를 넘는 돈) 쓰지 않고 그 자리의 파일과 백업을 그대로 두며 `EVENSONG_SAVE error: world <이름> not saved (<때>): the file would not load (<이유>); the files there are kept`. 자기 읽기가 거부하는 파일로 좋은 파일을 덮고 그것을 백업으로 돌리는 일이 없다(검토에서 찾음: 자는 보스의 기둥에 `--test-pillar-hits`로 9보다 많은 타격을 주면 그렇게 썼다. 이제 쓰는 쪽이 스냅샷처럼 부서짐까지 자르고, HP·이단의 제단 HP·둔화도 읽는 쪽의 범위로 자른다). M13 검토: 읽는 쪽이 **맞춰야** 읽을 파일(아래 "맞추기": 묶음 크기를 넘는 돈 등)도 쓰지 않는다(`it would need fitting: ...`). 이 빌드는 자기가 정확히 읽는 파일만 쓴다
+- 읽기(구현 "M13a 읽는 순서"): `<파일>`, 그다음 `<파일>.tmp`, 그다음 `<파일>.bak` 중 처음으로 **검사를 다 통과하는** 것. 백업에서 읽은 뒤의 첫 저장은 깨진 파일을 백업으로 돌리지 않고 바꾸기만 한다(좋은 백업이 남는다), 그 뒤로는 다시 돌린다
+- 거부: 셋 다 읽히지 않으면(깨짐·잘림·다른 판·남의 파일·무작위 바이트) 시작하지 않는다. `EVENSONG_SAVE error: world home does not load: home.evw: <이유>; home.evw.bak: <이유>`, 종료 3(구현 "M13a 종료 코드"). 파일은 건드리지 않는다(새 월드로 덮어쓰지 않는다: 되살릴 수 있을지도 모르니). 반쯤 연 월드는 없다: 검사는 모두 읽은 바이트 위에서 하고, 통과한 뒤에야 게임에 넣는다. M13 검토: 그 이름에 `.tmp` 하나만 있고(파일·`.bak` 없음) 그것이 읽히지 않으면 첫 쓰기 도중에 죽은 것이다(그 이름으로 저장된 것은 없었다): 거부하지 않고 그 `.tmp`를 `<파일>.tmp.broken`으로 비켜 두고(옛 `.broken`은 바꿈) 새 이름으로 만든다(`EVENSONG_SAVE world x: only a cut-off first write was there (...); kept as x.evw.tmp.broken, the name is new`. `--no-save`면 그대로 두고 새로). 전에는 사람이 그 `.tmp`를 지울 때까지 그 이름이 늘 종료 3이었다
+- 잰 것(이 데스크탑): 시드 1의 새 월드 파일 3,537 B(두 지도 raw 약 108 KB가 zstd로; M13 검토: MAP 칸에 창고 칸 수·상점 offer id를 더해 상점이 있으면 약 +150 B, 없으면 +4 B, 아래 "측정"의 M13 검토), 시험의 풍성한 월드 3,888 B(검토 뒤 4,031 B), 한 번 쓰기(캡처 + 압축 + 쓰기 + 다시 읽기 + 이름 바꾸기 둘) 3~8 ms, 캐릭터 파일 0.4~0.6 KB. 무거운 월드(드롭 256개 = `MAX_DROPS`·꽉 찬 창고 200개)는 M13 검토 뒤 이 데스크탑에서 4,886 B, 한 번에 6~10 ms(여섯 번, 스크래치 측정. 검토는 비슷한 월드에서 28~30 ms를 쟀다: 같은 조건이 아닐 수 있다). 메인 스레드에서 쓴다(아래 알려진 문제)
+
+### 월드에 있는 것: 저장 / 시드에서 다시 / 일부러 처음으로 (`core/world_save.gd`)
+
+열었을 때의 규칙 하나: **저장한 월드에서 모든 플레이어가 막 떠난 순간**이다. 게임에 이미 있는 "지도가 비었다" 규칙(M4-fix `Arena.on_emptied`, M12a `BossFight.on_emptied`·`reset`)을 그대로 쓴다. 플레이어가 아닌 것으로 지도가 빌 때 살아남는 것은 모두 저장한다. 플레이어 노드 번호는 프로세스와 함께 죽어서, 그 번호를 쥔 칸은 열 때 모두 지운다.
+
+| 무엇 | 어디 | 어떻게 | 이유 |
+|---|---|---|---|
+| 두 지도의 일곱 레이어(바닥 지형: 풀·흙·재와 정화된 풀 / 벽: 던전 벽과 금(타격 수)·건설 벽·문 열림 닫힘 / 광석 / 식생: 채집물·작물의 종류·단계·젖음·시듦·약초사 / 오염 / 설치물: 제단·입구·계단·횃불·이단의 제단과 부서진 것·벽 횃불·사망 가방·조제대·작업대 셋·창고·나무·그루터기·랜턴·상인 / 바닥 조각) | `WorldData.layers` | 저장 | 늦은 참가 스냅샷의 바이트(`WorldSnapshot.raw_bytes`) 그대로, 그 디코더의 검사 그대로 |
+| 크기·시드·제단 자리 | 스냅샷 머리 | 저장 | |
+| 떨어진 아이템(사망 가방의 내용물도) | `WorldData.drops` | 저장 | |
+| 다음 드롭 번호 | `WorldData.drop_serial` | 저장 | 드롭 번호가 내용 해시에 든다. 이어 쓰지 않으면 이어 한 월드의 해시가 갈라진다(일부러 깨 본 것 3) |
+| 창고 내용물(내구도까지) | `WorldData.chests` | 저장 | ○ §5 공유 창고는 월드의 것 |
+| 상점 재고 | `Shop.stock` | 저장 | M13 검토: MAP 칸이 offer를 아이템 id로 함께 적어, 뒤의 빌드가 offer를 더하거나 빼도 아이템끼리 짝지어 연다(아래 "맞추기") |
+| 상점의 채우기 시계·채운 횟수 | `Shop.clock`·`restocks` | 저장 | 끄고 켜도 다음 채움이 그대로 온다 |
+| 상인이 선 칸 | 설치물 `PLACEABLE_MERCHANT` | 저장 | 열 때 상인 자리 규칙(M8a `settle_merchant`)이 다시 본다: 그 칸이 그대로 맞으면 움직이지 않는다 |
+| 희귀 구역 | `WorldData.rare_zone` | 저장 | 스냅샷에 있다. 열 때 다시 놓지 않는다 |
+| 컬렉션(항목·처치 수) | `WorldData.collection` | 저장 | ● game-concept §4 월드마다. 열 때 새 등록으로 세지 않는다(로그·베네핏 줄 없음). 두 지도에 한 물건으로 다시 묶는다. M13 검토: "아이템" 항목(첫 온전한 가죽, 첫 희귀 재료)은 **그 월드에서** 인벤토리에 들어온 것만 센다(`Inventory.gained`): 캐릭터가 다른 월드에서 들고 온 것과 그 `seen` 기록은 세지 않는다(전에는 노련한 캐릭터가 새 월드에 들어서자마자 둘을 채웠다. 임시값 "M13 검토 컬렉션과 데려온 캐릭터") |
+| 진행(제단 티어, 보스 처치) | `WorldData.progress` | 저장 | 두 지도에 한 물건으로 다시 묶는다(빛 반경이 티어를 따름) |
+| 제단이 마지막에 선 자리 | `GameWorld.last_altar_rect` | 저장 | 아래 "든 제단" |
+| 든 제단 | `Player.carrying_altar`, 빈 `altar_rect` | **일부러**: 파일에는 마지막 자리(안 되면 가장 가까운 놓을 곳, M5-fix `set_down_fallback`)에 내려놓은 월드로 쓴다. 산 게임은 그대로 들고 있다 | 드는 것은 사람의 일인데 사람은 월드 파일에 없다. 그대로 두면 빛·부활 지점(● §5)이 없는 월드가 된다. 어디에도 놓을 수 없었으면 열 때 플레이어가 서기 전에 다시 찾는다(`Main._restore_loaded_altar` → `restore_altar`) |
+| 밭의 보이지 않는 시간(그 단계 안에서 자란 틱, 물 남은 틱) | `Farm.plots` | 저장 | 밭의 보이는 상태는 식생 레이어, 시간은 여기 |
+| 나무의 도끼질 수 | `Forest.hits` | 저장 | |
+| 그루터기가 다시 자랄 때까지 | `Forest.regrow` | 저장 | |
+| 이단(자리·집·바라봄·상태·그 틱·HP·공격 쿨다운·막힘·독·넓어진 빛에서 걸어 나가기·시계) | `Arena.heretics` | 저장, 그다음 "모두 떠남" | M4-fix 빈 지도: 공격 중이면 칼 없이 끝나고 쿨다운, 경직·기절·둔화 끝, 서 있게 |
+| 이단의 표적·위협·도발한 팔라딘·독 던진 사람 | 노드 번호 | 일부러 지움 | 플레이어 노드 번호는 프로세스와 함께 죽는다. 흐르던 독은 계속 흐르고(누구의 것도 아님), 독으로 죽은 이단의 처치는 아무의 것도 아니다 |
+| 날아가는 화살·던진 병·터짐·스킬 표시·지연 타격·회복 구역 | `shots`·`flasks`·`splashes`·`bursts`·`strikes`·`zones` | 일부러 없음 | "모두 떠남"(M4-fix): 볼 사람이 없다 |
+| 스폰 시계 | `Arena.spawn_timer` | 저장, 열 때 0 | "모두 떠남": 첫 스폰은 누가 온 뒤 한 간격 |
+| 이단 다음 번호, 이단의 제단 HP | `Arena.next_id`·`shrine_hp` | 저장 | 부서진 이단의 제단은 설치물 값 |
+| 아레나의 난수열(지도마다) | `Arena.rng.state` | 저장 | 스폰 자리가 이어진다 |
+| 생물 전부(종류·자리·집·바라봄·상태·그 틱·HP·서성일 곳·달아날 곳·쉴 틱·기절·둔화·독·희귀 구역에 묶임·거부 표시·시계) | `Creatures.list` | 저장 | 생물은 지도가 비어도 게임 시계로 돈다(M11a). 다시 채우지 않는다 |
+| 생물을 잡은 올가미(누가·얼마나)·독 던진 사람 | `held_by`·`hold_ticks`·`poison_by` | 일부러 풀고 지움 | 사람 번호 |
+| 다시 나올 생물, 무리 시계·다음 번호·난수열 | `Creatures.waiting`·`clock`·`next_id`·`rng` | 저장 | M11 검토 "M13의 저장이 `next_id`를 이어 쓰면 그대로 맞다": 이어 쓴다 |
+| 보스 처치 | `progress.boss_defeated` | 저장 | 열면 죽어 누워 있다. M13 검토: 기둥은 **싸움이 남긴 그대로**(온전·금 간 것·잔해, BOSS 칸의 타격과 잔해 표시: `WorldSave.apply_boss`; 선 기둥은 전처럼 막고 잔해는 막지 않음, `PILLAR_RUBBLE_BLOCKS` false). 전에는 연 뒤에 모두 잔해가 되어 방의 충돌이 바뀌었다(● R54 "보스와 기둥"은 이어서). 저장 없이 깃발로만 죽은 보스(`BossFight.setup`)는 그대로 모두 잔해(M12c-fix의 잔해 타격 수) |
+| 자는 보스의 기둥 타격 | `BossFight.pillars` | 저장(자고 있었을 때만) | 기둥을 치면 보스가 깨므로 테스트 플래그만 자는 보스의 기둥에 금을 낸다 |
+| 싸우던 보스 | `BossSim` | **일부러 재설정**: 자는 보스, 집, HP 가득, 기둥 온전, 2단계에 부른 이단 없음(파일에 쓰지 않음) | M12a의 끈·재설정, 빈 지도의 `BossFight.on_emptied`와 같다. 깨어 있던 싸움은 사람과 함께 있던 것(임시값 "M13a 싸움 중 저장") |
+| 보스의 방·집·기둥 자리 | `BossRoom.for_seed` | 시드에서 다시 | 스냅샷의 자리 블록은 디코더가 확인만 하고 쓰지 않는다(`boss_site` 비움) |
+| 보스의 난수열·다음 번호·시계(자는 동안, 죽은 뒤의 틱) | `BossFight.rng`·`next_id`·`BossSim.clock`·`state_ticks` | 저장 | |
+| 기도 횟수 | `Prayer.prayers` | 저장 | 다음 기도의 방향 씨앗(`Prayer.seed_for`): 끄고 켜도 같은 방향을 되풀이하지 않는다 |
+| 진행 중인 기도·묵상 | `Prayer` | 일부러 없음 | 참여자는 사람이다(아무것도 주지 않고 끝난 것과 같음) |
+| 사망 수 | `Main.deaths` | 저장 | 다음 사망 가방의 뽑기 씨앗(`hash(시드, 사망 수)`) |
+| 월드 나이(놀이 틱) | `Main.world_ticks` | 저장(META) | 정보·목록. M13 검토: 세션 호스트가 연 월드도 이어 센다(전에는 호스트마다 0부터 다시 세어 파일에 썼다) |
+| 던전의 스폰 자리 | `Arena.spawn_cells` | 시드·지형에서 다시(저장 안 함) | M13 검토: 채굴로 벽(과 설치물)이 바뀌면 산 게임도 다시 구한다(`Arena._sync_dungeon_terrain`: 두 레이어의 해시). 전에는 시작 때 것을 끝까지 써서, 채굴한 던전에서 연 월드(파일의 지도로 구함)와 멈추지 않은 월드가 다른 자리에 스폰했다(ARN1이 갈라짐, 결정성 주장이 틀림) |
+| 시간대(낮·밤) | | 없음 | 슬라이스에 낮밤이 없다(? gameplay-design §6 지상의 빛). 저녁 어둠은 F4 화면 설정 |
+| 화면 상태(저녁 켜기, 디버그 선, 열린 창, 카메라) | | 저장 안 함 | 기기의 화면 |
+| 셈(통계, 정화한 칸 수, 제단·상인 옮긴 수 등) | `stats` 등 | 저장 안 함 | 로그·시험용 |
+| 더미, `--test-ally` 동료 | | 저장 안 함 | 시험용. 테스트 플래그가 바꾼 월드(`--test-altar-tier` 등)는 놀이처럼 저장된다 |
+| 생성기의 난수 | `SurfaceGen`·`DungeonGen` | 쓰지 않음 | 타일이 저장된다(시드는 META에, 보스 방을 다시 고를 때만) |
+
+난수열 정리: 아레나 둘·무리·보스는 `RandomNumberGenerator.state`를 그대로 저장하고, 기도(`prayers`)와 사망 가방(`deaths`)은 씨앗이 세는 수라 그 수를 저장한다. 희귀 구역·보스 방은 시드에서 정해지지만 구역은 저장된 것을 쓴다. 이 밖의 난수는 게임에 없다(`net/link_sim.gd`는 시험용 회선 흉내).
+
+꺼진 동안(M13 검토, 임시값 "M13 검토 꺼진 동안"): 아무 프로세스도 그 월드를 열지 않은 동안 **월드의 시간은 멈춘다**. 작물의 자람과 물, 그루터기, 상점의 채움, 생물, 이단, 보스의 시계는 저장한 틱에서 그대로 이어 간다: 게임을 끈 동안 작물은 자라지 않는다(? gameplay-design §3.8·§6: 정하지 않음).
+
+### 캐릭터에 있는 것 (`core/character_save.gd`)
+
+| 무엇 | 저장? | 이유 |
+|---|---|---|
+| 클래스 | 저장 | ● 고정 클래스: 파일의 클래스로만 연다 |
+| 인벤토리 24칸(핫바 8칸 포함), 묶음마다 등급·내구도 | 저장 | ● R54 "클래스, 인벤토리, 장비 등" |
+| 고른 핫바 칸 | 저장 | 손에 든 것 |
+| 입은 갑옷과 내구도 | 저장 | 장비 |
+| 돈 | 저장 | 아이템(`money`)이라 인벤토리에 있다 |
+| 얻어 본 아이템(`Inventory.seen`) | 저장 | 레시피가 이것으로 열린다(○ §3.5). 없으면 다시 잠긴다. M13 검토: 컬렉션은 읽지 않는다(그 월드에서 들어온 것만: 위 "컬렉션") |
+| 성유물 | 저장(아이템이라) | 규칙 그대로: 다른 월드로 들고 가면 그 월드의 성물 제작대에서도 제단을 올린다(임시값 "M13a 성유물") |
+| HP·스태미나·다운·사망 | 저장 안 함 | 월드에 들어올 때 살아서 가득(임시값 "M13a 캐릭터에 없는 것"). M13 검토: 다운인 채 창을 닫거나(혼자·호스트: `Main.die_if_down`) 나가면(클라이언트의 LEAVE: `SessionHost._leave`) **먼저 죽는다**: 가방이 월드에 떨어지고 장비가 닳은 뒤 캐릭터를 쓴다(임시값 "M13 검토 다운 중 나가기"). 프로세스가 강제로 죽으면 못 한다(알려진 문제) |
+| 버프·독, 클래스 자원, 열정, 막기, 쿨다운 | 저장 안 함 | 새로 난 캐릭터처럼(열정은 그 월드의 기도에서 받은 것) |
+| 선 자리·지도 | 저장 안 함 | 월드의 제단(부활 지점 ● §5)에서 들어온다 |
+| 든 제단 | 저장 안 함 | 월드의 것: 월드 파일에 내려놓은 것으로 |
+| 사망 가방 | 캐릭터에 없음 | 월드의 드롭으로 그 월드에 남는다 |
+
+시작 무기는 새 캐릭터를 만들 때만 준다(임시값 "M13a 시작 무기": 연 캐릭터가 판 무기를 다시 주지 않는다). `--give`·F5는 연 캐릭터에도 그대로 준다(디버그). 캐릭터 수 제한은 없다(● R54 "개수는 정하지 않았다").
+
+### 형식
+
+월드 파일 `<이름>.evw` (`WorldSave`, 판 1, 리틀 엔디언):
+
+```
+머리   "EVSW", u16 판(1), u16 깃발(0), u32 칸 수(13)
+칸     4바이트 이름, u32 길이, 내용     (판 1: 아래 13칸이 꼭 한 번씩, 순서 자유. 모르는 칸·빠진 칸·두 번 = 거부)
+꼬리   앞의 모든 바이트의 md5 (16바이트)
+
+META  i64 시드, i64 저장 시각(유닉스 초), i64 월드 나이(틱), u32 사망 수, u32 기도 횟수, u16 전송 판(진단), u8 길이 + 이름
+ITEM  u16 n + n × (u8 길이 + id): 아이템 표의 id를 번호 순서로(지도의 묶음은 번호다). 게임의 표가 이것으로 시작해야 한다
+MAP0  지상, MAP1 던전: u8 지도 번호, u32 raw 크기, 내용 해시 16B, u32 다음 드롭 번호, u16 ×4 제단이 마지막에 선 자리,
+      u8 창고 칸 수, u8 n + n × (u8 길이 + id) 상점 offer의 아이템 (M13 검토: 스냅샷 바이트 중 임시값에 매인 모양),
+      u32 압축 크기 + 그 지도의 WorldSnapshot.raw_bytes를 zstd로 (늦은 참가 스냅샷과 같은 바이트, 맞춘 뒤 같은 디코더 검사)
+ARN0  ARN1  지도의 아레나: u8 1(0 = 없음), i64 난수 상태, u32 다음 번호, u32 스폰 시계, i32 이단의 제단 HP,
+      u16 n + n × 이단(u32 번호, f64 ×2 자리, f64 ×2 집, u8 바라봄, u8 상태, u32 그 틱, i32 HP, u32 쿨다운, u32 막힘,
+      u32 독 피해, u32 독 틱, u32 독 다음, u8 빛 밖으로, u32 시계)
+FRM0  FRM1  지도의 밭: u8 1, u32 n + n × (u32 칸 번호, u32 그 단계에서 자란 틱, u32 물 남은 틱), 칸 순서
+FOR0  FOR1  지도의 숲: u8 1, u32 n + n × (u16 x, u16 y, u16 도끼질), u32 n + n × (u16 x, u16 y, u32 다시 자랄 틱)
+SHOP  u8 1, u32 시계, u32 채운 횟수
+HERD  u8 1, i64 난수 상태, u32 시계, u32 다음 번호, u16 n + n × 생물(u32 번호, 종류 이름, f64 ×2 자리·집·목표·달아날 곳,
+      u8 바라봄, u8 상태, u32 그 틱, i32 HP, u32 쉴 틱, u8 걷기, u32 기절, u8 둔화 %, u32 둔화 틱, u32 독 피해·틱·다음,
+      u32 시계, u8 번쩍임, u8 구역에 묶임, u8 거부 표시), u16 n + n × (종류 이름, u32 다시 나올 시계)
+BOSS  u8 1, i64 난수 상태, u32 다음 번호, u8 상태(0 잠 / 1 깨어 있음 / 2 죽음), u32 시계, u32 그 틱, u8 n + n × (u16 타격, u8 잔해)
+```
+
+읽기 검사(`WorldSave.read`, 하나라도 틀리면 파일 전체를 거부): 길이, "EVSW", 판, md5, 칸 이름·수·길이(넘는 읽기는 오류 없이 실패: `WorldSave.Reader`), 아이템 표, 각 지도: 스냅샷 디코더의 모든 검사 + **디코딩한 월드의 내용 해시 = 저장한 해시** + 시드가 META와 같음, 이단·생물: 지도 안의 자리, 유한한 수(NaN 거부), 알려진 상태·종류, 겹치지 않는 번호, 범위 안의 HP·틱, 밭 칸이 지도 안·오름차순, 칸 끝에 남는 바이트 없음. 상한(구현 "M13a 크기 상한"): 파일 32 MB, 칸마다 이단·생물·기다림 4096.
+
+맞추기(M13 검토, 임시값 "M13 검토 맞추기"): 파일의 값이 **이 빌드의 임시값** 밖일 뿐이면(사람이 임시값을 바꾼 뒤 연 옛 파일) 거부하지 않고 이 빌드에 맞춘다(`WorldSave.fit_raw`가 압축을 푼 스냅샷 바이트를 MAP 칸이 적은 모양에서 이 빌드의 모양으로 다시 쓴 뒤 엄격한 디코더에 넣는다. 늦은 참가 스냅샷과 시트는 그대로 엄격하다):
+- 드롭·창고 묶음의 수는 묶음 크기까지, 내구도는 가득까지 자른다. 드롭이 `MAX_DROPS`를 넘으면 새것(번호가 큰 것)부터 뺀다
+- 창고 칸 수(`CHEST_SLOTS`)가 다르면 앞 칸들로 옮긴다(빈 칸에 넣고, 자리가 없으면 그 묶음은 잃는다: 로그에 수)
+- 상점: offer를 아이템 id로 짝짓는다(남은 수는 새 상한까지, 새 offer는 가득, 없어진 offer는 뺌)
+- 컬렉션의 표 밖 항목 비트는 뺀다(행 순서는 그대로여야 한다: 아래 알려진 문제), 제단 티어는 `ALTAR_TIER_MAX`까지, 보스 자리·BOSS 칸의 기둥 타격은 부서짐까지, 이단의 제단 HP는 `SHRINE_HP`까지 자른다
+- 생물 표(`CREATURES`)에서 빠진 종류의 생물과 그 기다림은 뺀다
+- 맞춘 것이 있으면 저장한 내용 해시 대신 맞춘 월드의 해시를 쓰고(파일의 md5가 바이트를 보증), `EVENSONG_SAVE world fitted name=<이름> to this game's values: <무엇을>` 한 줄. 다음 저장은 이 빌드의 파일이다
+- 구조가 깨진 것(길이·표시·md5·순서·지도 크기·레이어 수·이름 없는 생물 등)은 그대로 거부한다. 커밋한 시험 파일(`tests/fixtures/saves/m13_world.evw`·`m13_character.json`, 이 커밋이 쓴 것)을 `test_save_world.gd`가 정확히(맞춤 없이) 읽는지 본다: 앞으로 그렇게 읽지 못하게 바꾸면 시험이 실패하고, 그때 `FORMAT_VERSION`을 올리고 옮기는 코드를 쓴다(러너 플래그 `--write-save-fixtures`로 새 시험 파일)
+
+캐릭터 파일 `<이름>.json` (`CharacterSave`, 판 1, ASCII JSON):
+
+```json
+{
+	"format": "evensong-character",
+	"version": 1,
+	"name": "me",
+	"class": "miner",
+	"saved": "2026-11-23T08:27:27",
+	"selected": 0,
+	"slots": [
+		{"item": "money", "count": 50, "grade": "none"},
+		{"item": "wild_healing", "count": 3, "grade": "fine"},
+		null,
+		{"item": "sword_t1", "count": 1, "grade": "none", "durability": 87}
+	],
+	"armor": {"item": "armor_t1", "count": 1, "grade": "none", "durability": 55},
+	"seen": ["money", "pickaxe", "sword_t1", "wild_healing"]
+}
+```
+
+- 게임이 쓰는 파일은 들여쓰기한 위 모양이다(칸 24개, `saved`는 UTC). 손으로 고칠 때: 앞의 UTF-8 BOM(메모장의 "UTF-8(BOM)")은 건너뛴다, `slots`는 24개 이하(모자라면 나머지 빈 칸), `grade`가 없으면 그 아이템의 기본, `durability`가 없으면 가득(닳는 아이템만), `selected`가 없으면 0, 다른 키는 무시한다(게임이 다시 쓸 때 사라진다). `seen`의 모르는 id는 건너뛴다
+- 거부(임시값 "M13a 손댄 파일", 이유와 함께 종료 3): ASCII가 아님, JSON이 아님, `format`·`version`이 다름, 모르는 클래스, 모르는 아이템, 1보다 작은 수, 그 아이템이 가질 수 없는 등급, 음수 내구도, 소수, 갑옷 칸의 갑옷 아닌 것, 64 KB보다 큰 파일
+- 맞춤(M13 검토, 임시값 "M13 검토 맞추기"): 묶음 크기보다 큰 수(예: 돈 251 → 250)와 가득보다 큰 내구도는 잘라서 연다(`EVENSONG_SAVE character fitted name=<이름> to this game's values: slot 1: money count 251 cut to its stack's 250`). 임시값(묶음 크기·내구도)을 낮춘 뒤에도 캐릭터가 열리고, 손댄 파일이 묶음보다 많이 월드에 넣지 못한다. 세션의 시트(`decode_sheet`)는 그대로 엄격하다(같은 빌드의 클라이언트는 맞춘 값을 보낸다)
+
+### 결정성 주장 (시험이 보이는 것)
+
+- 같은 월드를 둘로: 하나는 멈추지 않고 계속 가고, 하나는 저장한 파일에서 연다. 저장하는 순간 계속 가는 쪽도 같은 "모두 떠남"을 거치고(`Arena.idle_tick` → `on_emptied`, 사람 번호 없음) 그 뒤 두 쪽에 같은 사람이 같은 일을 하면(시험은 제단에 선 플레이어 하나), **두 월드는 저장 파일의 모든 칸이 바이트까지 같다**(모든 지도의 내용 해시, 모든 sim 상태, 난수열 상태, 번호, 시계)
+- `test_save_world.gd`: 지도 둘과 모든 sim(아레나 둘·무리·보스·밭·숲·상점)으로 240틱 놀고 저장, 420틱 더(그루터기가 다시 자람, 생물이 움직이고 죽은 것이 기다림, 독이 흐르는 이단). 무리의 난수열 하나만 되돌려 놓지 않은 대조군은 다른 월드가 된다(시험이 빠진 조각을 본다는 것)
+- `test_save_main.gd`: 실제 `main.tscn` 둘을 한 틱씩 번갈아(120틱 놀고 저장, 열고, 600틱: 그 사이 이단 하나가 스폰되어 아레나 난수열을 씀)
+- "모두 떠남"을 거치지 않은 월드와는 위 표의 "일부러" 줄만큼만 다르다
+- M13 검토: 채굴한 던전에서도 성립한다(산 게임의 스폰 자리가 지형을 따라감: 위 표 "던전의 스폰 자리"). 전에는 채굴한 월드에서 이 주장이 틀렸고, 시험의 리그는 플레이어 없이 걸어 스폰이 없어서 보지 못했다. `test_save_world.gd`가 이제 바위 벽을 캔 뒤 저장하고 두 쪽에 대역 플레이어로 스폰 여섯 번을 같게 본다(일부러 깨면 ARN1이 다름)
+
+### 시험 (M13a)
+
+- `test_save_world.gd`(신규, 261 checks, 약 1.3초. M13 검토 뒤 308 checks, 약 1.7초): 이름 규칙, 읽기 막이(넘는 읽기·NaN·제어 문자에 엔진 오류 없음), 안전한 쓰기와 백업(첫 쓰기·돌리기·돌리지 않기·`.tmp` 남지 않음·목록), 풍성한 월드(건설 벽·문·바닥 조각 위 랜턴, 자라는 밭 넷, 창고 하나에 묶음 셋(닳은 검 포함), 드롭과 지운 드롭 뒤의 번호, 도끼질한 나무·다시 자라는 그루터기 둘, 정화된 재, 컬렉션, 티어 1, 상점 재고, 희귀 구역, 무리와 죽어서 기다리는 생물, 이단 넷과 독, 이단의 제단 HP, 던전의 금 간 벽·횃불·드롭, 자는 보스와 금 간 기둥, 난수열, 기도 4·사망 2)의 왕복(모든 칸 같음, 해시·레이어·번호·시계·난수열 하나씩), 놀아 본 뒤의 같음과 대조군, "모두 떠남"(공격 중 → 쿨다운, 표적·위협·도발·독 던진 사람·기절 없음, 독은 흐름, 올가미 풂, 산 게임은 그대로), 싸우던 보스(잠·HP 가득·기둥 온전·부른 이단 없음·제 이단은 남음), 든 제단(파일엔 놓임, 산 게임은 듦), 부서짐보다 많이 친 자는 보스의 기둥(잔해로 쓰고 읽음), 캐릭터 파일(손으로 쓴 것, 빠진 등급·내구도·고른 칸, 다른 키, `seen`의 모르는 id, BOM, 다시 쓰면 같음, 거부 40가지: 빈 것·무작위·잘림·ASCII 아님·목록·너무 깊음·64 KB 넘음·`format`·`version`·`class`·`selected`·`slots`·`seen`·`armor`의 틀린 값과 형, 모르는 아이템, 수 0·251·1.5·"3"·-1·1e400, 등급, 내구도 999·-1·2.5, 묶음 아닌 칸, 25칸, 이유가 한도를 말함, 백업에서 읽기), 월드 파일 거부 34가지(빈 파일, 머리만, 무작위 바이트 셋, 표시 뒤 무작위, 다른 표시, 새 판, 잘림 여섯, 한 바이트 더함, 비트 뒤집기 다섯, 좋은 체크섬 안의 나쁜 내용 열넷: 옛 판, 빠진 칸, 두 번, 모르는 칸, 바뀐 아이템 표, 다른 해시, 지도 번호, META 남는 바이트, 지도 밖 이단, NaN 이단, 종류 없는 생물, 지도 밖 밭, 부서짐 넘는 기둥, HP 넘는 이단의 제단), 죽은 뒤 읽기(파일 없음, 백업만, 깨진 파일 + 백업, 이름 바꾸기 사이의 `.tmp`, 좋은 파일 옆 반쪽 `.tmp`, 모두 깨짐 = 셋의 이유, 백업에서 읽은 뒤의 저장이 좋은 백업을 지킴), 황금 해시(생성기 그대로, 저장한 새 던전은 황금으로 열림, 맨 생성 지상도 황금으로 왕복)
+- `test_save_main.gd`(신규, 154 checks, 약 18~20초. M13b가 세션 플래그 시험을 더해 158, M13 검토 뒤 194 checks, 약 27초): 새 플래그와 세션에서의 거부, 다시 시작(티어 1과 그 빛, 죽은 보스와 잔해 기둥, 컬렉션, 창고, 건설 벽, 사망 가방·드롭·사망 수, 기도 횟수, 상인 자리, 상점 시계, 연 두 지도의 그림 = 데이터(`view_check`), 내용 해시 저장 = 열기, 캐릭터의 클래스·칸 전부·돈·성유물·갑옷 내구도·얻어 본 것, 두 번째 시작 무기 없음, 살아서 가득·제단에서), 월드 A에서 B로 데려간 캐릭터(인벤토리는 오고 A의 창고는 안 옴, A의 파일엔 그대로), 캐릭터 여럿(목록, 각자 클래스, 다른 `--class`·클래스 없는 새 캐릭터·다른 `--seed` 거부와 손대지 않은 파일), `--no-save`, 자동 저장(20틱)과 백업, F9, Main 둘의 결정성, 제단 없는 파일(플레이어가 서기 전에 제단이 돌아옴), 쓰기 전 확인(NaN 자리 이단·251 돈: 쓰지 않음, 파일과 백업 그대로), 실제 게임 일곱 번(만들고 `--quit-after`로 끝냄 → 연다 → 깨진 파일은 백업으로 → 모두 깨지면 종료 3과 파일 그대로 → 다른 `--class` 종료 2 → 깨진 캐릭터 파일 종료 3 → 목록), 실제 게임 로그에 `ERROR:` 없음
+- 일부러 깨 본 것(바이트까지 되돌림, `md5sum` 비교와 `git status`로 확인): 밭의 물 대신 자람을 씀 → `field ...'s growth and water` 실패 / 무리의 난수 상태를 되돌리지 않음 → 모든 칸 같음·난수열·놀아 본 뒤 실패(HERD) / 다음 드롭 번호를 1로 씀 → `the next drop id goes on` 실패 / 그루터기 시간을 되돌리지 않음 → FOR0·놀아 본 뒤 MAP0 실패 / 열 때 사망 수를 넣지 않음 → `the deaths counted` 실패 / 캐릭터의 갑옷을 넣지 않음 → `the worn armour and its durability` 실패 / 쓸 때 옛 파일을 백업으로 돌리지 않고 지움 → 백업 셋 실패 / 기둥 타격을 자르지 않음 → `a sleeping boss's pillar past broken saves and reads` 실패 / 월드 쓰기 전 확인을 끔 → `a world its reader would refuse is not written`·파일 그대로 실패 / 연 월드의 제단을 되찾지 않음 → `opened: the altar is back` 실패 / BOM을 건너뛰지 않음 → `a UTF-8 byte order mark in front is skipped` 실패
+- M13 검토가 더한 것: `test_save_world.gd` 죽은 보스(놀이에서 잡음)의 기둥이 온전·금·잔해 그대로 열리고 막음도 같음, 바위 벽 마흔 개를 캔 던전의 스폰 자리(산 아레나 = 캔 지도로 다시 구한 것, 저장 → 열기 → 대역 플레이어로 스폰 여섯 번이 같은 자리, 모든 칸 같음), 맞추기(창고 두 칸 더·없는 offer 하나·묶음 넘는 드롭과 창고 묶음·가득 넘는 검·표 밖 컬렉션 항목·꼭대기 넘는 티어·부서짐 넘는 기둥·HP 넘는 이단의 제단·표에 없는 생물 종류가 든 파일이 열리고 무엇을 맞췄는지 열 가지 로그, 다시 쓰면 맞출 것 없음), 캐릭터의 맞추기(돈 251·검 999·갑옷 5000 → 잘림과 세 줄), 노련한 캐릭터의 `seen`이 컬렉션을 채우지 않음, 커밋한 시험 파일 둘을 맞춤 없이 읽음, 작물 하나가 놀아 본 동안 실제로 자람(`> 0`). 거부는 월드 33가지(부서짐 넘는 기둥·HP 넘는 이단의 제단은 맞추기로 옮기고 음수 HP를 더함, 이름 없는 생물은 길이 0으로), 캐릭터 38가지(돈 251·내구도 999 둘은 맞추기로, 음수 갑옷 내구도를 더함). `test_save_main.gd` 목록 플래그와 `--host`/`--join` 충돌, `--test-close-after`·`--test-lag-inventory`, 진행이 바뀐 다음 틱의 파일(`why=progress`), 기둥 셋(온전·잔해·금)이 다시 열어도 그대로·막음 그대로, 노련한 캐릭터가 새 월드(시드 5)에 들어와 컬렉션 0이고 그 월드에서 얻은 가죽은 1, 잘린 첫 쓰기의 `.tmp` 둘(월드·캐릭터)이 `.tmp.broken`이 되고 새로 만들어짐(좋은 파일 옆의 잘린 `.tmp`는 건너뜀), 다운인 채 닫기(`die_if_down`: 가방·사망 수·내구도, 끝낸 뒤 두 파일이 그것을 담음), 실제 게임: 돈 251 파일이 250으로 맞춰 열리고 그렇게 쓰임, 돈 0 파일은 종료 3, 닫기 단추(`--test-close-after=40`, `--quit-after` 없음)로 스스로 끝나며 둘 다 씀
+- 일부러 깨 본 것(M13 검토, 바이트까지 되돌림: 코드의 `.gd` md5 전체가 앞뒤로 같음): 컬렉션이 `seen`을 다시 읽음 → 세 파일(save_main·save_world·net_saves) 실패 / 죽은 보스의 기둥 되돌리기를 끔 → save_main·save_world 실패(모두 잔해, 다시 쓴 MAP1·BOSS가 다름) / 던전 스폰 자리 다시 구하기를 끔 → save_world 실패(ARN1 다름) / 잘린 `.tmp` 처리를 끔 → save_main 실패 / 맞추기를 끔 → "map surface does not decode" / 캐릭터의 맞추기를 거부로 → 실패 / 다운 중 나가기 `false` → 다운 닫기 넷 실패 / 진행 저장 끔 → 실패 / 목록 플래그 충돌을 끔 → 실패 / 쓰기 전 확인이 맞춤을 보지 않음 → 251 돈이 쓰임(실패) / 호스트의 월드 나이 줄을 뺌 → `keep` 2단계 실패(처음 짠 검사는 이것을 놓쳐서 "불러온 나이 + 그 세션의 틱"과 30틱 안으로 고쳐 다시 깨 봄) / 성유물 저장 끔 → quartet 셋 실패 / 클라이언트의 LEAVE를 끔(옛 길) → `inflight` 실패(bob 파일에 돌이 남고 월드에도 20, 다운인 채 나간 dan이 죽지 않음)
+
+### 사람이 해 볼 것 (M13a)
+
+1. 내보낸 콘솔 빌드로 `game/build/evensong.console.exe -- --world=home --character=me --class=miner`: 캐 보고, 지어 보고, 창고에 넣고, F9(콘솔에 `world saved ... why=key`), 창을 닫는다(`why=quit`). 다시 `-- --world=home --character=me`: 지은 것·창고·캐릭터의 인벤토리가 그대로인지, 제단 앞에서 시작하는지
+2. 두 번째 캐릭터(`--character=two --class=archer`)로 같은 월드에: 창고는 같이 보이고 첫 캐릭터의 인벤토리는 없는지. 첫 캐릭터를 `--world=other --seed=7`로: 인벤토리는 오고 home의 창고는 없는지
+3. `%APPDATA%\Evensong\saves`를 열어 본다. `me.json`을 메모장으로 열어 돈 수를 바꾸고 시작: 바뀐 돈. M13 검토: 251로 바꾸면 250으로 맞춰 연다(콘솔 `character fitted ... cut to its stack's 250`), 0이나 1.5는 거부(`count must be a whole number 1..250`, 종료 3)
+4. 보스를 잡고 제단을 올린 월드를 끄고 켜도 빛이 넓은지(티어 1), 보스가 누워 있는지
+5. 5분 자동 저장 간격이 알맞은지(임시값), F9가 괜찮은지, 플래그 없이 시작하면 저장하지 않는 것이 괜찮은지(임시값 "M13a 기본 시작")
+6. 끄고 켜면 HP·클래스 자원·열정이 처음으로 돌아가는 것이 괜찮은지(임시값 "M13a 캐릭터에 없는 것")
+7. M13 검토: 다운인 채 창의 닫기 단추를 누르면 가방을 떨구고 죽은 채로 쓰이는지(다시 열면 가방이 월드에, 캐릭터는 그만큼 적고 장비가 닳음. 임시값 "M13 검토 다운 중 나가기"), 게임을 끈 동안 밭이 자라지 않는 것이 괜찮은지(임시값 "M13 검토 꺼진 동안"), 보스를 잡은 뒤 서 있던 기둥이 다시 열어도 서 있는지
+
+### 알려진 문제 (M13a)
+
+- ~~세션은 저장하지 않는다(M13b): 세션의 월드는 호스트 프로세스가 끝나면 사라지고, `--world`·`--character`는 세션에서 거부된다. 한 세션에 같은 클래스 한 명(● R54)도 M13b~~ → M13b에서 고침(아래 "M13b")
+- 제목 메뉴가 없다(글꼴이 없음): 월드·캐릭터는 명령줄로만 고른다. 창 exe(`evensong.exe`)는 콘솔이 없어서 거부 이유가 보이지 않고 창이 바로 닫힌다(콘솔 래퍼 `evensong.console.exe`를 쓴다)
+- 아이템 표의 순서가 바뀌거나 아이템이 빠지면 월드 파일이 거부된다(ITEM 칸: 지도의 묶음이 번호라서. 끝에 더하는 것은 괜찮다). 캐릭터 파일은 id 이름이라 상관없다. 표를 바꾸면 판을 올리고 옮기는 코드를 쓴다. M13 검토: 임시값(묶음 크기·내구도·창고 칸 수·상점 offer와 상한·드롭 상한·이단의 제단 HP·기둥의 단계당 타격·제단 티어 상한·생물 표)을 바꾼 것은 위 "맞추기"로 연다. 아직 거부되는 바꿈: 아이템 표의 순서 바꾸기·빼기, `COLLECTION_ENTRIES`의 순서 바꾸기·빼기(비트가 행 번호: 끝에 더하는 것은 괜찮다), 지도 크기·레이어 수·스냅샷 배치(전송 형식). 커밋한 시험 파일이 이런 바꿈을 시험 실패로 알린다
+- 프로세스가 죽으면(강제 종료, 정전) 마지막 저장(자동 5분·F9·만든 때·M13 검토: 진행이 바뀐 때) 뒤의 놀이는 잃는다. 강제 종료면 파일은 늘 읽히는 것이 남는다. 정전이면 마지막 저장 파일이 비어 있을 수 있고 그때 `.bak`이 열린다(위 "쓰기": fsync 없음, 검토. 고치지 않음: Godot에 파일 sync API가 없고 GDExtension이 필요하다)
+- 같은 캐릭터나 월드를 두 프로세스에서 동시에 열면 나중에 끝난 쪽이 덮어쓴다(잠금 없음)
+- 이름은 a-z 0-9 _ - 만(파일 이름이라). 한글 이름은 안 된다
+- 연 월드에서 상인이 자리 규칙대로 옮겨질 수 있다(제단 옆 그의 칸에 시작한 플레이어가 서는 등, M8a 규칙). 그때 첫 저장의 해시는 연 순간의 해시와 다르다
+- 연 월드의 지도 화면을 시드로 한 번 만든 뒤 바꿔 끼운다(main.tscn의 World가 먼저 시드로 만들고 그림: 지상 생성 약 10 ms + 그리기 약 20 ms)
+- `saved` 시각과 목록의 시각은 UTC다
+- M13 검토: 저장은 메인 스레드에서 한다(캡처 + 다시 읽어 검사 + 쓰기). 무거운 월드는 한 번에 6~10 ms(검토는 28~30 ms를 쟀다: 두 프레임)라 그 틱이 끊길 수 있다. 같은 틱에 나간 클라이언트 여럿은 다음 틱에 한 번만 쓴다(검토 반영). 다른 스레드로 옮기거나 바뀐 것이 없을 때 다시 읽기를 건너뛰는 것은 하지 않았다(쓰기 전 확인이 좋은 파일을 지킨다)
+- M13 검토: F5(디버그 키트)는 혼자 할 때 release exe에서도 주고, 저장된 캐릭터에 그대로 들어가 다른 월드로 간다. 막지 않았다: 사람이 내보낸 exe에서 F5로 시험하는 길을 바꾸지 않으려고(● R54는 손댄 파일도 막지 않는다). 세션에서 클라이언트의 F5·F7은 release 호스트가 그대로 거부한다(`--test-allow-give`가 없으면)
+
+
+## M13b: 세션의 저장 · 각자의 캐릭터 · 한 세션에 같은 클래스 한 명 · 넷
+
+M13b 기준 문서: M13a와 같음(`docs/game-concept.md` §2 월드·역할 줄 ● R54, §7 R54의 세 결정, §11 저장 = 슬라이스·Steam = 판정 뒤, §12 ● 저장 R54·"2인 접속 → 4인. 9인은 구조만 대비"·판정 기준, §13 ● 호스트 권한·늦은 참가 스냅샷; `docs/gameplay-design.md` §4 세션 흐름·혼자 접속한 날, §5 ● R54·드롭인 드롭아웃·공유 창고·개인 인벤토리·부활 지점, §6).
+
+M13b는 M13a의 저장을 세션에 넣는다(● R54, 사람이 2026-11-23 정함): **호스트가 자기 월드를 열고 쓴다**(오프라인 = 혼자 호스트하는 것과 같은 파일), **참가자는 자기 기기의 캐릭터를 데려오고 자기 기기에 쓴다**, **한 세션에 같은 클래스는 한 명**(동시 접속만 금지). 전송 형식 **v15**(새 RPC `_rpc_sheet`, v14와 양쪽 방향 `refused: version`), 생성기 황금 해시 그대로(지상 `0da8e0d26ded`, 던전 `8dda0ad69ad9`, 던전 시드들 `acc0a9bc2359`). Steam(● R54 판정 뒤: `net/steam_transport.gd` 손대지 않음, 시험은 ENet 직접 연결)·글자 있는 제목 메뉴(글꼴 없음: 고르기는 명령줄)·새 게임 규칙·새 그림은 M13b가 아니다. PixelLab·힉스필드를 부르지 않았다. 고른 숫자·규칙은 [임시값](#임시값-사람-확인-필요)의 "M13b" 줄, 구현에서 고른 것은 [구현에서 고른 값](#구현에서-고른-값-설계-결정-아님)의 "M13b" 줄이다.
+
+### 시작 (`core/cli_options.gd`, `Main._ready` 세션 갈래)
+
+```bash
+"$GODOT" --path game -- --host --world=home --character=me --class=cleric    # 호스트: 월드 home·캐릭터 me(없으면 만듦)
+"$GODOT" --path game -- --host --world=home --character=me                   # 다음부터(클래스는 파일의 것)
+"$GODOT" --path game -- --join=127.0.0.1 --character=bob --class=archer      # 참가: 캐릭터 bob(없으면 만듦, 처음에만 --class)
+"$GODOT" --path game -- --join=127.0.0.1 --character=bob                     # 다음부터: bob을 데려간다
+```
+
+- 호스트의 `--world`·`--character`는 M13a와 같은 규칙(없으면 만들고 바로 씀, 있으면 열기, 다른 `--seed`·`--class`는 종료 2, 읽히지 않으면 종료 3). 연 월드의 지도가 세션의 지도가 되고, 세션의 sim(아레나·무리·보스·밭·숲·상점 시계·기도·사망)이 저장한 상태를 받는다(`SessionHost._apply_loaded_combat`·`_apply_loaded_rest`, 오프라인 `Main._apply_loaded`의 순서, 시험 플래그는 그 위에)
+- 참가자의 `--character`: 자기 기기의 파일(M13a 형식)을 읽어 hello 바로 앞에 보낸다(아래 "접속"). 없는 이름이면 `--class`로 **새 캐릭터**: 아무것도 보내지 않고 호스트가 오늘처럼 시작 무기를 주며, 호스트의 첫 인벤토리 메시지가 오면 그대로 파일로 쓴다(`why=new`)
+- **참가자의 `--world`는 오류**(종료 2, `--world: the world is the host's ...`): 월드는 호스트의 것이고 클라이언트는 호스트의 월드를 쓰지 않는다
+- 이름을 주지 않으면 오늘과 같다(M13a 임시값 "기본 시작"): 저장하지 않는 새 월드·새 캐릭터. 그래서 M1~M12의 세션 시험이 모두 그대로다
+- 시험 전용 `--test-duplicate-classes`(호스트): 같은 클래스 둘을 받는다(아래 "같은 클래스")
+
+### 접속: 캐릭터를 데려오기 (`SessionClient.on_opened`, `SessionHost.on_sheet`·`on_hello`, `NetProtocol` sheet)
+
+- 클라이언트는 연결되면 **캐릭터(시트)를 먼저, 그다음 hello**를 보낸다(같은 reliable 채널 0이라 호스트에는 그 순서로 온다). 시트 = 판(u16), 클래스, 고른 칸, 24칸(인벤토리 메시지의 칸 모양: 아이템 번호·수·등급·내구도), 갑옷, 얻어 본 아이템(비트, 아이템 61개 = 8B), 이름. 풍성한 캐릭터 101 B, 가장 큰 것(닳는 아이템 24칸·갑옷·모든 아이템 얻어 봄·32자 이름) 172 B, 상한 256 B(구현 "M13b 시트 상한")
+- **hello는 3 B 그대로**(u16 판 + 클래스): 더 옛날·새 호스트도 판을 읽고 `version`으로 거부한다. 시트를 hello 안에 넣으면 v14 호스트가 크기만 보고 `bad_hello`라고 했을 것이라 따로 보낸다
+- 호스트는 시트를 받아 두고(peer마다 하나, 256 B + 1까지만), **hello에서** 판 → 클래스(모름 / 가득 / 같은 클래스) → 시트 순으로 본다. 시트 검사(`NetProtocol.decode_sheet`, 캐릭터 파일 읽기와 같은 한도): 크기, 시트의 판, 클래스 번호, 고른 칸, 칸 수, 칸마다 아는 아이템·묶음 크기 안의 수(1..최대: 음수는 바이트라 255로 와서 거부)·그 아이템이 가질 수 있는 등급·가득 이하 내구도·빈 칸에 다른 값 없음, 갑옷 칸엔 갑옷만, 얻어 본 비트(바이트 수, 아이템 밖 비트 없음), 이름(저장 이름 규칙), 남는 바이트 없음, **시트의 클래스 = hello의 클래스**. 하나라도 틀리면 **거부**(잘라 맞추지 않는다, 임시값 "M13b 손댄 캐릭터"): 이유 `character`와 그 까닭이 클라이언트 콘솔에 `refused: character (slot 2: money count 255, must be 1..250)`처럼
+- 통과하면 그 멤버에게 시작 무기 대신 시트의 것을 넣고(`CharacterSave.Sheet.to_inventory`) 그때부터는 **호스트가 그 플레이어의 것을 가진다**(M2b부터 그대로: 인벤토리·장비·돈은 호스트의 것, 클라이언트는 사본). 호스트 로그 `joined peer=... class=archer ... character=bob items=5 money=37`(새 캐릭터는 `character=new`)
+- 시트 없이 hello만 = 새 캐릭터(오늘과 같음). 이미 들어온 peer·거부된 peer의 시트, hello 전의 두 번째 시트는 잘못된 메시지로 세고 버린다. hello 없이 나간 peer의 시트는 지운다
+- 손댄 파일: 친구끼리라 막지 않는다(● R54). 클라이언트가 읽어 주는 파일(돈 250 등)은 호스트도 받는다. 파일이 담은 아이템이 `seen`에 없으면 가진 것도 얻어 본 것으로 센다(호스트와 클라이언트가 같게)
+
+### 같은 클래스 (● R54, `Config.NET_UNIQUE_CLASSES` = true, `Roster`)
+
+- 연결된 사람(호스트 자신 포함)이 가진 클래스로 들어오면 거부: 이유 `class_taken`, 메시지에 **지금 차지한 클래스**(u16 비트). 클라이언트 콘솔: `EVENSONG_NET client refused_class this character's class (archer) is already played in this session; taken: paladin, archer, cleric; pick a character of a free class: miner, herbalist`, 끝 줄 `ended reason="refused: class_taken (taken: paladin, archer, cleric; free: miner, herbalist)" code=3`. 그 캐릭터 파일은 손대지 않는다(받아들여지기 전에는 아무것도 쓰지 않음)
+- 나간 사람의 클래스는 바로 빈다(자리도 M1처럼 다시 씀). 거부 순서는 모름 → 가득(`full`) → 같은 클래스
+- 오프라인은 바뀐 것이 없다. 시험 중 클래스보다 사람이 많은 것(9인 구조 `full`, 약초사 둘의 `brew`·`brew4`, 한 프로세스 리그들)은 호스트에 `--test-duplicate-classes`를 준다. 규칙 자체는 `test_net.gd`·`test_net_saves.gd`·`test_net_keep.gd`·`test_net_quartet.gd`·스모크가 본다
+- 알려진 것: 클라이언트가 죽거나 선이 끊겨 호스트가 아직 모르면(ENet 시간 초과: 이 데스크탑 localhost에서 클라이언트 프로세스를 강제로 죽이고 호스트의 `left`까지 5.6초, 한 번 잼. 실제 회선은 더 길 수 있다) 그 사이 같은 캐릭터로 다시 들어오면 자기 클래스가 `class_taken`이다. 정상으로 나가면(창 닫기) 바로 빈다
+
+### 쓰는 때 (`Main.save_now`·`_on_net_ended`·`_on_client_left`·`_tick_session_saves`)
+
+| 누가 | 무엇 | 언제 |
+|---|---|---|
+| 호스트 | 열린 월드(세션의 지도와 sim에서, `SessionHost.live_world`) + 자기 캐릭터 | 만든 때(`new`), 세션 끝(`ended`), 창 닫기(`quit`), 클라이언트가 나갈 때(`left`, 임시값 "M13b 나갈 때 저장". M13 검토: 다음 틱에 한 번, 같은 틱에 나간 여럿도 한 번), 진행이 바뀔 때(`progress`: 보스 처치·제단 티어, M13 검토), 5분마다(호스트 틱, `autosave`), F9(`key`) |
+| 클라이언트 | 자기 캐릭터(호스트가 보낸 인벤토리 메시지대로: 24칸·갑옷·내구도·돈·얻어 본 것) | 새 캐릭터는 호스트의 첫 인벤토리 때(`new`), 나갈 때(`left`: M13 검토, LEAVE를 호스트가 확인한 인벤토리로: 아래 "나가기"), 세션 끝(`ended`), **호스트를 잃을 때**(`host_lost`, 그 뒤 혼자 계속하면 오프라인처럼 계속 씀), 성유물이 늘 때(`relic`, M13 검토), 5분마다(자기 틱), F9 |
+
+- 클라이언트는 **호스트의 첫 인벤토리 메시지 전에는 아무것도 쓰지 않는다**: 거부되거나(같은 클래스, 판, 캐릭터), 접속이 실패하거나, 월드를 받다 끊기면 파일이 그대로다
+- 인벤토리 메시지가 v15에서 얻어 본 아이템 비트를 싣는다(+9 B, 빈 인벤토리 81 → 90 B): 클라이언트가 쓰는 캐릭터가 호스트의 것과 같다(레시피가 그것으로 열린다)
+- 한 번 쓰기(세션 중, 이 데스크탑): 월드 2~7 ms(시험의 `quartet` 월드 2,019 B), 캐릭터 0.5~0.7 KB
+- 결정성: 오프라인이 쓴 풍성한 월드(`test_save_world.gd`의 것)를 호스트가 열고 다시 쓰면 지상 지도(상인이 호스트 플레이어를 비켜 설 수 있음, M8a 규칙) 밖의 모든 칸이 바이트까지 같고, 그 파일을 호스트가 다시 열어 쓰면 모든 칸이 같다(`test_net_saves.gd`)
+
+### 전송 형식 버전 15 (`NetProtocol.VERSION`)
+
+- 새 RPC `_rpc_sheet`(클라이언트 → 호스트, any_peer, reliable, 채널 0): 24개. 이름이 `_rpc_refused` 뒤에 정렬되어 `_rpc_hello`(6)·`_rpc_refused`(13)의 번호가 그대로다(M10 검토의 함정, `test_net.gd` `RPC_STABLE`). v14 호스트에 이 RPC는 번호 14(그 판의 `_rpc_shots`, authority)로 가서 Godot이 거부하고 오류 한 줄을 찍지만, hello가 판으로 거부되므로 클라이언트는 `refused: version`을 듣는다(아래 "측정"의 M13b, 실제 프로세스)
+- 거부 메시지: `version`·`full`·`class`·`bad_hello`는 1 B 그대로(옛 판도 읽음), `class_taken` 3 B(+ 차지한 클래스 u16), 새 이유 `character` 2 B + 까닭(ASCII, 120자까지)
+- 인벤토리 메시지 + 얻어 본 비트(1 + 8 B). 월드·스냅샷·편집·상태·적 묶음은 그대로
+- M13 검토: 요청 하나 더 `LEAVE`(입력 프레임의 요청, 필드 없음: 프레임 번호 + op = 2 B, 아래 "나가기"). 새 RPC는 없다(24개, `_rpc_hello` 6·`_rpc_refused` 13 그대로). v15는 아직 main에 머지되지 않아 판을 올리지 않았다(v15를 가진 사람이 없다)
+
+### 나가기 (M13 검토: `SessionClient.begin_leave`, `SessionHost._leave`, `NetProtocol.Op.LEAVE`, 임시값 "M13 검토 나가기")
+
+검토에서 찾음(실제 UDP 지연 중계, 한쪽 100 ms): 클라이언트가 버리기·놓기·창고에 넣기·팔기 요청을 보내고 그 답(인벤토리 메시지)이 오기 전에 나가면 호스트는 요청을 처리한 월드를 쓰고 클라이언트는 그 전 인벤토리로 캐릭터를 써서 **그 아이템이 두 파일에 다 있었다**(돌 20 → 40). 반대로 줍기는 잃었다. 창 닫기는 바로 썼고 봇 `leave`는 10틱(167 ms)만 기다렸다.
+- 클라이언트가 나갈 때(창의 닫기 단추 = `Main.request_close`, 봇 `leave`·`close`): 아직 보내지 않은 요청은 버리고(일어나지 않은 일), 다음 프레임에 요청 `LEAVE`를 보낸다. 그동안 플레이어는 서 있고 새 요청을 만들지 않는다(이미 보낸 프레임은 확인될 때까지 다시 보냄)
+- 호스트는 프레임을 순서대로 돌리므로 `LEAVE`를 돌릴 때는 **그 전의 요청이 모두 끝났다**(줍기가 잃던 반대 방향도 같은 순서로 고쳐진다: 따로 시험하지는 않았다). 그때 다운이면 먼저 죽이고(가방·내구도, 임시값 "M13 검토 다운 중 나가기"), 그 멤버의 인벤토리를 한 번 더 보내고(그 확인 번호 ≥ `LEAVE` 프레임), 그 뒤 프레임은 돌리지 않는다. 자리·클래스·월드 저장은 연결이 끊길 때(전과 같음)
+- 클라이언트는 확인 번호가 `LEAVE` 프레임에 닿은 인벤토리 메시지가 오면 그것으로 캐릭터를 쓰고(`why=left`) 끊는다. 로그 `left_host how=confirmed seq=... ticks=...`. `NET_LEAVE_WAIT_TICKS`(120틱 = 2초) 안에 오지 않으면 가진 것으로 쓰고 `how=unconfirmed`(그때는 오가던 것이 다를 수 있다), 호스트가 먼저 끊으면 `how=host gone`
+- 다시 누르면(나가는 중 닫기 단추) 바로 끝난다(가진 것으로 씀). 받아들여지기 전(월드를 받는 중)에는 기다리지 않고 끝난다(쓸 것이 없음)
+- 시험: `--test-lag-inventory`(클라이언트, 시험 전용)가 `--net-lag`일 때 호스트의 인벤토리 메시지도 왕복의 절반만큼 늦게 받게 한다(`LinkSim.delay`, reliable 순서). `test_net_keep.gd`의 `inflight`(아래 "시험")가 왕복 300 ms에서 버리고 바로 나가기·버리는 중에 닫기 단추·다운인 채 나가기를 본다. 옛 길로 되돌리면(일부러 깸) 돌이 두 파일에 다 있고 다운인 채 나간 캐릭터가 죽지 않는다
+
+### 시험 (M13b)
+
+- `test_net.gd`(+79 checks): 시트 왕복(클래스 다섯), 가장 큰 시트가 상한 안, 잘린 시트 전부·한 바이트 더·256 B 넘음·옛 판·새 판·클래스 번호 5·255·고른 칸 8·칸 23·25·모르는 아이템·아이템 바이트 255·수 0·돈 251·수 255(음수)·활의 등급·가득 넘는 내구도·빈 칸의 수·갑옷 칸의 검·얻어 본 비트 수·아이템 밖 비트·이름 규칙·이름 길이 거짓말을 모두 이유와 함께 거부, 무작위 2,000개는 하나도 읽히지 않음, 거부 메시지(1 B 판 거부, `class_taken`의 클래스·자유 클래스 줄, `character`의 까닭·자르기·비 ASCII, 잘못된 것 아홉), 인벤토리의 얻어 본 비트(왕복, 클라이언트가 받음, 잘못된 비트 수·잘림), 명단의 클래스 규칙(기본 켜짐, 호스트의 클래스, 다섯이 다 차면 여섯째는 어느 클래스든 `class_taken`, 나가면 빔, 테스트 플래그), RPC 표(새 RPC는 클라이언트가 부를 수 있음, hello 6·refused 13)
+- `test_net_saves.gd`(신규, 한 프로세스, 49 checks): 캐릭터를 데려온 참가(시트가 hello 앞, 호스트 멤버 = 시트, 시작 무기 없음, 클라이언트가 받은 인벤토리와 얻어 본 것, 호스트 로그의 이름), 새 캐릭터(시작 무기), 클래스 규칙(호스트의 팔라딘, 둘째 아처, 클래스 목록, 나간 아처의 자리·클래스를 다른 아처가 받음), 나쁜 캐릭터 다섯(크기, 모르는 아이템, 수 255, hello와 다른 클래스, 옛 판: 모두 `character`와 까닭, 월드에 아무것도 남지 않음), 들어온 뒤의 시트·두 번째 시트·나간 peer의 시트, v14 hello는 시트가 있어도 1 B `version`, 호스트 자신의 캐릭터, 호스트가 연 오프라인 월드(sim 칸 모두 같음, 지상 지도는 상인의 한 칸(호스트가 놓음)만 다르고 나머지 모든 레이어·드롭·창고 같음, 무리·이단·사망·기도·티어, 다시 열어 써도 같음)
+- `test_net_keep.gd`(신규, 실제 프로세스, 약 72초) `keep`(약 48초)·`close`(약 24초). 1단계 호스트가 월드 keepw와 캐릭터 hostc를 만들고, c1이 저장된 아처 bob(돈 37, 상급 약초 셋, 닳은 1티어 활 50, 갑옷 40)을 데려오고, c2가 새 성직자 cara를 만든다. 호스트가 c1 곁에 돌 다섯을 버리고 c1이 주워 나간다(bob 씀 `why=left`, 호스트가 월드 씀 `why=left`). bob이 있는 동안 c3이 아처 dup으로 들어오다 `class_taken`(차지한 클래스, 자유 클래스 줄, 파일 그대로). bob이 다시(c1b, 클래스가 비어서) 돌 다섯을 가지고 들어와 47,51의 야생 버프 약초를 캔다. 호스트가 아무도 안 줍는 돌 셋을 버리고 칸 하나를 갈고 끝낸다(월드·hostc `why=ended`). 파일 검사: bob의 돌·약초·돈·갑옷 40·활 50, `.bak` = 그 앞의 저장, cara는 `new`와 성직자 시작 무기, 월드 파일 = 호스트의 마지막 지상 해시(돌 셋, 간 칸, 캔 약초 없음). 2단계 호스트가 `--world=keepw --character=hostc`(클래스 없이)로 다시 열어 1단계 끝의 해시 그대로, bob(c1c)·cara(c2b)가 연 월드에 다시 들어와(bob의 welcome에 돌 셋) 가진 것 그대로, bob이 나가고, 호스트가 자기 시간 초과로 끝나며 cara는 `lost the host`(종료 4)와 `why=host_lost`. `close`: 사람처럼 띄운 프로세스(`--net-out`·봇 없음, Godot의 `--quit-after`로 끝남 = 창 닫기)와 세션의 자동 저장(`--test-autosave-ticks=60`): 호스트(월드 closew, 캐릭터 hc)와 둘. c1이 먼저 창을 닫고(캐릭터 `new`·`autosave`·`quit`, 호스트는 월드 `left`), 호스트가 창을 닫고(월드·캐릭터 `quit`, 그 전에 `autosave`), c2는 호스트를 잃어 `host_lost`를 쓰고 혼자 계속하다(`offline playing on alone`) 창을 닫는다(`quit`). 클라이언트는 월드를 쓰지 않는다. 모든 파일이 읽힌다
+- `test_net_quartet.gd`(신규, 실제 프로세스, 약 66초) `quartet`: 시험이 쓴 월드 quartet(시드 1, 간 칸 하나, 생물·이단 없음)와 캐릭터 여섯. 호스트(성직자 hc, 신앙 60)가 열고 팔라딘 pal·아처 arc·광부 min이 데려온다. 넷이 서 있다가(넷의 0/4) 제단에서 넷이 기도(모두 원 안, 차례마다 맞음: 아홉 켜짐, 열정 29%), 내려가 함께 보스를 잡는다(넷에 깨어남, HP는 `--test-boss-hp=240`, 성유물 넷). 다섯째가 아처 dup으로 오면 `class_taken`(팔라딘·광부·아처·성직자, 약초사 자유, 파일 그대로), 여섯째 약초사 hb는 들어온다(다섯, 연 월드의 늦은 참가). 모두가 호스트와 같다(위치·월드·그림), 네 캐릭터가 성유물과 함께 쓰이고 월드가 보스 죽음으로 쓰인다. 넷의 트래픽(아래 "측정"의 M13b)
+- `test_save_main.gd`: 세션 플래그의 거부 시험을 M13b 규칙으로(호스트의 `--world`·`--character`, 클라이언트의 `--character` 받음, 클라이언트의 `--world` 거부, `--test-duplicate-classes`)
+- 바꾼 시험: 판 14 → 15(`test_net_build`·`fields`·`maps`·`prayer`·`shop`, `test_net_boss`의 거부 판 13·14·16), 인벤토리 크기 +9 B(`test_net_build`·`test_world_items`), 같은 클래스를 쓰는 한 프로세스 리그(`test_net_combat`·`test_net_maps`의 `rig_duplicates`)와 실제 세션(`brew`·`brew4`·`full`)에 `--test-duplicate-classes`
+- 일부러 깨 본 것: 아래 "측정"의 M13b
+- M13 검토: `test_net_keep.gd`에 `inflight`(약 14초): 호스트(팔라딘, 월드 flight)와 왕복 300 ms의 느린 클라이언트 셋(`--net-lag=300 --test-lag-inventory`). c1(bob, 돌 20)은 20개를 버리고 바로 나간다(봇 `leave`), c2(cara, 통나무 30)는 3개씩 버리는 사이에 닫기 단추를 누른다(봇 `close` = `Main.request_close`), c3(dan, 구리 광석 10과 내구도 100의 1티어 검)은 호스트가 쓰러뜨린 뒤(봇 `hurt`) 다운인 채 나간다. 모두 `how=confirmed`, 아이템마다 캐릭터 파일 + 월드의 드롭 = 처음 수(어느 것도 두 번 없음), c1의 돌은 모두 월드에, c3은 먼저 죽어(호스트 `died_leaving`) 가방이 월드에, 검이 닳음. `keep` 2단계: 다시 연 호스트가 쓴 월드 나이가 파일의 것보다 큼(전에는 0부터). `test_net_quartet.gd`: 처치가 월드를 바로 씀(`why=progress`), 세 클라이언트가 성유물을 받자마자 캐릭터를 씀(`why=relic`). `test_net_saves.gd`: 노련한 참가자(온전한 가죽을 들고, `seen`에 희귀 재료)가 호스트의 컬렉션에 아무것도 등록하지 않고, 그 월드에서 얻은 가죽은 등록. `test_net.gd`: `LEAVE` 왕복
+
+### 사람이 해 볼 것 (M13b, 혼자: 이 데스크탑에서 창 둘·셋)
+
+1. 창 1 `game/build/evensong.console.exe -- --host --world=try --character=me --class=cleric --scale=2`, 창 2 `game/build/evensong.console.exe -- --join=127.0.0.1 --character=friend --class=archer --scale=2`. 창 2에서 무언가 줍고(돌·약초) 창을 닫는다. 창 2를 `-- --join=127.0.0.1 --character=friend`로 다시: 가진 것 그대로인지
+2. 창 3을 `--character=dup --class=archer`로(창 2가 들어와 있을 때): 창 3 콘솔에 `refused_class ... taken: cleric, archer; pick a character of a free class: ...`가 나오고 창이 닫히는지. 창 2를 닫고 다시 하면 들어오는지
+3. 창 1에서 창고에 넣고 보스를 잡거나 벽을 짓고 창 1을 닫는다(창 2 콘솔 `lost the host`, `character saved ... why=host_lost`). 창 1을 `-- --host --world=try --character=me`로 다시, 창 2를 다시: 지은 것·창고·티어·보스가 그대로인지
+4. `%APPDATA%\Evensong\saves`에 `worlds\try.evw`(호스트만)와 `characters\me.json`·`friend.json`(같은 데스크탑이라 한 폴더에)
+5. M13 검토: 창 2에서 무언가를 버리거나(F7, 내보낸 exe면 호스트에 `--test-allow-give`) 창고에 넣자마자 창 2를 닫는다(콘솔 `leaving ... why=window`, `left_host how=confirmed`): 다시 들어왔을 때 그것이 월드와 캐릭터 중 한 곳에만 있는지. 다운인 채 닫기는 봇 없이는 만들기 어렵다: `test_net_keep.gd`의 `inflight`가 본다
+
+### 넷이 할 때 (사람이 할 것, 기기 넷)
+
+위 "실행"의 "넷이 하기 (M13b)"에 명령·파일 자리·볼 것·판정 체크리스트가 있다.
+
+### 알려진 문제 (M13b)
+
+- 캐릭터는 클라이언트 기기의 파일이라 친구가 고칠 수 있다(● R54: 막지 않음). 호스트는 깨지거나 불가능한 값만 거부한다
+- 아이템 복사가 가능한 때: 호스트가 강제로 죽으면(정전 등) 월드는 마지막 저장(5분·나갈 때·F9)으로 돌아가지만 클라이언트는 호스트를 잃는 순간의 캐릭터를 쓴다. 그 사이 창고에서 꺼낸 것은 둘 다에 있다. 클라이언트가 강제로 죽으면 그 반대(캐릭터는 마지막 저장, 월드는 그 뒤로 감)
+- ~~클라이언트가 나가는 순간 아직 오지 않은 인벤토리 메시지(호스트가 막 처리한 줍기 등)는 캐릭터에 없다(나가기 전 10틱을 기다리는 봇 `leave`는 괜찮다. 창을 바로 닫으면 잃을 수 있다)~~ → M13 검토에서 고침(위 "나가기": 이 줄은 잃는 쪽만 말했고, 한쪽 70 ms부터는 버린 것이 두 파일에 다 있었다). 남은 것: 클라이언트 프로세스가 강제로 죽으면 그 전 저장(아래 줄), Godot의 `--quit-after`로 끝나면 닫기 단추가 아니라 기다리지 않음(시험 `close`가 그 길을 본다), 호스트가 창을 닫는 순간 막 처리한 클라이언트 요청의 인벤토리 메시지는 한 프레임 안에서 잃을 수 있다(호스트 쪽 방향: ENet의 `close`가 `disconnect_now`로 보내지 않은 것을 버림. 손대지 않음)
+- 다운인 채 클라이언트 프로세스가 강제로 죽거나 선이 끊기면 죽음이 없다(호스트는 그 클라이언트의 파일이 언제 쓰였는지 모른다: 가방을 떨구면 복사가 된다). 정상으로 나가면 죽는다(위 "나가기")
+- 성유물(M13 검토): 클라이언트가 보스를 잡고 바로 강제로 죽으면 예전에는 그 월드의 성유물을 영영 잃었다(보스는 다시 나지 않음, 제단 업그레이드에 필요). 이제 성유물이 인벤토리에 들어오는 메시지에서 바로 쓰므로(`why=relic`, 임시값 "M13 검토 성유물 저장") 한 왕복 안쪽만 남는다. 호스트도 처치를 바로 쓴다(`why=progress`)
+- 시험의 `--net-lag`·`--net-loss`(`LinkSim`)는 입력·상태·적·생물·기도와 (M13 검토) `--test-lag-inventory`의 인벤토리만 늦춘다. 편집·월드 조각 같은 다른 reliable 메시지는 늦추지 않는다(실제 회선과 다름). 나가기의 회선 시험은 그 둘로 한다
+- 같은 캐릭터를 두 기기에서 동시에 쓰면 나중에 쓴 쪽이 이긴다(M13a처럼 잠금 없음). 같은 캐릭터를 한 세션에 둘이 들고 오면 클래스가 같아 둘째가 거부된다
+- 호스트를 잃은 클라이언트가 혼자 계속하면(M2b부터) 그 월드(호스트의 사본)는 어디에도 쓰지 않지만 캐릭터는 계속 쓴다: 그 사본의 창고에서 꺼낸 것도 캐릭터에 남는다(복사 길. 임시값 "M13b 호스트를 잃은 뒤": 사람이 정할 것)
+- 위 "같은 클래스"의 ENet 시간 초과(끊긴 사람의 클래스가 호스트가 알아챌 때까지 남음: localhost 5.6초, 실제 회선은 재지 않음)
+- 창 exe는 콘솔이 없어 거부 이유(`class_taken` 등)가 안 보인다: 콘솔 래퍼 `evensong.console.exe`를 쓴다(제목 메뉴·글꼴이 없음)
+
+
+## 검토 반영 (M13, 2026-11-23)
+
+독립 검토(M13a·M13b 전체)가 낸 지적을 코드로 확인하고(나가기의 복사는 고치기 전 길로 시험을 돌려 다시 봄) 고쳤다. 고침과 시험을 쓴 뒤 고침을 하나씩 되돌려(일부러 깸) 그 시험이 실패하는지 봤다(13개, 아래 "측정"의 M13 검토). 문서(R54)가 정한 것은 그대로이고, 문서가 정하지 않은 것은 임시값 "M13 검토" 줄이다.
+
+고친 것:
+- **나갈 때 오가던 요청이 두 파일에 다 있음(높음)**: 클라이언트가 버리기·놓기·창고·팔기 요청의 답이 오기 전에 나가면 그 아이템이 월드 파일과 캐릭터 파일에 다 있었다(검토의 지연 중계에서 돌 20 → 40). → 요청 `LEAVE`와 그 확인(위 "M13b"의 "나가기"), 창의 닫기 단추도 같은 길(`Main.request_close`). 시험 `inflight`(왕복 300 ms)
+- **컬렉션이 월드를 넘어감(높음)**: 캐릭터 파일의 `seen`이 다른 월드·새 월드의 "아이템" 항목을 채워 ● §4 "월드마다 독립"을 어겼다(새 월드가 첫 틱에 2/8). → 컬렉션은 그 월드에서 인벤토리에 들어온 것(`Inventory.gained`)만 센다. 레시피는 그대로 `seen`. 시험: 혼자(`test_save_main`)·세션(`test_net_saves`)·맨 규칙(`test_save_world`)
+- **세션 호스트가 월드 나이를 0부터 다시 셈(중간)**: → 연 월드의 나이에서 잇는다(`keep` 2단계가 확인)
+- **죽은 보스의 기둥이 다시 열면 모두 잔해(중간)**: 서 있던 기둥이 잔해가 되어 방의 충돌이 바뀌었다(● R54 "보스와 기둥"은 이어서). → 싸움이 남긴 그대로 연다
+- **임시값 하나를 바꾸면 모든 저장이 열리지 않음(중간)**: 상점 offer 한 줄, 검의 내구도 하나로 월드·캐릭터와 백업이 모두 종료 3이었다. → 파일 쪽에서 맞추기(위 "M13a"의 "맞추기", 임시값 "M13 검토 맞추기"), MAP 칸에 창고 칸 수·offer id, 커밋한 시험 파일. 늦은 참가 스냅샷과 시트는 엄격 그대로
+- **채굴한 던전에서 결정성 주장이 틀림(중간)**: 산 아레나는 시작 때의 스폰 자리를, 연 아레나는 캔 지도의 것을 써서 ARN1이 갈라졌다(M13 전부터 있던 낡은 캐시). → 산 게임도 지형이 바뀌면 다시 구한다. 시험이 벽을 캔 뒤 대역 플레이어로 스폰을 본다(리그가 플레이어 없이 걸어 보지 못하던 것)
+- **보스를 잡고 강제로 죽은 클라이언트가 성유물을 잃음(중간)**: → 성유물이 들어오면 바로 쓰고(`relic`), 호스트는 처치를 바로 쓴다(`progress`)
+- **다운인 채 나가면 죽음을 피함(중간)**: → 먼저 죽는다(임시값 "M13 검토 다운 중 나가기"). 강제 종료는 남음(알려진 문제)
+- 꺼진 동안 시간이 멈추는 것(낮음): 임시값 줄 "M13 검토 꺼진 동안"과 위 "월드에 있는 것"의 한 문장
+- 첫 쓰기 도중에 죽으면 그 이름이 영영 종료 3(낮음): → `.tmp.broken`으로 비켜 두고 새 이름
+- 목록 플래그와 `--host`(낮음): `--host --world=새것 --list-worlds`가 목록을 찍은 뒤 포트를 열고 파일을 만들었다. → 같이 주면 오류
+- 같은 틱에 나간 여럿이 저장을 여럿 함(낮음): → 다음 틱에 한 번
+- 참이 되게 짜인 시험(낮음): 밭 검사 `>= 0` → 작물 하나가 놀아 본 동안 실제로 자람(`> 0`), 리그에 대역 플레이어(스폰), 세션의 월드 나이는 Main을 거치는 `keep`에서, 시험 파일 커밋
+- README: `test_save_main.gd` 검사 수, "a archer" → "an archer", 쓰기의 내구성 주장(fsync 없음: 정전이면 `.bak`), 시험의 `--net-lag`가 늦추는 것
+
+고치지 않은 것(이유, 알려진 문제에 남김):
+- 혼자 할 때 F5·F7을 release에서 막기: 사람이 내보낸 exe에서 F5로 시험하는 길이 바뀐다(위 "알려진 문제 (M13a)")
+- 디스크 동기화(fsync): Godot에 API가 없다(GDExtension 필요). 정전이면 마지막 저장을 잃고 `.bak`이 열린다고 README를 바로잡았다
+- 저장을 다른 스레드로·바뀐 것 없을 때 다시 읽기 건너뛰기: 쓰기 전 확인이 좋은 파일을 지킨다. 나간 사람 저장만 묶었다
+- 호스트가 창을 닫는 순간의 한 프레임(호스트 쪽 방향의 인벤토리 메시지)·강제 종료한 프로세스의 복사·다운: 막을 길이 없거나 다른 복사를 만든다(위 "알려진 문제 (M13b)")
+
+
 ## 빛과 제단 (G2)
 
 - **규칙은 하나**: `SafeZone.is_in_safe_zone(pos)` = 제단 가운데에서 반경(임시 7타일 = 112px) 안 (경계 포함). 게임 로직은 `GameWorld.is_in_safe_zone()`로 이것을 부르고, 빛 텍스처는 같은 함수를 텍셀 가운데마다 불러 만든다
@@ -3914,7 +4347,7 @@ timeout 120 "$GODOT" $S --class=archer --test-boss=0,3 --test-boss-attack=volley
 
 - **노드 하나**: `main.tscn`의 `Net`(`NetSession`)이 모든 RPC를 받는다. 모든 기기에서 경로가 같다(`/root/Main/Net`). 혼자 할 때(`--host`/`--join` 없음)는 아무것도 하지 않는다
 - **전송 계층**(`NetTransport`): `configure(options)` 뒤 `host(api)` / `join(api)`. 결과는 시그널(`opened` / `open_failed(이유)`)로, 호출 안이 아니라 나중에 한 번. ENet(`EnetTransport`)이 지금 쓰는 것, `SteamTransport`는 GodotSteam이 없으면(지금) "unavailable"로 실패하는 자리다. 실제 Steam 로비 흐름은 M1이 아니다. 클라이언트끼리는 통하지 않는다(`server_relay = false`, Steam 기본과 같음)
-- **접속**: 클라이언트가 hello(프로토콜 버전, 클래스)를 보내면 호스트가 `Roster`로 받거나 거부한다. 거부 이유: `full`(인원 상한), `version`, `class`(슬라이스 클래스가 아님), `class_taken`(같은 클래스 금지일 때만, 지금은 꺼짐). **상한은 전송이 아니라 호스트가 센다** (ENet은 연결을 16개까지 받아서 열 번째에게 이유를 말해 줄 수 있다. Steam peer에는 상한 인자가 없다). 받으면 가장 작은 빈 스폰 자리(나간 사람 자리를 다시 씀), 거부하면 이유를 보내고 클라이언트가 스스로 끊는다(호스트가 바로 끊으면 ENet이 보낼 메시지를 버린다. 2초 지나도 남아 있으면 호스트가 끊는다). hello 없이 5초 있는 연결도 끊는다
+- **접속**: 클라이언트가 hello(프로토콜 버전, 클래스)를 보내면 호스트가 `Roster`로 받거나 거부한다. 거부 이유: `full`(인원 상한), `version`, `class`(슬라이스 클래스가 아님), `class_taken`(M13b부터 켬: ● R54 한 세션에 같은 클래스 한 명, 메시지에 차지한 클래스), `character`(M13b: 데려온 캐릭터가 읽히지 않음, 그 까닭). **상한은 전송이 아니라 호스트가 센다** (ENet은 연결을 16개까지 받아서 열 번째에게 이유를 말해 줄 수 있다. Steam peer에는 상한 인자가 없다). 받으면 가장 작은 빈 스폰 자리(나간 사람 자리를 다시 씀), 거부하면 이유를 보내고 클라이언트가 스스로 끊는다(호스트가 바로 끊으면 ENet이 보낼 메시지를 버린다. 2초 지나도 남아 있으면 호스트가 끊는다). hello 없이 5초 있는 연결도 끊는다
 - **늦은 참가 = 월드 스냅샷** (H1, game-concept §13 ○ "늦은 참가 스냅샷 스트리밍"): 호스트는 참가자를 받는 순간의 월드(`WorldData` 레이어 6장 전부(M7-rf: 7장) + 크기·시드·제단 자리)를 `WorldSnapshot`으로 묶어 zstd로 압축하고, 1KB(`NET_SNAPSHOT_CHUNK_BYTES`) 조각으로 잘라 틱마다 최대 8개(`NET_SNAPSHOT_CHUNKS_PER_TICK`, 틱당 8KB = 480KB/s)씩 reliable 채널 0으로 보낸다. 마지막 조각을 보낸 그 틱에 welcome(자리, 지금의 플레이어들, 스냅샷의 편집 기록 위치, 원본·압축 크기, 조각 수, 압축 바이트 md5, 월드 md5, 진단용 생성기 해시. 시드는 스냅샷 머리말에만 있다)을 보내고, 스냅샷 뒤에 생긴 편집을 번호와 함께 이어서 보낸다. 그때부터 그 참가자는 묶음·편집·출입·go를 받는다(그 전에는 받지 않아서, 채널 0 하나의 순서대로 "월드 → welcome → 나머지"가 된다). 클라이언트는 조각을 순서대로 모으고(순서가 틀리거나 1KB를 넘거나 상한을 넘으면 끊음), welcome에서 조각 수·크기·md5를 맞춰 본 뒤 풀어서 월드를 만들고 그 `content_hash()`가 호스트의 월드 md5와 같은지 확인하고(다르면 종료 코드 5) 그 월드를 그린다(`GameWorld.load_data`). **자기 생성기로 만들지 않는다.** 시드와 생성기 해시는 진단뿐이다: 자기 생성기로 스냅샷 머리말의 시드로 월드를 만들어 호스트 생성기 해시와 비교해 `generator=match|differs`를 찍는다(실패 아님. 결과 JSON의 클라이언트 `generator_hash`는 welcome 전에는 빈 값). M1 월드 128×96 = 73,749B → 341~342B, 조각 1개. 받는 쪽 크기 상한(H-fix): 한 변 `MAX_SIDE` 512칸(M1 맵 가로의 4배), 압축 바이트 `MAX_PACKED` 약 1.6MB. 압축이 전혀 안 되는 최대 월드도 틱당 8KB로 약 3.3초라 접속 제한 10초 안에 다 오고 `load_data`가 1초 안쪽이다(예전 2048은 약 25MB라 받을 수 없는 크기까지 받아 주었다). 접속 제한에 걸렸는데 조각이 오고 있었으면 이유가 `not admitted`가 아니라 `world not complete within 10 s (<조각> chunks, <바이트> B so far)`다 편집은 "칸 = 값" 절대값이라 두 번 적용해도 같다. M1에는 게임 편집이 없어서 호스트의 디버그 편집(봇 `edit:`, 풀 ↔ 흙만)으로 길을 시험한다
 - **이동은 호스트가 정한다**: 클라이언트는 입력 프레임(번호, 8방향)만 보낸다. **바라보기는 보내지 않는다** (H1): 호스트가 방향에서 클라이언트와 같은 규칙(`Movement.facing_for`, `Player.apply_input`)으로 정한다. 프레임 하나 = 1바이트(코드 0..8, 9 이상은 버림). **M2b에서 바뀜**: 조준 중에는 마우스 쪽 바라보기(look)를 프레임 코드에 실어 보낸다(코드 0..44, 아래 "M2b"의 "요청"). look이 없는 프레임의 바라보기는 지금도 호스트가 방향에서 정한다. 클라이언트 예측은 호스트가 이 프레임 뒤에 정할 바라보기를 미리 계산해 두고, 호스트 상태와 다르면 `facing_corrections`로 센다(테스트에서 늘 0). 움직이는 동안과 멈춘 첫 틱에만 프레임이 생기고(서 있으면 아무것도 안 보냄), 2틱마다(30Hz) 호스트가 아직 확인하지 않은 프레임을 전부 다시 담아 unreliable로 보낸다(패킷 하나를 잃어도 다음 패킷에 들어 있다). 호스트(`InputGate`)는 번호 순서대로 한 번씩만, 축마다 −1..1로, **실제로 흐른 시간** 한 틱마다 토큰 하나(최대 30개 모아 둠)만큼만 적용해서 실제 시간보다 빨리 걸을 수 없다. 받은 프레임은 틱마다 하나씩(3개 넘게 밀리면 더, 단 틱당 최대 4개 `NET_INPUT_CATCH_UP_FRAMES`, H-fix) 적용해서 다른 사람 눈에 고르게 걷고, 밀렸을 때는 걷는 속도의 4배까지로 따라잡는다(한 번에 뛰지 않음). 호스트 자신의 캐릭터는 키를 바로 적용한다
 - **호스트가 멈췄다 돌아올 때** (H1, H-fix에서 고침): 토큰은 `take()` 횟수가 아니라 실제 시간(호스트 틱 사이 `Time.get_ticks_usec`, `InputGate.ticks_between`)으로 채운다. 긴 프레임으로 틱을 놓치면 그 시간만큼(한 번에 최대 64틱) 채우고, 기다리는 프레임 수만큼은 모아 두는 상한(30)을 넘어도 된다(그 프레임들은 정말 그만큼 오래된 것이라). **그런데 Godot은 한 프레임에서 물리 틱(따라잡기 틱 포함)을 먼저 돌리고 네트워크는 그 뒤 process 단계에서 읽는다**(`SceneTree.process`의 multiplayer poll). 그래서 멈춤이 물리 틱 밖(그리기, `_process`, RPC 처리, 운영체제)에서 났으면, 놓친 시간을 재는 첫 따라잡기 틱에는 멈춘 동안 온 프레임이 아직 대기열에 없고, 상한이 채울 시간을 버렸다. 프레임은 그다음 poll에 한꺼번에 들어와 걷는 동안 내내 약 30프레임(0.5초) 뒤처졌다(H1 검토가 실제 세션에서 찾음. H1의 단위 시험은 프레임을 따라잡기 틱 전에 넣어서 물리 틱 안의 멈춤만 흉내 냈다). H-fix: 놓친 틱의 채움 중 상한이 자른 몫을 **멈춤 크레딧**(`hitch_credit`)으로 실제 시간 30틱(`InputGate.HITCH_CREDIT_TICKS`, 0.5초) 동안 들고 있다가, 그동안 들어와 상한 위에서 기다리는 프레임에 쓴다. 크레딧은 더해지지 않고 더 큰 멈춤이 바꿔 넣으며(30fps 호스트에서 서 있는 클라이언트가 모을 수 있는 크레딧은 1틱), 토큰은 여전히 실제 시간에서만(바로, 또는 크레딧으로 조금 늦게, 한 번만) 나오므로 "실제 시간 + 30프레임보다 빨리 못 걷는다"는 그대로다. 멈춘 동안 서 있다가 몰아 보내는 클라이언트도 멈춘 시간만큼만 더 간다(단위 시험). 결과: 실제 세션(`stall`: 0.7초 멈춤, 대기열 최고 42프레임)에서 속도 제한에 걸린 틱이 194~204 → 0, 크레딧 약 39틱 사용. 단위 모형(1초 멈춤)은 두 순서 모두 30틱 뒤 대기열 4 이하, 제한 0. 크레딧 없이(H1 규칙) 돌리면 틱 밖 순서에서 대기열 31, 제한 409틱으로 시험이 실패한다
@@ -4013,7 +4446,7 @@ func run() -> Array[String]:
 | 카메라 가장자리 | `PlayerCamera.clamp_center` | 내 캐릭터 가운데, 단 맵 가장자리에서는 맵 밖이 안 보이게 멈춘다 (맵이 화면보다 작은 축은 맵 가운데). 그래서 가장자리 근처에서는 캐릭터가 화면 가운데에서 벗어난다 | ● gameplay-design §1 "카메라는 각 플레이어 중심"에서 가장자리만 벗어난다 (멈출지는 문서에 없음). 늘 가운데로 하려면 `Main._follow`에서 `bounds`를 비우면 된다 |
 | 상태 묶음 빈도 | `NET_STATE_HZ` | 20Hz (3틱마다), 바뀐 것이 있을 때만 | 문서에 없음 (M1 지시: 20~30Hz) |
 | 남의 캐릭터 보간 지연 | `NET_INTERP_DELAY_MS` | 100ms (묶음 2개) | 문서에 없음 (M1 지시: 약 100ms) |
-| 같은 클래스 둘 | `NET_UNIQUE_CLASSES` | 허용 (false). true면 호스트가 `class_taken`으로 거부 | ? 정해지지 않음 (gameplay-design §5 ○ 파티 UI 3×3은 클래스당 한 명 같지만 M1은 5클래스라 9인을 막게 된다) |
+| ~~같은 클래스 둘~~ | `NET_UNIQUE_CLASSES` | ~~허용 (false). true면 호스트가 `class_taken`으로 거부~~ → **● R54로 정해짐(M13b): true**, 한 세션에 같은 클래스 한 명(동시 접속만 금지, 차지한 클래스를 거부 메시지에). 시험만 `--test-duplicate-classes` | ● game-concept §2·§7·§12 R54, gameplay-design §5 (임시값이 아님: 아래 "M13b") |
 | 스폰 (혼자·호스트·참가자) | `SPAWN_FACING`, `Roster`, `SPAWN_SLOTS`(자리 9곳은 아래 구현 표) | 제단 둘레 자리 중 가장 작은 빈 자리, 남쪽(`SPAWN_FACING`)을 보고 선다 | 접속 스폰은 문서에 없음. 가까운 것은 "부활 지점: 제단" (gameplay-design §2.6, §5 ○) |
 | 디버그 월드 편집 | 봇 `edit:<x>,<y>,<grass\|soil>` | 호스트만, 바닥 풀 ↔ 흙(괭이질)만 | 문서에 없음 (M1에 게임 편집이 없어 늦은 참가 길을 시험하려고. 키는 만들지 않았다) |
 | M2a 키 | `project.godot` 입력 `use_item`, `hotbar_prev`·`hotbar_next`, `toggle_inventory`, `debug_give`, `debug_action` | 좌클릭 = 들고 있는 도구 사용, Q / E = 핫바 왼쪽 / 오른쪽, Tab = 인벤토리(보기만). 숫자 키는 핫바에 안 씀(초안에서 1 2 3은 스킬), F 상호작용은 아직 안 묶음(할 것이 없음). F5 디버그 아이템 묶음, F6 다음 몸 동작. **M6a에서 더함** (이 줄의 값은 그대로): 작업대 옆의 Tab은 제작 창, 1 = 약제 투척, 물약 좌클릭 = 마시기(아래 "M6a 키") | ○ gameplay-design §1 키 배치 초안 (F5·F6은 개발용, 초안에 없음) |
@@ -4362,6 +4795,32 @@ func run() -> Array[String]:
 | M12 죽을 때 부른 이단 (검토) | `BOSS_ADDS_LEAVE_AT_DEATH` 켬 | 보스가 죽으면 2단계에 부른 이단 중 살아 있는 것이 사라진다(재설정 때처럼). 끄면 M12a~c: 처치 뒤에도 싸운다 | 지시의 "죽으면 아레나가 조용해짐". 문서에 없음 |
 | M12 기둥 간격 줄이기 (검토) | `BossRoom.pick_pillars`, `BossRoom.MIN_SPACING_TILES` 2 | 문 간격·집 간격을 다 줄여도 셋이 안 들면 기둥 사이 간격을 3 → 2로(둘 사이에 빈 칸 하나는 늘). 시드 240(방 12 × 6)·259(10 × 6)이 2개 → 4개. 셋 이상이던 방은 바이트 그대로(시드 1, 31~60) | 문서에 없음(M12a 기둥의 "셋~넷") |
 | M12 보스를 맞힌 휘두름 (검토) | `BossFight.melee` | 광부가 아닌 사람의 호가 보스를 맞히면 같은 호에 닿은 기둥에 거부 표시를 내지 않는다(보스를 겨눴다). 보스를 빗나간 호는 그대로 빨간 ×. 광부의 곡괭이는 둘 다 친다 | M12c 알려진 문제에 남겼던 사람 판단 거리. 문서에 없음 |
+| M13a 기본 시작 | `CliOptions.world_name`·`character_name`(비면 아무것도 열지 않음) | 이름을 주지 않으면 오늘과 같다: 시드로 새 월드, 아무것도 쓰지 않는다. `--world`만, `--character`만, 둘 다 줄 수 있다 | ● R54 영속 월드·캐릭터 파일. 시작하는 방법은 문서에 없음(제목 메뉴 없음) |
+| M13a 자동 저장 | `SAVE_AUTOSAVE_TICKS` 18000 | 놀이 5분마다 열린 월드와 캐릭터를 쓴다. 그 밖에 끝낼 때, F9, 만든 때 | ● R54 "호스트가 저장". 언제는 문서에 없음 |
+| M13a 키 | `project.godot` `save_now` | F9 = 지금 저장(F5~F7은 디버그, F8은 에디터의 멈춤) | 문서에 없음(gameplay-design §1 키 초안에 없음) |
+| M13a 캐릭터에 없는 것 | `CharacterSave`(저장하는 것: 클래스·24칸·고른 칸·갑옷·얻어 본 것) | HP·스태미나·다운·사망·버프·독·클래스 자원·열정·막기·쿨다운·선 자리·지도는 저장하지 않는다: 월드에 들어올 때 살아서 가득, 제단의 부활 자리 0에서, 자원은 새로 난 캐릭터처럼 | ● R54 "클래스, 인벤토리, 장비 등"까지. ● gameplay-design §5 부활 지점 = 제단. 나머지는 문서에 없음 |
+| M13a 싸움 중 저장 | `WorldSave`(BOSS 상태, ARN에서 부른 이단 뺌), `apply_arena`(`on_emptied`) | 깨어 있던 보스는 열면 자는 보스(집, HP 가득, 기둥 온전, 부른 이단 없음), 이단은 M4-fix 빈 지도처럼(칼 없이 쿨다운, 표적 없음) | M12a 끈·재설정, M4-fix 빈 지도와 같은 규칙. 문서에 없음 |
+| M13a 들고 있던 제단 | `WorldSave._map_bytes`(`AltarMove.set_down_fallback`) | 파일에는 마지막 자리(안 되면 가장 가까운 놓을 곳)에 내려놓은 월드로. 산 게임은 그대로 듦 | M5b·M5-fix 내려놓기 규칙. ● §5 부활 지점 = 제단 |
+| M13a 시작 무기 | `Main.spawn`·`give_start_weapon`·`CharacterSave.Sheet.to_inventory` | 새 캐릭터를 만들 때만 준다(연 캐릭터가 팔거나 버린 무기를 다시 주지 않음). `--give`·F5는 연 캐릭터에도 준다(디버그) | M4a 시작 무기. 문서에 없음 |
+| M13a 같은 이름 다른 클래스 | `Main.open_saves` | 파일과 다른 `--class` = 오류(종료 2), 없는 캐릭터에 `--class` 없음 = 오류(종료 2) | ● game-concept §2 클래스 고정(스왑 불가) |
+| M13a 손댄 파일 | `CharacterSave.read` | 체크섬 없음. 거부(이유와 종료 3): ASCII 아님·JSON 아님·판·모르는 클래스·모르는 아이템·~~묶음 크기 밖~~ 1보다 작은 수·등급 밖·~~가득 넘는 내구도~~ 음수 내구도·소수·갑옷 칸의 갑옷 아닌 것. `seen`의 모르는 id와 다른 키는 무시. M13 검토: 묶음 크기 밖의 수와 가득 넘는 내구도는 거부하지 않고 잘라 맞춘다(아래 "M13 검토 맞추기") | ● R54 "친구끼리라 손댄 파일을 막지는 않는다" |
+| M13a 캐릭터 수 | (없음) | 한 기기의 캐릭터 수에 제한이 없다 | ● R54 "개수는 정하지 않았다" |
+| M13a 성유물 | (규칙 그대로, 아이템) | 성유물은 인벤토리의 아이템이라 캐릭터와 다른 월드로 가고, 그 월드의 성물 제작대에서도 제단을 올린다 | ● R49 진행 조건 = 보스 드롭 하나. 월드 사이는 문서에 없음 |
+| M13a 깨진 월드 | `Main.open_saves`, `Config.EXIT_SAVE_REFUSED` | 파일·`.tmp`·`.bak`이 모두 읽히지 않으면 새 월드로 덮지 않고 시작하지 않는다(종료 3) | 문서에 없음 |
+| M13b 나갈 때 저장 | `Config.SAVE_WHEN_CLIENT_LEAVES` true, `Main._on_client_left` | 세션 호스트는 받아들인 클라이언트가 나갈 때마다 열린 월드와 자기 캐릭터를 쓴다(나간 클라이언트는 같은 순간 자기 캐릭터를 쓴다). 그 밖에 만든 때·세션 끝·창 닫기·5분(호스트 틱)·F9 | ● R54 "호스트가 월드를 저장"(game-concept §12). 언제는 문서에 없음. 창고와 캐릭터가 두 기기가 할 수 있는 만큼 맞게 |
+| M13b 클라이언트가 쓰는 때 | `Config.SAVE_CLIENT_ON_HOST_LOST` true, `Main._on_net_ended`·`_tick_session_saves` | 클라이언트는 호스트의 첫 인벤토리 메시지 뒤로 나갈 때·세션 끝·호스트를 잃을 때·5분(자기 틱)·F9에 캐릭터를 쓴다(새 캐릭터는 첫 인벤토리 때). 그 전(거부·실패)에는 쓰지 않는다 | ● R54 "캐릭터는 각자 기기에"(§12). 언제는 문서에 없음 |
+| M13b 손댄 캐릭터 (세션) | `NetProtocol.decode_sheet`, `SessionHost.on_hello` | 호스트는 데려온 캐릭터를 캐릭터 파일 읽기와 같은 한도(아이템·묶음 크기·등급·내구도·갑옷·칸·hello와 같은 클래스·판)로 보고, 틀리면 **잘라 맞추지 않고 거부**(`character`와 까닭) | ● R54 "손댄 파일을 막지는 않는다": 파일이 읽히는 값은 받고, 깨지거나 나쁜 값만 막는다 |
+| M13b 새 캐릭터로 참가 | `SessionClient.on_opened`(시트 없음), `SessionHost._equip` | 없는 이름의 `--character`(또는 이름 없이)로 참가하면 시트를 보내지 않고 호스트가 시작 무기를 준다(M12까지와 같음). 이름이 있으면 첫 인벤토리 때 파일로 | M13a "시작 무기"를 세션에 |
+| M13b 거부 순서 | `Roster.refusal_for` | 모르는 클래스 → 가득(`full`) → 같은 클래스(`class_taken`) → 캐릭터(`character`) | ● R54는 거부만 정함. 순서는 문서에 없음 |
+| M13b 호스트를 잃은 뒤 | `Main._on_net_ended`(`host_lost`), 혼자 계속(M2b `continue_offline`) | 호스트를 잃은 클라이언트는 그 순간의 캐릭터를 쓰고, 혼자 계속하는 동안에도 캐릭터를 오프라인처럼 쓴다(5분·F9·끝낼 때). 호스트 월드의 사본은 쓰지 않는다. 그래서 사본의 창고에서 꺼낸 것도 캐릭터에 남는다 | 문서에 없음. 다른 길: 잃은 뒤로는 캐릭터를 쓰지 않기, 혼자 계속하지 않고 끝내기 |
+| M13b 이름 없이 참가 | `Main.open_saves`(이름 없음 = 아무것도 열지 않음) | `--character` 없이 참가해도 받는다: 새 캐릭터, 아무것도 쓰지 않음(M13a "기본 시작"과 같음, M1~M12의 세션 시험이 그대로) | ● R54 "캐릭터를 데려온다"가 이름 없는 참가를 막으라는 말인지는 문서에 없음 |
+| M13 검토 나가기 | `Config.NET_LEAVE_WAIT_TICKS` 120(2초), `SessionClient.begin_leave`, `SessionHost._leave`, 요청 `LEAVE` | 클라이언트는 나갈 때(닫기 단추·봇) 보내지 않은 요청을 버리고 `LEAVE`를 보낸 뒤, 호스트가 그것을 돌린 뒤의 인벤토리 메시지가 와야 캐릭터를 쓰고 끊는다(버리기·놓기·창고·팔기가 두 파일에 다 있지 않게). 2초 안에 오지 않으면 가진 것으로 쓰고 로그에 남긴다 | ● R54 "캐릭터는 각자 기기에". 나가는 방법은 문서에 없음. 다른 길: 더 오래 기다리기, 호스트가 나간 사람의 캐릭터를 기억 |
+| M13 검토 다운 중 나가기 | `Config.LEAVE_WHILE_DOWN_DIES` true, `Main.die_if_down`, `SessionHost.die_on_leave`, `Vitals.die_now` | 다운인 채 나가면(클라이언트의 `LEAVE`, 혼자·호스트의 닫기 단추) 다운 시간이 끝난 것처럼 먼저 죽는다: 가방이 월드에, 장비가 닳은 뒤 캐릭터를 쓴다. false면 다 가지고 나간다(닫기 단추로 죽음을 피함). 프로세스가 강제로 죽으면 못 한다 | ● gameplay-design §2.6 사망 = 내구도 + 가방. 나가기는 문서에 없음 |
+| M13 검토 진행 저장 | `Config.SAVE_ON_PROGRESS` true, `Main._tick_progress_saves` | 혼자·호스트는 월드의 진행이 바뀌면(보스 처치, 제단 티어) 바로 월드와 캐릭터를 쓴다(`why=progress`). 그 뒤 죽어도 보스가 되살아나지 않는다 | ● R54 영속 월드. 언제는 문서에 없음 |
+| M13 검토 성유물 저장 | `Config.SAVE_CLIENT_ON_RELIC` true, `Main._tick_progress_saves` | 클라이언트는 호스트의 인벤토리 메시지로 성유물이 늘면 바로 캐릭터를 쓴다(`why=relic`): 보스를 잡고 강제로 죽어도 성유물이 남는다(보스는 다시 나지 않고 제단 업그레이드에 필요) | ● R49 진행 조건 = 보스 드롭, `BOSS_RESPAWNS` false. 문서에 없음. 다른 길: 월드가 이름별로 줄 성유물을 기억 |
+| M13 검토 꺼진 동안 | (규칙: 저장한 틱에서 이어 감) | 아무 프로세스도 그 월드를 열지 않은 동안 월드의 시간은 멈춘다: 작물·물·그루터기·상점 채움·생물·이단·보스의 시계가 저장한 그대로 이어진다(꺼진 동안 자라지 않음) | ? gameplay-design §3.8·§6(문서에 없음). 다른 길: 연 때 지난 실제 시간만큼 돌리기 |
+| M13 검토 컬렉션과 데려온 캐릭터 | `Inventory.gained`, `Collection.note_inventory` | 컬렉션의 "아이템" 항목은 그 월드에서 인벤토리에 들어온 것만 센다(줍기·제작·사기·창고에서 꺼냄·주기). 캐릭터 파일에서 온 것(들고 온 것, `seen`)은 세지 않는다. 그 월드에서 다시 들어오면(버렸다 줍기, 사망 가방) 센다 | ● game-concept §4 월드마다 독립(새 월드 = 새 컬렉션). 다시 들어온 것을 세는지는 문서에 없음 |
+| M13 검토 맞추기 | `WorldSave.fit_raw`(MAP 칸의 창고 칸 수·offer id), 칸 읽기, `CharacterSave._read_stack` | 저장 파일의 값이 이 빌드의 임시값 밖이면 거부하지 않고 맞춘다: 묶음 크기·내구도는 잘라서, 창고 칸 수는 앞 칸으로(자리가 없으면 잃음), 상점은 아이템으로 짝지어(새 offer 가득, 없어진 것 뺌), 드롭 상한 넘는 것은 새것부터 뺌, 표 밖 컬렉션 항목·제단 티어·기둥 타격·이단의 제단 HP는 잘라서, 표에서 빠진 생물 종류는 뺌. 무엇을 맞췄는지 한 줄 로그. 구조가 깨진 것은 거부(M13a 그대로) | ● R54 "손댄 파일을 막지는 않는다. 깨지거나 나쁜 파일이 호스트를 죽이거나 월드를 망가뜨리지 않게만". 검토: 임시값 하나를 바꾸면 모든 저장(백업까지)이 열리지 않았다 |
 
 ### 구현에서 고른 값 (설계 결정 아님)
 
@@ -4716,6 +5175,34 @@ func run() -> Array[String]:
 | M12 공격 틱 기록 (검토) | `NetBoss.ATTACK_TICKS_KEPT` 256 | 공격 종류마다 가장 새 시작 틱 256개 | 결과·시험용 통계가 긴 싸움에서 끝없이 자랐다 |
 | M12 사망 시작 틱 (검토) | `NetProtocol.boss_of` | 사망이 65536의 배수 틱에 시작하면 시작 틱을 0xFFFF(한 틱 앞)로 보낸다 | 0은 "이미 누움"이라 그 드문 처치에서 클라이언트가 사망 프레임을 건너뛰었다(약 18분에 한 틱) |
 | M12 처치 때 그 자리의 사람 | `BossFight._players_here` | `players_now`가 있으면 그것, 없으면 지난 걸음의 목록. 둘 다 풀린 Player와 다른 지도의 데이터에 선 Player는 뺀다 | 혼자 할 때·시험은 걸음과 타격 사이에 떠남·지도 옮김이 없다 |
+| M13a 월드 파일 형식 | `WorldSave`(`FORMAT_VERSION` 1, `TAGS` 13칸) | "EVSW" + u16 판 + 칸(이름 4B, 길이, 내용) + md5. 지도는 늦은 참가 스냅샷 바이트(`WorldSnapshot.raw_bytes`)를 zstd로 + 내용 해시, sim은 칸마다 고정 순서 | 스냅샷 디코더의 검사(크기·레이어·드롭·창고·상점·구역·컬렉션·진행·보스 자리)를 그대로 쓰고, 해시로 디코딩 결과를 확인한다. 전송 형식(v14)과 해시는 바꾸지 않았다 |
+| M13a 캐릭터 파일 형식 | `CharacterSave`(`VERSION` 1) | ASCII JSON, 아이템은 id 이름, 등급은 이름 | 친구가 메모장으로 고칠 수 있게(● R54). 아이템 표 순서와 무관 |
+| M13a 이름 | `SAVE_NAME_MAX` 32, `SaveStore.name_refusal` | a-z 0-9 _ -(소문자로 바꿈), 글자·숫자로 시작, Windows 장치 이름 아님 | 이름 = 파일 이름. Windows는 대소문자를 가리지 않는다 |
+| M13a 폴더 | `SAVE_DIR_DEFAULT` `user://saves`, `project.godot` `config/custom_user_dir_name="Evensong"` | `%APPDATA%\Evensong\saves\worlds`·`characters` | 사람이 찾기 쉬운 자리(Godot 기본 `app_userdata` 아래보다 짧다) |
+| M13a 안전한 쓰기 | `SaveStore.write_atomic` | `.tmp`에 쓰고 다시 읽어 비교 → 있던 파일을 `.bak`으로(옛 `.bak` 지움) → `.tmp`를 파일로. 백업에서 읽은 뒤의 첫 쓰기는 깨진 파일을 백업으로 돌리지 않음 | 어느 순간 죽어도 읽히는 파일이 남는다. 이름을 바꿔 넣는 자리는 늘 비어 있다(옛 백업을 먼저 지우고, 파일을 백업으로 옮긴 뒤 `.tmp`를 옮김): 덮어쓰는 이름 바꾸기에 기대지 않는다 |
+| M13a 쓰기 전 확인 | `Main._save_world`·`_save_character` | 쓸 바이트를 읽기 검사에 먼저 넣어 보고, 통과하지 못하면 쓰지 않는다(그 자리의 파일·백업 그대로, 오류 줄) | 쓰는 쪽과 읽는 쪽이 어긋나면(검토에서 찾은 기둥 타격) 좋은 파일이 읽히지 않는 파일로 바뀌고 백업까지 잃는다. 월드 하나를 읽는 데 몇 ms |
+| M13a 읽는 순서 | `SaveStore.candidates`, `WorldSave.load_from`·`CharacterSave.load_from` | 파일 → `.tmp` → `.bak`, 처음으로 검사를 다 통과하는 것 | 두 이름 바꾸기 사이에 죽으면 `.tmp`가 가장 새 온전한 파일 |
+| M13a 종료 코드 | `EXIT_SAVE_REFUSED` 3 | 읽히지 않는 파일 3, 플래그 충돌 2 | 2는 이미 "잘못된 플래그". 세션의 3(거부됨)과 뜻이 같다 |
+| M13a 크기 상한 | `WorldSave.MAX_FILE_BYTES` 32 MB, `MAX_ACTORS` 4096, `CHARACTER_FILE_MAX_BYTES` 64 KB | 넘는 파일은 읽기 전에 거부 | 망가지거나 나쁜 파일이 메모리를 쓰지 못하게 |
+| M13a 아이템 표 확인 | `WorldSave` ITEM 칸 | 파일의 id 목록이 게임 아이템 표의 앞부분과 같아야 한다(끝에 더하는 것은 괜찮음) | 지도의 묶음은 번호(스냅샷 형식)라서 |
+| M13a 시드 | `Main.world_seed()` | 연(또는 만든) 월드는 그 월드의 시드를 아레나·무리·기도·사망 가방이 쓴다. 저장 안 하는 시작은 `--seed` 그대로 | 다른 `--seed`로 연 월드가 다른 난수열을 쓰지 않게 |
+| M13a 열기 순서 | `Main._ready`·`open_saves`·`_apply_loaded` | 파일 읽기·검사 → 지도 바꿔 끼우기 → 플레이어·sim을 새 월드처럼 → 저장한 sim 상태 → 테스트 플래그 → 상점·상인 | sim의 `setup`이 상태를 처음으로 되돌리므로 그 뒤에 덮는다. 테스트 플래그는 놀이처럼 위에 |
+| M13a 시험의 Main | `Main.save_flags` | 시험이 트리에 넣기 전에 넣는 저장 플래그(없으면 프로세스의 것). 거부하면 끝내지 않고 멈추기만 | 러너 프로세스의 플래그는 러너의 것 |
+| M13b 시트 | `NetProtocol.encode_sheet`·`decode_sheet`, `NetSession._rpc_sheet`, `SessionClient.on_opened` | 캐릭터를 가진 참가자는 hello **바로 앞에** 캐릭터(판·클래스·고른 칸·24칸·갑옷·얻어 본 비트·이름)를 보낸다. 아이템은 번호(같은 판끼리만 읽으므로) | hello를 3 B로 두어야 옛·새 호스트가 판을 읽고 `version`으로 거부한다. 새 RPC 이름은 `_rpc_refused` 뒤에 정렬(M10 검토의 RPC 번호) |
+| M13b 시트 상한 | `Config.NET_SHEET_MAX_BYTES` 256, `SessionHost.on_sheet` | 넘으면 읽지 않고 거부(호스트는 257 B까지만 받아 둠). 실제 최대 172 B | 망가지거나 나쁜 클라이언트가 호스트 메모리를 쓰지 못하게 |
+| M13b 거부 메시지 | `Config.NET_REFUSAL_WHY_MAX` 120, `NetProtocol.encode_refusal`·`decode_refusal_msg` | `class_taken` + u16 차지한 클래스 비트, `character` + 까닭(ASCII 120자), 나머지 1 B | 판 거부는 옛 판도 읽는 1 B 그대로. 클래스 비트는 9 클래스(구조)까지 |
+| M13b 얻어 본 비트 | `NetProtocol.write_seen`·`read_seen`, 인벤토리 메시지 | 인벤토리 메시지와 시트에 아이템 표 번호마다 한 비트(아이템 61개 = 8 B + 길이 1 B) | 클라이언트가 쓰는 캐릭터의 `seen`이 호스트의 것과 같게 |
+| M13b 가진 것도 얻어 본 것 | `CharacterSave.Sheet.to_inventory` | 파일의 칸·갑옷에 든 아이템은 `seen` 목록에 없어도 얻어 본 것으로 | 손댄 파일에서 호스트와 클라이언트가 같게 |
+| M13b 연 월드의 세션 sim | `SessionHost._apply_loaded_combat`·`_apply_loaded_rest`·`_setup_farms`·`_setup_forests` | 오프라인 `Main._apply_loaded`의 순서. `--test-pillar-hits`와 보스 방 로그는 저장한 상태 뒤로 옮김 | 시험 플래그는 놀이처럼 그 위에 |
+| M13b 클라이언트가 쓰기 시작 | `Main._character_live`, `_tick_session_saves` | 호스트의 첫 인벤토리 메시지가 와야 캐릭터를 쓴다 | 거부·실패한 참가가 파일을 비우지 않게 |
+| M13b 시험 리그의 같은 클래스 | `test_net_combat.gd`·`test_net_maps.gd`의 `rig_duplicates`, `brew`·`brew4`·`full`의 `--test-duplicate-classes` | 같은 클래스를 쓰던 옛 시험은 그대로 | ● R54 규칙은 새 시험(`test_net_saves`·`keep`·`quartet`)과 `test_net.gd`·스모크가 본다 |
+| M13 검토 요청 LEAVE | `NetProtocol.Op.LEAVE`(필드 0 B), `SessionHost.run_frame`(거부 검사보다 먼저), `attach_local_op`(토큰 없이) | 나가기를 새 RPC가 아니라 입력 프레임의 요청으로: 프레임 순서가 곧 "그 전 요청은 모두 끝남" | 새 RPC 이름은 정렬 번호를 밀 수 있다(M10 검토). v15는 main에 없어 판 그대로 |
+| M13 검토 닫기 단추 | `Main._notification`(`NOTIFICATION_WM_CLOSE_REQUEST`), `set_auto_accept_quit(false)`(게임의 main 씬일 때만), `Main.request_close` | 모든 길이 `quit()`에 닿고, 다시 누르면 바로 끝남. 시험 Main(러너 안)은 Godot 기본 그대로 | 클라이언트가 나가기를 마칠 시간, 다운이면 먼저 죽음 |
+| M13 검토 시험 플래그 | `--test-close-after=<틱>`, `--test-lag-inventory`, 봇 `close` | 닫기 단추를 누름(혼자: 플래그, 세션: 봇), 인벤토리 메시지를 `--net-lag`의 절반만큼 늦게 | Godot의 `--quit-after`는 닫기 단추를 거치지 않는다. `LinkSim`은 인벤토리를 늦추지 않았다 |
+| M13 검토 나간 사람 저장 묶기 | `Main._left_save_due`, `_tick_session_saves` | 클라이언트가 나가면 다음 호스트 틱에 한 번 쓴다(같은 틱에 여럿이어도 한 번) | 한 번 쓰기가 무거운 월드에서 6~10 ms(검토는 28~30 ms) |
+| M13 검토 첫 쓰기의 잘린 `.tmp` | `SaveStore.lone_tmp`·`set_aside`(`.broken`), `Main._set_aside_cut_write` | 파일·`.bak` 없이 읽히지 않는 `.tmp`만 있으면 `<파일>.tmp.broken`으로 비켜 두고 새 이름 | 그 이름으로 저장된 것은 없었다: 막아서 지킬 것이 없다 |
+| M13 검토 던전 스폰 자리 | `Arena._sync_dungeon_terrain`·`dungeon_terrain_key`(벽·설치물 레이어 해시) | 바뀌면 `dungeon_spawn_cells`를 다시 구함(통계 `terrain_synced`) | 스텝마다 해시 둘(3 KB씩)은 싸다. 지을 때도 바뀌지만 결과는 같다 |
+| M13 검토 시험 파일 | `tests/fixtures/saves/m13_world.evw`·`m13_character.json`, 러너 플래그 `--write-save-fixtures` | 이 커밋이 쓴 월드(시험의 풍성한 월드)와 캐릭터. `test_save_world.gd`가 맞춤 없이 읽는지 | 형식이 갈라지는 바꿈을 시험 실패로 알림 |
 
 ## 그림 출처
 
@@ -4771,6 +5258,44 @@ func run() -> Array[String]:
 | `enemies/boss_leader_v03_{walk,idle,attack,hurt,death,cast}.png`, 같은 이름의 `_emissive.png` (M12 보스 그림, 다시 뽑기 v03. v02 사본은 지움) | `03-pixel/` (보스 이단의 지도자, PixelLab 17차의 손질판 ~~v02~~ v03 = v02 + 다시 뽑은 ~~네 줄(공격 남·시전 동·피격 북·사망 남)~~ 다섯 줄(공격 남·시전 동·피격 북·사망 남, 2026-11-23부터 시전 남), 채택 후보·사람 확인 전, 브랜치 ~~`art/boss-leader` 9e7002e(검토 반영)~~ `art/boss-retake` 54eaedc(시전 남은 `feat/boss-cast-south`에서 다시 씀). idle·걷기와 그 마스크는 v02와 같은 바이트. 몸 칸 56×48(idle 4·걷기 6·피격 6·사망 7), 동작 칸 64×64 9열(휘두르기·시전: 첫 열 = 시작 그림 + 8프레임), 줄 남·동·북, 발 = 몸 칸 맨 아래 줄(동작 칸 y 53). `_emissive` = 불꽃 마스크(A=255, RGB = 빛 세기: 04-env candB 형식). 회전 시트 `boss_leader_v02_rotations`와 GIF·크기 비교 그림은 넣지 않았다(그 그림을 보이는 상태가 없다) |
 
 ## 측정 (이 데스크탑, `.godot/`을 지운 상태에서)
+
+M13 검토 반영 (2026-11-23, 브랜치 `feat/slice-m13`, M13b 3e16ca9 위. 위 "검토 반영 (M13)"):
+
+| 단계 | 결과 |
+|---|---|
+| 기준 (시작 전, M13b 3e16ca9) | 73파일 55,497 checks |
+| 임포트 (`.godot/` 지운 뒤) | 두 번 모두 종료 0, 오류 줄 0. 새 `.import`·`.uid` 없음(시험 파일 `.evw`·`.json`은 임포트하지 않는다, 새 시험 파일 없음) |
+| 전체 테스트, 두 번 (같은 코드 e343fc1: `game/**/*.gd`를 이름순으로 이은 sha256 `3b8689285b21…`, `--timeout=300`) | A(첫 임포트 뒤): 73파일 통과·0 실패, **55,626 checks**(앞 55,497 + 129), 1,242.6초(`net_session` 99.5초, `net_keep` 86.8초(`inflight` 약 14초 더함), `net_quartet` 67.2초, `net_herd` 73.8초, `save_main` 26.6초, `save_world` 1.7초). B(`.godot/`을 다시 지우고 임포트한 뒤): 71파일 통과·2 실패, 55,626 checks, 1,294.1초. 실패 둘은 알려진 흔들림 그대로다: `net_herd`의 `wilds/c1: prediction within 0.5 px of the host (max 2.39995… px)`와 `the host's body actions = the predicted ones … got 1.0`(위 M12 측정들의 그 줄), `net_session`의 `stall/c2: prediction was reconciled (3.0)`(main부터). 두 파일만 두 번 다시 돌려 두 번 모두 통과(`net_herd` 78.2·58.8초, `net_session` 98.8·101.6초). 둘 다 미리 알린 오류 묶음 8개 그대로, 그 밖의 오류 줄 0. 파일별: `test_save_world` 261 → 308, `test_save_main` 158 → 194, `test_net_keep` 165 → 202(에디터 빌드: `inflight` 36, `keep` 2단계의 월드 나이 1), `test_net_saves` 49 → 53, `test_net_quartet` 194 → 197, `test_net` +1(`LEAVE` 왕복) = 753 |
+| 내보내기 | Windows Desktop(`game/build/evensong.exe` 110,825,344B + 콘솔 래퍼 188,928B)·Windows ARM64(`game/build/arm64/evensong.exe` 93,219,200B + 159,744B) 둘 다 종료 0, 오류 줄 0 |
+| 내보낸 exe `--smoke` | `EVENSONG_SMOKE ok exported=true godot=4.7.2-stable (official) display=headless base=480x270 seed=1 world=128x96 hash=0da8e0d26ded cells=12513 chunks=20 gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=320B items=61 actions=9 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 chain=29/7 gear=21/8/96 chest=16 build=3/1/2 trees=30/4 shop=67,50/14/9 skills=15/15 pick=true taunt=1 slam=16 rock=24/60 ward=6 mist=4 prayer=6/3/21 faith=30 zeal_hit=17 meditate=5 herd=13/5 hunt=2/1 wild_wire=11B/10B/135B/6B zone_snapshot=11B rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8 boss=47,33/11x9/4 cleave=36/22 relic=1 tier1=144 boss_wire=17B/18B/19B/19B/9B/8B site=37B boss_net=0/0/3000:3000 relics=1 tier=1 zone=(1016.0, 760.0)/112 light=226x226 enet_port=<port> snapshot=663B/86058B combat_wire=26B potion_wire=40B/47B fields_wire=17B/11B builds_wire=94B/638B/38B shop_wire=8B/11B/8B/665B skills_wire=15B/16B/18B/123B landed=5 events=6 prayer_wire=3B/6B/166B/15B lit=6 lag=30 save=1859B/703B sheet=99B class_rule=5/5/1 net=v15 checks=536` 종료 0, 오류 줄 0 |
+| main(41a4de8)과 비교 | 골든 해시 셋과 스냅샷(`snapshot=663B/86058B`, `dungeon_map=320B`), `builds_wire=94B/…`, `sheet=99B`, `class_rule=5/5/1`, `net=v15`, `checks=536` 모두 M13b 그대로. 바뀐 것은 `save=1855B/703B` → **`save=1859B/703B`** 하나(맨 월드의 MAP 칸 둘에 창고 칸 수 1 B + offer 수 1 B: 맨 월드는 상점이 없어 offer id가 없다. 상점이 있는 월드는 offer id 열넷까지 약 +150 B, 시험의 풍성한 월드 3,888 → 4,031 B) |
+| 내보낸 exe의 세션 (실제 세션 파일 17개 모두) | `--net-exe=build/evensong.console.exe`로 첫 번에 `net_session` 621, `net_keep` 203(`keep`·`close`·`inflight`), `net_quartet` 198, `net_leader` 266, `net_vigil` 187, `net_brew` 258 checks(1,733, 384.0초), 두 번째에 `net_fight` 306, `net_farm` 246, `net_purify` 169, `net_house` 120, `net_stock` 149, `net_market` 156, `net_bazaar` 121, `net_rites` 339, `net_litany` 301, `net_hunt` 231, `net_herd` 197 checks(2,335, 499.1초). 17개 모두 통과(내보낸 release 호스트의 클라이언트 버리기는 `inflight`가 `--test-allow-give`로) |
+| 그림 검사 (창, 전체) | 45부분 모두 ok, `failed_parts=0`(창 960×540), 오류 줄 0 |
+| 일부러 깨 보기 (작업 트리에서 하나씩, 되돌린 뒤 코드 `.gd` md5 전체가 앞과 같음, 스크래치의 `mut/run_mutations.sh`) | 13개 모두 잡힘(위 "M13a"의 "시험"의 M13 검토 줄과 "M13b"의 "나가기"): 컬렉션 `seen` → 3파일 / 죽은 보스 기둥 → 2 / 던전 스폰 자리 → ARN1 / 잘린 `.tmp` / 맞추기 끔 / 캐릭터 맞추기 끔 / 다운 중 나가기 끔 / 진행 저장 끔 / 목록 충돌 끔 / 쓰기 전 확인의 맞춤 / 호스트 월드 나이(처음 검사는 놓침 → 고쳐서 잡힘: "1449 saved = 1186 loaded + about 1448 played") / 성유물 저장 끔 / 클라이언트 LEAVE 끔(옛 길: bob의 파일 `slots=2`에 돌이 남고 월드에 20, dan이 죽지 않음) |
+| 진짜 닫기 단추 (내보낸 창 exe, PowerShell로 그 `Engine` 창에 `WM_CLOSE`를 보냄: SSH 세션이라 창은 세션 0에 있어 `CloseMainWindow`가 닿지 않음) | 자동 시험은 `Main.request_close`로 들어간다(`--test-close-after`, 봇 `close`). 그 앞길(`current_scene == self`, `set_auto_accept_quit(false)`, `NOTIFICATION_WM_CLOSE_REQUEST`)은 이렇게 따로 봤다. 혼자: 종료 0, `close requested role=offline`, 월드(3,687 B)·캐릭터 `why=quit`. 호스트 + 클라이언트(포트 25391): 클라이언트 창 닫기 → `close requested role=client`, `leaving slot=1 why=window`, `left_host how=confirmed seq=1 ticks=1`, `character saved name=cl why=left`, 종료 0. 호스트 `leave slot=1 seq=1 died=false`, `world saved … why=left`. 이어 호스트 창 닫기 → `close requested role=host`, 월드·캐릭터 `why=quit`, 종료 0. 다운인 채 호스트 창 닫기는 실제 프로세스로 보지 않았다(혼자의 `die_if_down`은 `test_save_main.gd`, 세션 호스트는 같은 `die_on_leave`) |
+| 무거운 월드의 한 번 저장 (스크래치 `heavy_save.gd`, 에디터 빌드) | 드롭 256개(`MAX_DROPS`)·돌 30이 꽉 찬 창고 200개: 4,886 B, 캡처 + 읽기 검사(맞추기 포함) + 안전한 쓰기 6~10 ms(여섯 번: 9.9, 6.7, 7.7, 6.8, 6.1, 5.9). 검토는 비슷한 월드에서 28~30 ms를 쟀다 |
+| 저장 폴더 | 시험은 모두 실행 폴더 안의 `--save-dir`이나 임시 폴더를 썼다. 시험이 끝난 뒤 `%APPDATA%\Evensong\saves`는 없다 |
+
+M13b (2026-11-23, 브랜치 `feat/slice-m13`, M13a caf680b 위. 위 "M13b: 세션의 저장 · 각자의 캐릭터 · 한 세션에 같은 클래스 한 명 · 넷"):
+
+| 단계 | 결과 |
+|---|---|
+| 기준 (시작 전, M13a caf680b) | 70파일 55,002 checks |
+| 임포트 (`.godot/` 지운 뒤) | 두 번 모두 종료 0, 오류 줄 0. 새 파일은 새 시험 셋의 `.uid`(`test_net_saves.gd`, `test_net_keep.gd`, `test_net_quartet.gd`: 커밋) |
+| 전체 테스트, 두 번 (같은 코드: `game/**/*.gd`를 이름순으로 이은 sha256 `f7d87b9e9ab4…`, `--timeout=300`) | A(첫 임포트 뒤): 73파일 통과·0 실패, 55,478 checks, 1,156.9초(`net_session` 97.7초, `net_keep` 47.3초, `net_quartet` 66.1초, `net_saves` 1.7초). B(`.godot/`을 다시 지우고 임포트한 뒤): 73파일 통과·0 실패, 55,478 checks, 1,157.6초. 알려진 깜박임 둘(`net_session` stall/c2, `net_herd` wilds/c1)은 두 번 모두 나오지 않음. 일부러 낸 오류 묶음은 그대로 8개 |
+| `net_session --net-full` | 통과, 922 checks, 104.7초 (진짜 상한: 호스트 + 클라이언트 8, 열 번째 거부. 클래스 다섯에 아홉 명이라 호스트에 `--test-duplicate-classes`) |
+| 내보내기 | Windows Desktop(`game/build/evensong.exe` 110,810,912B + 콘솔 래퍼 188,928B)·Windows ARM64(`game/build/arm64/evensong.exe` 93,204,768B) 둘 다 종료 0, 오류 줄 0 |
+| 내보낸 exe `--smoke` | `EVENSONG_SMOKE ok exported=true godot=4.7.2-stable (official) display=headless base=480x270 seed=1 world=128x96 hash=0da8e0d26ded cells=12513 chunks=20 gatherables=74 dungeon=64x48 hash=8dda0ad69ad9 ores=47 dungeon_seeds=acc0a9bc2359 dungeon_map=320B items=61 actions=9 combat=30/3 spawn_tiles=678 potions=6/1 farm=4800/2 purify=11+4/648 altar=49,45 chain=29/7 gear=21/8/96 chest=16 build=3/1/2 trees=30/4 shop=67,50/14/9 skills=15/15 pick=true taunt=1 slam=16 rock=24/60 ward=6 mist=4 prayer=6/3/21 faith=30 zeal_hit=17 meditate=5 herd=13/5 hunt=2/1 wild_wire=11B/10B/135B/6B zone_snapshot=11B rare_zone=114,63/9 rare=3 capture=1/1 collection=1/8 boss=47,33/11x9/4 cleave=36/22 relic=1 tier1=144 boss_wire=17B/18B/19B/19B/9B/8B site=37B boss_net=0/0/3000:3000 relics=1 tier=1 zone=(1016.0, 760.0)/112 light=226x226 enet_port=<port> snapshot=663B/86058B combat_wire=26B potion_wire=40B/47B fields_wire=17B/11B builds_wire=94B/638B/38B shop_wire=8B/11B/8B/665B skills_wire=15B/16B/18B/123B landed=5 events=6 prayer_wire=3B/6B/166B/15B lit=6 lag=30 save=1855B/703B sheet=99B class_rule=5/5/1 net=v15 checks=536` |
+| main(41a4de8)과 비교 | 골든 해시 셋(`hash=0da8e0d26ded`, `dungeon hash=8dda0ad69ad9`, `dungeon_seeds=acc0a9bc2359`)과 스냅샷(`snapshot=663B/86058B`, `dungeon_map=320B`) 그대로. 바뀐 것: `builds_wire` 85B → **94B**(그 검사의 인벤토리 메시지 + 얻어 본 비트 9 B), 새 ` save=1855B/703B sheet=99B class_rule=5/5/1`, `net=v14` → **v15**, `checks=532` → **536** |
+| 내보낸 exe의 세션 (실제 세션 파일 17개 모두) | `--net-exe=build/evensong.console.exe`로 첫 번에 `net_session` 621, `net_keep` 148, `net_quartet` 194, `net_leader` 266, `net_vigil` 187, `net_brew` 258 checks(348.3초), 두 번째에 `net_fight` 306, `net_farm` 246, `net_purify` 169, `net_house` 120, `net_stock` 149, `net_market` 156, `net_bazaar` 121, `net_rites` 339, `net_litany` 301, `net_hunt` 231, `net_herd` 197 checks 모두 통과(약 510초). 그때 새 `close` 세션(아래 후속)만 실패했다: 호스트의 준비를 로그 줄로 기다렸는데 내보낸(release) exe는 로그를 끝날 때만 써서 클라이언트가 호스트가 끝난 뒤에 떴다. 준비 표시 파일(`--net-out`)로 기다리게 고친 뒤 `net_keep` 166 checks 통과(exe), 165 checks 통과(에디터) |
+| 버전 거부 (실제 프로세스, main 41a4de8을 저장소 밖에서 `git archive`로 풀어 임포트·내보낸 v14 exe ↔ 이 판의 v15 exe, localhost) | v15 호스트 + v14 클라이언트: 클라이언트 `ended reason="refused: version" code=3`, 호스트 `refused … reason=version`. v14 호스트 + v15 클라이언트(저장된 캐릭터를 가져 hello 앞에 시트 96 B를 보냄): 같음, 클라이언트는 캐릭터 파일을 쓰지 않음. 두 쪽 모두 `ERROR: The rpc node checksum failed`(RPC 목록이 달라서, M11c 때와 같은 Godot의 경고), v14 호스트에는 하나 더 `ERROR: RPC '_rpc_shots' is not allowed on node /root/Main/Net from: <peer>. Mode is "authority"`: v15의 시트 RPC(번호 14)가 v14에서는 `_rpc_shots`라 Godot이 받지 않고 버림, 그 뒤 hello가 판으로 거부됨. v14 exe의 `--smoke`는 main의 줄 그대로(`net=v14 checks=532`) |
+| 넷의 트래픽 (`quartet`, 실제 세션, 호스트 송신) | 넷이 걸음 4/4: 5.24~5.27 KB/s(UDP/IP 포함 7.21~7.26 KB/s), 70.5~71.1 pkt/s, 클라이언트(c2) 수신 1.75~1.76 KB/s·송신 0.72 KB/s. 둘일 때(M3b `pair` 2/2) 호스트 1,068~1,078 B/s(1.72~1.74 KB/s), 23 pkt/s: 클라이언트 하나에 약 1.07 → 1.75 KB/s(상태 묶음이 5 + 17B × 인원: 39 → 73B), 클라이언트 셋이라 호스트 송신은 약 5배. 서 있음·기도 0/4: 218~230 B/s(넷이 서서 기도하는 30초: 기도 사건이 이 묶음에 듦, 둘의 0/2 약 110 B/s). 넷이 보스와 싸움 fight/4: 10.3~10.4 KB/s(13.7~13.8 KB/s), 약 120 pkt/s, c2 수신 3.41~3.46 KB/s(둘의 보스 싸움 `leader` fight/2 약 2.1 KB/s, M4b fight/2 1.90 KB/s). 참가(스냅샷) 31.6~31.7 KB/s로 0.2초 |
+| 저장 (세션) | 호스트의 월드 쓰기 2~7 ms(`quartet` 월드 2,019 B: 생물·이단 없음), 캐릭터 0.5~0.7 KB. 호스트는 클라이언트가 나갈 때마다 씀(`quartet` 끝에서 넷이 나가며 네 번 + 세션 끝 한 번). 시트 96~101 B(시험의 캐릭터), 가장 큰 것 172 B |
+| 일부러 깨 보기 (작업 트리에서 하나씩, 되돌린 뒤 md5 확인, 스크래치의 `mut/run.sh`) | 12개 모두 잡힘: 호스트가 시트를 넣지 않음 → `test_net_saves` 5 실패 / 같은 클래스 규칙 끔 → `test_net`·`test_net_saves` 19 / 칸의 묶음 크기 검사 뺌 → 돈 251·수 255 거부 6 / 시트를 hello 뒤에 보냄 → 순서·멤버 12 / 인벤토리 메시지의 얻어 본 비트를 버림 → 2 / 호스트가 연 월드의 아레나·무리·보스를 넣지 않음 → `differ: MAP1, ARN0, ARN1, HERD, BOSS` 3 / 새 RPC를 `_rpc_charsheet`(`_rpc_refused` 앞에 정렬)로 → hello 6 → 7, refused 13 → 14, 3 / 나간 사람의 클래스를 비우지 않음 → 6 / `class_taken`에 클래스를 싣지 않음 → 4 / 시트와 hello의 클래스 비교를 뺌 → 2 / 클라이언트가 나갈 때 호스트가 쓰지 않음 → `keep` 2 / 클라이언트의 첫 인벤토리 뒤 쓰기를 켜지 않음 → `keep` 7. 모두 되돌린 뒤 `game/net`·`game/core`의 md5가 시작 전과 같음 |
+| 그림 검사 (창, 전체) | 45부분 모두 ok, `failed_parts=0` |
+| 후속 (커밋 5eb8622 뒤, 자체 점검) | 시험 둘을 더했다: `net_keep`의 `close`(사람처럼 띄운 프로세스가 `--quit-after` = 창 닫기로 끝날 때의 저장과 세션의 자동 저장: 호스트 월드·캐릭터 `autosave`·`left`·`quit`, c1 `new`·`autosave`·`quit`, 호스트를 잃은 c2 `host_lost` → 혼자 계속 → `quit`, 클라이언트는 월드를 쓰지 않음), `net_saves`의 지상 지도 비교(호스트가 연 풍성한 월드에서 바뀐 칸은 호스트가 놓은 상인 한 칸 `67,50:0>17`뿐, 다른 레이어·드롭·창고·다음 드롭 번호 같음). 둘 다 에디터·exe로 통과(위). 전체 두 번은 5eb8622(`.gd` sha256 `f7d87b9e…`)에서 돌았고 후속은 이 두 파일과 `core`·`net`만 다시 돌렸다(73파일, checks 55,478 + 19 = 55,497) |
+| 끊긴 클라이언트를 호스트가 알아채는 시간 | 이 데스크탑 localhost, 에디터 빌드: 클라이언트 프로세스를 PID로 강제로 죽이고 호스트 로그의 `left peer=`까지 5.6초(한 번 잼). 그동안 그 클래스는 차지한 채다(위 "같은 클래스"). 실제 회선은 재지 않음 |
+| 저장 폴더 | 시험은 모두 실행 폴더 안의 `--save-dir`을 썼다. 시험이 끝난 뒤 `%APPDATA%\Evensong\saves`는 없다 |
 
 M12 보스 그림 시전 남 바꾸기 검토 반영 (2026-11-23, 브랜치 `feat/boss-cast-south` 2baf2ae, main 79de1df 위. 위 "M12 보스 그림"의 "시전 남을 다시 뽑은 줄로"의 검토 반영):
 
@@ -5786,6 +6311,9 @@ M11c = 세션의 사냥·포획·컬렉션: 호스트의 무리(자기 난수열
 M5b = 혼자 할 때의 정화(성수 3×3은 누구나, 팔라딘 F 채널링 반지름 3·3초, 정화된 칸 = 풀, 스폰 칸과 시든 작물이 따라감)와 제단 옮기기(F 2초로 들기, 좌클릭으로 놓기, 들고 있는 동안 안전 반경 없음, 다운이면 가까이 내려놓기, 빛·안전 반경·이단·부활 자리·비워 두는 자리·밭의 빛이 따라감). 세션(M5c), 오염 확산·재오염·원천 봉인·반경 확장, 상점 성수(M8), 다른 스킬, 클래스 자원, 기도, 제단 업그레이드(M12), 새 적, 나무·건설(M7), 저장은 M5b가 아니다.
 M12a = 혼자 할 때의 보스: 첫 던전의 아레나(시드로 고른 방, 타일 편집 없음), 이단의 지도자(깨어남·HP 비례·위협·공격 셋과 예고·2단계와 이단 둘·기절 면역·둔화·끈과 재설정·죽음과 깃발), 성유물(인원수만큼, 가방·상인 밖), 금 간 받침 기둥(광부만, 상태 넷, 잔해), 제단 업그레이드 1단계(성유물 하나, 반경 9칸, candA), 이단의 제단 불(악마 주황), 코드 그림 보스·HUD 막대, 시험. 세션의 보스(M12c), 저장·4인(M13), 둘째 던전·2티어는 M12a가 아니다.
 M12b = 혼자 할 때의 기둥·제단 업그레이드·이단 쪽 불을 지시의 시험 목록대로 다시 봄: 빈 곳 둘(밭의 시듦 캐시, 넓어진 빛 안의 이단)과 읽힘(금 감, 먼지 고리)을 고치고, 기둥·레시피·1단계 반경·불 색·한 바퀴를 시험으로 묶음. 세션의 보스·업그레이드(M12c)는 M12b가 아니다.
+M13a = 혼자 할 때의 저장: 월드 파일(두 지도 + 모든 sim, 열면 "모두 떠남"), 캐릭터 파일(JSON, 여러 개, 클래스 고정), `--world`·`--character`·`--save-dir`·`--no-save`·목록 플래그, 끝낼 때·자동·F9 저장, 안전한 쓰기와 백업, 거부, 시험 둘. 세션의 저장·같은 클래스 한 명(M13b), Steam(판정 뒤), 글자 있는 제목 메뉴, 새 게임 규칙·그림은 M13a가 아니다.
+M13 검토 = 나가기 확인(요청 `LEAVE`, 닫기 단추, 다운이면 먼저 죽음), 그 월드에서 얻은 것만 세는 컬렉션, 호스트의 월드 나이·죽은 보스의 기둥·채굴한 던전의 스폰 자리, 임시값을 바꾼 뒤의 저장 맞추기와 시험 파일, 진행·성유물 즉시 저장, 잘린 첫 쓰기, 목록 플래그 충돌, 나간 사람 저장 묶기.
+M13b = 세션의 저장: 호스트의 월드(연 월드를 세션의 sim이 받음, 끝·나갈 때·5분·F9에 씀), 참가자가 hello 앞에 데려오는 캐릭터(시트, 호스트가 검사하고 거부할 뿐 잘라 맞추지 않음)와 호스트의 인벤토리 메시지로 자기 기기에 쓰기(첫 메시지 전에는 안 씀, 호스트를 잃을 때도), ● R54 한 세션에 같은 클래스 한 명(차지한 클래스를 거부 메시지와 콘솔 한 줄로), 전송 형식 v15(새 RPC 하나, 버전 거부 양쪽), 넷의 실제 세션(연 월드에서 기도·보스, 다섯째 거부·자유 클래스), 사람이 넷이서 할 명령과 판정 체크리스트. Steam(판정 뒤)·글자 있는 제목 메뉴·새 규칙·새 그림은 아니다.
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
@@ -5838,6 +6366,9 @@ M12b = 혼자 할 때의 기둥·제단 업그레이드·이단 쪽 불을 지�
 | M12 보스 그림 | 코드 그림 보스를 03-pixel 17차 시트(`art/enemies/boss_leader_v02_*` 여섯 + 불꽃 마스크 여섯)로: idle·걷기·피격·사망·휘두르기 + 새 시전 시트 × 네 방향(서 = 동 반전), 그림만의 맞는 열, 불꽃의 unshaded 빛남과 불꽃을 따라가는 빛, 그림자·표시 자리, 판정 상자 45 × 26(M11a 규칙), 지운 자리 표시, 시험(`test_boss_art.gd`), 창 그림 검사 둘, 스크린샷 열하나 + 예전 M12 그림 열하나 다시 | **끝** (사람 확인: 동쪽 모습, 크기, 시전 고르기, 어둠 속 불·죽은 뒤 불씨, 판정 상자, HUD 아이콘. 위 "M12 보스 그림") |
 | M12 보스 그림 다시 뽑기 (v03) | 17차 다시 뽑기 5회의 v03 시트(`art/enemies/boss_leader_v03_*` 열둘, v02 사본 지움): 공격 남(큰 원 휘두르기)·시전 동(화로를 앞으로, 얼굴)·피격 북(자루)·사망 남(지팡이가 쓰러짐), 공격 남 맞는 열 3 → 5, 다시 뽑기 검사(`test_boss_art` +20), 창 검사의 엔티티 숨김, 스크린샷. 검토 반영: art 단계의 공격 남 4열 불 조각·피격 북 자루 고침, 맞는 열 6 → 5, 2단계·시체 가림 기록 | **끝** (사람 확인: v03 네 줄과 ~~시전 남 고르기~~(2026-11-23 사람이 고름: 아래 줄), 공격 남 맞는 열 5/6/3, 시체의 불씨, 위 "M12 보스 그림"의 사람이 볼 것 4·7·9·10) |
 | M12 보스 그림 시전 남 (v03, 2026-11-23) | 사람이 고른 시전 남 대안 줄 `CAST_SOUTH_R2`("시전 남은 다시 뽑은 판으로 바꿔", 생성 0회): v03 시전 시트·마스크·GIF를 다시 쓰고 게임에 복사, `HIT_COLUMN_CAST` [4, 3, 3] → [3, 3, 3](그림만), 시전 남 검사(`test_boss_art` +4), 스크린샷(다시 넷, 새로 이단 곁 둘) | **끝** (사람 확인: 바꾼 시전 남을 게임에서 보고 1배에서 서 있는 것 같은 예고를 둘지, 위 "M12 보스 그림"의 알려진 문제 18·사람이 볼 것 7) |
+| M13a 저장 (월드 파일 · 캐릭터 파일) | `SaveStore`(이름 규칙, 안전한 쓰기·`.bak`, 읽는 순서 파일·`.tmp`·`.bak`, 목록), `WorldSave`("EVSW" 판 1 + 13칸 + md5, 지도 = 스냅샷 바이트 zstd + 내용 해시, 아레나·밭·숲·상점 시계·무리·보스·기도·사망·나이, 열면 "모두 떠남", 든 제단 내려놓기, 아이템 표 확인, 모든 값 검사), `CharacterSave`(JSON: 클래스·24칸·핫바·갑옷·돈·얻어 본 것, 손댄 파일은 막지 않고 검사만), 플래그 여섯과 세션 거부, `Main.open_saves`·`_apply_loaded`·`save_now`(끝낼 때·5분·F9·만든 때), 시드는 월드의 것, 사용자 폴더 "Evensong", 쓰기 전 확인, 시험 둘(`test_save_world`·`test_save_main`), 일부러 깨 본 것 열하나 | 됨 |
+| M13b 세션의 저장 · 각자의 캐릭터 · 같은 클래스 한 명 · 넷 | 호스트의 `--world`·`--character`(연 월드 → `SessionHost._apply_loaded_*`, `live_world`로 씀, 클라이언트가 나갈 때도), 참가자의 `--character`(시트 `_rpc_sheet`가 hello 앞, 호스트 `decode_sheet` 검사와 `character` 거부, 인벤토리 메시지의 얻어 본 비트, 첫 메시지 뒤부터 씀, `host_lost`), `--join`의 `--world` 오류, ● R54 같은 클래스 거부(`class_taken` + 차지한 클래스, `--test-duplicate-classes`), 전송 형식 v15, 스모크 `save=`·`sheet=`·`class_rule=`, 시험 셋(`test_net_saves`·`keep`·`quartet`)과 바꾼 시험, 일부러 깨 본 것 열둘, 넷이 하기·판정 체크리스트 | **끝** (사람 확인: 넷이서 기기 넷으로, 아래 "넷이 하기"·체크리스트, 서피스, 임시값 "M13b" 줄) |
+| M13 검토 반영 (2026-11-23) | 위 "검토 반영 (M13)": `NetProtocol.Op.LEAVE`·`SessionClient.begin_leave`·`SessionHost._leave`·`die_on_leave`, `Main.request_close`·`die_if_down`·`_tick_progress_saves`, `Inventory.gained`, `WorldSave.fit_raw`(MAP 칸 + 창고 칸 수·offer id)·`apply_boss`의 죽은 보스 기둥, `CharacterSave`의 맞추기, `Arena._sync_dungeon_terrain`, `SaveStore.lone_tmp`·`set_aside`, 시험 파일 `tests/fixtures/saves/`, 봇 `close`·`--test-close-after`·`--test-lag-inventory`, 시험 `inflight` | 끝 (전송 형식 v15 그대로: 요청 하나 더) |
 
 ### 검토 반영 (M12, 2026-11-20)
 

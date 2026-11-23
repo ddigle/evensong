@@ -98,7 +98,14 @@ extends RefCounted
 ##               and the tile it purifies around is the feet tile (a channel never moves). The held-item byte's bit 7
 ##               (CARRYING_FLAG) = this player carries the altar. Still 17, 33 or 40 B.
 ## Player info   u8 class index + state (18 or 34 B), in welcome and joined
-## Hello         u16 version, u8 class index
+## Hello         u16 version, u8 class index (M13b: still 3 B, so an older or newer host still reads the version and refuses it)
+## Sheet         client -> host (M13b, v15, reliable, sent just before its hello, only by a client that brings a saved character): its
+##               character as its file has it: u16 version, u8 class index, u8 selected hotbar slot, u8 slot count (Config.INVENTORY_SLOTS),
+##               per slot the inventory message's slot form (below), the armour slot in that form, u8 seen bytes (seen_bytes()) + the seen
+##               bits (bit i of byte i / 8 = ItemDB index i: Inventory.seen), u8 name length (0..Config.SAVE_NAME_MAX) + the name (a-z
+##               0-9 _ -, the file's; the host's log only). At most Config.NET_SHEET_MAX_BYTES. The host reads it at the hello, after the
+##               version (decode_sheet: every value in range, the item ids and counts the file reader allows, the class the hello's), and
+##               refuses the join as "character" with the reason when it does not read; no sheet = a new character (the start kit)
 ## World chunk   u32 index + at most NET_SNAPSHOT_CHUNK_BYTES of the packed world (net/world_snapshot.gd),
 ##               reliable, before the welcome
 ## Welcome       u16 version, u8 your slot, u8 max players, u32 host tick, u8 bots started,
@@ -106,12 +113,16 @@ extends RefCounted
 ##               snapshot: u32 raw size, u32 packed size, u32 chunk count, 16 B packed md5,
 ##               16 B world md5, diagnostic: 16 B generator md5 (the host's generator's world for
 ##               the seed in the snapshot header, before any edit), u8 player count + player infos
-## Refused       u8 reason (Refusal)
+## Refused       u8 reason (Refusal). M13b (v15): CLASS_TAKEN + u16 the classes connected players hold now (bit i = Config.CLASSES[i]),
+##               CHARACTER + u8 length + the reason (ASCII, at most Config.NET_REFUSAL_WHY_MAX); every other reason stays 1 B (a VERSION
+##               refusal is what an older or newer build must still read)
 ## Inventory     host -> its owner only (M2b): u32 ack (the owner's last frame the host handled when it
 ##               sent this), u8 selected hotbar slot, u8 slot count, per slot u8 item (0 = empty, else
 ##               index + 1), u8 count, u8 grade
 ##               M7c: an item with durability (ItemDB.ItemDef.durability > 0: the tier-1 gear) adds u16 durability left
 ##               after its grade; after the slots the armour slot in the same form (u8 item 0 = none worn; armour only)
+##               M13b (v15): after the armour slot u8 seen bytes + the seen bits (the sheet's form): what the player has ever held as the
+##               host has it, so the character a client writes is the host's (Inventory.seen unlocks recipes)
 ## Map entry     host -> the player who went to another map (M3b), after that map's world chunks:
 ##               u8 map, u32 edit position (that map's edits already in the snapshot), u32 raw size,
 ##               u32 packed size, u32 chunk count, 16 B packed md5, 16 B world md5, then the
@@ -242,7 +253,11 @@ extends RefCounted
 ## the altar's tier and the boss defeated: 8 B), the progress block in every snapshot and the boss site in the dungeon's
 ## (net/world_snapshot.gd), the altar's tier in the surface's content hash once above 0. No new RPC and no new request (the altar upgrade is a
 ## CRAFT): `_rpc_hello` and `_rpc_refused` keep their numbers, so a version 13 peer on either side hears `refused: version`.
-const VERSION: int = 14
+## 15 (M13b): saving in sessions: a joiner brings its character (the sheet, a new RPC `_rpc_sheet` client -> host, sent before the hello; the
+## hello keeps its 3 B), the refusal "character" and the classes taken in a "class_taken" refusal (● R54 one player per class), the seen bits
+## in the inventory message. The new RPC sorts after `_rpc_refused`, so `_rpc_hello` (6) and `_rpc_refused` (13) keep their numbers and a
+## version 14 peer on either side hears `refused: version` (tests/test_net.gd RPC_STABLE). The world, the snapshot and the edits are unchanged.
+const VERSION: int = 15
 
 const CH_CONTROL: int = 0
 const CH_INPUT: int = 1
@@ -250,23 +265,26 @@ const CH_STATE: int = 2
 const CH_ENEMY: int = 3
 const CH_CREATURE: int = 4
 
-## Why the host refused a hello. Names are what the logs and test results print.
-enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO }
-const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "class_taken", "bad_hello"]
+## Why the host refused a hello. Names are what the logs and test results print. M13b: CLASS_TAKEN is on (● R54), CHARACTER = the
+## character the joiner brought does not read (decode_sheet's reason rides along).
+enum Refusal { NONE, FULL, VERSION, CLASS, CLASS_TAKEN, BAD_HELLO, CHARACTER }
+const REFUSAL_NAMES: PackedStringArray = ["none", "full", "version", "class", "class_taken", "bad_hello", "character"]
 
 ## Requests riding on input frames (M2b). M6b: THROW (the skill key 1), CRAFT (the crafting panel). M5c: CHANNEL (the
 ## paladin's purification channel), ALTAR_LIFT (F held on the altar), ALTAR_PLACE (the carrier's click). M7c: DEMOLISH
 ## (right-click), DOOR (F on a door), ARMOR (put the armour on / take it off), CHEST (store / take in the chest panel).
 ## M8b: BUY and SELL (the open shop panel's clicks). M9c: SKILL (the skill keys 1 2 3 R; the herbalist's key 1 is THROW).
 ## M10b: PRAY (an F tap at the altar) and ANSWER (a participant's answer to its turn). M11c: CAPTURE (a click with the snare).
+## M13 review (v15): LEAVE = the client is leaving (no fields): the frames before it ran on the host first (SessionHost._leave).
 enum Op { NONE, USE, PICKUP, SELECT, DROP, GIVE, TRAVEL, THROW, CRAFT, CHANNEL, ALTAR_LIFT, ALTAR_PLACE, DEMOLISH, DOOR, ARMOR,
-	CHEST, BUY, SELL, SKILL, PRAY, ANSWER, CAPTURE }
+	CHEST, BUY, SELL, SKILL, PRAY, ANSWER, CAPTURE, LEAVE }
 const OP_NAMES: PackedStringArray = ["none", "use", "pickup", "select", "drop", "give", "travel", "throw", "craft", "channel",
-	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer", "capture"]
+	"altar_lift", "altar_place", "demolish", "door", "armor", "chest", "buy", "sell", "skill", "pray", "answer", "capture", "leave"]
 ## Field bytes per op (after the frame index and the op byte). M4b: USE + the aim byte.
 ## M7-rf review: DEMOLISH + the piece seen (6). M8b: BUY 6, SELL 7. M8 review: SELL + the item and grade seen (9). M9c: SKILL 11.
 ## M9 review: SKILL + the hotbar slot and the picked ally (13), THROW + the picked ally (12). M10b: PRAY 1, ANSWER 4. M11c: CAPTURE 9.
-const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4, 9]
+## M13 review: LEAVE 0.
+const OP_SIZES: PackedInt32Array = [0, 7, 5, 1, 7, 3, 5, 12, 2, 1, 5, 5, 6, 5, 1, 7, 6, 9, 13, 1, 4, 9, 0]
 ## M8b: a SELL request's whole byte.
 const SELL_ONE: int = 0
 const SELL_WHOLE: int = 1
@@ -518,6 +536,8 @@ class InputFrame:
 					if answer >= 0 and answer < Prayer.DIR_KEYS.size() else ("several" if answer == Prayer.WIRE_SEVERAL else "?")]
 			Op.CAPTURE:
 				return "capture map=%d slot=%d at=%d,%d creature=%d" % [map, slot, cell.x, cell.y, capture_id]
+			Op.LEAVE:
+				return "leave"
 			Op.CHANNEL:
 				return "channel map=%d" % map
 			Op.ALTAR_LIFT:
@@ -650,6 +670,61 @@ class InventoryState:
 	var stacks: Array[ItemStack] = []
 	## M7c: the armour worn (null = none). Every stack keeps its durability.
 	var armor: ItemStack = null
+	## M13b: every item the player has ever held, as the host has it (Inventory.seen), in ItemDB order.
+	var seen: Array[StringName] = []
+
+
+## M13b: a joiner's character on the wire (the sheet, before its hello): what CharacterSave keeps of it. `why` says why it does not read
+## ("" = it does).
+class SheetMsg:
+	extends RefCounted
+	var ok: bool = false
+	var why: String = ""
+	var version: int = 0
+	var class_index: int = -1
+	var selected: int = 0
+	var stacks: Array[ItemStack] = []
+	var armor: ItemStack = null
+	var seen: Array[StringName] = []
+	var name: String = ""
+
+	## The class id ("" for an index out of range).
+	func class_id() -> String:
+		return NetProtocol.class_name_of(class_index)
+
+	## As a CharacterSave sheet (its stacks copied): what the host puts into the joiner's inventory.
+	func to_sheet() -> CharacterSave.Sheet:
+		var c: CharacterSave.Sheet = CharacterSave.Sheet.new()
+		c.name = name
+		c.class_id = class_id()
+		for i: int in mini(stacks.size(), Config.INVENTORY_SLOTS):
+			c.stacks[i] = stacks[i].copy() if stacks[i] != null else null
+		c.selected = selected
+		c.armor = armor.copy() if armor != null else null
+		c.seen = seen.duplicate()
+		return c
+
+
+## M13b: a refusal as the client reads it: the reason's name, the classes taken (CLASS_TAKEN), the reason text (CHARACTER).
+class RefusalMsg:
+	extends RefCounted
+	var ok: bool = false
+	var name: String = "bad_refusal"
+	var taken: PackedStringArray = []
+	var why: String = ""
+
+	## One line for the log and the console: the name, then what it carries.
+	func describe() -> String:
+		if name == "class_taken":
+			var free: PackedStringArray = []
+			for c: String in Config.CLASSES:
+				if not taken.has(c):
+					free.append(c)
+			return "class_taken (taken: %s; free: %s)" % [", ".join(taken) if not taken.is_empty() else "none",
+				", ".join(free) if not free.is_empty() else "none"]
+		if name == "character" and not why.is_empty():
+			return "character (%s)" % why
+		return name
 
 
 ## M4b: one heretic as the host sends it (HereticSim's drawn part).
@@ -1167,6 +1242,8 @@ static func _get_op(bytes: PackedByteArray, at: int, op: int, f: InputFrame) -> 
 			f.aim = bytes.decode_u8(at + 5)
 			f.capture_id = bytes.decode_u16(at + 6)
 			return f.slot < Config.HOTBAR_SLOTS and f.capture_id != 0  # ids count from 1; a stale one is the host's to refuse
+		Op.LEAVE:
+			return true  # M13 review: no fields
 	return false
 
 
@@ -1389,15 +1466,224 @@ static func decode_hello(bytes: PackedByteArray) -> Hello:
 	return h
 
 
-static func encode_refusal(reason: Refusal) -> PackedByteArray:
-	return PackedByteArray([int(reason)])
+## M13b: a CLASS_TAKEN refusal carries the classes held (`taken`, class ids), a CHARACTER one its reason (`why`, cut to
+## Config.NET_REFUSAL_WHY_MAX ASCII characters); the others are the one byte they always were.
+static func encode_refusal(reason: Refusal, taken: PackedStringArray = [], why: String = "") -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray([int(reason)])
+	if reason == Refusal.CLASS_TAKEN:
+		var bits: int = 0
+		for c: String in taken:
+			var i: int = class_index(c)
+			if i >= 0 and i < 16:
+				bits |= 1 << i
+		out.resize(3)
+		out.encode_u16(1, bits)
+	elif reason == Refusal.CHARACTER:
+		var raw: PackedByteArray = _ascii_bytes(why, Config.NET_REFUSAL_WHY_MAX)
+		out.append(raw.size())
+		out.append_array(raw)
+	return out
 
 
 ## Refusal name, "bad_refusal" for a malformed payload.
 static func decode_refusal(bytes: PackedByteArray) -> String:
-	if bytes.size() != 1 or bytes[0] >= REFUSAL_NAMES.size():
-		return "bad_refusal"
-	return REFUSAL_NAMES[bytes[0]]
+	return decode_refusal_msg(bytes).name
+
+
+## M13b: the refusal with what it carries (RefusalMsg), or ok = false / name "bad_refusal" for a malformed payload (a size that is not
+## its reason's, a class bit past the classes, a reason text that is no printable ASCII).
+static func decode_refusal_msg(bytes: PackedByteArray) -> RefusalMsg:
+	var r: RefusalMsg = RefusalMsg.new()
+	if bytes.is_empty() or bytes[0] >= REFUSAL_NAMES.size():
+		return r
+	var reason: int = bytes[0]
+	if reason == Refusal.CLASS_TAKEN:
+		if bytes.size() != 3:
+			return r
+		var bits: int = bytes.decode_u16(1)
+		if bits >> Config.CLASSES.size() != 0:
+			return r
+		for i: int in Config.CLASSES.size():
+			if bits & (1 << i):
+				r.taken.append(Config.CLASSES[i])
+	elif reason == Refusal.CHARACTER:
+		if bytes.size() < 2 or bytes.size() != 2 + bytes[1] or bytes[1] > Config.NET_REFUSAL_WHY_MAX:
+			return r
+		var raw: PackedByteArray = bytes.slice(2)
+		for b: int in raw:
+			if b < 0x20 or b > 0x7e:
+				return r
+		r.why = raw.get_string_from_ascii()
+	elif bytes.size() != 1:
+		return r
+	r.name = REFUSAL_NAMES[reason]
+	r.ok = true
+	return r
+
+
+## `text` as printable ASCII bytes (others become '?'), at most `max_bytes`.
+static func _ascii_bytes(text: String, max_bytes: int) -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	for i: int in mini(text.length(), max_bytes):
+		var c: int = text.unicode_at(i)
+		out.append(c if c >= 0x20 and c <= 0x7e else 0x3f)
+	return out
+
+
+# --- sheet (M13b: a joiner's character) ------------------------------------------------------
+
+## The seen bits' byte count: one bit per item of ItemDB.
+static func seen_bytes() -> int:
+	return ceili(ItemDB.count() / 8.0)
+
+
+## Appends u8 seen_bytes() + the bits of `seen` (item ids; unknown ones are left out).
+static func write_seen(out: PackedByteArray, seen: Array[StringName]) -> void:
+	var n: int = seen_bytes()
+	var bits: PackedByteArray = PackedByteArray()
+	bits.resize(n)
+	for id: StringName in seen:
+		var i: int = ItemDB.index_of(id)
+		if i >= 0 and i < n * 8:
+			bits[i >> 3] = bits[i >> 3] | (1 << (i & 7))
+	out.append(n)
+	out.append_array(bits)
+
+
+## The seen bits at `at`: [ids (Array[StringName]), size in bytes], or [null, -1] when malformed (a byte count other than seen_bytes(), a
+## bit past the items, too few bytes).
+static func read_seen(bytes: PackedByteArray, at: int) -> Array:
+	var n: int = seen_bytes()
+	if at < 0 or bytes.size() < at + 1 or bytes[at] != n or bytes.size() < at + 1 + n:
+		return [null, -1]
+	var ids: Array[StringName] = []
+	for i: int in n * 8:
+		if bytes[at + 1 + (i >> 3)] & (1 << (i & 7)):
+			if i >= ItemDB.count():
+				return [null, -1]
+			ids.append(ItemDB.id_at(i))
+	return [ids, 1 + n]
+
+
+## The sheet of character `c` (its class, slots, selection, armour, what it has seen, its name).
+static func encode_sheet(c: CharacterSave.Sheet, version: int = VERSION) -> PackedByteArray:
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(5)
+	out.encode_u16(0, version)
+	out.encode_u8(2, maxi(class_index(c.class_id), 0))
+	out.encode_u8(3, clampi(c.selected, 0, Config.HOTBAR_SLOTS - 1))
+	out.encode_u8(4, Config.INVENTORY_SLOTS)
+	for i: int in Config.INVENTORY_SLOTS:
+		write_slot(out, c.stacks[i] if i < c.stacks.size() else null)
+	write_slot(out, c.armor)
+	write_seen(out, c.seen)
+	var name: PackedByteArray = _ascii_bytes(c.name, Config.SAVE_NAME_MAX)
+	out.append(name.size())
+	out.append_array(name)
+	return out
+
+
+## The sheet in `bytes` (SheetMsg), or ok = false with `why`: its size, its version (`version` is set whenever two bytes came, so the host
+## can tell), the class index, the selection, the slot count, every slot as the file reader checks it (a known item, a count its stack
+## allows, a grade it can have, durability up to full; an empty slot with nothing else set), the armour slot (armour only), the seen bits,
+## the name (a save's name: SaveStore.name_refusal) and no byte left over.
+static func decode_sheet(bytes: PackedByteArray) -> SheetMsg:
+	var m: SheetMsg = SheetMsg.new()
+	if bytes.size() > Config.NET_SHEET_MAX_BYTES:
+		m.why = "%d bytes, at most %d" % [bytes.size(), Config.NET_SHEET_MAX_BYTES]
+		return m
+	if bytes.size() < 2:
+		m.why = "%d bytes: cut short" % bytes.size()
+		return m
+	m.version = bytes.decode_u16(0)
+	if m.version != VERSION:
+		m.why = "version %d, this host reads %d" % [m.version, VERSION]
+		return m
+	if bytes.size() < 5:
+		m.why = "%d bytes: cut short" % bytes.size()
+		return m
+	m.class_index = bytes.decode_u8(2)
+	if class_name_of(m.class_index).is_empty():
+		m.why = "class index %d (there are %d classes)" % [m.class_index, Config.CLASSES.size()]
+		return m
+	m.selected = bytes.decode_u8(3)
+	if m.selected >= Config.HOTBAR_SLOTS:
+		m.why = "selected slot %d, at most %d" % [m.selected + 1, Config.HOTBAR_SLOTS]
+		return m
+	var slots: int = bytes.decode_u8(4)
+	if slots != Config.INVENTORY_SLOTS:
+		m.why = "%d slots, not %d" % [slots, Config.INVENTORY_SLOTS]
+		return m
+	var at: int = 5
+	for i: int in slots + 1:
+		var where: String = "slot %d" % (i + 1) if i < slots else "armour"
+		var got: Array = read_slot(bytes, at)
+		var n: int = got[1]
+		if n < 0:
+			m.why = "%s: %s" % [where, slot_refusal(bytes, at)]
+			return m
+		var st: ItemStack = got[0]
+		at += n
+		if i < slots:
+			m.stacks.append(st)
+		elif st != null and (not Gear.is_armor(st.id) or st.count != 1):
+			m.why = "armour holds %s, which is no armour" % st.id
+			return m
+		else:
+			m.armor = st
+	var seen_got: Array = read_seen(bytes, at)
+	var seen_n: int = seen_got[1]
+	if seen_n < 0:
+		m.why = "the seen items are malformed"
+		return m
+	var seen_ids: Array = seen_got[0]
+	m.seen.assign(seen_ids)
+	at += seen_n
+	if bytes.size() < at + 1 or bytes.size() < at + 1 + bytes[at]:
+		m.why = "the name is cut short"
+		return m
+	var name_n: int = bytes[at]
+	var raw: PackedByteArray = bytes.slice(at + 1, at + 1 + name_n)
+	at += 1 + name_n
+	for b: int in raw:
+		if b < 0x20 or b > 0x7e:
+			m.why = "the name is not plain text"
+			return m
+	m.name = raw.get_string_from_ascii()
+	if name_n > 0 and not SaveStore.name_refusal(m.name).is_empty():
+		m.why = "name '%s': %s" % [m.name, SaveStore.name_refusal(m.name)]
+		return m
+	if at != bytes.size():
+		m.why = "%d bytes left over" % (bytes.size() - at)
+		return m
+	m.ok = true
+	return m
+
+
+## M13b: why the slot at `at` does not read (read_slot's checks, in words for a refusal).
+static func slot_refusal(bytes: PackedByteArray, at: int) -> String:
+	if at < 0 or bytes.size() < at + INVENTORY_SLOT_BYTES:
+		return "cut short"
+	var item: int = bytes.decode_u8(at)
+	var count: int = bytes.decode_u8(at + 1)
+	var grade: int = bytes.decode_u8(at + 2)
+	if item == 0:
+		return "an empty slot with a count or grade"
+	var id: StringName = ItemDB.id_at(item - 1)
+	var def: ItemDB.ItemDef = ItemDB.get_def(id)
+	if def == null:
+		return "unknown item %d" % (item - 1)
+	if count < 1 or count > def.stack_max:
+		return "%s count %d, must be 1..%d" % [id, count, def.stack_max]
+	if not ItemDB.valid_grade(id, grade):
+		return "%s cannot have grade %d" % [id, grade]
+	if def.durability > 0:
+		if bytes.size() < at + INVENTORY_SLOT_BYTES + DURABILITY_BYTES:
+			return "cut short"
+		var left: int = bytes.decode_u16(at + INVENTORY_SLOT_BYTES)
+		if left > def.durability:
+			return "%s durability %d, at most %d" % [id, left, def.durability]
+	return "malformed"
 
 
 # --- welcome ---------------------------------------------------------------------------------
@@ -1513,6 +1799,9 @@ static func encode_inventory(inv: Inventory, ack: int) -> PackedByteArray:
 	for i: int in inv.size():
 		write_slot(out, inv.stack_at(i))
 	write_slot(out, inv.armor)  # M7c: the armour slot after the slots
+	var seen: Array[StringName] = []
+	seen.assign(inv.seen.keys())
+	write_seen(out, seen)  # M13b: what it has ever held (the character a client writes is the host's)
 	return out
 
 
@@ -1581,6 +1870,13 @@ static func decode_inventory(bytes: PackedByteArray) -> InventoryState:
 			return inv
 		else:
 			inv.armor = st
+	var seen_got: Array = read_seen(bytes, at)  # M13b
+	var seen_n: int = seen_got[1]
+	if seen_n < 0:
+		return inv
+	var seen_ids: Array = seen_got[0]
+	inv.seen.assign(seen_ids)
+	at += seen_n
 	if at != bytes.size():
 		return inv
 	inv.ok = true

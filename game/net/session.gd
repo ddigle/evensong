@@ -89,6 +89,13 @@ extends Node
 ## (_rpc_tally), the rare zone and the collection in the surface's snapshot. A click with the snare is a CAPTURE request; a client predicts
 ## only its body action.
 ##
+## M13b (saving in sessions, ● R54): a joiner that brings a saved character sends it just before its hello (_rpc_sheet: the sheet,
+## NetProtocol), the hello itself stays 3 bytes so an older or newer host still reads its version. The host reads the sheet at the hello,
+## after the version and the class rule (● one player per class at a time: Roster, the refusal "class_taken" with the classes taken), and
+## refuses one that does not read ("character", with the reason); without a sheet a joiner is a new character, the start kit. From then on
+## the host owns that player's things as before; the inventory message also carries what it has seen, so a client writes its character
+## from the host's state (Main). The host opens and writes its world (Main: `loaded` here, SessionHost's sims take it; client_left).
+##
 ## Files: this node holds what both roles share (connection, players, ending, logging) and the RPC
 ## table. Each @rpc receiver here only hands the payload to its flow, and the flows send through the
 ## send_* helpers here: net/session_host.gd = host flow, net/session_client.gd = client flow,
@@ -119,6 +126,10 @@ signal bot_shop(buy_entry: int, sell_slot: int, sell_all: bool)
 signal bot_tap
 ## M11c: a bot's `collection` this tick (K: Main opens or closes the panel on this machine).
 signal bot_collection
+## M13b (host): a client it had admitted left (Main writes the open world then: Config.SAVE_WHEN_CLIENT_LEAVES).
+signal client_left(slot: int)
+## M13 review, test only (bot "close"): the window's close button, pressed by a bot (Main.request_close).
+signal bot_close
 
 enum Role { OFFLINE, HOST, CLIENT }
 const ROLE_NAMES: PackedStringArray = ["offline", "host", "client"]
@@ -173,6 +184,11 @@ var give_allowed: bool = false
 var request_ticks: int = 0
 ## Pacing of local_ops: the host's request budget, kept here too (NetMember.op_budget).
 var local_budget: int = NetMember.OP_BUDGET_MAX
+## M13b (Main sets them before start): the saved character this machine plays (its class; null = a new one of --class: the start kit) and,
+## on a host, the saved world it opened (null = a world made now). A client sends its character before its hello (the sheet); the host puts
+## its own into its player and the world's saved sims into its own (SessionHost._apply_loaded*).
+var character: CharacterSave.Sheet = null
+var loaded: WorldSave.Saved = null
 
 ## The flows (net/session_host.gd, net/session_client.gd, net/session_bots.gd). host or client is
 ## null for the other role.
@@ -296,7 +312,10 @@ func seconds_running() -> float:
 	return (Time.get_ticks_msec() - _start_ms) / 1000.0
 
 
+## The local player's class: the saved character's (M13b), else --class, else Config.DEFAULT_CLASS.
 func local_class() -> String:
+	if character != null and not character.class_id.is_empty():
+		return character.class_id
 	return options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS
 
 
@@ -412,6 +431,14 @@ func _count_traffic() -> void:
 func _rpc_hello(payload: PackedByteArray) -> void:
 	if role == Role.HOST:
 		host.on_hello(multiplayer.get_remote_sender_id(), payload)
+
+
+## Host (M13b): a joiner's saved character, just before its hello (NetProtocol sheet). Named so it sorts after `_rpc_refused` (see
+## `_rpc_vespers`): `_rpc_hello` and `_rpc_refused` keep their numbers and an older or newer peer still hears `refused: version`.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rpc_sheet(payload: PackedByteArray) -> void:
+	if role == Role.HOST:
+		host.on_sheet(multiplayer.get_remote_sender_id(), payload)
 
 
 ## Client: one chunk of the world snapshot (before the welcome).
@@ -570,6 +597,10 @@ func _rpc_finish() -> void:
 
 func send_hello(payload: PackedByteArray) -> void:
 	_rpc_hello.rpc_id(1, payload)
+
+
+func send_sheet(payload: PackedByteArray) -> void:
+	_rpc_sheet.rpc_id(1, payload)
 
 
 func send_world(peer: int, payload: PackedByteArray) -> void:

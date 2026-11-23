@@ -234,7 +234,7 @@ func put_room(r: Rig, door_open: bool) -> void:
 # --- the wire (protocol v8) --------------------------------------------------------------------------------------------
 
 func _check_m7_codec() -> void:
-	check_eq(NetProtocol.VERSION, 14, "protocol version 14 (M7c: 8; M7-rf: 9, the floor piece layer; M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer; M11c: 13, the creatures; M12c: 14, the boss)")
+	check_eq(NetProtocol.VERSION, 15, "protocol version 15 (M7c: 8; M7-rf: 9, the floor piece layer; M8b: 10, the shop; M9c: 11, the skills; M10b: 12, the prayer; M11c: 13, the creatures; M12c: 14, the boss; M13b: 15, the characters)")
 	check_eq(NetProtocol.CODE_COUNT, 180, "the frame is still one byte (180 codes)")
 	var cases: Array[NetProtocol.InputFrame] = []
 	var d: NetProtocol.InputFrame = _op(NetProtocol.Op.DEMOLISH, Config.MAP_DUNGEON, Vector2i(-3, 700))
@@ -307,8 +307,8 @@ func _check_inventory_codec_v8() -> void:
 	inv.armor.durability = 61
 	inv.select(2)
 	var bytes: PackedByteArray = NetProtocol.encode_inventory(inv, 12345)
-	check_eq(bytes.size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1) + 2 * 3,
-		"inventory = 6 + 3 B x (24 slots + armour) + 2 B durability for each of the sword, the bow and the armour")
+	check_eq(bytes.size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1) + 2 * 3 + 1 + NetProtocol.seen_bytes(),
+		"inventory = 6 + 3 B x (24 slots + armour) + 2 B durability for each of the sword, the bow and the armour + (M13b) the seen bits")
 	var back: NetProtocol.InventoryState = NetProtocol.decode_inventory(bytes)
 	check(back.ok and back.ack == 12345 and back.selected == 2, "the inventory decodes")
 	if back.ok:
@@ -320,8 +320,8 @@ func _check_inventory_codec_v8() -> void:
 		check(mine.describe() == inv.describe() and Gear.describe(mine.armor) == Gear.describe(inv.armor),
 			"a client takes it whole (%s | %s)" % [mine.describe(), Gear.describe(mine.armor)])
 	var empty: Inventory = Inventory.new()
-	check_eq(NetProtocol.encode_inventory(empty, 0).size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1),
-		"an empty inventory: no durability bytes")
+	check_eq(NetProtocol.encode_inventory(empty, 0).size(), NetProtocol.INVENTORY_HEADER + 3 * (Config.INVENTORY_SLOTS + 1) + 1 + NetProtocol.seen_bytes(),
+		"an empty inventory: no durability bytes (M13b: the seen bits)")
 	var short_ok: int = 0
 	for n: int in bytes.size():
 		if NetProtocol.decode_inventory(bytes.slice(0, n)).ok:

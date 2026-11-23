@@ -108,6 +108,24 @@ extends RefCounted
 ##   --test-boss-attack=<cleave|volley|burn>   the boss uses only that attack (the telegraphs one at a time)
 ##   --test-pillar-hits=<i>:<hits>[,...]   pillar i (1 = the first) starts with that many miner hits (its crack state)
 ##   --test-altar-tier=<0..Config.ALTAR_TIER_MAX>   the world's altar starts at that tier (its light, its picture)
+## M13a (saving, offline: README "M13a"; M13b: in sessions too, README "M13b"):
+##   --world=<name>               open the saved world <name> (core/world_save.gd), or make it from --seed when there is none; it is
+##                                written on quit, every Config.SAVE_AUTOSAVE_TICKS and on F9. Without it: today's unsaved world.
+##                                M13b: a host too (and when a client leaves); with --join it is an error (the world is the host's)
+##   --character=<name>           play the saved character <name> (core/character_save.gd: its class, inventory, armour, money),
+##                                or make it with --class when there is none (a --class other than the file's is an error).
+##                                M13b: a host plays it too; a client brings it to the host (the sheet) and writes it from the
+##                                host's inventory messages (on leaving, losing the host, F9, every Config.SAVE_AUTOSAVE_TICKS)
+##   --test-duplicate-classes     M13b, test only (the host): two players of one class may join (● R54 refuses them)
+##   --save-dir=<folder>          the saves' folder (default Config.SAVE_DIR_DEFAULT); tests always give one
+##   --no-save                    open (or make) them but never write a file
+##   --list-worlds, --list-characters   print the saved worlds / characters of the folder (EVENSONG_SAVE lines) and quit (M13 review:
+##                                not with --host / --join: they only list)
+##   --test-autosave-ticks=<n>    test only: write every n ticks in place of Config.SAVE_AUTOSAVE_TICKS
+## M13 review:
+##   --test-close-after=<ticks>   test only: press the window's close button after that many physics ticks (Main.request_close, the
+##                                path a person's window close takes; Godot's --quit-after quits without it)
+##   --test-lag-inventory         test only, a client with --net-lag: the host's inventory messages come half the round trip late too
 ##
 ## Unknown flags are kept in `unknown` and ignored (the test runner passes its own flags such as
 ## --only= through the same command line). A bad value for a known flag is an error.
@@ -203,6 +221,23 @@ var test_boss_hp: int = 0
 var test_boss_attack: String = ""
 var test_pillar_hits: Dictionary[int, int] = {}
 var test_altar_tier: int = -1
+## M13a: the saved world and character to open ("" = none: unsaved, as before), the saves' folder ("" = Config.SAVE_DIR_DEFAULT), never
+## write, list and quit, the autosave period for tests (0 = Config.SAVE_AUTOSAVE_TICKS); whether --seed was given (a seed that differs from
+## an existing world's is an error).
+var world_name: String = ""
+var character_name: String = ""
+var save_dir: String = ""
+var no_save: bool = false
+var list_worlds: bool = false
+var list_characters: bool = false
+var test_autosave_ticks: int = 0
+var seed_given: bool = false
+## M13b, test only (the host): allow two players of one class at once (● R54 refuses it: Roster.allow_duplicates).
+var test_duplicate_classes: bool = false
+## M13 review, test only: press the window's close button after that many physics ticks (0 = never; Main.request_close), and a client's
+## host inventory messages late by half its --net-lag (SessionClient.on_inventory).
+var test_close_after: int = 0
+var test_lag_inventory: bool = false
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -257,6 +292,12 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.test_perturb_generator = true
 			"test-allow-give":
 				o.test_allow_give = true
+			"test-lag-inventory":
+				o.test_lag_inventory = true
+			"test-close-after":
+				o.test_close_after = _parse_positive(value, raw, o.errors, 0)
+			"test-duplicate-classes":
+				o.test_duplicate_classes = true
 			"test-snapshot-chunk-bytes":
 				o.test_snapshot_chunk_bytes = _parse_positive(value, raw, o.errors, 0)
 				if o.test_snapshot_chunk_bytes > Config.NET_SNAPSHOT_CHUNK_BYTES:
@@ -279,6 +320,28 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 					o.errors.append("%s: seed must be an integer" % raw)
 				else:
 					o.world_seed = value.to_int()
+					o.seed_given = true
+			"world", "character":
+				var why: String = SaveStore.name_refusal(value)
+				if not why.is_empty():
+					o.errors.append("%s: %s" % [raw, why])
+				elif key == "world":
+					o.world_name = SaveStore.normalize_name(value)
+				else:
+					o.character_name = SaveStore.normalize_name(value)
+			"save-dir":
+				if value.strip_edges().is_empty():
+					o.errors.append("%s: expected a folder" % raw)
+				else:
+					o.save_dir = value
+			"no-save":
+				o.no_save = true
+			"list-worlds":
+				o.list_worlds = true
+			"list-characters":
+				o.list_characters = true
+			"test-autosave-ticks":
+				o.test_autosave_ticks = _parse_positive(value, raw, o.errors, 0)
 			"screenshot":
 				if not value.to_lower().ends_with(".png"):
 					o.errors.append("%s: screenshot must be a .png path" % raw)
@@ -525,7 +588,18 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.unknown.append(raw)
 	if o.host and o.join:
 		o.errors.append("--host and --join cannot be used together")
+	if o.join and not o.world_name.is_empty():
+		# M13b: ● R54 the world is the host's (a client plays the host's world and never writes it); a client brings its character.
+		o.errors.append("--world: the world is the host's (--host --world=<name>); a client joins with --character=<name>")
+	if (o.list_worlds or o.list_characters) and (o.host or o.join):
+		# M13 review: the list flags only list (a host would otherwise open its port and make the names it was given first).
+		o.errors.append("--list-worlds / --list-characters: they only list the saves; start without --host / --join")
 	return o
+
+
+## M13a: the saves' folder these flags name (--save-dir, else Config.SAVE_DIR_DEFAULT).
+func save_root() -> String:
+	return save_dir if not save_dir.is_empty() else Config.SAVE_DIR_DEFAULT
 
 
 ## "<x>,<y>[/<x>,<y>...]" -> tiles (whole numbers >= 0); an error and none if bad.

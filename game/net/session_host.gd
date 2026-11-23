@@ -174,6 +174,17 @@ extends RefCounted
 ## the tier below the slice's maximum, all or nothing); its success redraws the host's light and altar and syncs the surface's arena
 ## (_altar_raised). The tier and the flag go to every client in the world message (_send_world, with the collection) when they change and
 ## after a welcome or a map entry; the surface's snapshot carries them too.
+##
+## M13b (saving in sessions: the world is the host's, every character its player's device's, ● R54): a host that opened a saved world
+## (NetSession.loaded, Main reads the file) sets its sims up on the loaded maps as for a new world and then puts the saved state into them
+## (_apply_loaded_combat in _setup_combat before the test flags, the fields' and stumps' timers in _setup_farms / _setup_forests,
+## _apply_loaded_rest: the shop's clock, the prayers, the deaths), offline Main._apply_loaded's order; Main writes the world from them
+## (live_world). Its own saved character goes into its player after the start kit (NetSession.character). A joiner's character comes as the
+## sheet before its hello (on_sheet keeps it per peer, bounded); on_hello reads it after the version and the class rule and refuses one that
+## does not read ("character", with the reason: sizes, item ids, counts, grades, durability, slots, the class the hello says, the version);
+## one that reads replaces the start kit in the new member's inventory, and the host owns it from then on as before. ● One player per class
+## at a time: the roster refuses a class a connected player holds (the host's own included) as "class_taken" with the classes taken; a
+## leaver frees its class (and Main writes the world: client_left).
 
 ## M4b: why a request is refused while its player is down or dead.
 const WHY_DOWN: String = "down"
@@ -297,11 +308,18 @@ var _progress_sent: int = -1
 var _boss_kills_seen: int = 0
 var upgrades: int = 0
 var boss_lines: int = 0
+## M13b: joiners' characters waiting for their hello (raw sheet bytes by peer, cut one byte past Config.NET_SHEET_MAX_BYTES), the
+## characters that came in (the host's own included), and the character each slot brought (its name, "new" for a new one; results).
+var pending_sheets: Dictionary[int, PackedByteArray] = {}
+var characters_in: int = 0
+var character_names: Dictionary[int, String] = {}
+## M13 review: LEAVE requests run (_leave).
+var leaves: int = 0
 
 
 func _init(p_session: NetSession) -> void:
 	s = p_session
-	roster = Roster.new(s.options.max_players)
+	roster = Roster.new(s.options.max_players, s.options.test_duplicate_classes)
 
 
 func on_opened() -> void:
@@ -314,12 +332,16 @@ func on_opened() -> void:
 	s.local.player.capture_on = true  # M11c: its click runs through Capture.refusal here too, then the CAPTURE request (run_frame)
 	s.local.player.herd_provider = _local_herd
 	_equip(s.local)
+	if s.character != null and s.character.class_id == s.local.class_id:
+		s.character.to_inventory(s.local.player.inventory)  # M13b: the host's own saved character (its start kit only when it was made)
+		characters_in += 1
 	_setup_combat()
 	_setup_test_creatures()  # M11c
 	_setup_farms()
 	_setup_forests()  # M7c
 	_setup_shop()  # M8b: after the test pieces (the merchant's tile keeps off them)
 	_setup_prayer()  # M10b
+	_apply_loaded_rest()  # M13b: the saved world's shop clock, prayers made, deaths (its arenas, herd, boss, fields, stumps: in the setups)
 	s.active = true
 	_last_take_usec = Time.get_ticks_usec()
 	s.log_event("hosting", "port=%d slot=%d class=%s" % [s.options.port, slot, s.local.class_id])
@@ -337,6 +359,7 @@ func on_peer_disconnected(peer_id: int) -> void:
 	connected_ms.erase(peer_id)
 	refused_ms.erase(peer_id)
 	streams.erase(peer_id)
+	pending_sheets.erase(peer_id)  # M13b: a character that came without its hello
 	if not roster.has(peer_id):
 		return
 	var leaving: NetMember = s.members.get(roster.slot_of(peer_id), null)
@@ -352,10 +375,24 @@ func on_peer_disconnected(peer_id: int) -> void:
 		var payload: PackedByteArray = PackedByteArray([slot])
 		for peer: int in remote_peers():
 			s.send_left(peer, payload)
-	s.log_event("left", "peer=%d slot=%d players=%d" % [peer_id, slot, roster.count()])
+	s.log_event("left", "peer=%d slot=%d players=%d classes=%s" % [peer_id, slot, roster.count(), ",".join(roster.taken_classes())])
+	character_names.erase(slot)
+	s.client_left.emit(slot)  # M13b: Main writes the open world (Config.SAVE_WHEN_CLIENT_LEAVES)
 
 
-## A joiner introduces itself.
+## M13b: a joiner's saved character, before its hello (NetProtocol sheet). Kept for the hello, which reads it after the version (a peer
+## already in, refused, or with one already waiting sends a malformed message: counted, ignored).
+func on_sheet(peer_id: int, payload: PackedByteArray) -> void:
+	if not s.active or s.over:
+		return
+	if roster.has(peer_id) or refused_ms.has(peer_id) or pending_sheets.has(peer_id):
+		s.bad_messages += 1
+		return
+	pending_sheets[peer_id] = payload.slice(0, Config.NET_SHEET_MAX_BYTES + 1)  # one byte past the limit is enough to refuse it
+
+
+## A joiner introduces itself. M13b: the character it sent just before (the sheet) is read here, after the version and the class rule:
+## one that does not read refuses the join ("character", with the reason); without one it is a new character (the start kit, M12's way).
 func on_hello(peer_id: int, payload: PackedByteArray) -> void:
 	if not s.active or s.over:
 		return
@@ -366,39 +403,73 @@ func on_hello(peer_id: int, payload: PackedByteArray) -> void:
 	var hello: NetProtocol.Hello = NetProtocol.decode_hello(payload)
 	var class_id: String = NetProtocol.class_name_of(hello.class_index)
 	var reason: NetProtocol.Refusal = NetProtocol.Refusal.NONE
+	var why: String = ""
+	var sheet: NetProtocol.SheetMsg = null
 	if not hello.ok:
 		reason = NetProtocol.Refusal.BAD_HELLO
 	elif hello.version != NetProtocol.VERSION:
 		reason = NetProtocol.Refusal.VERSION
 	else:
 		reason = roster.refusal_for(class_id)
+	if reason == NetProtocol.Refusal.NONE and pending_sheets.has(peer_id):
+		sheet = NetProtocol.decode_sheet(pending_sheets[peer_id])
+		if not sheet.ok:
+			reason = NetProtocol.Refusal.CHARACTER
+			why = sheet.why
+		elif sheet.class_id() != class_id:
+			reason = NetProtocol.Refusal.CHARACTER
+			why = "the character's class is %s, the hello says %s" % [sheet.class_id(), class_id]
+	pending_sheets.erase(peer_id)
 	if reason != NetProtocol.Refusal.NONE:
-		_refuse(peer_id, reason)
+		_refuse(peer_id, reason, why, class_id)
 		return
 	var slot: int = roster.admit(peer_id, class_id)
 	var m: NetMember = s.add_member(slot, peer_id, class_id, spawn_feet(slot), Config.SPAWN_FACING)
 	m.gate = InputGate.new()
 	_equip(m)
+	if sheet != null:
+		sheet.to_sheet().to_inventory(m.player.inventory)  # M13b: what it brought, in place of the start kit
+		characters_in += 1
+		character_names[slot] = sheet.name if not sheet.name.is_empty() else "unnamed"
+	else:
+		character_names[slot] = "new"
 	broadcast.note_activity(s.tick)
 	var stream: Stream = _stream(peer_id, slot, Config.MAP_SURFACE, false)
 	streams[peer_id] = stream
 	var joined: PackedByteArray = NetProtocol.encode_info(m.info())
 	for peer: int in remote_peers():
 		s.send_joined(peer, joined)
-	s.log_event("joined", "peer=%d slot=%d class=%s players=%d world_bytes=%d raw=%d chunks=%d encode_us=%d" % [
-		peer_id, slot, class_id, roster.count(), stream.snapshot.bytes.size(), stream.snapshot.raw_size,
-		stream.snapshot.chunk_count(), stream.snapshot.encode_usec])
+	s.log_event("joined", ("peer=%d slot=%d class=%s players=%d world_bytes=%d raw=%d chunks=%d encode_us=%d character=%s " +
+		"items=%d money=%d") % [peer_id, slot, class_id, roster.count(), stream.snapshot.bytes.size(), stream.snapshot.raw_size,
+		stream.snapshot.chunk_count(), stream.snapshot.encode_usec, character_names[slot], _item_count(m.player.inventory),
+		m.player.inventory.count_of(ItemDB.MONEY)])
 
 
-func _refuse(peer_id: int, reason: NetProtocol.Refusal) -> void:
+## The stacks in `inv`'s slots (the log's measure of what a joiner brought).
+static func _item_count(inv: Inventory) -> int:
+	var n: int = 0
+	for i: int in inv.size():
+		if inv.stack_at(i) != null:
+			n += 1
+	return n
+
+
+## M13b: `why` (CHARACTER) and the classes taken (CLASS_TAKEN: `class_id` is the joiner's) go with the refusal and into the log.
+func _refuse(peer_id: int, reason: NetProtocol.Refusal, why: String = "", class_id: String = "") -> void:
 	var name: String = NetProtocol.REFUSAL_NAMES[reason]
 	var seen: int = refusals.get(name, 0)
 	refusals[name] = seen + 1
 	refused_ms[peer_id] = Time.get_ticks_msec()
+	var taken: PackedStringArray = roster.taken_classes() if reason == NetProtocol.Refusal.CLASS_TAKEN else PackedStringArray()
 	# The refused client disconnects itself after reading this (disconnect_peer() here would drop
 	# the message unsent); the host only cuts it off after NET_REFUSE_GRACE_SEC.
-	s.send_refused(peer_id, NetProtocol.encode_refusal(reason))
-	s.log_event("refused", "peer=%d reason=%s players=%d" % [peer_id, name, roster.count()])
+	s.send_refused(peer_id, NetProtocol.encode_refusal(reason, taken, why))
+	var detail: String = ""
+	if reason == NetProtocol.Refusal.CLASS_TAKEN:
+		detail = " class=%s taken=%s" % [class_id, ",".join(taken)]
+	elif reason == NetProtocol.Refusal.CHARACTER:
+		detail = " why=\"%s\"" % why
+	s.log_event("refused", "peer=%d reason=%s players=%d%s" % [peer_id, name, roster.count(), detail])
 
 
 ## A stream of map `map`'s world (packed now, with that map's log position) to `peer`.
@@ -564,7 +635,9 @@ func run_frame(m: NetMember, frame: NetProtocol.InputFrame) -> void:
 	# with an altar tile in reach of this frame's feet, so F held anywhere else (or while reviving) never counts.
 	m.altar_hold = m.altar_hold + 1 if frame.interact and AltarMove.hold_counts(p, players_on(m.map_id)) \
 		and AltarMove.altar_in_reach(p.data, p.sim_position) else 0
-	if NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
+	if frame.op == NetProtocol.Op.LEAVE:
+		_leave(m)  # M13 review: before any refusal (down, carrying, praying: leaving is always allowed)
+	elif NetProtocol.op_has_map(frame.op) and frame.map != m.map_id:
 		_refuse_early(m, frame, WorldItems.WHY_WRONG_MAP)
 	elif NetProtocol.op_has_map(frame.op) and not p.vitals.alive():
 		_refuse_early(m, frame, WHY_DOWN)  # M4b: nothing but F held (give up) and Q / E while down or dead
@@ -737,6 +810,34 @@ func _died(m: NetMember) -> void:
 		if worn > 0:
 			m.inventory_dirty = true
 			s.log_event("gear", "slot=%d death wear items=%d %s" % [m.slot, worn, _gear_line(p.inventory)])
+
+
+## M13 review (README "M13b 나가기"): client member `m` is leaving: its LEAVE request ran after every request it sent before it (frames run
+## in order), so the world and its inventory now hold all of them. A downed member dies now (die_on_leave: closing the window is no way out
+## of the death); its inventory goes to its client once more (the acknowledgement its character file is written on:
+## SessionClient.begin_leave) and nothing of it runs any more (run_client_frames). It is gone when its client disconnects
+## (on_peer_disconnected: the slot, the class, the world written).
+func _leave(m: NetMember) -> void:
+	if m.leaving or m.gate == null:
+		return
+	m.leaving = true
+	var died: bool = die_on_leave(m)
+	m.inventory_dirty = true
+	_changed = true
+	leaves += 1
+	s.log_event("leave", "slot=%d seq=%d died=%s items=%d money=%d" % [m.slot, m.gate.last_seq, died, _item_count(m.player.inventory),
+		m.player.inventory.count_of(ItemDB.MONEY)])
+
+
+## M13 review: member `m` leaves while down (a client's LEAVE; the host's own player when its window closes, Main.request_close): with
+## Config.LEAVE_WHILE_DOWN_DIES it dies now as if its down time ran out (the bag in the world, the gear worn: _died, ● gameplay-design
+## §2.6). Returns whether it died.
+func die_on_leave(m: NetMember) -> bool:
+	if not Config.LEAVE_WHILE_DOWN_DIES or m == null or m.player == null or not m.player.vitals.die_now():
+		return false
+	s.log_event("died_leaving", "slot=%d map=%s" % [m.slot, Config.MAP_NAMES[m.map_id]])
+	_died(m)
+	return true
 
 
 ## M4b: member `m`'s respawn time is up: back at its spawn slot on the surface (● §2.6 "부활 지점: 제단"),
@@ -1159,7 +1260,8 @@ static func attach_local_op(session: NetSession, p: Player, f: NetProtocol.Input
 		if session.role == NetSession.Role.CLIENT and q.op == NetProtocol.Op.SELECT:
 			p.inventory.select(q.slot)
 	elif f.op == NetProtocol.Op.NONE and not session.local_ops.is_empty() \
-			and (session.local_ops[0].op == NetProtocol.Op.SELECT or session.take_local_token()):
+			and (session.local_ops[0].op == NetProtocol.Op.SELECT or session.local_ops[0].op == NetProtocol.Op.LEAVE
+				or session.take_local_token()):
 		q = session.local_ops.pop_front()
 	if q == null:
 		return
@@ -1363,12 +1465,17 @@ func tick(action: NetBot.Action, now: int) -> void:
 ## When its vitals run and the debt passes the threshold (a client that went quiet, or sends a frame now and
 ## then), the host steps it itself with an empty frame each tick. Idle, the debt is 0.
 func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> void:
+	if m.leaving:
+		return  # M13 review: after its LEAVE nothing of it runs (the gate took the frames: acknowledged, never run)
 	if timed(m):
 		m.clock_debt += 1
 	else:
 		m.clock_debt = 0
 	var ran: int = 0
 	for frame: NetProtocol.InputFrame in frames:
+		if m.leaving:
+			ran += 1
+			continue  # M13 review: the frames after its LEAVE in this tick's take: acknowledged, never run
 		var was_timed: bool = timed(m)
 		if was_timed and m.clock_debt <= 0:
 			break
@@ -1381,7 +1488,7 @@ func run_client_frames(m: NetMember, frames: Array[NetProtocol.InputFrame]) -> v
 		held.assign(frames.slice(ran))
 		m.gate.put_back(held)
 		m.frames_held += held.size()
-	if not timed(m):
+	if not timed(m) or m.leaving:
 		m.clock_debt = 0
 		m.host_stepping = false
 		return
@@ -1533,6 +1640,13 @@ func _setup_combat() -> void:
 		w.add_child(v)
 		v.setup(a, w.entities)
 		views[map] = v
+	_apply_loaded_combat()  # M13b: a saved world's heretics, herd and boss, before the test flags (they go on top, like play)
+	var fight: BossFight = boss_fight()
+	if fight != null:
+		for i: int in s.options.test_pillar_hits:
+			fight.set_pillar_hits(i, s.options.test_pillar_hits[i])
+		arenas[Config.MAP_DUNGEON].shot_events.clear()  # nobody is on the map yet: the pillars' states go with the snapshot
+		s.log_event("boss", "room %s" % fight.describe())
 	if arenas.has(Config.MAP_SURFACE):
 		for c: Vector2i in s.options.test_heretics:
 			arenas[Config.MAP_SURFACE].spawn_heretic(Arena.spawn_feet(c))
@@ -1782,6 +1896,9 @@ func farm_of(map: int) -> Farm:
 func _setup_farms() -> void:
 	for map: int in s.worlds:
 		farm_of(map)
+		if s.loaded != null and farms.has(map):
+			var farm_rec: WorldSave.FarmRecord = s.loaded.farms.get(map, null)
+			WorldSave.apply_farm(farms[map], farm_rec)  # M13b: the saved fields' timers
 	if s.options != null and not s.options.test_fields.is_empty():
 		var f: Farm = farm_of(Config.MAP_SURFACE)
 		if f != null:
@@ -2336,6 +2453,9 @@ func forest_of(map: int) -> Forest:
 func _setup_forests() -> void:
 	for map: int in s.worlds:
 		forest_of(map)
+		if s.loaded != null and forests.has(map):
+			var forest_rec: WorldSave.ForestRecord = s.loaded.forests.get(map, null)
+			WorldSave.apply_forest(forests[map], forest_rec)  # M13b: the saved axe hits and stumps' times
 	if s.options != null and not s.options.test_build.is_empty():
 		Main.put_test_build(s.world, s.options.test_build)
 
@@ -2987,10 +3107,57 @@ func _setup_boss(a: Arena, w: GameWorld) -> void:
 	a.boss.players_now = players_on.bind(w.data.map_id)  # M12c-fix: the members on its map at a blow (a leaver's Player is freed at once)
 	a.boss.test_hp = s.options.test_boss_hp
 	a.boss.test_attack = maxi(BossSim.ATTACK_NAMES.find(s.options.test_boss_attack), BossSim.Attack.NONE)
-	for i: int in s.options.test_pillar_hits:
-		a.boss.set_pillar_hits(i, s.options.test_pillar_hits[i])
-	a.shot_events.clear()  # nobody is on the map yet: the pillars' states go with the snapshot
-	s.log_event("boss", "room %s" % a.boss.describe())
+	# M13b: the test pillar hits go on after a saved world's, then the room is logged (_setup_combat)
+
+
+## M13b: a saved world's sims (NetSession.loaded, WorldSave.apply_*: the moment everyone left) into the arenas set up on its maps, in
+## offline Main._apply_loaded's order: every arena (its heretics, its spawn timer, its random stream; then the map empties), the herd,
+## the boss's stream, ids and a sleeping boss's pillar hits. The test flags go on after (_setup_combat).
+func _apply_loaded_combat() -> void:
+	if s.loaded == null:
+		return
+	var maps: Array[int] = []
+	maps.assign(arenas.keys())
+	maps.sort()
+	for map: int in maps:
+		var rec: WorldSave.ArenaRecord = s.loaded.arenas.get(map, null)
+		WorldSave.apply_arena(arenas[map], rec)
+	WorldSave.apply_herd(herd_on(Config.MAP_SURFACE), s.loaded.herd)
+	WorldSave.apply_boss(boss_fight(), s.loaded.boss)
+	for map: int in maps:
+		arenas[map].shot_events.clear()  # the emptying's events: nobody has joined yet
+
+
+## M13b: the rest of a saved world's state (offline Main._apply_loaded): the shop's clock, the prayers made (the next prayer's directions),
+## the deaths (the next death bag's draw).
+func _apply_loaded_rest() -> void:
+	if s.loaded == null:
+		return
+	var sh: Shop = shop()
+	if sh != null and s.loaded.has_shop_clock:
+		sh.clock = s.loaded.shop_clock
+		sh.restocks = s.loaded.shop_restocks
+	if prayer != null:
+		prayer.prayers = s.loaded.prayers
+	deaths = s.loaded.deaths
+
+
+## M13b: the world as a file now (WorldSave.Live of the host's maps and sims; Main writes it). `name` and `ticks` are Main's.
+func live_world(name: String, ticks: int) -> WorldSave.Live:
+	var live: WorldSave.Live = WorldSave.Live.new()
+	live.name = name
+	for map: int in s.worlds:
+		var w: GameWorld = s.worlds[map]
+		if w != null and is_instance_valid(w) and w.data != null:
+			live.maps[map] = w.data
+			live.last_altar[map] = w.last_altar_rect
+	live.arenas = arenas
+	live.farms = farms
+	live.forests = forests
+	live.prayers = prayer.prayers if prayer != null else 0
+	live.deaths = deaths
+	live.ticks = ticks
+	return live
 
 
 ## The dungeon's boss fight (null: none).
