@@ -19,14 +19,15 @@ extends "res://tests/base_test.gd"
 ##            sprite, derived sheet)
 ##   box      the M11a hit-box rule on the sheets (Config.BOSS hit_height_px = the tallest picture +-2, 2r between the narrowest and
 ##            the widest standing picture + 2) and this step's choice in it: 2r within the south / north body (staff and fire cut)
-##   columns  the blow columns written here (attack 5, 3, 3; cast 4, 3, 3), so the sheet -> column mapping is pinned, not only its
+##   columns  the blow columns written here (attack 5, 3, 3; cast 3, 3, 3), so the sheet -> column mapping is pinned, not only its
 ##            constants
 ##   re-takes what the v03 re-takes (17차 다시 뽑기) were made to fix, measured on the sheets: the attack south sweeps across the front
 ##            (every column the cleave shows from the held one: cocked on the right, the blow low on the right, then low in front on the
 ##            fan, then swept to the left), the hurt north's frames a hit shows (0-2, the stun's 1 among them) keep the staff's shaft
 ##            down to the ground, apart from the robe (a clear column between them, as in the start picture), the cast east's blow holds
 ##            the brazier out in front with the face showing, the death south lies with its staff fallen (no brazier held up on a
-##            standing staff)
+##            standing staff), the cast south (the re-taken row, chosen 2026-11-23) holds the staff raised, plants its fire pillar on the
+##            ground in front of the feet and stays upright on the blow and after it (v02 crouched)
 
 ## The body's rows for the box's width (the art step's body centring: the lowest 18 rows) and the staff's side cut away, in cell x:
 ## south the staff is left of x 16, north right of x 38 (03-pixel prompts.md 17차 "가로 맞춤": raw x 13 / 34 plus the shift 2 / 5).
@@ -46,6 +47,10 @@ const SWEEP_SIDE_PX: float = 8.0
 const SWEEP_FRONT_PX: float = 6.0
 const SWEEP_LOW_PX: float = 8.0
 const SHAFT_GAP_MIN_ROWS: int = 6
+## The cast south (the re-taken row, README "M12 보스 그림" 다시 뽑기 (v03) 2026-11-23): on the volley's two shown columns (the blow
+## and the one after) the body (fire left out) stands at most this much lower than the start picture (42 px): the re-take 40 and 40,
+## v02's crouch 40 and 36.
+const UPRIGHT_MAX_DROP_PX: int = 4
 
 var _nodes: Array[Node] = []
 ## The PNGs read apart from the imported textures (Image.load_from_file of the res:// files), per sheet.
@@ -172,9 +177,10 @@ func _check_sheets() -> void:
 					RigData.DIR_NAMES[row2], col2, lift])
 	# The blow columns: the art step's candidates (03-pixel prompts.md 17차 "game/에 넘길 것" and 17차 다시 뽑기 7), not the heretic's
 	# 3, 4, 5. The v03 attack south's 5 (README "M12 보스 그림" 다시 뽑기 (v03): 6 was tried, its blow hidden behind a target to the
-	# south).
+	# south). The cast south's 3 since the human chose the re-taken row (2026-11-23; v02's row was 4): held column 2 = the staff raised,
+	# blow column 3 = the fire pillar planted in front of the feet.
 	check_eq(Array(BossSim.HIT_COLUMN_ATTACK), [5, 3, 3], "the attack's blow columns (south, east, north)")
-	check_eq(Array(BossSim.HIT_COLUMN_CAST), [4, 3, 3], "the cast's blow columns")
+	check_eq(Array(BossSim.HIT_COLUMN_CAST), [3, 3, 3], "the cast's blow columns")
 	# Cleave and cast read apart: their held telegraph columns differ in every row (and their blows).
 	for row3: int in RigData.ROWS:
 		for k: int in [0, 1]:
@@ -262,7 +268,7 @@ func _check_states() -> void:
 	# are written here (the art step's candidates, rows south / east / north), not read from BossSim.hit_column: a wrong sheet -> column
 	# mapping (the cast on the attack's columns, the two swapped, a row off by one) fails here and not only the constants' check above.
 	var ft: int = Config.HERETIC_ATTACK_FRAME_TICKS
-	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [5, 3, 3], BossSim.Anim.CAST: [4, 3, 3]}
+	var blow_columns: Dictionary[int, Array] = {BossSim.Anim.ATTACK: [5, 3, 3], BossSim.Anim.CAST: [3, 3, 3]}
 	for dir: int in 4:
 		var row: int = RigData.sheet_row(dir)
 		for atk: int in [BossSim.Attack.CLEAVE, BossSim.Attack.VOLLEY, BossSim.Attack.BURN]:
@@ -646,3 +652,47 @@ func _check_retakes() -> void:
 		check(h <= LYING_MAX_PX, "death south %d lies low (%d px)" % [f2, h])
 		check(not fire.is_empty() and top <= LYING_FIRE_MAX_PX, "death south %d: the staff fallen, its brazier on the ground (%d px up)" % [
 			f2, top])
+	# The cast south (v02: cast 1-3 + slam 3-6, the body crouching from the blow's next column and the staff gone; the re-taken row
+	# since the human chose it, 2026-11-23): the held column with the brazier raised over the start picture's, the blow's flame on the
+	# ground in front of the feet, and the body upright (its fire left out, at most UPRIGHT_MAX_DROP_PX under the start picture) on the
+	# two columns the volley shows (the blow and the one after). The raise is the re-take's weak point (README "M12 보스 그림" known
+	# issue 18: 3 px over standing): this pins that the held column is the raise, not that it reads at 1x.
+	var hit_s: int = BossSim.hit_column(BossSim.Anim.CAST, 0)
+	var key_s: Array[Vector2i] = []
+	_flame(BossSim.Anim.CAST, 0, 0, key_s)
+	var held_s: Array[Vector2i] = []
+	_flame(BossSim.Anim.CAST, 0, hit_s - 1, held_s)
+	check(_flame_top(held_s) > _flame_top(key_s), ("the cast south held (column %d): the brazier raised (flame %d px up, the start "
+		+ "picture %d)") % [hit_s - 1, _flame_top(held_s), _flame_top(key_s)])
+	var blow_s: Array[Vector2i] = []
+	var blow_mid: Vector2 = _flame(BossSim.Anim.CAST, 0, hit_s, blow_s)
+	var lowest: int = -(1 << 20)
+	for p4: Vector2i in blow_s:
+		lowest = maxi(lowest, p4.y)
+	check(blow_mid.x > SWEEP_SIDE_PX and lowest >= -1, ("its blow (column %d): the fire pillar on the ground in front (flame %s, its "
+		+ "lowest row %d from the feet)") % [hit_s, blow_mid, lowest])
+	var key_h: int = _body_height(BossSim.Anim.CAST, 0, 0)
+	for col3: int in [hit_s, hit_s + 1]:
+		var bh: int = _body_height(BossSim.Anim.CAST, 0, col3)
+		check(bh >= key_h - UPRIGHT_MAX_DROP_PX, "the cast south column %d: the body upright (%d px, the start picture %d)" % [col3, bh,
+			key_h])
+
+
+## The highest of flame pixels `px` (from the feet), in px over the feet.
+static func _flame_top(px: Array[Vector2i]) -> int:
+	var top: int = -(1 << 20)
+	for p: Vector2i in px:
+		top = maxi(top, -p.y)
+	return top
+
+
+## The body's height over the feet (its fire left out) in sheet column `col` of sheet `a`, row `row`, read from the PNG.
+func _body_height(a: int, row: int, col: int) -> int:
+	var c: Vector2i = BossView.cell(a)
+	var feet: Vector2i = BossView.feet_in_cell(a)
+	for y: int in c.y:
+		for x: int in c.x:
+			var p: Vector2i = Vector2i(col * c.x + x, row * c.y + y)
+			if _png[a].get_pixelv(p).a8 > 0 and _png_em[a].get_pixelv(p).a8 < BossView.GLOW_MIN_ALPHA:
+				return feet.y - y
+	return 0
