@@ -994,10 +994,10 @@ func _check_boss_traffic() -> void:
 	_free_rig(r)
 
 
-## A version 13 hello is refused (and a 15).
+## A version 13 hello is refused (and a 15). M13b: v15 is this build's: 13, 14 and 16 are refused.
 func _check_v13_refused() -> void:
 	var r: Rig = _rig(CLERIC)
-	for v: int in [13, 15]:
+	for v: int in [13, 14, 16]:
 		var peer: int = 160 + v
 		r.host.on_hello(peer, NetProtocol.encode_hello(NetProtocol.class_index(PALADIN), v))
 		var msgs: Array[Array] = r.s.take_for(peer)

@@ -1056,7 +1056,7 @@ static func _check_net(r: Report) -> void:
 	var eb: NetProtocol.MapEntry = NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(entry))
 	r.expect(eb.ok and eb.map == Config.MAP_DUNGEON and eb.state.same_as(s), "map entry round trip (M3b)")
 	r.fields.append("snapshot=%dB/%dB" % [packed.bytes.size(), packed.raw_size])
-	var roster: Roster = Roster.new()
+	var roster: Roster = Roster.new(Config.MAX_PLAYERS, true)  # M13b: the 9-player structure needs duplicates (the test flag)
 	for i: int in Config.MAX_PLAYERS:
 		roster.admit(i + 1, Config.CLASSES[i % Config.CLASSES.size()])
 	r.expect(roster.is_full() and roster.admit(100, "miner") == -1, "a tenth player is refused")
@@ -1075,7 +1075,53 @@ static func _check_net(r: Report) -> void:
 	_check_net_shop(r)
 	_check_net_skills(r)  # M9c
 	_check_net_prayer(r)  # M10b
+	_check_saves(r)  # M13b
 	r.fields.append("net=v%d" % NetProtocol.VERSION)
+
+
+## M13a / M13b: a world file and a character file written and read back (in memory: nothing is written to disk), a character on the wire
+## (the sheet a joiner sends before its hello) and the ● R54 class rule (Roster): one player per class, a leaver frees its class.
+## Fields: save=<world file>B/<character file>B, sheet=<B>, class_rule=<admitted>/<refused as taken>/<admitted after a leave>.
+static func _check_saves(r: Report) -> void:
+	var live: WorldSave.Live = WorldSave.Live.new()
+	live.name = "smoke"
+	live.maps = {Config.MAP_SURFACE: SurfaceGen.generate(Config.DEFAULT_SEED), Config.MAP_DUNGEON: DungeonGen.generate(Config.DEFAULT_SEED)}
+	var file: PackedByteArray = WorldSave.capture(live)
+	var back: WorldSave.Saved = WorldSave.read(file)
+	r.expect(back.ok() and back.maps[Config.MAP_SURFACE].content_hash() == SurfaceGen.GOLDEN_HASH
+		and back.maps[Config.MAP_DUNGEON].content_hash() == DungeonGen.GOLDEN_HASH, "world file round trip: %s" % back.error)
+	var inv: Inventory = Inventory.new()
+	inv.add(&"money", 37)
+	inv.add(&"wild_healing", 3, ItemDB.Grade.FINE)
+	inv.add_stack(ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 50))
+	inv.armor = ItemStack.new(&"armor_t1", 1, ItemDB.Grade.NONE, 40)
+	inv.seen[&"armor_t1"] = true
+	var sheet: CharacterSave.Sheet = CharacterSave.from_inventory("smoke", "archer", inv)
+	var cfile: PackedByteArray = CharacterSave.encode(sheet)
+	var cback: CharacterSave.Result = CharacterSave.read(cfile)
+	r.expect(cback.ok() and cback.character.class_id == "archer" and cback.character.money() == 37 and cback.character.item_count() == 3
+		and cback.character.armor != null and cback.character.armor.durability == 40 and cback.character.seen == sheet.seen,
+		"character file round trip: %s" % cback.error)
+	var wire: PackedByteArray = NetProtocol.encode_sheet(sheet)
+	var got: NetProtocol.SheetMsg = NetProtocol.decode_sheet(wire)
+	var same_seen: bool = got.seen.size() == sheet.seen.size()
+	for id: StringName in sheet.seen:
+		same_seen = same_seen and got.seen.has(id)  # the wire's bits come in ItemDB order, the file's names sorted
+	r.expect(got.ok and got.class_id() == "archer" and got.to_sheet().money() == 37 and got.armor != null and got.armor.durability == 40
+		and same_seen and got.name == "smoke", "character on the wire round trip: %s" % got.why)
+	var rule: Roster = Roster.new()
+	var admitted: int = 0
+	for i: int in Config.CLASSES.size():
+		if rule.admit(i + 1, Config.CLASSES[i]) >= 0:
+			admitted += 1
+	var refused: int = 0
+	for c: String in Config.CLASSES:
+		if rule.refusal_for(c) == NetProtocol.Refusal.CLASS_TAKEN:
+			refused += 1
+	rule.release(3)
+	var again: int = 1 if rule.admit(99, Config.CLASSES[2]) >= 0 else 0
+	r.expect(admitted == Config.CLASSES.size() and refused == Config.CLASSES.size() and again == 1, "one player per class (● R54)")
+	r.fields.append("save=%dB/%dB sheet=%dB class_rule=%d/%d/%d" % [file.size(), cfile.size(), wire.size(), admitted, refused, again])
 
 
 ## M4b: combat on the wire: a frame's dash, F held and a USE's aim, a state's vitals block, a map's enemy

@@ -96,6 +96,12 @@ extends RefCounted
 ## data, and when the host's tier goes up it redraws the surface's light and altar (GameWorld.altar_tier_changed) from that number. The altar
 ## upgrade is a CRAFT like any recipe (nothing predicted).
 
+##
+## M13b (saving in sessions): a client with a saved character (NetSession.character) sends it as the sheet just before its hello; the host's
+## first inventory message (with what the player has seen) is the character as it counts from then on, and Main writes it from there. A
+## refusal says what it carries: class_taken the classes taken (and so the free ones), character why the host would not take it; both go
+## to the console in one line for the person at this machine.
+
 var s: NetSession
 var prediction: Prediction
 var clock: Interpolation.RemoteClock = Interpolation.RemoteClock.new()
@@ -105,6 +111,9 @@ var stale_batches: int = 0
 var interp_samples: int = 0
 var interp_starved: int = 0
 var refused_reason: String = ""
+## M13b: what the refusal carried (class_taken: the classes taken; character: why).
+var refused_taken: PackedStringArray = []
+var refused_why: String = ""
 ## Inventories received from the host (M2b).
 var inventories: int = 0
 ## Join: when the transport connected, how long until the world was ready, what came in.
@@ -175,6 +184,11 @@ func _init(p_session: NetSession) -> void:
 func on_opened() -> void:
 	connected_usec = Time.get_ticks_usec()
 	s.log_event("connected", "to=%s:%d" % [s.options.join_address, s.options.port])
+	if s.character != null:
+		# M13b: the saved character first (the same reliable channel: the host has it when the hello comes); a new one sends none.
+		var sheet: PackedByteArray = NetProtocol.encode_sheet(s.character)
+		s.send_sheet(sheet)
+		s.log_event("character", "name=%s %s sheet_bytes=%d" % [s.character.name, s.character.describe(), sheet.size()])
 	s.send_hello(NetProtocol.encode_hello(NetProtocol.class_index(s.local_class())))
 
 
@@ -411,11 +425,21 @@ func _world_failed(why: String) -> void:
 	s.end_session("world mismatch: %s" % why, NetSession.EXIT_WORLD_MISMATCH)
 
 
+## M13b: a class_taken refusal says which classes are taken (and so which are free: another character of a free class can join), a
+## character refusal why the host would not take the character; both go to the console as one line for the person at this machine.
 func on_refused(payload: PackedByteArray) -> void:
 	if s.over:
 		return
-	refused_reason = NetProtocol.decode_refusal(payload)
-	s.end_session("refused: %s" % refused_reason, NetSession.EXIT_REFUSED)
+	var r: NetProtocol.RefusalMsg = NetProtocol.decode_refusal_msg(payload)
+	refused_reason = r.name
+	refused_taken = r.taken
+	refused_why = r.why
+	if r.name == "class_taken":
+		s.log_event("refused_class", "this character's class (%s) is already played in this session; taken: %s; pick a character of a free class: %s" % [
+			s.local_class(), ", ".join(r.taken), r.describe().get_slice("free: ", 1).trim_suffix(")")])
+	elif r.name == "character":
+		s.log_event("refused_character", "the host did not take your character: %s" % r.why)
+	s.end_session("refused: %s" % r.describe(), NetSession.EXIT_REFUSED)
 
 
 func on_joined(payload: PackedByteArray) -> void:
@@ -517,6 +541,8 @@ static func take_inventory(mine: Inventory, inv: NetProtocol.InventoryState, sel
 			mine.seen[st.id] = true
 	if inv.armor != null:
 		mine.seen[inv.armor.id] = true
+	for id: StringName in inv.seen:
+		mine.seen[id] = true  # M13b: the host's (what the character file keeps)
 	mine.armor = inv.armor.copy() if inv.armor != null else null
 	mine.load_state(inv.stacks, selected)
 

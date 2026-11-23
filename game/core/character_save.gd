@@ -61,13 +61,19 @@ class Sheet:
 		return "class=%s slots=%d money=%d armor=%s seen=%d" % [class_id, item_count(), money(),
 			armor.id if armor != null else "none", seen.size()]
 
-	## Puts this character's things into `inv` (its slots, selection, armour, what it has seen; nothing else of `inv` stays).
+	## Puts this character's things into `inv` (its slots, selection, armour, what it has seen; nothing else of `inv` stays). M13b: what
+	## it holds counts as seen too (a hand-edited file may hold an item its "seen" list leaves out; the host and a client then agree).
 	func to_inventory(inv: Inventory) -> void:
 		inv.load_state(stacks, selected)
 		inv.armor = armor.copy() if armor != null else null
 		inv.seen.clear()
 		for id: StringName in seen:
 			inv.seen[id] = true
+		for st: ItemStack in stacks:
+			if st != null:
+				inv.seen[st.id] = true
+		if armor != null:
+			inv.seen[armor.id] = true
 		inv.changed.emit()
 
 

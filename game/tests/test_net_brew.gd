@@ -73,6 +73,7 @@ func _session_brew() -> void:
 	if not check(port > 0, "brew: free port"):
 		return
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=1", "--net-expect=2", "--class=herbalist",
+		"--test-duplicate-classes",  # M13b: two herbalists on purpose (● R54 refuses them; the rule: tests/test_net_keep.gd)
 		"--test-allow-give", BREW_HOST_GIVE, "--bot=" + BREW_HOST, BREW_HERETIC, "--test-start-hp=herbalist:40"], 100)
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "brew: host listens"):
 		await _reap()
@@ -150,6 +151,7 @@ func _session_brew4() -> void:
 	if not check(port > 0, "brew4: free port"):
 		return
 	var host: Instance = _launch(dir, "host", ["--host=%d" % port, "--net-start=3", "--net-expect=3", "--class=herbalist",
+		"--test-duplicate-classes",  # M13b: two herbalists on purpose
 		"--test-allow-give", BREW4_HERB_GIVE, "--bot=" + BREW4_HOST, BREW4_HERETICS])
 	if not check(await _wait_files([dir.path_join("host.ready.marker")], READY_WAIT_SEC), "brew4: host listens"):
 		await _reap()

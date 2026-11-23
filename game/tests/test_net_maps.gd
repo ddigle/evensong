@@ -22,6 +22,8 @@ extends "res://tests/base_test.gd"
 ##   - the bot's waitmap command, and the cost of a map entry and of a miner's swing in bytes
 
 const SEED: int = Config.DEFAULT_SEED
+## M13b: the rig's host allows two players of one class (--test-duplicate-classes): written before ● R54.
+var rig_duplicates: bool = true
 ## Seed-1 dungeon (README M3b): the arrival room is x 34..41, rows 15..16 above the corridor rows
 ## 17..18; rock (42,15) east of it with its face (42,16), rock (33,15) west with its face (33,16).
 const EAST_ROCK: Vector2i = Vector2i(42, 15)
@@ -187,7 +189,7 @@ func _check_map_entry_codec() -> void:
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "more chunks than packed bytes: refused")
 	e.chunk_count = 0
 	check(not NetProtocol.decode_map_entry(NetProtocol.encode_map_entry(e)).ok, "no chunks: refused")
-	check_eq(NetProtocol.VERSION, 14, "protocol version 14 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12; M11c: 13; M12c: 14)")
+	check_eq(NetProtocol.VERSION, 15, "protocol version 15 (M3b: 4; M4b: 5; M6b: 6; M5c: 7; M7c: 8; M7-rf: 9; M8b: 10; M9c: 11; M10b: 12; M11c: 13; M12c: 14; M13b: 15, the characters)")
 	var info: NetProtocol.PlayerInfo = NetProtocol.PlayerInfo.new()
 	info.class_index = 1
 	info.state.map = Config.MAP_DUNGEON
@@ -309,6 +311,7 @@ func _host_rig() -> HostRig:
 	r.s.world = r.surface
 	r.s.worlds = {Config.MAP_SURFACE: r.surface, Config.MAP_DUNGEON: r.dungeon}
 	r.s.options = CliOptions.new()
+	r.s.options.test_duplicate_classes = rig_duplicates  # M13b: these rigs join classes twice (● R54 is tested in tests/test_net_saves.gd)
 	r.s.options.test_no_spawns = true  # M4b: these are M3b's map checks; no heretic walks in
 	r.s.options.test_no_creatures = true  # M11c: and no creature
 	r.s.role = NetSession.Role.HOST

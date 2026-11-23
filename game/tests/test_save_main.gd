@@ -94,9 +94,15 @@ func _check_cli() -> void:
 	for bad: String in ["--world=", "--world=con", "--world=a/b", "--world=a.b", "--character=..", "--character=_x", "--save-dir=",
 			"--test-autosave-ticks=0", "--world=" + "w".repeat(Config.SAVE_NAME_MAX + 1)]:
 		check(not CliOptions.parse(PackedStringArray([bad])).errors.is_empty(), "%s is refused" % bad)
-	for session: Array in [["--host", "--world=a"], ["--join=127.0.0.1", "--character=b"]]:
-		var s: CliOptions = CliOptions.parse(PackedStringArray(session))
-		check(not s.errors.is_empty() and s.errors[0].contains("M13b"), "%s: saving in a session is refused until M13b" % str(session))
+	# M13b: a host saves its world and its character, a client its character; the world is the host's (a client's --world is an error).
+	for session: Array in [["--host", "--world=a"], ["--host", "--world=a", "--character=h"], ["--join=127.0.0.1", "--character=b"],
+			["--join=127.0.0.1", "--character=b", "--class=archer"]]:
+		check(CliOptions.parse(PackedStringArray(session)).errors.is_empty(), "M13b: %s parses (saving in sessions)" % str(session))
+	var client_world: CliOptions = CliOptions.parse(PackedStringArray(["--join=127.0.0.1", "--world=a"]))
+	check(client_world.errors.size() == 1 and client_world.errors[0].contains("the world is the host's"),
+		"M13b: a client's --world is refused (%s)" % ", ".join(client_world.errors))
+	check(CliOptions.parse(PackedStringArray(["--host", "--test-duplicate-classes"])).test_duplicate_classes,
+		"M13b: --test-duplicate-classes (test only, the host)")
 
 
 # --- a world and a character over a restart ------------------------------------------------------------------------

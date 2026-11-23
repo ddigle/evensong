@@ -69,10 +69,11 @@ const NET_STATE_HZ: int = 20
 ## PROVISIONAL (not in docs; M1 spec "~100 ms"): how far behind the newest host state a client
 ## draws the other players (interpolation buffer). 2 batch intervals at 20 Hz.
 const NET_INTERP_DELAY_MS: int = 100
-## PROVISIONAL (? not decided whether two players may play the same class; the party UI proposal is
-## 3x3 = one per class, gameplay-design §5 ○). M1 allows duplicates; true makes the host refuse a
-## class that is already taken (refusal "class_taken").
-const NET_UNIQUE_CLASSES: bool = false
+## ● (game-concept §2 역할 / §7 / §12 R54, gameplay-design §5: "한 세션에 같은 클래스는 한 명", only at the same time): the host
+## refuses a join whose class a connected player (the host included) already has (refusal "class_taken", with the classes taken);
+## a player who leaves frees its class. M1-M12 allowed duplicates (this was false). Tests that need more players than classes (the
+## 9-player structure) start their host with --test-duplicate-classes (Roster.allow_duplicates); offline nothing changes.
+const NET_UNIQUE_CLASSES: bool = true
 ## PROVISIONAL (not in docs; the nearest rule is "부활 지점: 제단", gameplay-design §2.6·§5 ○): a
 ## player appears on a free SPAWN_SLOTS place around the altar (alone, as host or joining) facing
 ## this way.
@@ -1415,6 +1416,16 @@ const BOSS_FIRE_LIGHT_ENERGY: float = 0.8
 ## character every this many ticks of play (5 minutes at NET_TICK_RATE 60). 0 = only on quit and the key.
 const SAVE_AUTOSAVE_TICKS: int = 5 * 60 * 60
 
+# --- PROVISIONAL, M13b (saving in sessions: the host's world, each client's character, the class rule) --------------------------
+## PROVISIONAL (● game-concept §12 R54 "호스트가 월드를 저장"; when is not in the docs): a session host writes its open world (and its own
+## open character) also when a client it admitted leaves (the leaver's client writes that character at the same moment, so the world's
+## chests and the character agree as far as two machines can), besides on quit, F9 and every SAVE_AUTOSAVE_TICKS of host ticks.
+const SAVE_WHEN_CLIENT_LEAVES: bool = true
+## PROVISIONAL (● R54 "캐릭터는 각자 기기에"; when a client writes is not in the docs): a client writes its open character (as the host's
+## inventory messages last had it; never before the first one, so a refused or failed join writes nothing) on leaving or quitting, on
+## losing the host, on F9 and every SAVE_AUTOSAVE_TICKS of its ticks. It never writes the host's world.
+const SAVE_CLIENT_ON_HOST_LOST: bool = true
+
 # --- IMPL (agent choices) -------------------------------------------------------------------
 
 ## IMPL: seed used when no --seed is given.
@@ -1692,6 +1703,11 @@ const CHARACTER_FILE_MAX_BYTES: int = 64 * 1024
 ## IMPL (M13a): the exit code of a start whose world or character file does not load (every candidate refused: the file, its .tmp, its .bak).
 ## Bad flags stay 2 (core/cli.gd), and so does a --class or --seed that conflicts with the file.
 const EXIT_SAVE_REFUSED: int = 3
+## IMPL (M13b): the most bytes a client's character on the wire (NetProtocol sheet, before its hello) may have; a real one is at most about
+## 175 B (24 slots of 5 B, the armour, the seen bits, the name). The host refuses a bigger one as "character" without reading it.
+const NET_SHEET_MAX_BYTES: int = 256
+## IMPL (M13b): the longest reason text a "character" refusal carries to the client (ASCII; cut there).
+const NET_REFUSAL_WHY_MAX: int = 120
 
 
 static func safe_radius_px() -> float:

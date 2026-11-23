@@ -108,11 +108,15 @@ extends RefCounted
 ##   --test-boss-attack=<cleave|volley|burn>   the boss uses only that attack (the telegraphs one at a time)
 ##   --test-pillar-hits=<i>:<hits>[,...]   pillar i (1 = the first) starts with that many miner hits (its crack state)
 ##   --test-altar-tier=<0..Config.ALTAR_TIER_MAX>   the world's altar starts at that tier (its light, its picture)
-## M13a (saving, offline: README "M13a"; in a session every one of them is refused until M13b):
+## M13a (saving, offline: README "M13a"; M13b: in sessions too, README "M13b"):
 ##   --world=<name>               open the saved world <name> (core/world_save.gd), or make it from --seed when there is none; it is
-##                                written on quit, every Config.SAVE_AUTOSAVE_TICKS and on F9. Without it: today's unsaved world
+##                                written on quit, every Config.SAVE_AUTOSAVE_TICKS and on F9. Without it: today's unsaved world.
+##                                M13b: a host too (and when a client leaves); with --join it is an error (the world is the host's)
 ##   --character=<name>           play the saved character <name> (core/character_save.gd: its class, inventory, armour, money),
-##                                or make it with --class when there is none (a --class other than the file's is an error)
+##                                or make it with --class when there is none (a --class other than the file's is an error).
+##                                M13b: a host plays it too; a client brings it to the host (the sheet) and writes it from the
+##                                host's inventory messages (on leaving, losing the host, F9, every Config.SAVE_AUTOSAVE_TICKS)
+##   --test-duplicate-classes     M13b, test only (the host): two players of one class may join (● R54 refuses them)
 ##   --save-dir=<folder>          the saves' folder (default Config.SAVE_DIR_DEFAULT); tests always give one
 ##   --no-save                    open (or make) them but never write a file
 ##   --list-worlds, --list-characters   print the saved worlds / characters of the folder (EVENSONG_SAVE lines) and quit
@@ -223,6 +227,8 @@ var list_worlds: bool = false
 var list_characters: bool = false
 var test_autosave_ticks: int = 0
 var seed_given: bool = false
+## M13b, test only (the host): allow two players of one class at once (● R54 refuses it: Roster.allow_duplicates).
+var test_duplicate_classes: bool = false
 var errors: PackedStringArray = []
 var unknown: PackedStringArray = []
 
@@ -277,6 +283,8 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.test_perturb_generator = true
 			"test-allow-give":
 				o.test_allow_give = true
+			"test-duplicate-classes":
+				o.test_duplicate_classes = true
 			"test-snapshot-chunk-bytes":
 				o.test_snapshot_chunk_bytes = _parse_positive(value, raw, o.errors, 0)
 				if o.test_snapshot_chunk_bytes > Config.NET_SNAPSHOT_CHUNK_BYTES:
@@ -567,8 +575,9 @@ static func parse(argv: PackedStringArray) -> CliOptions:
 				o.unknown.append(raw)
 	if o.host and o.join:
 		o.errors.append("--host and --join cannot be used together")
-	if (o.host or o.join) and (not o.world_name.is_empty() or not o.character_name.is_empty()):
-		o.errors.append("--world / --character: saving in a session comes with M13b (offline only for now)")
+	if o.join and not o.world_name.is_empty():
+		# M13b: ● R54 the world is the host's (a client plays the host's world and never writes it); a client brings its character.
+		o.errors.append("--world: the world is the host's (--host --world=<name>); a client joins with --character=<name>")
 	return o
 
 

@@ -156,6 +156,12 @@ extends Node2D
 ## inventory in spawn (its class is the file's: a new character's start weapon only on making it). Both are written on quit (_exit_tree),
 ## every Config.SAVE_AUTOSAVE_TICKS of play and on F9 (save_now), never with --no-save. Without either flag nothing changes and nothing
 ## is written. Tests set `save_flags` before adding a Main to the tree (the process's own flags stay the runner's).
+## M13b (sessions): a host opens and makes its world like offline (open_saves before the session starts; the loaded maps into its worlds,
+## NetSession.loaded for the session's sims) and plays its own character (NetSession.character); it writes both on quit and at the
+## session's end, every Config.SAVE_AUTOSAVE_TICKS of its ticks, on F9 and when a client leaves (_on_client_left, capture_world from the
+## session's sims). A client brings its character (NetSession.character: the sheet before its hello; a new one of --class: none) and writes it
+## from the host's inventory messages: never before the first one (_character_live), then on leaving, at the session's end, on losing the
+## host, every SAVE_AUTOSAVE_TICKS and on F9. A client never writes a world (the flags refuse --world with --join).
 
 ## M5-fix / M13a: why restore_altar put the altar back (its log line), unless the caller says another reason.
 const WHY_RESTORED_HOST_LEFT: String = "the host went while it was carried"
@@ -236,6 +242,9 @@ var _rotate_world: bool = true
 var _rotate_character: bool = true
 var _started: bool = false
 var _quit_saved: bool = false
+## M13b: the local player's inventory holds the character as it counts (offline and a host: from the start; a session client: from the
+## host's first inventory message on). Before that nothing of the character is written (a refused join leaves its file as it was).
+var _character_live: bool = false
 
 @onready var world: GameWorld = $World
 @onready var camera: PlayerCamera = $Camera
@@ -269,9 +278,14 @@ func _ready() -> void:
 	world.altar_moved.connect(_on_altar_moved)
 	worlds[Config.MAP_SURFACE] = world
 	if options.host or options.join:
+		var session_flags: CliOptions = save_flags if save_flags != null else options
+		if not open_saves(session_flags):
+			return  # M13b: refused (logged): the process quits with the code
+		var title_class: String = character.class_id if character != null else options.class_id
 		get_window().title = "Evensong (%s, %s)" % ["host" if options.host else "client",
-			options.class_id if not options.class_id.is_empty() else Config.DEFAULT_CLASS]
+			title_class if not title_class.is_empty() else Config.DEFAULT_CLASS]
 		net.local_player_ready.connect(_on_local_player_ready)
+		net.client_left.connect(_on_client_left)  # M13b: the host writes the world when a client leaves
 		net.local_map_changed.connect(_on_local_map_changed)
 		net.ended.connect(_on_net_ended)
 		net.bot_ui.connect(_on_bot_ui)  # M6b: a bot's tab / craft in a session
@@ -282,9 +296,22 @@ func _ready() -> void:
 		net.bot_tap.connect(_f_press)  # M10b: a bot's `pray` (F pressed and let go: a tap once it is let go)
 		net.bot_collection.connect(toggle_collection)  # M11c: a bot's K
 		_connect_shop_panel()
-		add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
+		if loaded != null:
+			# M13b: the host's saved world (a client's --world is a flag error: the world is the host's).
+			world.load_data(loaded.maps[Config.MAP_SURFACE])
+			add_dungeon(false)
+			worlds[Config.MAP_DUNGEON].load_data(loaded.maps[Config.MAP_DUNGEON])
+			_restore_loaded_altar()  # before anyone stands on its spawn slots
+		elif options.host and not world_name.is_empty() and session_flags.world_seed != world.data.world_seed:
+			world.generate(session_flags.world_seed)  # a new world of a test's own seed (save_flags), as offline
+			add_dungeon(false)
+			worlds[Config.MAP_DUNGEON].generate(session_flags.world_seed)
+		else:
+			add_dungeon(options.host)  # the host makes the dungeon; a client gets it from the host
 		for id: int in worlds:
 			net.worlds[id] = worlds[id]
+		net.character = character  # M13b: the host's own (its player), a client's (the sheet before its hello); null = a new one
+		net.loaded = loaded
 		net.start(world, options)
 		return
 	if options.list_worlds or options.list_characters:
@@ -318,6 +345,7 @@ func _ready() -> void:
 		bot.parse(options.bot)
 		player.local_input = false
 	_started = true
+	_character_live = true
 	_write_new()  # M13a: a world or character made now is written at once
 
 
@@ -415,6 +443,7 @@ func _physics_process(delta: float) -> void:
 		_track_f_tap()  # M10a. M10b: a tap at the altar is a PRAY request (the host decides)
 		_show_prayer()  # M10b: the host's prayer (a client: its mirror)
 		_show_boss_bar()  # M12c: the host's fight (a client: its mirror)
+		_tick_session_saves()  # M13b: the host's world age and autosave; a client's character from the host's first inventory on
 		return
 	if bot != null:
 		_bot_tick(delta)
@@ -617,6 +646,14 @@ func _on_local_player_ready(p: Player) -> void:
 	_connect_skills(p)  # M9c: the skill keys, the near-cursor pick over the players on its map as this machine has them
 	if not p.capture_refused.is_connected(_on_capture_refused):
 		p.capture_refused.connect(_on_capture_refused)  # M11c: a click this machine refused (the session set capture_on and the herd)
+	if not _started:
+		# M13b: the session is under way. The host's player holds its character now (SessionHost.on_opened) and the world is its own: a
+		# name made now is written at once. A client's player holds nothing of its own until the host's first inventory message
+		# (_tick_session_saves): its character is written only from then on.
+		_started = true
+		if net.is_host():
+			_character_live = true
+			_write_new()
 
 
 ## M3b: the session put the local player on map `map_id`: show it, the camera and the marker with it.
@@ -3062,14 +3099,29 @@ func spawn_action_lineup(frame: int) -> void:
 
 func _on_net_ended(reason: String, code: int) -> void:
 	var options: CliOptions = CliOptions.current()
-	if options.net_out.is_empty() and code == NetSession.EXIT_FAILED and reason == "lost the host" and player != null:
+	var playing_on: bool = options.net_out.is_empty() and code == NetSession.EXIT_FAILED and reason == "lost the host" and player != null
+	if _started and (net.is_host() or _character_live):
+		# M13b: what this machine owns, now: the host its world (and character), a client its character as the host last sent it
+		# (Config.SAVE_CLIENT_ON_HOST_LOST). A refused or failed join was never live: nothing is written.
+		var why: String = "host_lost" if reason == "lost the host" else ("left" if reason == "left" else "ended")
+		if why != "host_lost" or Config.SAVE_CLIENT_ON_HOST_LOST:
+			save_now(why)
+		if not playing_on:
+			_quit_saved = true  # the quit right after writes nothing more
+	if playing_on:
 		net.continue_offline()  # alone now: the keys drive the player as offline, its inventory is its own
 		_go_offline_combat()
 		return
 	get_tree().quit(code)
 
 
-# --- M13a: saving (offline; a session saves nothing until M13b; README "M13a") ------------------------------------------------------
+## M13b (host): a client it had admitted left: the open world is written (Config.SAVE_WHEN_CLIENT_LEAVES), with the host's own character.
+func _on_client_left(_slot: int) -> void:
+	if Config.SAVE_WHEN_CLIENT_LEAVES and net.is_host() and not net.over and not world_name.is_empty():
+		save_now("left")
+
+
+# --- M13a / M13b: saving (offline, M13b: in sessions too; README "M13a", "M13b") --------------------------------------------------------
 
 ## The seed the world's streams read (the arenas, the herd's rare zone, the prayer's directions, the death bags): the open world's own
 ## (loaded, or made now), else --seed as before (an unsaved start is unchanged).
@@ -3190,22 +3242,27 @@ func _write_new() -> void:
 		_save_character("new")
 
 
-## Writes the open world and the open character now (`why`: quit, autosave, key, a test's). Returns whether every file it wrote was
-## written (false: nothing open, --no-save, a session, or a write failed: logged, the files there as they were).
+## Writes the open world and the open character now (`why`: quit, autosave, key, a test's; M13b: left, host_lost, ended). Returns whether
+## every file it wrote was written (false: nothing open, --no-save, or a write failed: logged, the files there as they were). M13b: in a
+## session the host writes its world (from its session's sims) and its own character; a client writes only its character, and only once
+## the host's first inventory message came (_character_live); a client never writes a world (the flags refuse --world with --join).
 func save_now(why: String) -> bool:
-	if not save_writes or not _started or _in_session() or (world_name.is_empty() and character_name.is_empty()):
+	if not save_writes or not _started or (world_name.is_empty() and character_name.is_empty()):
 		return false
 	var ok: bool = true
-	if not world_name.is_empty():
+	if not world_name.is_empty() and net.role != NetSession.Role.CLIENT:
 		ok = _save_world(why) and ok
-	if not character_name.is_empty():
+	if not character_name.is_empty() and _character_live:
 		ok = _save_character(why) and ok
 	_since_save = 0
 	return ok
 
 
-## The open world's file now (WorldSave.capture of both maps and their sims; the live game untouched).
+## The open world's file now (WorldSave.capture of both maps and their sims; the live game untouched). M13b: a host's from its session's
+## maps and sims (SessionHost.live_world).
 func capture_world() -> PackedByteArray:
+	if net.host != null:
+		return WorldSave.capture(net.host.live_world(world_name, world_ticks))
 	var live: WorldSave.Live = WorldSave.Live.new()
 	live.name = world_name
 	for id: int in worlds:
@@ -3260,9 +3317,22 @@ func _save_character(why: String) -> bool:
 	return true
 
 
-## One offline tick: the world's age, and the autosave every `autosave_ticks` of play.
+## M13b: a session tick. A client's player holds its character as the host has it from the host's first inventory message on: then a
+## new character is written at once (its start kit is the host's) and from then on it is written like offline. The host's world ages and
+## both autosave every `autosave_ticks` of their own ticks.
+func _tick_session_saves() -> void:
+	if net.client != null and not _character_live and net.client.inventories > 0:
+		_character_live = true
+		if not character_name.is_empty() and character == null and save_writes:
+			_save_character("new")
+	_tick_saves()
+
+
+## One offline tick (M13b: or session tick): the world's age (a client's world is the host's), and the autosave every `autosave_ticks` of
+## play.
 func _tick_saves() -> void:
-	world_ticks += 1
+	if net.role != NetSession.Role.CLIENT:
+		world_ticks += 1
 	if not save_writes or autosave_ticks <= 0:
 		return
 	_since_save += 1

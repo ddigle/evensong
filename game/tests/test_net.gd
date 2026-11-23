@@ -23,13 +23,14 @@ const RPC_CHANNELS: Dictionary[String, int] = {
 	"_rpc_vespers": NetProtocol.CH_CONTROL,  # M10b: the prayer events (the surface), the zeals (everyone)
 	"_rpc_wild": NetProtocol.CH_CREATURE, "_rpc_wild_keyframe": NetProtocol.CH_CONTROL,  # M11c: the creatures in a client's view
 	"_rpc_tally": NetProtocol.CH_CONTROL,  # M11c: the world's collection
+	"_rpc_sheet": NetProtocol.CH_CONTROL,  # M13b: a joiner's character, before its hello
 }
 ## M10-fix: the RPCs a version refusal needs, at the numbers every build since v9 gives them (Godot numbers a node's RPCs by their
 ## sorted names): an older or newer client's hello must reach the host's `_rpc_hello` and the host's refusal its `_rpc_refused`, so a
 ## new RPC must sort after "_rpc_refused" (M10b's "_rpc_prayer" sorted before it: a v11 client got no `refused: version`).
 const RPC_STABLE: Dictionary[String, int] = {"_rpc_hello": 6, "_rpc_refused": 13}
 ## Only these may be called by clients; everything else only by the host (authority).
-const CLIENT_CALLABLE: PackedStringArray = ["_rpc_hello", "_rpc_input", "_rpc_done"]
+const CLIENT_CALLABLE: PackedStringArray = ["_rpc_hello", "_rpc_input", "_rpc_done", "_rpc_sheet"]
 const UNRELIABLE: PackedStringArray = ["_rpc_input", "_rpc_state", "_rpc_enemies", "_rpc_wild"]
 
 
@@ -38,6 +39,9 @@ func run() -> Array[String]:
 	_check_inputs_codec()
 	_check_states_codec()
 	_check_welcome_codec()
+	_check_sheet_codec()  # M13b
+	_check_refusal_codec()  # M13b
+	_check_inventory_seen()  # M13b
 	_check_garbage()
 	_check_roster()
 	_check_input_gate()
@@ -285,6 +289,175 @@ func _check_states_codec() -> void:
 		check_eq(NetProtocol.decode_refusal(NetProtocol.encode_refusal(r as NetProtocol.Refusal)),
 			NetProtocol.REFUSAL_NAMES[r], "refusal %d" % r)
 	check_eq(NetProtocol.decode_refusal(PackedByteArray([99])), "bad_refusal", "unknown refusal")
+
+
+## M13b: a rich character (worn gear with durability in the hotbar and the bag, graded herbs, money, armour, what it has seen, its name).
+static func rich_sheet(class_id: String = "archer") -> CharacterSave.Sheet:
+	var c: CharacterSave.Sheet = CharacterSave.Sheet.new()
+	c.name = "bob-2"
+	c.class_id = class_id
+	c.selected = 3
+	c.stacks[0] = ItemStack.new(&"bow_t1", 1, ItemDB.Grade.NONE, 17)
+	c.stacks[1] = ItemStack.new(&"money", 250, ItemDB.Grade.NONE)
+	c.stacks[3] = ItemStack.new(&"wild_healing", 7, ItemDB.Grade.FINE)
+	c.stacks[23] = ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 0)
+	c.armor = ItemStack.new(&"armor_t1", 1, ItemDB.Grade.NONE, 33)
+	c.seen = [&"armor_t1", &"bow_t1", &"money", &"sword_t1", &"wild_healing", &"stone_a"]
+	return c
+
+
+## M13b: the sheet (a joiner's character before its hello): a round trip of every class, the largest one fits, and every hostile or broken
+## payload refused with a reason: oversize, every truncation, a byte more, another version, a class index past the classes, a selected slot
+## past the hotbar, another slot count, an unknown item, a count of 0 or past the stack (255: a negative count written as a byte), a grade
+## the item cannot have, durability past full, an empty slot with a count, a non-armour in the armour slot, malformed seen bits, a bad
+## name, and 2,000 random payloads (no engine error, none read unless it is a well-formed sheet).
+func _check_sheet_codec() -> void:
+	for class_id: String in Config.CLASSES:
+		var c: CharacterSave.Sheet = rich_sheet(class_id)
+		var m: NetProtocol.SheetMsg = NetProtocol.decode_sheet(NetProtocol.encode_sheet(c))
+		var back: CharacterSave.Sheet = m.to_sheet() if m.ok else null
+		var same: bool = back != null and back.class_id == class_id and back.name == "bob-2" and back.selected == 3
+		if back != null:
+			for i: int in Config.INVENTORY_SLOTS:
+				var a: ItemStack = c.stacks[i]
+				var b: ItemStack = back.stacks[i]
+				same = same and ((a == null and b == null) or (a != null and b != null and a.id == b.id and a.count == b.count
+					and a.grade == b.grade and a.durability == b.durability))
+			same = same and back.armor != null and back.armor.id == &"armor_t1" and back.armor.durability == 33
+			same = same and back.seen.size() == c.seen.size()
+			for id: StringName in c.seen:
+				same = same and back.seen.has(id)
+		check(same, "sheet round trip: a %s (%s)" % [class_id, m.why])
+	var good: PackedByteArray = NetProtocol.encode_sheet(rich_sheet())
+	note("a rich character on the wire: %d B (at most %d)" % [good.size(), Config.NET_SHEET_MAX_BYTES])
+	var biggest: CharacterSave.Sheet = rich_sheet()
+	biggest.name = "a".repeat(Config.SAVE_NAME_MAX)
+	for i: int in Config.INVENTORY_SLOTS:
+		biggest.stacks[i] = ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 5)
+	biggest.seen = ItemDB.ids()
+	var big: PackedByteArray = NetProtocol.encode_sheet(biggest)
+	check(big.size() <= Config.NET_SHEET_MAX_BYTES and NetProtocol.decode_sheet(big).ok,
+		"the largest character (24 worn items, armour, every item seen, a 32-letter name) fits: %d B" % big.size())
+	var cut_ok: bool = true
+	for n: int in good.size():
+		var m2: NetProtocol.SheetMsg = NetProtocol.decode_sheet(good.slice(0, n))
+		cut_ok = cut_ok and not m2.ok and not m2.why.is_empty()
+	check(cut_ok, "every truncation of a sheet is refused with a reason")
+	var more: PackedByteArray = good.duplicate()
+	more.append(0)
+	_check_sheet_refused(more, "left over", "a byte more")
+	var huge: PackedByteArray = PackedByteArray()
+	huge.resize(Config.NET_SHEET_MAX_BYTES + 1)
+	_check_sheet_refused(huge, "at most %d" % Config.NET_SHEET_MAX_BYTES, "oversize")
+	_check_sheet_refused(NetProtocol.encode_sheet(rich_sheet(), NetProtocol.VERSION - 1), "version %d" % (NetProtocol.VERSION - 1),
+		"an older version")
+	_check_sheet_refused(NetProtocol.encode_sheet(rich_sheet(), NetProtocol.VERSION + 1), "version", "a newer version")
+	_check_sheet_refused(_patched(good, 2, Config.CLASSES.size()), "class index", "a class index past the classes")
+	_check_sheet_refused(_patched(good, 2, 255), "class index", "class index 255")
+	_check_sheet_refused(_patched(good, 3, Config.HOTBAR_SLOTS), "selected slot", "a selected slot past the hotbar")
+	_check_sheet_refused(_patched(good, 4, Config.INVENTORY_SLOTS - 1), "slots", "23 slots")
+	_check_sheet_refused(_patched(good, 4, Config.INVENTORY_SLOTS + 1), "slots", "25 slots")
+	# The first slot (offset 5): the bow, durability 17 (u16 at 8).
+	_check_sheet_refused(_patched(good, 5, ItemDB.count() + 1), "unknown item", "an unknown item")
+	_check_sheet_refused(_patched(good, 5, 255), "unknown item", "item byte 255")
+	_check_sheet_refused(_patched(good, 6, 0), "count 0", "a count of 0")
+	var money_at: int = 5 + 5  # the bow's 5 bytes, then the money's 3
+	_check_sheet_refused(_patched(good, money_at + 1, 251), "count 251", "money 251 (past the stack)")
+	_check_sheet_refused(_patched(good, money_at + 1, 255), "count 255", "a negative count written as a byte (255)")
+	_check_sheet_refused(_patched(good, 7, ItemDB.Grade.FINE), "grade", "a grade the bow cannot have")
+	var dur: PackedByteArray = good.duplicate()
+	dur.encode_u16(8, ItemDB.get_def(&"bow_t1").durability + 1)
+	_check_sheet_refused(dur, "durability", "durability past full")
+	_check_sheet_refused(_patched(good, money_at + 3 + 1, 5), "empty slot", "an empty slot with a count")
+	var sword_in_armour: CharacterSave.Sheet = rich_sheet()
+	sword_in_armour.armor = ItemStack.new(&"sword_t1", 1, ItemDB.Grade.NONE, 9)
+	_check_sheet_refused(NetProtocol.encode_sheet(sword_in_armour), "no armour", "a sword in the armour slot")
+	var seen_at: int = good.size() - 1 - rich_sheet().name.length() - 1 - NetProtocol.seen_bytes()
+	check_eq(good[seen_at], NetProtocol.seen_bytes(), "the seen bits' byte count is where the test expects it")
+	_check_sheet_refused(_patched(good, seen_at, NetProtocol.seen_bytes() + 1), "seen", "another seen byte count")
+	var past: int = ItemDB.count()
+	if past < NetProtocol.seen_bytes() * 8:
+		_check_sheet_refused(_patched(good, seen_at + 1 + (past >> 3), good[seen_at + 1 + (past >> 3)] | (1 << (past & 7))), "seen",
+			"a seen bit past the items")
+	var bad_name: CharacterSave.Sheet = rich_sheet()
+	bad_name.name = "Bad Name!"
+	_check_sheet_refused(NetProtocol.encode_sheet(bad_name), "name", "a name that is no save name")
+	var name_len_at: int = seen_at + 1 + NetProtocol.seen_bytes()
+	_check_sheet_refused(_patched(good, name_len_at, 200), "name is cut short", "a name longer than what came")
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = 1513
+	var read: int = 0
+	for i: int in 2000:
+		var junk: PackedByteArray = PackedByteArray()
+		junk.resize(rng.randi_range(0, 300))
+		for j: int in junk.size():
+			junk[j] = rng.randi_range(0, 255)
+		if i % 2 == 0 and junk.size() >= 2:
+			junk.encode_u16(0, NetProtocol.VERSION)  # past the version check: the deeper checks see them
+		var m3: NetProtocol.SheetMsg = NetProtocol.decode_sheet(junk)
+		if m3.ok:
+			read += 1
+		elif m3.why.is_empty():
+			fail("random sheet %d refused without a reason" % i)
+	check_eq(read, 0, "2,000 random payloads: none reads as a character")
+
+
+func _check_sheet_refused(bytes: PackedByteArray, want: String, what: String) -> void:
+	var m: NetProtocol.SheetMsg = NetProtocol.decode_sheet(bytes)
+	check(not m.ok and m.why.contains(want), "sheet refused: %s (%s)" % [what, m.why])
+
+
+static func _patched(bytes: PackedByteArray, at: int, value: int) -> PackedByteArray:
+	var out: PackedByteArray = bytes.duplicate()
+	out[at] = value
+	return out
+
+
+## M13b: the refusal's payload: one byte for every reason but two (a version refusal stays what any build reads), the classes taken for
+## class_taken (and the free ones in its line), the reason for character (cut, printable), and malformed ones read as bad_refusal.
+func _check_refusal_codec() -> void:
+	check_eq(NetProtocol.encode_refusal(NetProtocol.Refusal.VERSION).size(), 1, "a version refusal is still 1 byte")
+	var taken: PackedStringArray = ["paladin", "cleric"]
+	var r: NetProtocol.RefusalMsg = NetProtocol.decode_refusal_msg(NetProtocol.encode_refusal(NetProtocol.Refusal.CLASS_TAKEN, taken))
+	check(r.ok and r.name == "class_taken" and r.taken == taken, "class_taken carries the classes taken (%s)" % r.describe())
+	check_eq(r.describe(), "class_taken (taken: paladin, cleric; free: miner, archer, herbalist)", "and its line names the free ones")
+	var w: NetProtocol.RefusalMsg = NetProtocol.decode_refusal_msg(NetProtocol.encode_refusal(NetProtocol.Refusal.CHARACTER, [],
+		"slot 3: unknown item 99"))
+	check(w.ok and w.name == "character" and w.why == "slot 3: unknown item 99", "character carries its reason")
+	var long: NetProtocol.RefusalMsg = NetProtocol.decode_refusal_msg(NetProtocol.encode_refusal(NetProtocol.Refusal.CHARACTER, [],
+		"x".repeat(500) + "é"))
+	check(long.ok and long.why.length() == Config.NET_REFUSAL_WHY_MAX, "a long reason is cut to %d" % Config.NET_REFUSAL_WHY_MAX)
+	var accented: NetProtocol.RefusalMsg = NetProtocol.decode_refusal_msg(NetProtocol.encode_refusal(NetProtocol.Refusal.CHARACTER, [],
+		"café"))
+	check(accented.ok and accented.why == "caf?", "a non-ASCII letter becomes '?' (%s)" % accented.why)
+	for bad: PackedByteArray in [PackedByteArray([NetProtocol.Refusal.CLASS_TAKEN]), PackedByteArray([NetProtocol.Refusal.CLASS_TAKEN, 1]),
+			PackedByteArray([NetProtocol.Refusal.CLASS_TAKEN, 0xFF, 0]), PackedByteArray([NetProtocol.Refusal.CHARACTER]),
+			PackedByteArray([NetProtocol.Refusal.CHARACTER, 3, 65]), PackedByteArray([NetProtocol.Refusal.CHARACTER, 1, 7]),
+			PackedByteArray([NetProtocol.Refusal.VERSION, 0]), PackedByteArray([NetProtocol.Refusal.FULL, 1, 2]), PackedByteArray([])]:
+		check_eq(NetProtocol.decode_refusal(bad), "bad_refusal", "a malformed refusal %s" % str(bad))
+
+
+## M13b: the inventory message carries what the player has ever held (the seen bits) and a client takes it: the character it writes is the
+## host's. Malformed seen bits make the message malformed.
+func _check_inventory_seen() -> void:
+	var inv: Inventory = Inventory.new()
+	inv.add(&"money", 5)
+	inv.add(&"stone_a", 3)
+	inv.remove(1, 3)  # the stone left, its knowledge stays
+	inv.seen[&"armor_t1"] = true
+	var payload: PackedByteArray = NetProtocol.encode_inventory(inv, 42)
+	var st: NetProtocol.InventoryState = NetProtocol.decode_inventory(payload)
+	check(st.ok and st.seen.has(&"stone_a") and st.seen.has(&"armor_t1") and st.seen.has(&"money") and st.seen.size() == 3,
+		"the inventory message carries the seen items %s" % str(st.seen))
+	var mine: Inventory = Inventory.new()
+	SessionClient.take_inventory(mine, st, 0)
+	check(mine.has_seen(&"stone_a") and mine.has_seen(&"armor_t1") and mine.seen.size() == 3, "a client takes them")
+	var bad: PackedByteArray = payload.duplicate()
+	bad[payload.size() - 1 - NetProtocol.seen_bytes()] = NetProtocol.seen_bytes() - 1
+	check(not NetProtocol.decode_inventory(bad).ok, "another seen byte count: malformed")
+	var short: PackedByteArray = payload.slice(0, payload.size() - 1)
+	check(not NetProtocol.decode_inventory(short).ok, "seen bits cut short: malformed")
+	note("an inventory message with 2 stacks: %d B (the seen bits add %d)" % [payload.size(), 1 + NetProtocol.seen_bytes()])
 
 
 ## M4b: the vitals block (flag bit 7, 16 B): only when the vitals are not at rest, every field round trips,
@@ -588,8 +761,9 @@ func _check_garbage() -> void:
 func _check_roster() -> void:
 	check_eq(Config.MAX_PLAYERS, 9, "● 9 players")
 	check(Config.SPAWN_SLOTS.size() >= Config.MAX_PLAYERS, "a spawn slot for every player")
-	var r: Roster = Roster.new()
+	var r: Roster = Roster.new(Config.MAX_PLAYERS, true)  # M13b: nine players need duplicate classes (the test flag)
 	check_eq(r.max_players, 9, "default cap = Config.MAX_PLAYERS")
+	check(r.allow_duplicates and not r.unique_classes(), "the 9-player structure: duplicates allowed by the test flag")
 	check_eq(r.admit(1, "paladin"), 0, "host gets slot 0")
 	for i: int in 8:
 		check_eq(r.admit(100 + i, Config.CLASSES[i % Config.CLASSES.size()]), i + 1, "client %d gets slot %d" % [i, i + 1])
@@ -615,10 +789,29 @@ func _check_roster() -> void:
 	var small: Roster = Roster.new(2)
 	small.admit(1, "paladin")
 	check_eq(small.refusal_for("wizard"), NetProtocol.Refusal.CLASS, "an unknown class is refused (wizard is not a slice class)")
-	check_eq(small.admit(2, "paladin"), 1 if not Config.NET_UNIQUE_CLASSES else -1,
-		"same class twice follows NET_UNIQUE_CLASSES (%s)" % Config.NET_UNIQUE_CLASSES)
-	check_eq(small.refusal_for("miner"), NetProtocol.Refusal.FULL if not Config.NET_UNIQUE_CLASSES else NetProtocol.Refusal.NONE,
-		"a small test cap refuses like the real one")
+	check(Config.NET_UNIQUE_CLASSES and small.unique_classes() and not small.allow_duplicates, "● R54: one player per class by default")
+	check_eq(small.refusal_for("paladin"), NetProtocol.Refusal.CLASS_TAKEN, "the host's own class is taken")
+	check_eq(small.admit(2, "paladin"), -1, "same class twice is refused")
+	check_eq(small.taken_classes(), PackedStringArray(["paladin"]), "the classes taken")
+	check_eq(small.refusal_for("miner"), NetProtocol.Refusal.NONE, "another class may join")
+	check_eq(small.admit(2, "miner"), 1, "it does")
+	check_eq(small.refusal_for("archer"), NetProtocol.Refusal.FULL, "a small test cap refuses like the real one (full before taken)")
+	check_eq(small.refusal_for("miner"), NetProtocol.Refusal.FULL, "full is said first even for a taken class")
+	# M13b (● R54): the rule with room left: every class once, a sixth player of any class is refused as taken, a leaver frees its class.
+	var rule: Roster = Roster.new()
+	for i: int in Config.CLASSES.size():
+		check_eq(rule.admit(10 + i, Config.CLASSES[i]), i, "class %s joins" % Config.CLASSES[i])
+	for c: String in Config.CLASSES:
+		check_eq(rule.refusal_for(c), NetProtocol.Refusal.CLASS_TAKEN, "a second %s is refused as taken" % c)
+	check_eq(rule.taken_classes(), Config.CLASSES, "every class is taken, in Config.CLASSES order")
+	check_eq(rule.release(12), 2, "the third class leaves")
+	check_eq(rule.refusal_for(Config.CLASSES[2]), NetProtocol.Refusal.NONE, "its class is free again")
+	check(not rule.taken_classes().has(Config.CLASSES[2]), "and not in the taken list")
+	check_eq(rule.admit(30, Config.CLASSES[2]), 2, "another player of that class takes it (the slot too)")
+	check_eq(rule.admit(31, Config.CLASSES[2]), -1, "and holds it")
+	var dup: Roster = Roster.new(Config.MAX_PLAYERS, true)
+	dup.admit(1, "paladin")
+	check_eq(dup.admit(2, "paladin"), 1, "--test-duplicate-classes: two paladins")
 
 
 func _packet(first: int, dirs: Array[Vector2i]) -> NetProtocol.InputPacket:
