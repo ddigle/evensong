@@ -27,7 +27,8 @@ extends "res://tests/base_test.gd"
 ##            down to the ground, apart from the robe (a clear column between them, as in the start picture), the cast east's blow holds
 ##            the brazier out in front with the face showing, the death south lies with its staff fallen (no brazier held up on a
 ##            standing staff), the cast south (the re-taken row, chosen 2026-11-23) holds the staff raised, plants its fire pillar on the
-##            ground in front of the feet and stays upright on the blow and after it (v02 crouched)
+##            ground in front of the feet (a pillar: taller than PILLAR_MIN_PX and more flame than the next column's ground fire) and
+##            stays upright on the blow and after it (v02 crouched)
 
 ## The body's rows for the box's width (the art step's body centring: the lowest 18 rows) and the staff's side cut away, in cell x:
 ## south the staff is left of x 16, north right of x 38 (03-pixel prompts.md 17차 "가로 맞춤": raw x 13 / 34 plus the shift 2 / 5).
@@ -51,6 +52,10 @@ const SHAFT_GAP_MIN_ROWS: int = 6
 ## and the one after) the body (fire left out) stands at most this much lower than the start picture (42 px): the re-take 40 and 40,
 ## v02's crouch 40 and 36.
 const UPRIGHT_MAX_DROP_PX: int = 4
+## The cast south's blow is the fire pillar (review, 2026-11-23): its flame reaches at least this high over the feet. The re-taken row:
+## the blow column 3 21 px (207 px of flame), the ground fire after it 9 (column 4, 118 px) and 14 (column 5, 116 px). Without it the
+## blow check above passed with column 4 drawn over column 3.
+const PILLAR_MIN_PX: int = 15
 
 var _nodes: Array[Node] = []
 ## The PNGs read apart from the imported textures (Image.load_from_file of the res:// files), per sheet.
@@ -654,9 +659,10 @@ func _check_retakes() -> void:
 			f2, top])
 	# The cast south (v02: cast 1-3 + slam 3-6, the body crouching from the blow's next column and the staff gone; the re-taken row
 	# since the human chose it, 2026-11-23): the held column with the brazier raised over the start picture's, the blow's flame on the
-	# ground in front of the feet, and the body upright (its fire left out, at most UPRIGHT_MAX_DROP_PX under the start picture) on the
-	# two columns the volley shows (the blow and the one after). The raise is the re-take's weak point (README "M12 보스 그림" known
-	# issue 18: 3 px over standing): this pins that the held column is the raise, not that it reads at 1x.
+	# ground in front of the feet and rising as a pillar (PILLAR_MIN_PX up, more flame than the next column's low ground fire), and the
+	# body upright (its fire left out, at most UPRIGHT_MAX_DROP_PX under the start picture) on the two columns the volley shows (the
+	# blow and the one after). The raise is the re-take's weak point (README "M12 보스 그림" known issue 18: 3 px over standing): this
+	# pins that the held column is the raise, not that it reads at 1x.
 	var hit_s: int = BossSim.hit_column(BossSim.Anim.CAST, 0)
 	var key_s: Array[Vector2i] = []
 	_flame(BossSim.Anim.CAST, 0, 0, key_s)
@@ -671,6 +677,12 @@ func _check_retakes() -> void:
 		lowest = maxi(lowest, p4.y)
 	check(blow_mid.x > SWEEP_SIDE_PX and lowest >= -1, ("its blow (column %d): the fire pillar on the ground in front (flame %s, its "
 		+ "lowest row %d from the feet)") % [hit_s, blow_mid, lowest])
+	# ...and it is the pillar, not the low ground fire of the columns after it (review: column 4 over column 3 passed the check above).
+	var after_s: Array[Vector2i] = []
+	_flame(BossSim.Anim.CAST, 0, hit_s + 1, after_s)
+	check(_flame_top(blow_s) >= PILLAR_MIN_PX and blow_s.size() > after_s.size(), ("its blow (column %d): the pillar rises (flame %d px "
+		+ "up, %d px; the next column %d px up, %d px)") % [hit_s, _flame_top(blow_s), blow_s.size(), _flame_top(after_s),
+		after_s.size()])
 	var key_h: int = _body_height(BossSim.Anim.CAST, 0, 0)
 	for col3: int in [hit_s, hit_s + 1]:
 		var bh: int = _body_height(BossSim.Anim.CAST, 0, col3)
